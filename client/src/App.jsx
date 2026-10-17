@@ -10,6 +10,7 @@ import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, User
 import { api, connectSocket, emitAck, getToken, setToken } from './api.js';
 import { SettingsScreen } from './Settings.jsx';
 import { InviteContext, INVITE_CODE_RE, InvitePage } from './Invite.jsx';
+import { can, canManageAny, roleColorOf } from './perms.js';
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
@@ -268,6 +269,11 @@ function Main({ me, setMe, privKey, openServerId }) {
       setServers((prev) => (prev.some((x) => x.id === sv.id) ? prev.map((x) => (x.id === sv.id ? sv : x)) : [...prev, sv]));
       addUsers(sv.members);
     });
+    s.on('server:removed', ({ serverId }) => { // you were kicked
+      setServers((prev) => prev.filter((x) => x.id !== serverId));
+      setView((v) => (v?.kind === 'server' && v.serverId === serverId ? { kind: 'dm', userId: null } : v));
+      setShowList(true);
+    });
     s.on('typing', ({ channelId, dmWith, userId }) => {
       const key = channelId || 'dm:' + dmWith;
       setTyping((p) => ({ ...p, [key]: { ...(p[key] || {}), [userId]: Date.now() + 3500 } }));
@@ -466,10 +472,11 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   if (!view) return <div className="splash"><img src="/aduna-icon.png" alt="Aduna" /></div>;
 
+  const roleColors = server ? Object.fromEntries(server.members.map((m) => [m.id, roleColorOf(server, m.id)]).filter(([, c]) => c)) : {};
   const memberRow = (u) => (
     <button key={u.id} className={'member' + (statusOf(u.id) === 'offline' ? ' off' : '')} onClick={() => { setMembersOpen(false); showUser(u.id); }}>
       <Avatar user={users[u.id] || u} size={32} presence={statusOf(u.id)} />
-      <span data-nc style={{ '--nc': (users[u.id] || u).accentColor }}>{(users[u.id] || u).displayName}</span>
+      <span data-nc style={{ '--nc': (server && roleColorOf(server, u.id)) || (users[u.id] || u).accentColor }}>{(users[u.id] || u).displayName}</span>
       {server?.ownerId === u.id && <span className="owner" title="Server owner"><Icon name="crown" size={15} /></span>}
     </button>
   );
@@ -508,13 +515,13 @@ function Main({ me, setMe, privKey, openServerId }) {
             {menu && (
               <div className="menu" onMouseLeave={() => setMenu(false)}>
                 <button onClick={() => { setMenu(false); setModal({ type: 'invite' }); }}>Invite people</button>
-                {server.ownerId === me.id && <button onClick={() => { setMenu(false); setModal({ type: 'serverSettings' }); }}>Server settings</button>}
+                {canManageAny(server, me.id) && <button onClick={() => { setMenu(false); setModal({ type: 'serverSettings' }); }}>Server settings</button>}
                 <button className="danger-text" onClick={() => { setMenu(false); leaveServer(); }}>Leave server</button>
               </div>
             )}
             <div className="side-list">
               {(() => {
-                const isOwner = server.ownerId === me.id;
+                const isOwner = can(server, me.id, 'manageChannels'); // may arrange channels
                 const cats = server.categories || [];
                 const catIds = new Set(cats.map((c) => c.id));
                 const loose = server.channels.filter((c) => !c.categoryId || !catIds.has(c.categoryId));
@@ -597,17 +604,17 @@ function Main({ me, setMe, privKey, openServerId }) {
         <VoicePanel channel={channel} voice={voice} users={users} me={me} presence={presence} onBack={() => setShowList(true)} headerExtra={membersToggle} />
       )}
       {server && channel?.type === 'rules' && (
-        <RulesView server={server} channel={channel} isOwner={server.ownerId === me.id} onBack={() => setShowList(true)} headerExtra={membersToggle}
+        <RulesView server={server} channel={channel} isOwner={can(server, me.id, 'manageChannels')} onBack={() => setShowList(true)} headerExtra={membersToggle}
           onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
       )}
       {server && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
         <Chat title={channel.name} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
-          onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={server?.ownerId === me.id} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
+          onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={can(server, me.id, 'manageMessages')} roleColors={roleColors} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
-          mentionables={server.members} canEveryone={server.ownerId === me.id && channel.type !== 'announcements'}
+          mentionables={server.members} canEveryone={can(server, me.id, 'mentionEveryone') && channel.type !== 'announcements'}
           placeholder={channel.type === 'announcements' ? `Announce to everyone in ${server.name}` : `Message #${channel.name}`}
           notice={channel.type === 'announcements' ? <><Icon name="megaphone" size={14} className="inline-icon" /> Everyone in this server is notified when the owner posts here.</> : null}
-          readOnly={channel.type === 'announcements' && server.ownerId !== me.id ? 'Only the server owner can post in this channel.' : null}
+          readOnly={channel.type === 'announcements' && !can(server, me.id, 'postAnnouncements') ? 'You do not have permission to post in this channel.' : null}
           subtitle={CHANNEL_ICON[channel.type] ? <Icon name={CHANNEL_ICON[channel.type]} size={20} /> : '#'}
           headerExtra={membersToggle} />
       )}
@@ -652,10 +659,10 @@ function Main({ me, setMe, privKey, openServerId }) {
       {modal?.type === 'server' && <ServerModal onClose={() => setModal(null)} onDone={(s) => { setServers((p) => (p.some((x) => x.id === s.id) ? p : [...p, s])); addUsers(s.members); openServer(s); setModal(null); }} />}
       {modal?.type === 'channel' && server && <ChannelModal server={server} category={(server.categories || []).find((c) => c.id === modal.categoryId)} onClose={() => setModal(null)} onDone={(s) => { setServers((p) => p.map((x) => (x.id === s.id ? s : x))); setModal(null); }} />}
       {modal?.type === 'category' && server && <CategoryModal server={server} onClose={() => setModal(null)} onDone={(s) => { setServers((p) => p.map((x) => (x.id === s.id ? s : x))); setModal(null); }} />}
-      {modal?.type === 'serverSettings' && server && server.ownerId === me.id && (
-        <ServerSettings key={server.id} server={server} onClose={() => setModal(null)} onSaved={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
+      {modal?.type === 'serverSettings' && server && canManageAny(server, me.id) && (
+        <ServerSettings key={server.id} server={server} me={me} onClose={() => setModal(null)} onSaved={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
       )}
-      {modal?.type === 'invite' && server && <InviteModal server={server} friends={fr.friends} isOwner={server.ownerId === me.id} onSend={sendInvite} onClose={() => setModal(null)} />}
+      {modal?.type === 'invite' && server && <InviteModal server={server} friends={fr.friends} isOwner={can(server, me.id, 'manageServer')} onSend={sendInvite} onClose={() => setModal(null)} />}
       {modal?.type === 'dm' && <NewDmModal friends={fr.friends} onClose={() => setModal(null)} onPick={openDm} />}
       {modal?.type === 'safety' && dmUser && <SafetyModal me={me} other={dmUser} onClose={() => setModal(null)} />}
       {modal?.type === 'user' && users[modal.id] && (

@@ -5,17 +5,29 @@ import { layoutOf, moveChannel, moveCategory, saveLayout } from './layout.js';
 import { processImage, uploadImage, imageUrl, ACCEPT_ATTR, SERVER_ICON_SIZE, SERVER_BANNER_SIZE } from './image.js';
 import { THEMES, DEFAULT_CUSTOM, setServerTheme } from './themes.js';
 import { Swatch } from './Appearance.jsx';
+import { can } from './perms.js';
+import { RolesTab, MembersTab } from './Roles.jsx';
 
-const TABS = [['overview', 'Overview', 'users'], ['channels', 'Channels', 'hash'], ['publish', 'Publish', 'globe'], ['theme', 'Server theme', 'palette']];
+// [id, label, icon, who may open it]
+const TABS = [
+  ['overview', 'Overview', 'users', (sv, uid) => can(sv, uid, 'manageServer')],
+  ['channels', 'Channels', 'hash', (sv, uid) => can(sv, uid, 'manageChannels')],
+  ['roles', 'Roles', 'shield', (sv, uid) => can(sv, uid, 'manageRoles')],
+  ['members', 'Members', 'users', (sv, uid) => can(sv, uid, 'manageRoles') || can(sv, uid, 'kickMembers')],
+  ['publish', 'Publish', 'globe', (sv, uid) => sv.ownerId === uid],
+  ['theme', 'Server theme', 'palette', (sv, uid) => can(sv, uid, 'manageServer')],
+];
 const CH_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone' };
 const seedOf = (t) => ({ dark: t.dark, bg: t.bg, accent: t.accent });
 const sameSeed = (a, b) => a.dark === b.dark && a.bg.toLowerCase() === b.bg.toLowerCase() && a.accent.toLowerCase() === b.accent.toLowerCase();
 
-// Owner-only full-screen settings for a server: name, icon, banner and a theme the app fades to while you are on the server.
+// Full-screen settings for a server (each tab needs its own permission; the owner has all): name, icon, banner and a theme the app fades to while you are on the server.
 // Picture changes are staged until Save (undefined = unchanged, null = remove, { blob, url } = new image).
 // While this screen is open the draft theme is previewed live on the whole app.
-export function ServerSettings({ server, onClose, onSaved }) {
-  const [tab, setTab] = useState('overview');
+export function ServerSettings({ server, me, onClose, onSaved }) {
+  const tabs = TABS.filter((t) => t[3](server, me.id));
+  const [pickedTab, setTab] = useState('overview');
+  const tab = tabs.some((t) => t[0] === pickedTab) ? pickedTab : tabs[0]?.[0]; // a tab you lose access to (role changed live) falls back to the first you still have
   const [name, setName] = useState(server.name);
   const [code, setCode] = useState(server.inviteCode);
   const [codeState, setCodeState] = useState({ status: 'current', reason: '' }); // current | checking | free | taken | invalid
@@ -100,7 +112,7 @@ export function ServerSettings({ server, onClose, onSaved }) {
       <nav className="settings-nav">
         <button className="icon-btn settings-navclose" onClick={onClose} aria-label="Close server settings"><Icon name="close" size={20} /></button>
         <h2>{server.name}</h2>
-        {TABS.map(([id, label, icon]) => (
+        {tabs.map(([id, label, icon]) => (
           <button key={id} className={'settings-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>
             <Icon name={icon} size={18} /><span>{label}</span>
           </button>
@@ -197,10 +209,12 @@ export function ServerSettings({ server, onClose, onSaved }) {
           )}
 
           {tab === 'channels' && <ChannelsTab server={server} onChange={onSaved} />}
+          {tab === 'roles' && <RolesTab server={server} me={me} onChange={onSaved} />}
+          {tab === 'members' && <MembersTab server={server} me={me} onChange={onSaved} />}
           {tab === 'publish' && <PublishTab server={server} onChange={onSaved} goChannels={() => setTab('channels')} />}
 
-          {tab !== 'channels' && tab !== 'publish' && err && <div className="error">{err}</div>}
-          {tab !== 'channels' && tab !== 'publish' && <div className="settings-foot">
+          {(tab === 'overview' || tab === 'theme') && err && <div className="error">{err}</div>}
+          {(tab === 'overview' || tab === 'theme') && <div className="settings-foot">
             <button className="btn" onClick={onClose}>Cancel</button> <button className="btn primary" onClick={save} disabled={saving}>Save changes</button>
           </div>}
         </div>

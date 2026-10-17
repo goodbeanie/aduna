@@ -915,6 +915,71 @@ async function putImg(kind, body, type, token) {
     step('mentions: members only, deduplicated, @everyone owner-only, edits recompute');
   }
 
+  // roles & permissions: hierarchy, grantable permissions, kick, message deletion, everyone perms
+  {
+    const getSrv = async () => (await call('/servers', { token: alice.token })).servers.find((x) => x.channels.some((c) => c.id === general.id));
+    let srv = await getSrv();
+    const R = (path, method, body, tok = alice.token) => call(`/servers/${srv.id}${path}`, { method, body, token: tok });
+    const eve = await makeUser('eve');
+    assert.strictEqual((await call('/servers/join', { method: 'POST', token: eve.token, body: { code: srv.inviteCode } })).status, 200);
+
+    // a plain member can do none of it
+    assert.strictEqual((await R('/roles', 'POST', { name: 'x' }, bob.token)).status, 403, 'no Manage roles');
+    assert.strictEqual((await R('', 'PATCH', { name: 'hax' }, bob.token)).status, 403, 'no Manage server');
+    assert.strictEqual((await R('/channels', 'POST', { name: 'hax' }, bob.token)).status, 403, 'no Manage channels');
+    assert.strictEqual((await R(`/members/${eve.user.id}/kick`, 'POST', undefined, bob.token)).status, 403, 'no Kick members');
+    assert.strictEqual((await R('/roles', 'POST', { name: 'x', perms: ['flying'] })).status, 400, 'unknown permission');
+
+    // owner builds Mod (top) and Helper (below it), then gives Mod to bob
+    srv = (await R('/roles', 'POST', { name: 'Mod', color: '#3498db', perms: ['manageMessages', 'kickMembers', 'manageChannels', 'manageRoles'] })).server;
+    const mod = srv.roles[0];
+    srv = (await R('/roles', 'POST', { name: 'Helper', perms: ['manageMessages'] })).server;
+    const helper = srv.roles[1];
+    assert.deepStrictEqual(srv.roles.map((r) => r.name), ['Mod', 'Helper'], 'new roles start at the bottom');
+    assert.strictEqual((await R(`/members/${bob.user.id}/roles`, 'PUT', { roles: [mod.id] })).server.memberRoles[bob.user.id][0], mod.id);
+    assert.strictEqual((await R(`/members/${alice.user.id}/roles`, 'PUT', { roles: [mod.id] })).status, 400, 'owner needs no role');
+
+    // bob now can: manage channels, delete alice's message, and (below Mod) give Helper to eve
+    assert.strictEqual((await R('/channels', 'POST', { name: 'mod-made' }, bob.token)).status, 200, 'Manage channels works');
+    const am = once(sb, 'message:new');
+    await ack(sa, 'message:send', { channelId: general.id, content: 'owner says hi' });
+    const amsg = await am;
+    const gone = once(sa, 'message:deleted');
+    assert.ok((await ack(sb, 'message:delete', { kind: 'channel', messageId: amsg.id })).ok, 'Manage messages deletes others');
+    await gone;
+    assert.strictEqual((await R(`/members/${eve.user.id}/roles`, 'PUT', { roles: [helper.id] }, bob.token)).status, 200, 'can give a role below his own');
+    assert.strictEqual((await R(`/members/${eve.user.id}/roles`, 'PUT', { roles: [helper.id, mod.id] }, bob.token)).status, 403, 'cannot give his own top role');
+
+    // hierarchy and grantable permissions
+    assert.strictEqual((await R(`/roles/${mod.id}`, 'PATCH', { name: 'Boss' }, bob.token)).status, 403, 'cannot edit own top role');
+    assert.strictEqual((await R(`/roles/${helper.id}`, 'PATCH', { perms: ['manageMessages', 'manageServer'] }, bob.token)).status, 403, 'cannot give a permission he lacks');
+    assert.strictEqual((await R(`/roles/${helper.id}`, 'PATCH', { name: 'Helpers' }, bob.token)).status, 200, 'can edit a role below his own');
+    assert.strictEqual((await R(`/members/${alice.user.id}/roles`, 'PUT', { roles: [] }, bob.token)).status, 400, 'owner untouchable');
+    assert.strictEqual((await R('/roles-order', 'PUT', { ids: [helper.id, mod.id] }, bob.token)).status, 403, 'cannot move roles at or above his own');
+    assert.strictEqual((await R('/roles-order', 'PUT', { ids: [mod.id, helper.id] }, bob.token)).status, 200);
+    assert.strictEqual((await R(`/members/${bob.user.id}/kick`, 'POST', undefined, eve.token)).status, 403, 'eve has no kick');
+    assert.strictEqual((await R(`/members/${alice.user.id}/kick`, 'POST', undefined, bob.token)).status, 400, 'owner cannot be kicked');
+
+    // @everyone permissions: a member gets @everyone once everyone is allowed to
+    srv = (await R('/everyone', 'PUT', { perms: ['mentionEveryone'] })).server;
+    assert.deepStrictEqual(srv.everyone, ['mentionEveryone']);
+    const pe = once(sa, 'message:new');
+    await ack(sb, 'message:send', { channelId: general.id, content: '@everyone roles work' });
+    assert.strictEqual((await pe).everyone, true, 'everyone permission grants @everyone');
+    await R('/everyone', 'PUT', { perms: [] });
+
+    // kick removes the member and their roles; deleting a role takes it from its holders
+    assert.strictEqual((await R(`/members/${eve.user.id}/kick`, 'POST', undefined, bob.token)).status, 200, 'Kick members works');
+    srv = await getSrv();
+    assert.ok(!srv.members.some((m) => m.id === eve.user.id), 'kicked member is gone');
+    assert.strictEqual(srv.memberRoles[eve.user.id], undefined, 'and so are their roles');
+    srv = (await R(`/roles/${mod.id}`, 'DELETE')).server;
+    assert.strictEqual(srv.memberRoles[bob.user.id], undefined, 'deleting a role removes it from members');
+    assert.strictEqual((await R('/channels', 'POST', { name: 'nope' }, bob.token)).status, 403, 'permissions go with the role');
+    await R(`/roles/${helper.id}`, 'DELETE');
+    step('roles: hierarchy, grantable permissions, Manage channels/messages, kick, @everyone permissions, role deletion');
+  }
+
   // tamper: move one row's ciphertext onto another row; GCM + AAD must reject it
   const victim = (await store.query('SELECT id, data FROM messages LIMIT 1')).rows[0];
   const donor = (await store.query('SELECT data FROM users LIMIT 1')).rows[0];

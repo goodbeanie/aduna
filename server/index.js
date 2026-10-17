@@ -70,9 +70,35 @@ const runCleanup = async () => { try { await store.pruneFiles(referencedFiles())
 const hex = /^#[0-9a-fA-F]{6}$/;
 const clip = (s, n) => String(s ?? '').slice(0, n);
 
+// ---------- roles & permissions ----------
+// server.roles = [{ id, name, color, perms: [] }] ordered from highest to lowest (index 0 is the top role).
+// server.everyone = perms every member has (the implicit @everyone role). server.memberRoles = { userId: [roleId] }.
+// The owner always has every permission; a member with `administrator` has every permission too.
+// Hierarchy: you can only change roles, and the members who hold them, that sit strictly below your own top role,
+// and you can only hand out permissions you hold yourself. Servers saved before roles existed have none of these
+// fields and behave exactly as before: only the owner can manage anything.
+const PERMS = ['administrator', 'manageServer', 'manageRoles', 'manageChannels', 'manageMessages', 'kickMembers', 'mentionEveryone', 'postAnnouncements'];
+const MAX_ROLES = 25;
+const roleById = (s, id) => (s.roles || []).find((r) => r.id === id);
+const heldRoleIds = (s, uid) => ((s.memberRoles || {})[uid] || []).filter((id) => roleById(s, id));
+function permsOf(s, uid) {
+  if (uid === s.ownerId) return new Set(PERMS);
+  const set = new Set(s.everyone || []);
+  for (const id of heldRoleIds(s, uid)) for (const p of roleById(s, id).perms) set.add(p);
+  return set.has('administrator') ? new Set(PERMS) : set;
+}
+const can = (s, uid, perm) => !!s && s.members.includes(uid) && permsOf(s, uid).has(perm);
+// position in the hierarchy: -1 owner, 0 top role ... Infinity = no role. Lower = more powerful.
+function rankOf(s, uid) {
+  if (uid === s.ownerId) return -1;
+  const idx = heldRoleIds(s, uid).map((id) => s.roles.findIndex((r) => r.id === id));
+  return idx.length ? Math.min(...idx) : Infinity;
+}
+const roleIndex = (s, id) => (s.roles || []).findIndex((r) => r.id === id);
+
 // ---------- mentions ----------
 // The client turns a typed @username into the token <@userId> before sending. The server only trusts a token when that
-// user is a member of the server, and honours a plain "@everyone" only when the author owns the server. Channel messages
+// user is a member of the server, and honours a plain "@everyone" only when the author has the mentionEveryone permission. Channel messages
 // carry the result (mentions: [userId], everyone: bool) so every client can highlight and badge them. DMs are end-to-end
 // encrypted, so the server never looks inside them; their mentions are drawn by the clients alone.
 const MENTION_TOKEN = /<@([0-9a-f]{16})>/g;
@@ -84,7 +110,7 @@ function parseMentions(content, server, authorId) {
     if (server.members.includes(m[1])) found.add(m[1]);
     if (found.size >= MAX_MENTIONS) break;
   }
-  return { mentions: [...found], everyone: server.ownerId === authorId && EVERYONE.test(content) };
+  return { mentions: [...found], everyone: can(server, authorId, 'mentionEveryone') && EVERYONE.test(content) };
 }
 
 function publicUser(u) {
@@ -131,6 +157,9 @@ function serverView(s) {
     visibility: s.visibility || null, // null = not published (the invite code still works, same as unlisted)
     description: s.description || '',
     tags: s.tags || [],
+    roles: s.roles || [],
+    everyone: s.everyone || [],
+    memberRoles: s.memberRoles || {},
     channels: s.channels,
     members: s.members.map((m) => db().users[m]).filter(Boolean).map(publicUser),
   };
@@ -708,7 +737,7 @@ const MAX_RULES = 25, MAX_RULE = 300;
 
 app.post('/api/servers/:id/channels', auth, (req, res) => {
   const s = db().servers[req.params.id];
-  if (!s || s.ownerId !== req.user.id) return res.status(403).json({ error: 'Only the server owner can add channels' });
+  if (!s || !can(s, req.user.id, 'manageChannels')) return res.status(403).json({ error: 'You need the Manage channels permission to add channels' });
   const name = clip(req.body?.name, 30).toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/^-+|-+$/g, '');
   if (!name) return res.status(400).json({ error: 'Invalid channel name' });
   if (s.channels.length >= 30) return res.status(400).json({ error: 'Channel limit reached' });
@@ -731,7 +760,7 @@ app.post('/api/servers/:id/channels', auth, (req, res) => {
 // Rules channel: a list the owner builds up with +. Stored on the channel and sent with the server.
 function rulesChannel(req, res) {
   const s = db().servers[req.params.id];
-  if (!s || s.ownerId !== req.user.id) { res.status(403).json({ error: 'Only the server owner can edit rules' }); return null; }
+  if (!s || !can(s, req.user.id, 'manageChannels')) { res.status(403).json({ error: 'You need the Manage channels permission to edit rules' }); return null; }
   const c = s.channels.find((x) => x.id === req.params.cid);
   if (!c || typeOf(c) !== 'rules') { res.status(404).json({ error: 'Rules channel not found' }); return null; }
   c.rules = c.rules || [];
@@ -769,7 +798,7 @@ app.delete('/api/servers/:id/channels/:cid/rules/:rid', auth, (req, res) => {
 // Categories split the channel list into groups. Channels without a categoryId stay in the ungrouped list at the top.
 app.post('/api/servers/:id/categories', auth, (req, res) => {
   const s = db().servers[req.params.id];
-  if (!s || s.ownerId !== req.user.id) return res.status(403).json({ error: 'Only the server owner can add categories' });
+  if (!s || !can(s, req.user.id, 'manageChannels')) return res.status(403).json({ error: 'You need the Manage channels permission to add categories' });
   const name = clip(req.body?.name, 30).trim();
   if (!name) return res.status(400).json({ error: 'Category name required' });
   s.categories = s.categories || [];
@@ -781,17 +810,26 @@ app.post('/api/servers/:id/categories', auth, (req, res) => {
   res.json({ server: serverView(s) });
 });
 
-// ----- edit / delete / reorder channels and categories (owner only) -----
-function ownerOf(req, res) {
+// ----- edit / delete / reorder channels and categories (Manage channels) -----
+function ownerOf(req, res) { // publishing and who may join stay with the owner
   const s = db().servers[req.params.id];
   if (!s || s.ownerId !== req.user.id) { res.status(403).json({ error: 'Only the server owner can do that' }); return null; }
   return s;
 }
+function permOf(perm, what) {
+  return (req, res) => {
+    const s = db().servers[req.params.id];
+    if (!s || !s.members.includes(req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
+    if (!can(s, req.user.id, perm)) { res.status(403).json({ error: `You need the ${what} permission to do that` }); return null; }
+    return s;
+  };
+}
+const channelsOf = permOf('manageChannels', 'Manage channels');
 const cleanChannelName = (v) => clip(v, 30).toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/^-+|-+$/g, '');
 const pushServer = (s, res) => { store.save(); io.to('server:' + s.id).emit('server:update', serverView(s)); res.json({ server: serverView(s) }); };
 
 app.patch('/api/servers/:id/channels/:cid', auth, (req, res) => {
-  const s = ownerOf(req, res); if (!s) return;
+  const s = channelsOf(req, res); if (!s) return;
   const c = s.channels.find((x) => x.id === req.params.cid);
   if (!c) return res.status(404).json({ error: 'Channel not found' });
   const name = cleanChannelName(req.body?.name);
@@ -801,7 +839,7 @@ app.patch('/api/servers/:id/channels/:cid', auth, (req, res) => {
 });
 
 app.delete('/api/servers/:id/channels/:cid', auth, (req, res) => {
-  const s = ownerOf(req, res); if (!s) return;
+  const s = channelsOf(req, res); if (!s) return;
   const c = s.channels.find((x) => x.id === req.params.cid);
   if (!c) return res.status(404).json({ error: 'Channel not found' });
   if (s.channels.length <= 1) return res.status(400).json({ error: 'A server needs at least one channel' });
@@ -823,7 +861,7 @@ app.delete('/api/servers/:id/channels/:cid', auth, (req, res) => {
 });
 
 app.patch('/api/servers/:id/categories/:catid', auth, (req, res) => {
-  const s = ownerOf(req, res); if (!s) return;
+  const s = channelsOf(req, res); if (!s) return;
   const cat = (s.categories || []).find((x) => x.id === req.params.catid);
   if (!cat) return res.status(404).json({ error: 'Category not found' });
   const name = clip(req.body?.name, 30).trim();
@@ -835,7 +873,7 @@ app.patch('/api/servers/:id/categories/:catid', auth, (req, res) => {
 
 // Deleting a category keeps its channels; they move to the ungrouped list at the top.
 app.delete('/api/servers/:id/categories/:catid', auth, (req, res) => {
-  const s = ownerOf(req, res); if (!s) return;
+  const s = channelsOf(req, res); if (!s) return;
   if (!(s.categories || []).some((x) => x.id === req.params.catid)) return res.status(404).json({ error: 'Category not found' });
   s.categories = s.categories.filter((x) => x.id !== req.params.catid);
   for (const c of s.channels) if (c.categoryId === req.params.catid) delete c.categoryId;
@@ -845,7 +883,7 @@ app.delete('/api/servers/:id/categories/:catid', auth, (req, res) => {
 // One call saves a whole drag-and-drop result: the order of the categories, and the order of the channels with
 // the category each one now sits in (null = ungrouped). It must list exactly the channels and categories that exist.
 app.put('/api/servers/:id/layout', auth, (req, res) => {
-  const s = ownerOf(req, res); if (!s) return;
+  const s = channelsOf(req, res); if (!s) return;
   const cats = req.body?.categories, chans = req.body?.channels;
   const same = (given, have) => Array.isArray(given) && given.length === have.length && new Set(given).size === given.length && have.every((x) => given.includes(x));
   if (!same(cats, (s.categories || []).map((c) => c.id))) return res.status(400).json({ error: 'Category list is out of date, reload and try again' });
@@ -909,10 +947,130 @@ app.delete('/api/servers/:id/publish/allowed/:uid', auth, (req, res) => {
   res.json({ publish: publishView(s) });
 });
 
+// ----- roles (Manage roles) -----
+const rolesOf = permOf('manageRoles', 'Manage roles');
+const cleanColor = (c) => (c === null || c === '' ? null : hex.test(c) ? c.toLowerCase() : undefined);
+const cleanPerms = (p) => (Array.isArray(p) && p.every((x) => PERMS.includes(x)) ? [...new Set(p)] : undefined);
+// the person may only switch on or off permissions they hold themselves (the owner holds all of them)
+const permsAllowed = (s, uid, before, after) => {
+  const mine = permsOf(s, uid);
+  return [...new Set([...before, ...after])].filter((p) => before.includes(p) !== after.includes(p)).every((p) => mine.has(p));
+};
+// can this person change this role? it must sit strictly below their top role
+const belowMe = (s, uid, roleId) => uid === s.ownerId || roleIndex(s, roleId) > rankOf(s, uid);
+
+app.post('/api/servers/:id/roles', auth, (req, res) => {
+  const s = rolesOf(req, res); if (!s) return;
+  s.roles = s.roles || [];
+  if (s.roles.length >= MAX_ROLES) return res.status(400).json({ error: `Role limit reached (${MAX_ROLES})` });
+  if (req.user.id !== s.ownerId && rankOf(s, req.user.id) === Infinity) return res.status(403).json({ error: 'You need a role of your own before you can create roles below it' });
+  const name = clip(req.body?.name, 30).trim() || 'new role';
+  const color = req.body?.color === undefined ? null : cleanColor(req.body.color);
+  const perms = req.body?.perms === undefined ? [] : cleanPerms(req.body.perms);
+  if (color === undefined) return res.status(400).json({ error: 'Invalid colour' });
+  if (!perms) return res.status(400).json({ error: 'Unknown permission' });
+  if (!permsAllowed(s, req.user.id, [], perms)) return res.status(403).json({ error: 'You can only give permissions you have yourself' });
+  s.roles.push({ id: store.id(), name, color, perms }); // new roles start at the bottom
+  pushServer(s, res);
+});
+
+app.patch('/api/servers/:id/roles/:rid', auth, (req, res) => {
+  const s = rolesOf(req, res); if (!s) return;
+  const r = roleById(s, req.params.rid);
+  if (!r) return res.status(404).json({ error: 'Role not found' });
+  if (!belowMe(s, req.user.id, r.id)) return res.status(403).json({ error: 'That role is above your own' });
+  const b = req.body || {};
+  if (b.name !== undefined) { const name = clip(b.name, 30).trim(); if (!name) return res.status(400).json({ error: 'Name required' }); r.name = name; }
+  if (b.color !== undefined) { const color = cleanColor(b.color); if (color === undefined) return res.status(400).json({ error: 'Invalid colour' }); r.color = color; }
+  if (b.perms !== undefined) {
+    const perms = cleanPerms(b.perms);
+    if (!perms) return res.status(400).json({ error: 'Unknown permission' });
+    if (!permsAllowed(s, req.user.id, r.perms, perms)) return res.status(403).json({ error: 'You can only change permissions you have yourself' });
+    r.perms = perms;
+  }
+  pushServer(s, res);
+});
+
+app.delete('/api/servers/:id/roles/:rid', auth, (req, res) => {
+  const s = rolesOf(req, res); if (!s) return;
+  const r = roleById(s, req.params.rid);
+  if (!r) return res.status(404).json({ error: 'Role not found' });
+  if (!belowMe(s, req.user.id, r.id)) return res.status(403).json({ error: 'That role is above your own' });
+  s.roles = s.roles.filter((x) => x.id !== r.id);
+  for (const uid of Object.keys(s.memberRoles || {})) {
+    s.memberRoles[uid] = s.memberRoles[uid].filter((id) => id !== r.id);
+    if (!s.memberRoles[uid].length) delete s.memberRoles[uid];
+  }
+  pushServer(s, res);
+});
+
+// new order, highest first; you can only move roles below your own top role
+app.put('/api/servers/:id/roles-order', auth, (req, res) => {
+  const s = rolesOf(req, res); if (!s) return;
+  const ids = req.body?.ids;
+  const cur = (s.roles || []).map((r) => r.id);
+  if (!Array.isArray(ids) || ids.length !== cur.length || new Set(ids).size !== ids.length || !ids.every((id) => cur.includes(id))) return res.status(400).json({ error: 'Send every role once' });
+  const rank = rankOf(s, req.user.id);
+  if (req.user.id !== s.ownerId && !cur.slice(0, rank + 1).every((id, i) => ids[i] === id)) return res.status(403).json({ error: 'You cannot move roles at or above your own' });
+  s.roles = ids.map((id) => roleById(s, id));
+  pushServer(s, res);
+});
+
+// what every member can do, whatever their roles
+app.put('/api/servers/:id/everyone', auth, (req, res) => {
+  const s = rolesOf(req, res); if (!s) return;
+  const perms = cleanPerms(req.body?.perms);
+  if (!perms) return res.status(400).json({ error: 'Unknown permission' });
+  if (perms.includes('administrator') && req.user.id !== s.ownerId) return res.status(403).json({ error: 'Only the owner can give administrator to everyone' });
+  if (!permsAllowed(s, req.user.id, s.everyone || [], perms)) return res.status(403).json({ error: 'You can only change permissions you have yourself' });
+  s.everyone = perms;
+  pushServer(s, res);
+});
+
+// give someone roles (replaces their list); only roles below yours may be added or removed, and only to people below you
+app.put('/api/servers/:id/members/:uid/roles', auth, (req, res) => {
+  const s = rolesOf(req, res); if (!s) return;
+  const uid = req.params.uid;
+  if (!s.members.includes(uid)) return res.status(404).json({ error: 'Not a member' });
+  if (uid === s.ownerId) return res.status(400).json({ error: 'The owner already has every permission' });
+  const want = req.body?.roles;
+  if (!Array.isArray(want) || !want.every((id) => roleById(s, id))) return res.status(400).json({ error: 'Unknown role' });
+  if (req.user.id !== s.ownerId && uid !== req.user.id && rankOf(s, uid) <= rankOf(s, req.user.id)) return res.status(403).json({ error: 'That member is at or above your own role' });
+  const have = heldRoleIds(s, uid);
+  const changed = [...new Set([...have, ...want])].filter((id) => have.includes(id) !== want.includes(id));
+  if (!changed.every((id) => belowMe(s, req.user.id, id))) return res.status(403).json({ error: 'You can only give or take roles below your own' });
+  s.memberRoles = s.memberRoles || {};
+  const next = s.roles.map((r) => r.id).filter((id) => want.includes(id));
+  if (next.length) s.memberRoles[uid] = next; else delete s.memberRoles[uid];
+  pushServer(s, res);
+});
+
+app.post('/api/servers/:id/members/:uid/kick', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  if (!can(s, req.user.id, 'kickMembers')) return res.status(403).json({ error: 'You need the Kick members permission to do that' });
+  const uid = req.params.uid;
+  if (!s.members.includes(uid)) return res.status(404).json({ error: 'Not a member' });
+  if (uid === s.ownerId) return res.status(400).json({ error: 'The owner cannot be kicked' });
+  if (uid === req.user.id) return res.status(400).json({ error: 'Use Leave server to leave' });
+  if (req.user.id !== s.ownerId && rankOf(s, uid) <= rankOf(s, req.user.id)) return res.status(403).json({ error: 'That member is at or above your own role' });
+  s.members = s.members.filter((m) => m !== uid);
+  if (s.memberRoles) delete s.memberRoles[uid];
+  s.allowed = (s.allowed || []).filter((id) => id !== uid); // a kicked member of a private server must be added again to return
+  store.save();
+  for (const sock of userSockets(uid)) {
+    voiceLeave(uid, sock.id);
+    sock.emit('server:removed', { serverId: s.id });
+    sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id));
+  }
+  pushServer(s, res);
+});
+
 app.post('/api/servers/:id/leave', auth, (req, res) => {
   const s = db().servers[req.params.id];
   if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
   s.members = s.members.filter((m) => m !== req.user.id);
+  if (s.memberRoles) delete s.memberRoles[req.user.id];
   if (s.ownerId === req.user.id) {
     if (s.members.length) s.ownerId = s.members[0];
     else { delete db().servers[s.id]; store.deleteImage(s.iconImage).catch(() => {}); store.deleteImage(s.bannerImage).catch(() => {}); }
@@ -937,7 +1095,7 @@ function cleanServerTheme(t) {
 const ownedServer = (req, res) => {
   const s = db().servers[req.params.id];
   if (!s || !s.members.includes(req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
-  if (s.ownerId !== req.user.id) { res.status(403).json({ error: 'Only the server owner can change server settings' }); return null; }
+  if (!can(s, req.user.id, 'manageServer')) { res.status(403).json({ error: 'You need the Manage server permission to change server settings' }); return null; }
   return s;
 };
 const broadcastServer = (s) => { const view = serverView(s); io.to('server:' + s.id).emit('server:update', view); return view; };
@@ -1268,7 +1426,7 @@ io.on('connection', (socket) => {
     if (!f || !f.server.members.includes(uid)) return reply({ error: 'Cannot send' });
     const kind = typeOf(f.channel);
     if (kind === 'voice' || kind === 'rules') return reply({ error: 'You cannot send messages in this channel' });
-    if (kind === 'announcements' && f.server.ownerId !== uid) return reply({ error: 'Only the server owner can post announcements' });
+    if (kind === 'announcements' && !can(f.server, uid, 'postAnnouncements')) return reply({ error: 'You do not have permission to post announcements' });
     let atts;
     try { atts = await buildAttachments(p.attachments, uid, 'channel:' + f.channel.id); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
     if (atts === null) return reply({ error: 'Bad attachment' });
@@ -1392,7 +1550,7 @@ io.on('connection', (socket) => {
       const msg = db().messages[p.messageId];
       const f = msg && findChannel(msg.channelId);
       if (!f || !f.server.members.includes(uid)) return reply({ error: 'Forbidden' });
-      if (msg.authorId !== uid && f.server.ownerId !== uid) return reply({ error: 'Forbidden' });
+      if (msg.authorId !== uid && !can(f.server, uid, 'manageMessages')) return reply({ error: 'Forbidden' });
       delete db().messages[msg.id];
       store.save();
       store.deleteFiles((msg.attachments || []).map((a) => a.id).filter(Boolean)).catch((e) => console.error(e));

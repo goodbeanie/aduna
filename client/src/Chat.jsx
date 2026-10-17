@@ -69,7 +69,7 @@ function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone }) {
   );
 }
 
-function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdit, onDelete, editing, setEditing, grouped, canDelete, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone }) {
+function Message({ m, users, roleColors, me, byId, presence, onReact, onReply, onUser, onEdit, onDelete, editing, setEditing, grouped, canDelete, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone }) {
   const [picker, setPicker] = useState(false);
   const { lib, openMenu } = useEmoji();
   const mine = m.authorId === me.id;
@@ -101,7 +101,7 @@ function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdi
         <div className="msg-body">
           {!grouped && (
             <div className="msg-head">
-              <button className="name" data-nc style={{ '--nc': author?.accentColor }} onClick={() => onUser(m.authorId)}>{author?.displayName || 'Unknown'}</button>
+              <button className="name" data-nc style={{ '--nc': roleColors?.[m.authorId] || author?.accentColor }} onClick={() => onUser(m.authorId)}>{author?.displayName || 'Unknown'}</button>
               <span className="time">{timeLabel(m.createdAt)}</span>
             </div>
           )}
@@ -135,7 +135,7 @@ function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdi
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, onBack, messages, users, me, presence, onSend, onReact, onEdit, onDelete, canModerate, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly, mentionables, canEveryone }) {
+export default function Chat({ title, subtitle, headerExtra, onBack, messages, users, me, presence, onSend, onReact, onEdit, onDelete, canModerate, roleColors, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly, mentionables, canEveryone }) {
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [err, setErr] = useState('');
@@ -281,7 +281,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
         {messages.map((m, i) => {
           const prev = messages[i - 1];
           const grouped = prev && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60000 && !m.replyTo;
-          return <Message key={m.id} m={m} grouped={grouped} users={users} me={me} byId={byId} presence={presence}
+          return <Message key={m.id} m={m} grouped={grouped} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence}
             onReact={onReact} onReply={(x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }} onUser={onUser}
             onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone}
             canDelete={m.authorId === me.id || !!canModerate} dm={files?.dm} onOpen={setLightbox}
