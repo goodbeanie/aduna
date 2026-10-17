@@ -886,6 +886,32 @@ async function putImg(kind, body, type, token) {
     step('explorer: joining, paging, unpublished and private servers drop out');
   }
 
+  // mentions: <@userId> tokens count only for members; @everyone only from the owner; edits refresh but never re-ping
+  {
+    const cid = general.id;
+    const at = once(sb, 'message:new');
+    assert.ok((await ack(sa, 'message:send', { channelId: cid, content: `hey <@${bob.user.id}> <@${bob.user.id}> and <@${carol.user.id}>, @everyone look` })).ok);
+    const m1 = await at;
+    assert.deepStrictEqual(m1.mentions, [bob.user.id], 'deduplicated, and non-members (carol) are ignored');
+    assert.strictEqual(m1.everyone, true, 'the owner can @everyone');
+    const at2 = once(sa, 'message:new');
+    assert.ok((await ack(sb, 'message:send', { channelId: cid, content: `@everyone <@${alice.user.id}>` })).ok);
+    const m2 = await at2;
+    assert.deepStrictEqual(m2.mentions, [alice.user.id]);
+    assert.strictEqual(m2.everyone, false, 'a member cannot @everyone');
+    const at3 = once(sb, 'message:new');
+    await ack(sa, 'message:send', { channelId: cid, content: 'mail me at x@everyone.com, @everyoneelse' });
+    const m3 = await at3;
+    assert.deepStrictEqual([m3.mentions, m3.everyone], [[], false], 'look-alikes are plain text');
+    const ed = once(sb, 'message:edited');
+    assert.ok((await ack(sa, 'message:edit', { kind: 'channel', messageId: m1.id, content: 'never mind' })).ok);
+    const edited = (await ed).message;
+    assert.deepStrictEqual([edited.mentions, edited.everyone], [[], false], 'an edit recomputes the mentions');
+    const hist = (await call(`/channels/${cid}/messages`, { token: bob.token })).messages.find((x) => x.id === m2.id);
+    assert.deepStrictEqual(hist.mentions, [alice.user.id], 'history carries mentions');
+    step('mentions: members only, deduplicated, @everyone owner-only, edits recompute');
+  }
+
   // tamper: move one row's ciphertext onto another row; GCM + AAD must reject it
   const victim = (await store.query('SELECT id, data FROM messages LIMIT 1')).rows[0];
   const donor = (await store.query('SELECT data FROM users LIMIT 1')).rows[0];

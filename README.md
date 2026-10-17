@@ -34,6 +34,7 @@ Run the automated checks with `TEST_DATABASE_URL=postgres://... npm test` (use a
 - Servers with invite codes, text channels (owner can add channels), member list with live presence
 - Real-time messages, typing indicators, unread badges
 - Replies and emoji reactions in channels and DMs
+- @mentions: type `@` for a member list (arrow keys + Tab/Enter), in channels and DMs. Mentioned people see the message highlighted, a gold `@n` badge on the channel and server, and a desktop notification if the tab is hidden. The server owner can use `@everyone`. In DMs only the highlight shows (the server cannot read DMs, so it cannot notify)
 - Edit (shows "(edited)"; press Up in an empty composer to edit your last message) and delete your own messages; server owners can delete any channel message. DM edits are re-encrypted in the browser
 - Images, videos, audio and any other file (up to 20 MB, 4 per message; files over 10 MB are deleted 5 days after upload, smaller ones after 14, and the message shows an "expired" note) in channels and DMs: attach button, drag and drop, or paste. Images open in a viewer; other files download. Uploaded GIFs keep animating
 - GIF search: the GIF button is always in the composer. Set `GIPHY_API_KEY` (free at developers.giphy.com) and it opens a searchable, endlessly scrolling GIF library (trending by default); without a key it explains how to set one up. The server proxies the search so the key never reaches the browser.
@@ -148,6 +149,7 @@ client/src/crypto.js   all E2EE code
 client/src/image.js    resizes and uploads profile pictures
 client/src/App.jsx     app state and layout (top server bar)
 client/src/Chat.jsx    message list, replies, reactions, composer
+client/src/Mentions.jsx  @mention tokens, chips, autocomplete menu
 client/src/Attachments.jsx  attachment display, viewer, emoji and GIF pickers
 client/src/files.js    upload, download and decrypt helpers
 client/src/Modals.jsx  server/DM dialogs, profile editor, safety number

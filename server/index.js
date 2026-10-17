@@ -70,6 +70,23 @@ const runCleanup = async () => { try { await store.pruneFiles(referencedFiles())
 const hex = /^#[0-9a-fA-F]{6}$/;
 const clip = (s, n) => String(s ?? '').slice(0, n);
 
+// ---------- mentions ----------
+// The client turns a typed @username into the token <@userId> before sending. The server only trusts a token when that
+// user is a member of the server, and honours a plain "@everyone" only when the author owns the server. Channel messages
+// carry the result (mentions: [userId], everyone: bool) so every client can highlight and badge them. DMs are end-to-end
+// encrypted, so the server never looks inside them; their mentions are drawn by the clients alone.
+const MENTION_TOKEN = /<@([0-9a-f]{16})>/g;
+const EVERYONE = /(?<![\w<@])@everyone(?![\w])/;
+const MAX_MENTIONS = 50;
+function parseMentions(content, server, authorId) {
+  const found = new Set();
+  for (const m of content.matchAll(MENTION_TOKEN)) {
+    if (server.members.includes(m[1])) found.add(m[1]);
+    if (found.size >= MAX_MENTIONS) break;
+  }
+  return { mentions: [...found], everyone: server.ownerId === authorId && EVERYONE.test(content) };
+}
+
 function publicUser(u) {
   return {
     id: u.id,
@@ -1232,8 +1249,10 @@ io.on('connection', (socket) => {
     if (atts === null) return reply({ error: 'Bad attachment' });
     if (!content && !atts.length) return reply({ error: 'Cannot send' });
     try { await store.markAttached(atts.map((a) => a.id).filter(Boolean)); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
+    const ping = parseMentions(content, f.server, uid);
     const msg = {
       id: store.id(), channelId: f.channel.id, serverId: f.server.id, authorId: uid, content, attachments: atts,
+      mentions: ping.mentions, everyone: ping.everyone,
       replyTo: validReply(db().messages, p.replyTo, (m) => m.channelId === f.channel.id),
       reactions: {}, createdAt: now(),
     };
@@ -1320,6 +1339,7 @@ io.on('connection', (socket) => {
       const content = clip(p.content, MAX_MSG).trim();
       if (!content && !msg.attachments?.length) return reply({ error: 'Message cannot be empty' });
       msg.content = content;
+      Object.assign(msg, parseMentions(content, f.server, uid)); // an edit refreshes the highlight but never pings again
       msg.editedAt = now();
       store.save();
       io.to('channel:' + msg.channelId).emit('message:edited', { kind: 'channel', message: msg });

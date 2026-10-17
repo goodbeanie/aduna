@@ -4,6 +4,7 @@ import EmojiPicker from './EmojiPicker.jsx';
 import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
 import { Rich, useEmoji } from './Emoji.jsx';
 import { InviteCard } from './Invite.jsx';
+import { MentionMenu, fromMentionTokens, mentionPreview, toMentionTokens, useMentionComplete } from './Mentions.jsx';
 import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
 
 function Picker({ onPick, onClose }) {
@@ -37,11 +38,12 @@ function Picker({ onPick, onClose }) {
   );
 }
 
-function EditBox({ initial, allowEmpty, onSave, onCancel }) {
+function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone }) {
   const [v, setV] = useState(initial);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
+  const mc = useMentionComplete({ text: v, setText: setV, inputRef: ref, people, everyone });
   useEffect(() => { const el = ref.current; el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, []);
   async function save() {
     const t = v.trim();
@@ -52,9 +54,11 @@ function EditBox({ initial, allowEmpty, onSave, onCancel }) {
   }
   return (
     <div className="edit-box">
-      <textarea ref={ref} className="composer" rows={Math.min(8, v.split('\n').length + 1)} value={v} maxLength={2000}
-        onChange={(e) => setV(e.target.value)}
+      <MentionMenu mc={mc} />
+      <textarea ref={ref} className="composer" rows={Math.min(8, v.split('\n').length + 1)} value={v} maxLength={2000} {...mc.bind}
+        onChange={(e) => { setV(e.target.value); mc.track(e); }}
         onKeyDown={(e) => {
+          if (mc.onKeyDown(e)) return;
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
           if (e.key === 'Escape') { e.stopPropagation(); onCancel(); }
         }} />
@@ -65,16 +69,19 @@ function EditBox({ initial, allowEmpty, onSave, onCancel }) {
   );
 }
 
-function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdit, onDelete, editing, setEditing, grouped, canDelete, dm, onOpen, tapped, onTap }) {
+function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdit, onDelete, editing, setEditing, grouped, canDelete, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone }) {
   const [picker, setPicker] = useState(false);
-  const { lib, toTokens, fromTokens, openMenu } = useEmoji();
+  const { lib, openMenu } = useEmoji();
   const mine = m.authorId === me.id;
   const author = users[m.authorId];
   const ref = m.replyTo ? byId[m.replyTo] : null;
   const refAuthor = ref ? users[ref.authorId] : null;
+  // channel messages carry the server's verdict; DMs are encrypted, so the client reads its own token
+  const pinged = !!m.everyone || !!m.mentions?.includes(me.id) || (!!dm && !!m.content?.includes('<@' + me.id + '>'));
+  const mention = { users, meId: me.id, onUser, everyone: !!m.everyone };
 
   return (
-    <div className={'msg' + (grouped ? ' grouped' : '') + (mine ? ' mine' : '') + (editing ? ' editing' : '') + (tapped ? ' tapped' : '')} id={'m-' + m.id}
+    <div className={'msg' + (grouped ? ' grouped' : '') + (mine ? ' mine' : '') + (editing ? ' editing' : '') + (tapped ? ' tapped' : '') + (pinged ? ' pinged' : '')} id={'m-' + m.id}
       onClick={(e) => { if (!editing && !e.target.closest('button, a, img, video, audio, textarea, input, .toolbar')) onTap?.(); }}>
       {m.replyTo && (
         <div className="reply-ref" onClick={() => document.getElementById('m-' + m.replyTo)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
@@ -83,7 +90,7 @@ function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdi
             <>
               <Avatar user={refAuthor} size={16} />
               <b data-nc style={{ '--nc': refAuthor?.accentColor }}>{refAuthor?.displayName || 'Unknown'}</b>
-              <span className="reply-text">{previewText(ref)}</span>
+              <span className="reply-text">{mentionPreview(previewText(ref), users)}</span>
             </>
           ) : <i className="muted">Original message was deleted or isn't loaded</i>}
         </div>
@@ -99,8 +106,8 @@ function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdi
             </div>
           )}
           {editing
-            ? <EditBox initial={fromTokens(m.content)} allowEmpty={!!m.attachments?.length || !!m.invite} onSave={(t) => { const x = toTokens(t); if (x.length > 2000) throw new Error('That message is too long once custom emoji are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
-            : (m.content || m.editedAt) && <div className="content"><Rich text={m.content} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+            ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} allowEmpty={!!m.attachments?.length || !!m.invite} onSave={(t) => { const x = encode(t); if (x.length > 2000) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
+            : (m.content || m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {m.invite && <InviteCard code={m.invite} />}
           <Attachments atts={m.attachments} dm={dm} onOpen={(v) => onOpen({ ...v, dm })} />
           {Object.keys(m.reactions || {}).length > 0 && (
@@ -127,7 +134,7 @@ function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdi
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, onBack, messages, users, me, presence, onSend, onReact, onEdit, onDelete, canModerate, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly }) {
+export default function Chat({ title, subtitle, headerExtra, onBack, messages, users, me, presence, onSend, onReact, onEdit, onDelete, canModerate, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly, mentionables, canEveryone }) {
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [err, setErr] = useState('');
@@ -139,13 +146,17 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
   const [dragging, setDragging] = useState(false);
   const [tapped, setTapped] = useState(null); // touch screens: tap a message to show its actions
   const fileInput = useRef(null);
-  const { lib, toTokens } = useEmoji();
+  const { lib, toTokens, fromTokens } = useEmoji();
+  const people = mentionables || [];
+  const encode = (t) => toMentionTokens(toTokens(t), people); // :emoji: and @username -> tokens, as stored
+  const decode = (t) => fromMentionTokens(fromTokens(t), users); // and back, for editing
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   const scroller = useRef(null);
   const stick = useRef(true);
   const lastTyping = useRef(0);
   const inputRef = useRef(null);
+  const mc = useMentionComplete({ text, setText, inputRef, people, everyone: canEveryone });
 
   const byId = Object.fromEntries(messages.map((m) => [m.id, m]));
 
@@ -210,10 +221,10 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
   }
 
   async function submit() {
-    const t = toTokens(text.trim());
+    const t = encode(text.trim());
     const atts = pending.filter((p) => p.att).map((p) => p.att);
     if ((!t && !atts.length) || uploading) return;
-    if (t.length > 2000) return setErr('That message is too long once custom emoji are expanded');
+    if (t.length > 2000) return setErr('That message is too long once emoji and mentions are expanded');
     setErr('');
     try {
       await onSend(t, replyTo?.id || null, atts);
@@ -225,6 +236,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
   }
 
   function onKey(e) {
+    if (mc.onKeyDown(e)) return;
     if (e.key === 'Tab' && suggestions.length && !e.shiftKey) { e.preventDefault(); pickSuggestion(suggestions[0]); return; }
     // on a touch screen Enter adds a new line and the send button sends
     if (e.key === 'Enter' && !e.shiftKey && !window.matchMedia?.('(pointer: coarse)').matches) { e.preventDefault(); submit(); }
@@ -245,6 +257,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
 
   function onChange(e) {
     setText(e.target.value);
+    mc.track(e);
     const t = Date.now();
     if (t - lastTyping.current > 2500) { lastTyping.current = t; onTyping?.(); }
   }
@@ -269,7 +282,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
           const grouped = prev && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60000 && !m.replyTo;
           return <Message key={m.id} m={m} grouped={grouped} users={users} me={me} byId={byId} presence={presence}
             onReact={onReact} onReply={(x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }} onUser={onUser}
-            onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing}
+            onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone}
             canDelete={m.authorId === me.id || !!canModerate} dm={files?.dm} onOpen={setLightbox}
             tapped={tapped === m.id} onTap={() => setTapped((t) => (t === m.id ? null : m.id))} />;
         })}
@@ -278,10 +291,11 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
         {replyTo && (
           <div className="replying">
             Replying to <b>{users[replyTo.authorId]?.displayName || 'Unknown'}</b>
-            <span className="reply-text">{previewText(replyTo)}</span>
+            <span className="reply-text">{mentionPreview(previewText(replyTo), users)}</span>
             <button className="icon-btn" title="Cancel reply" onClick={() => setReplyTo(null)}><Icon name="close" size={15} /></button>
           </div>
         )}
+        <MentionMenu mc={mc} />
         {suggestions.length > 0 && (
           <div className="suggest">
             {suggestions.map((e, i) => (
@@ -306,7 +320,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
         <div className="composer-row">
           <button className="icon-btn" title="Attach files (max 20 MB each; removed after 14 days, or 5 days if over 10 MB)" disabled={!files?.scope} onClick={() => fileInput.current?.click()}><Icon name="clip" size={20} /></button>
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
-          <textarea ref={inputRef} className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={2000}
+          <textarea ref={inputRef} className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={2000} {...mc.bind}
             onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }} />
           <div className="comp-tools">
             <button className="icon-btn" title="Emoji" onClick={() => setPop(pop === 'emoji' ? null : 'emoji')}><Icon name="smile" size={20} /></button>
@@ -323,7 +337,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
       {confirmDel && (
         <Modal title="Delete message" onClose={() => setConfirmDel(null)}>
           <p className="muted">This permanently removes the message for everyone in this conversation.</p>
-          <div className="del-preview"><b data-nc style={{ '--nc': users[confirmDel.authorId]?.accentColor }}>{users[confirmDel.authorId]?.displayName}</b><div className="reply-text">{previewText(confirmDel)}</div></div>
+          <div className="del-preview"><b data-nc style={{ '--nc': users[confirmDel.authorId]?.accentColor }}>{users[confirmDel.authorId]?.displayName}</b><div className="reply-text">{mentionPreview(previewText(confirmDel), users)}</div></div>
           <div className="modal-foot">
             <button className="btn" onClick={() => setConfirmDel(null)}>Cancel</button>
             <button className="btn primary danger-fill" autoFocus onClick={doDelete}>Delete</button>

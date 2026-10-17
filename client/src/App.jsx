@@ -14,6 +14,7 @@ import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
 import RulesView from './Rules.jsx';
+import { mentionPreview } from './Mentions.jsx';
 import Explorer from './Explorer.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
@@ -67,6 +68,7 @@ function Main({ me, setMe, privKey }) {
   const [convos, setConvos] = useState([]);
   const [fr, setFr] = useState({ friends: [], incoming: [], outgoing: [] });
   const [unread, setUnread] = useState({});
+  const [mentions, setMentions] = useState({}); // 'c:<channelId>' -> unread messages that mention you (kept in memory like unread)
   const [typing, setTyping] = useState({});
   const [modal, setModal] = useState(null);
   const [menu, setMenu] = useState(false);
@@ -107,7 +109,11 @@ function Main({ me, setMe, privKey }) {
     addUsers([...r.friends, ...r.incoming.map((x) => x.user), ...r.outgoing.map((x) => x.user)]);
   }, [addUsers]);
   const bump = (key) => setUnread((p) => ({ ...p, [key]: (p[key] || 0) + 1 }));
-  const clearUnread = (key) => setUnread((p) => { if (!p[key]) return p; const n = { ...p }; delete n[key]; return n; });
+  const clearUnread = (key) => {
+    setUnread((p) => { if (!p[key]) return p; const n = { ...p }; delete n[key]; return n; });
+    setMentions((p) => { if (!p[key]) return p; const n = { ...p }; delete n[key]; return n; });
+  };
+  const bumpMention = (key) => setMentions((p) => ({ ...p, [key]: (p[key] || 0) + 1 }));
 
   const logout = useCallback(async () => {
     socketRef.current?.disconnect();
@@ -164,6 +170,16 @@ function Main({ me, setMe, privKey }) {
       const v = viewRef.current;
       const watching = v?.kind === 'server' && v.channelId === m.channelId && !document.hidden;
       if (!watching && m.authorId !== me.id) bump('c:' + m.channelId);
+      // The server decides who a message mentions (members only; @everyone only from the owner).
+      if (!watching && m.authorId !== me.id && (m.everyone || m.mentions?.includes(me.id))) {
+        bumpMention('c:' + m.channelId);
+        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+          const sv = serversRef.current.find((x) => x.id === m.serverId), ch = sv?.channels.find((c) => c.id === m.channelId);
+          const who = usersRef.current[m.authorId]?.displayName || 'Someone';
+          const body = mentionPreview(m.content, usersRef.current).slice(0, 140) || 'Sent an attachment';
+          try { const n = new Notification(`${who} ${m.everyone ? 'pinged everyone' : 'mentioned you'} in ${sv?.name || 'a server'}${ch ? ' · #' + ch.name : ''}`, { body, tag: 'aduna-mention-' + m.channelId, icon: '/aduna-icon.png' }); n.onclick = () => { window.focus(); n.close(); }; } catch { /* best effort */ }
+        }
+      }
       if (!usersRef.current[m.authorId]) api('/users/' + m.authorId).then((r) => addUsers([r.user])).catch(() => {});
     });
 
@@ -256,6 +272,18 @@ function Main({ me, setMe, privKey }) {
     }
   }, [view?.kind, view?.channelId, view?.userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Coming back to the tab counts as reading whatever channel / DM is open (messages that arrived while it was hidden were badged).
+  useEffect(() => {
+    const seen = () => {
+      if (document.hidden) return;
+      const v = viewRef.current;
+      if (v?.kind === 'server') clearUnread('c:' + v.channelId);
+      else if (v?.kind === 'dm' && v.userId) clearUnread('d:' + v.userId);
+    };
+    document.addEventListener('visibilitychange', seen);
+    return () => document.removeEventListener('visibilitychange', seen);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---------- derived ----------
   const server = view?.kind === 'server' ? servers.find((s) => s.id === view.serverId) : null;
   const channel = server?.channels.find((c) => c.id === view.channelId);
@@ -339,6 +367,7 @@ function Main({ me, setMe, privKey }) {
   const inviteCtx = { servers, onJoined: onInviteJoined, onOpen: openServer };
 
   const totalUnreadFor = (s) => s.channels.reduce((n, c) => n + (unread['c:' + c.id] || 0), 0);
+  const totalMentionsFor = (s) => s.channels.reduce((n, c) => n + (mentions['c:' + c.id] || 0), 0);
   const dmUnread = Object.entries(unread).filter(([k]) => k.startsWith('d:')).reduce((n, [, v]) => n + v, 0);
   const myPresence = me.status === 'invisible' ? 'offline' : me.status;
   const statusOf = (id) => presence[id] || 'offline';
@@ -439,6 +468,7 @@ function Main({ me, setMe, privKey }) {
             <button key={s.id} className={'rail-btn' + (s.iconImage ? ' has-icon' : '') + (server?.id === s.id ? ' on' : '')} title={s.name} onClick={() => openServer(s)}>
               <ServerIcon server={s} fill />
               {totalUnreadFor(s) > 0 && <span className="badge">{totalUnreadFor(s)}</span>}
+              {totalMentionsFor(s) > 0 && <span className="badge at" title={totalMentionsFor(s) + ' mention' + (totalMentionsFor(s) > 1 ? 's' : '')}>@{totalMentionsFor(s)}</span>}
             </button>
           ))}
           <button className="rail-btn add" title="Create or join a server" onClick={() => setModal({ type: 'server' })}><Icon name="plus" size={22} /></button>
@@ -471,7 +501,7 @@ function Main({ me, setMe, privKey }) {
                 const row = (c) => (
                   <React.Fragment key={c.id}>
                     <button className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] ? ' unread' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} {...chanDnd(c, isOwner)}>
-                      <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{unread['c:' + c.id] > 0 && <span className="badge inline">{unread['c:' + c.id]}</span>}
+                      <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{mentions['c:' + c.id] > 0 && <span className="badge inline at" title="You were mentioned">@{mentions['c:' + c.id]}</span>}{unread['c:' + c.id] > 0 && <span className={'badge inline' + (mentions['c:' + c.id] ? ' after-at' : '')}>{unread['c:' + c.id]}</span>}
                     </button>
                     {c.type === 'voice' && (voice.members[c.id] || []).map((id) => users[id] && (
                       <div key={id} className="voice-member"><Avatar user={users[id]} size={20} /><span>{users[id].displayName}</span>{id === me.id && voice.state.channelId === c.id && voice.state.muted && <Icon name="micoff" size={13} />}</div>
@@ -554,6 +584,7 @@ function Main({ me, setMe, privKey }) {
         <Chat title={channel.name} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={server?.ownerId === me.id} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
+          mentionables={server.members} canEveryone={server.ownerId === me.id && channel.type !== 'announcements'}
           placeholder={channel.type === 'announcements' ? `Announce to everyone in ${server.name}` : `Message #${channel.name}`}
           notice={channel.type === 'announcements' ? <><Icon name="megaphone" size={14} className="inline-icon" /> Everyone in this server is notified when the owner posts here.</> : null}
           readOnly={channel.type === 'announcements' && server.ownerId !== me.id ? 'Only the server owner can post in this channel.' : null}
@@ -564,7 +595,7 @@ function Main({ me, setMe, privKey }) {
         <Chat title={dmUser.displayName} subtitle="@" onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={false} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
           files={{ scope: relationOf(dmUser.id) === 'friend' ? { kind: 'dm', target: dmUser.id, privKey, theirPublic: dmUser.publicKey } : null, dm: { privKey, theirPublic: dmUser.publicKey } }} gifEnabled={gifEnabled}
-          placeholder={`Message @${dmUser.displayName}`}
+          placeholder={`Message @${dmUser.displayName}`} mentionables={[me, dmUser]}
           headerExtra={<>
             <button className="icon-btn" title="Voice call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle'} onClick={() => call.actions.startCall(dmUser.id, false)}><Icon name="phone" size={18} /></button>
             <button className="icon-btn" title="Video call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle'} onClick={() => call.actions.startCall(dmUser.id, true)}><Icon name="video" size={18} /></button>

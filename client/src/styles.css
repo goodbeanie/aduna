@@ -150,7 +150,7 @@ img.mark.big { height: 96px; width: auto; margin-bottom: 6px; }
 .side-head svg { color: var(--muted); }
 .owner { display: inline-grid; color: var(--gold); margin-left: auto; }
 .side-head { height: 48px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; color: var(--head); font-size: 16px; box-shadow: 0 1px 0 var(--line); width: 100%; text-align: left; }
-.side-head:not(.static):hover { background: var(--hover); }
+.side-head:not(.static):hover { background-color: var(--hover); } /* not the shorthand: it would reset the banner's background-size on hover */
 .menu { position: absolute; top: 52px; left: 8px; right: 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 6px; z-index: 5; display: flex; flex-direction: column; box-shadow: 0 8px 24px #5a4a2a26; }
 .menu button { text-align: left; padding: 8px 10px; border-radius: 8px; } .menu button:hover { background: var(--ink); color: var(--on-ink); }
 .menu button.danger-text:hover { background: var(--danger); color: var(--bg) !important; }
@@ -875,3 +875,25 @@ button.tag:hover { background: var(--sel); }
 .tag-input input { flex: 1; min-width: 120px; margin: 0; background: none; border: 0; box-shadow: none; padding: 6px 0; }
 .dm-home-explore { color: var(--head); }
 .explore-sort span { white-space: nowrap; } .explore-sort { flex: none; }
+
+/* ---------- @mentions ---------- */
+.mention { display: inline; padding: 0 4px; margin: 0 1px; border-radius: 5px; font: inherit; font-weight: 600; cursor: pointer;
+  color: var(--link); background: color-mix(in srgb, var(--link) 14%, transparent); border: 0; }
+.mention:hover { background: color-mix(in srgb, var(--link) 26%, transparent); }
+span.mention { cursor: default; }
+.mention.me { color: var(--head); background: color-mix(in srgb, var(--gold) 38%, transparent); }
+.mention.me:hover { background: color-mix(in srgb, var(--gold) 55%, transparent); }
+.msg.pinged { background: color-mix(in srgb, var(--gold) 13%, transparent); box-shadow: inset 3px 0 0 var(--gold); }
+.msg.pinged:hover { background: color-mix(in srgb, var(--gold) 20%, var(--msg-hover)); }
+.msg.pinged.editing { background: var(--msg-hover); }
+.badge.at { background: var(--gold); color: #1c1812; font-weight: 700; } /* the accent colour is user-chosen, so the text on gold is fixed */
+.badge:not(.inline).at { bottom: auto; top: -4px; }
+.badge.inline.at { margin-left: auto; }
+.badge.inline.after-at { margin-left: 4px; }
+.suggest.mention-menu { flex-direction: column; flex-wrap: nowrap; gap: 2px; max-height: 280px; overflow-y: auto; }
+.mention-menu button { width: 100%; text-align: left; }
+.mention-menu button.on { background: var(--hover); border-color: var(--line2); }
+.mention-menu .mm-key { margin-left: auto; }
+.mention-menu .mm-ico { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--gold) 38%, transparent); }
+.edit-box .suggest { border-radius: 12px; margin-bottom: 6px; }
+@media (hover: none) { .mention-menu .mm-key { display: none; } .mention-menu button { padding: 8px 10px; } }
