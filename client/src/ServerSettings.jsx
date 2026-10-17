@@ -1,11 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
-import { Icon, ServerIcon } from './ui.jsx';
+import { Avatar, Icon, Modal, ServerIcon } from './ui.jsx';
+import { layoutOf, moveChannel, moveCategory, saveLayout } from './layout.js';
 import { processImage, uploadImage, imageUrl, ACCEPT_ATTR, SERVER_ICON_SIZE, SERVER_BANNER_SIZE } from './image.js';
 import { THEMES, DEFAULT_CUSTOM, setServerTheme } from './themes.js';
 import { Swatch } from './Appearance.jsx';
 
-const TABS = [['overview', 'Overview', 'users'], ['theme', 'Server theme', 'palette']];
+const TABS = [['overview', 'Overview', 'users'], ['channels', 'Channels', 'hash'], ['publish', 'Publish', 'globe'], ['theme', 'Server theme', 'palette']];
+const CH_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone' };
 const seedOf = (t) => ({ dark: t.dark, bg: t.bg, accent: t.accent });
 const sameSeed = (a, b) => a.dark === b.dark && a.bg.toLowerCase() === b.bg.toLowerCase() && a.accent.toLowerCase() === b.accent.toLowerCase();
 
@@ -189,12 +191,230 @@ export function ServerSettings({ server, onClose, onSaved }) {
             </>
           )}
 
-          {err && <div className="error">{err}</div>}
-          <div className="settings-foot">
+          {tab === 'channels' && <ChannelsTab server={server} onChange={onSaved} />}
+          {tab === 'publish' && <PublishTab server={server} onChange={onSaved} goChannels={() => setTab('channels')} />}
+
+          {tab !== 'channels' && tab !== 'publish' && err && <div className="error">{err}</div>}
+          {tab !== 'channels' && tab !== 'publish' && <div className="settings-foot">
             <button className="btn" onClick={onClose}>Cancel</button> <button className="btn primary" onClick={save} disabled={saving}>Save changes</button>
-          </div>
+          </div>}
         </div>
       </main>
     </div>
+  );
+}
+
+// Edit, delete and reorder channels and categories. Unlike the other tabs these apply immediately (no Save button).
+function ChannelsTab({ server, onChange }) {
+  const [editing, setEditing] = useState(null); // { kind: 'chan' | 'cat', id, text }
+  const [confirm, setConfirm] = useState(null); // { kind, item }
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const lay = layoutOf(server);
+  const cats = server.categories || [];
+  const chanById = new Map(server.channels.map((c) => [c.id, c]));
+  const run = async (fn) => {
+    setErr(''); setBusy(true);
+    try { const { server: sv } = await fn(); onChange(sv); return true; }
+    catch (e) { setErr(e.message); return false; }
+    finally { setBusy(false); }
+  };
+  const base = `/servers/${server.id}`;
+  const saveName = async (e) => {
+    e.preventDefault();
+    if (!editing.text.trim()) return;
+    const url = editing.kind === 'chan' ? `${base}/channels/${editing.id}` : `${base}/categories/${editing.id}`;
+    if (await run(() => api(url, { method: 'PATCH', body: { name: editing.text } }))) setEditing(null);
+  };
+  const doDelete = async () => {
+    const { kind, item } = confirm;
+    if (await run(() => api(kind === 'chan' ? `${base}/channels/${item.id}` : `${base}/categories/${item.id}`, { method: 'DELETE' }))) setConfirm(null);
+  };
+  const nameCell = (kind, item, icon) => (editing?.kind === kind && editing.id === item.id ? (
+    <form className="ch-edit" onSubmit={saveName}>
+      <input autoFocus value={editing.text} maxLength={30} onChange={(e) => setEditing({ ...editing, text: e.target.value })} onKeyDown={(e) => e.key === 'Escape' && setEditing(null)} />
+      <button className="btn primary" disabled={busy}>Save</button>
+      <button type="button" className="btn" onClick={() => setEditing(null)}>Cancel</button>
+    </form>
+  ) : (
+    <>
+      <span className="ch-name">{icon}{item.name}</span>
+      <button className="icon-btn" title="Rename" aria-label={`Rename ${item.name}`} onClick={() => setEditing({ kind, id: item.id, text: item.name })}><Icon name="edit" size={16} /></button>
+    </>
+  ));
+  const arrows = (up, down, label) => (
+    <>
+      <button className="icon-btn ch-up" title="Move up" aria-label={`Move ${label} up`} disabled={!up || busy} onClick={up}><Icon name="chevron" size={16} /></button>
+      <button className="icon-btn" title="Move down" aria-label={`Move ${label} down`} disabled={!down || busy} onClick={down}><Icon name="chevron" size={16} /></button>
+    </>
+  );
+  const move = (next) => run(() => saveLayout(api, server.id, next));
+
+  const chanRow = (c, group) => {
+    const i = group.findIndex((x) => x.id === c.id), prev = group[i - 1], next = group[i + 1];
+    const catId = lay.chans.find((x) => x.id === c.id).categoryId;
+    return (
+      <div className="ch-row" key={c.id}>
+        {nameCell('chan', c, <span className="hash">{CH_ICON[c.type] ? <Icon name={CH_ICON[c.type]} size={16} /> : '#'}</span>)}
+        <div className="grow" />
+        {cats.length > 0 && (
+          <select className="ch-cat" value={catId || ''} aria-label={`Category of ${c.name}`} disabled={busy} onChange={(e) => move(moveChannel(lay, c.id, e.target.value || null, null))}>
+            <option value="">No category</option>
+            {cats.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
+          </select>
+        )}
+        {arrows(prev && (() => move(moveChannel(lay, c.id, catId, prev.id))), next && (() => move(moveChannel(lay, c.id, catId, group[i + 2]?.id || null))), c.name)}
+        <button className="icon-btn" title="Delete channel" aria-label={`Delete ${c.name}`} disabled={server.channels.length <= 1} onClick={() => setConfirm({ kind: 'chan', item: c })}><Icon name="trash" size={16} /></button>
+      </div>
+    );
+  };
+  const groupOf = (catId) => lay.chans.filter((x) => (x.categoryId || null) === catId).map((x) => chanById.get(x.id));
+  const loose = groupOf(null);
+
+  return (
+    <>
+      <h1>Channels</h1>
+      <p className="muted">Changes here apply right away. You can also drag channels and categories in the channel list to reorder them.</p>
+      {err && <div className="error">{err}</div>}
+      {loose.length > 0 && <div className="ch-group"><div className="ch-head"><span>NO CATEGORY</span></div>{loose.map((c) => chanRow(c, loose))}</div>}
+      {cats.map((cat, ci) => {
+        const items = groupOf(cat.id);
+        return (
+          <div className="ch-group" key={cat.id}>
+            <div className="ch-head">
+              {nameCell('cat', cat, null)}
+              <div className="grow" />
+              {arrows(ci > 0 && (() => move(moveCategory(lay, cat.id, lay.cats[ci - 1]))), ci < cats.length - 1 && (() => move(moveCategory(lay, cat.id, lay.cats[ci + 2] || null))), cat.name)}
+              <button className="icon-btn" title="Delete category" aria-label={`Delete category ${cat.name}`} onClick={() => setConfirm({ kind: 'cat', item: cat })}><Icon name="trash" size={16} /></button>
+            </div>
+            {items.length === 0 && <p className="muted small ch-empty">No channels in this category.</p>}
+            {items.map((c) => chanRow(c, items))}
+          </div>
+        );
+      })}
+      {server.channels.length <= 1 && <p className="muted small hint">A server needs at least one channel, so the last one cannot be deleted.</p>}
+      {confirm && (
+        <Modal title={confirm.kind === 'chan' ? 'Delete channel' : 'Delete category'} onClose={() => setConfirm(null)}>
+          <p className="muted">
+            {confirm.kind === 'chan'
+              ? <>This permanently deletes <b>#{confirm.item.name}</b> with all its messages and files for everyone. This cannot be undone.</>
+              : <>This deletes the category <b>{confirm.item.name}</b>. Its channels are kept and move to the top of the list.</>}
+          </p>
+          {err && <div className="error">{err}</div>}
+          <div className="modal-foot">
+            <button className="btn" onClick={() => setConfirm(null)}>Cancel</button>
+            <button className="btn primary danger-fill" autoFocus disabled={busy} onClick={doDelete}>Delete</button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+const VIS = [
+  { id: 'private', icon: 'lock', title: 'Private', desc: 'Only the people you list can join, even with the invite code.' },
+  { id: 'unlisted', icon: 'link', title: 'Unlisted', desc: 'Anyone with your invite code can join. It is not listed anywhere.' },
+  { id: 'public', icon: 'globe', title: 'Public', desc: 'Anyone with the code can join, and it can be found in the server explorer.' },
+];
+// Publishing: the server must first have enough channels, then the owner picks who can find and join it.
+// Applies immediately (no Save button). Private servers also get a list of who is allowed in.
+function PublishTab({ server, onChange, goChannels }) {
+  const [info, setInfo] = useState(null);
+  const [pick, setPick] = useState(null);
+  const [desc, setDesc] = useState(server.description || '');
+  const [who, setWho] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState('');
+  // refetch whenever channels change (the requirements are counted on the server)
+  const chanKey = server.channels.map((c) => c.id + (c.type || 'text')).join();
+  useEffect(() => {
+    let live = true;
+    api(`/servers/${server.id}/publish`).then((r) => { if (live) { setInfo(r.publish); setPick((p) => p || r.publish.visibility); } }).catch((e) => live && setErr(e.message));
+    return () => { live = false; };
+  }, [server.id, chanKey]);
+  if (!info) return <><h1>Publish</h1>{err ? <div className="error">{err}</div> : <p className="muted">Loading…</p>}</>;
+
+  const rows = [['text', 'text channels', false], ['voice', 'voice channels', false], ['rules', 'rules channel', true], ['announcements', 'announcements channel', true]];
+  const current = info.visibility;
+  const dirty = pick && (pick !== current || (pick === 'public' && desc.trim() !== (info.description || '')));
+  const run = async (fn, after) => {
+    setErr(''); setSaved(''); setBusy(true);
+    try { const r = await fn(); if (r.publish) setInfo(r.publish); if (r.server) onChange(r.server); after?.(r); }
+    catch (e) { setErr(e.message); }
+    finally { setBusy(false); }
+  };
+  const publish = () => run(() => api(`/servers/${server.id}/publish`, { method: 'PUT', body: { visibility: pick, description: desc } }), () => setSaved(current ? 'Updated.' : 'Published.'));
+  const unpublish = () => run(() => api(`/servers/${server.id}/publish`, { method: 'PUT', body: { visibility: null } }), () => { setPick(null); setSaved('Unpublished. Your invite code still works for anyone who has it.'); });
+  const addWho = (e) => { e.preventDefault(); if (who.trim()) run(() => api(`/servers/${server.id}/publish/allowed`, { method: 'POST', body: { username: who } }), () => setWho('')); };
+  const removeWho = (id) => run(() => api(`/servers/${server.id}/publish/allowed/${id}`, { method: 'DELETE' }));
+
+  return (
+    <>
+      <h1>Publish</h1>
+      <p className="muted">Choose who can find and join your server. A server needs enough channels first, so it is not empty when people arrive.</p>
+
+      <label>REQUIREMENTS</label>
+      <div className="req-list">
+        {rows.map(([k, label, publicOnly]) => {
+          const have = info.counts[k], need = publicOnly ? info.publicRequirements[k] : info.requirements[k], ok = have >= need;
+          return (
+            <div key={k} className={'req' + (ok ? ' ok' : '')}>
+              <span className="req-mark"><Icon name={ok ? 'check' : 'close'} size={14} /></span>
+              <span>At least <b>{need}</b> {label}{publicOnly && <span className="live-tag only">Public only</span>}</span>
+              <span className="grow" />
+              <span className="muted small">{Math.min(have, need)} / {need}{have > need ? ` (${have} total)` : ''}</span>
+            </div>
+          );
+        })}
+      </div>
+      {!info.metPublic && <p className="muted small hint">{info.met ? 'Public servers also need a rules channel and an announcements channel. ' : ''}Add the missing channels in the <button className="link-btn" onClick={goChannels}>Channels</button> list (the + in the channel list, or any category), then come back here.</p>}
+
+      <label>VISIBILITY{current ? '' : ' (NOT PUBLISHED YET)'}</label>
+      <div className={'vis-grid' + (info.met ? '' : ' locked')} role="radiogroup" aria-label="Visibility">
+        {VIS.map((v) => (
+          <button type="button" key={v.id} role="radio" aria-checked={pick === v.id} disabled={!info.met || (v.id === 'public' && !info.metPublic) || busy} className={'vis' + (pick === v.id ? ' on' : '')} onClick={() => setPick(v.id)}>
+            <span className="preset-icon"><Icon name={v.icon} size={22} /></span>
+            <span className="preset-text"><b>{v.title}{current === v.id && <span className="live-tag">Live</span>}{v.id === 'public' && info.met && !info.metPublic && <span className="live-tag only">Needs rules + announcements</span>}</b><span className="muted small">{v.desc}</span></span>
+          </button>
+        ))}
+      </div>
+      {!current && <p className="muted small hint">Until you publish, your server works like Unlisted: anyone with the invite code can join.</p>}
+
+      {info.met && pick === 'private' && (
+        <>
+          <label>PEOPLE WHO CAN JOIN</label>
+          <form className="allow-add" onSubmit={addWho}>
+            <input value={who} onChange={(e) => setWho(e.target.value)} placeholder="Add by username" maxLength={20} />
+            <button className="btn" disabled={busy || !who.trim()}>Add</button>
+          </form>
+          <div className="allow-list">
+            {info.allowed.length === 0 && <p className="muted small">Nobody yet. Add the usernames of people allowed to join. People already in the server stay in.</p>}
+            {info.allowed.map((u) => (
+              <div className="allow-row" key={u.id}>
+                <Avatar user={u} size={28} /><span className="grow"><b>{u.displayName}</b> <span className="muted small">@{u.username}</span></span>
+                <button className="icon-btn" title="Remove" aria-label={`Remove ${u.displayName}`} onClick={() => removeWho(u.id)}><Icon name="close" size={16} /></button>
+              </div>
+            ))}
+          </div>
+          <p className="muted small hint">They still need your invite code or a direct invite to get in. Anyone not on this list is turned away.</p>
+        </>
+      )}
+
+      {info.met && pick === 'public' && (
+        <>
+          <label>DESCRIPTION</label>
+          <textarea className="pub-desc" rows={3} maxLength={200} value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="What is your server about?" />
+          <p className="muted small hint">{desc.length}/200. The server explorer is coming soon. Your server will be listed there when it launches.</p>
+        </>
+      )}
+
+      {err && <div className="error">{err}</div>}
+      {saved && <div className="notice pub-saved" role="status">{saved}</div>}
+      <div className="settings-foot">
+        {current && <button className="btn" disabled={busy} onClick={unpublish}>Unpublish</button>}{' '}
+        <button className="btn primary" disabled={busy || !info.met || !dirty} onClick={publish}>{current ? 'Update' : 'Publish'}</button>
+      </div>
+    </>
   );
 }

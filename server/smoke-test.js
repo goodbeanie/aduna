@@ -684,6 +684,139 @@ async function putImg(kind, body, type, token) {
     step('voice channels: join, who-is-here, signalling, switching, leaving');
   }
 
+  // ---- edit / delete / reorder channels and categories ----
+  {
+    const own = (path, method, body, token = alice.token) => call(`/servers/${hub.id}${path}`, { method, token, body });
+    const view = async () => (await call('/servers', { token: alice.token })).servers.find((x) => x.id === hub.id);
+    let v = await view();
+    const catA = (await own('/categories', 'POST', { name: 'Alpha' })).server.categories.find((c) => c.name === 'Alpha');
+    const catB = (await own('/categories', 'POST', { name: 'Beta' })).server.categories.find((c) => c.name === 'Beta');
+    const mkc = async (name, categoryId) => (await own('/channels', 'POST', { name, categoryId })).server.channels.find((c) => c.name === name);
+    const c1 = await mkc('one', catA.id), c2 = await mkc('two', catA.id), c3 = await mkc('three', catB.id);
+
+    // rename
+    assert.strictEqual((await own(`/channels/${c1.id}`, 'PATCH', { name: 'New Name!' }, bob.token)).status, 403, 'members cannot rename');
+    assert.strictEqual((await own(`/channels/${c1.id}`, 'PATCH', { name: '   ' })).status, 400);
+    assert.strictEqual((await own(`/channels/${c1.id}`, 'PATCH', { name: 'New Name!' })).server.channels.find((c) => c.id === c1.id).name, 'new-name');
+    assert.strictEqual((await own(`/categories/${catA.id}`, 'PATCH', { name: 'beta' })).status, 400, 'duplicate category name');
+    assert.strictEqual((await own(`/categories/${catA.id}`, 'PATCH', { name: 'Gamma' })).server.categories.find((c) => c.id === catA.id).name, 'Gamma');
+    assert.strictEqual((await own(`/categories/${catA.id}`, 'PATCH', { name: 'x' }, bob.token)).status, 403);
+    step('rename channels and categories (owner only, validated)');
+
+    // reorder / move between categories with one layout call
+    v = await view();
+    const loose = v.channels.filter((c) => !c.categoryId).map((c) => ({ id: c.id, categoryId: null }));
+    const layout = { categories: [catB.id, catA.id], channels: [...loose, { id: c3.id, categoryId: catB.id }, { id: c2.id, categoryId: catA.id }, { id: c1.id, categoryId: catB.id }] };
+    assert.strictEqual((await own('/layout', 'PUT', layout, bob.token)).status, 403);
+    const upd = once(sb, 'server:update');
+    const res = await own('/layout', 'PUT', layout);
+    assert.strictEqual(res.status, 200);
+    assert.deepStrictEqual(res.server.categories.map((c) => c.id), [catB.id, catA.id]);
+    assert.deepStrictEqual(res.server.channels.slice(-3).map((c) => [c.id, c.categoryId]), [[c3.id, catB.id], [c2.id, catA.id], [c1.id, catB.id]]);
+    assert.deepStrictEqual((await upd).categories.map((c) => c.id), [catB.id, catA.id], 'members get the new order live');
+    assert.strictEqual((await own('/layout', 'PUT', { ...layout, channels: layout.channels.slice(1) })).status, 400, 'missing channel refused');
+    assert.strictEqual((await own('/layout', 'PUT', { ...layout, channels: layout.channels.map((c) => (c.id === c1.id ? { ...c, categoryId: 'nope' } : c)) })).status, 400, 'unknown category refused');
+    assert.strictEqual((await own('/layout', 'PUT', { ...layout, categories: [catB.id] })).status, 400, 'missing category refused');
+    step('drag-and-drop layout saved atomically, validated, pushed live');
+
+    // delete a category: channels stay, ungrouped
+    assert.strictEqual((await own(`/categories/${catB.id}`, 'DELETE', undefined, bob.token)).status, 403);
+    v = (await own(`/categories/${catB.id}`, 'DELETE')).server;
+    assert.ok(!v.categories.some((c) => c.id === catB.id));
+    assert.ok(v.channels.find((c) => c.id === c3.id) && !v.channels.find((c) => c.id === c3.id).categoryId, 'channel kept, now ungrouped');
+    assert.strictEqual((await own(`/categories/${catB.id}`, 'DELETE')).status, 404);
+
+    // delete a channel: messages go, members are removed from its room, voice is emptied, last channel protected
+    const chat = c2; // owner posts, then deletes it
+    const gotMsg = once(sb, 'message:new');
+    assert.ok((await ack(sa, 'message:send', { channelId: chat.id, content: 'soon gone' })).ok);
+    await gotMsg;
+    assert.strictEqual((await call(`/channels/${chat.id}/messages`, { token: alice.token })).messages.length, 1);
+    assert.strictEqual((await own(`/channels/${chat.id}`, 'DELETE', undefined, bob.token)).status, 403);
+    const upd2 = once(sb, 'server:update');
+    v = (await own(`/channels/${chat.id}`, 'DELETE')).server;
+    assert.ok(!v.channels.some((c) => c.id === chat.id));
+    assert.ok(!(await upd2).channels.some((c) => c.id === chat.id), 'members told live');
+    assert.strictEqual((await call(`/channels/${chat.id}/messages`, { token: alice.token })).status, 403, 'messages are gone with the channel');
+    assert.ok((await ack(sa, 'message:send', { channelId: chat.id, content: 'ghost' })).error);
+    const vc = (await own('/channels', 'POST', { name: 'temp-voice', type: 'voice' })).server.channels.find((c) => c.name === 'temp-voice');
+    assert.ok((await ack(sb, 'voice:join', { channelId: vc.id })).ok);
+    const kicked = once(sb, 'voice:kicked');
+    await own(`/channels/${vc.id}`, 'DELETE');
+    assert.strictEqual((await kicked).channelId, vc.id, 'people in a deleted voice channel are dropped');
+    v = await view();
+    for (const c of v.channels.slice(1)) await own(`/channels/${c.id}`, 'DELETE');
+    assert.strictEqual((await own(`/channels/${v.channels[0].id}`, 'DELETE')).status, 400, 'the last channel cannot be deleted');
+    step('delete categories (channels kept) and channels (messages removed, voice emptied, last one protected)');
+  }
+
+  // ---- publishing: requirements, visibility, private allowlist ----
+  {
+    const carol = await makeUser('pubcarol'), dave = await makeUser('pubdave');
+    const { server: pub } = await call('/servers', { method: 'POST', token: alice.token, body: { name: 'Pub' } });
+    const P = (path = '', method = 'GET', body, token = alice.token) => call(`/servers/${pub.id}/publish${path}`, { method, token, body });
+    assert.strictEqual(pub.visibility, null, 'new servers are not published');
+    assert.strictEqual((await P('', 'GET', undefined, bob.token)).status, 403, 'owner only');
+    let info = (await P()).publish;
+    assert.deepStrictEqual(info.requirements, { text: 3, voice: 2 }); assert.deepStrictEqual(info.counts, { text: 1, voice: 0, rules: 0, announcements: 0 }); assert.strictEqual(info.met, false);
+    const r0 = await P('', 'PUT', { visibility: 'unlisted' });
+    assert.strictEqual(r0.status, 400); assert.ok(/2 more text channels and 2 more voice channels/.test(r0.error), r0.error);
+    const mkc = (name, type) => call(`/servers/${pub.id}/channels`, { method: 'POST', token: alice.token, body: { name, type } });
+    await mkc('t2', 'text'); await mkc('v1', 'voice'); await mkc('r', 'rules'); await mkc('a', 'announcements');
+    assert.strictEqual((await P('', 'PUT', { visibility: 'unlisted' })).status, 400, 'rules/announcements do not count as text');
+    await mkc('t3', 'text'); const lastV = (await mkc('v2', 'voice')).server.channels.find((c) => c.name === 'v2');
+    assert.strictEqual((await P()).publish.met, true);
+    // public also needs a rules channel and an announcements channel; unlisted and private do not
+    const extras = (await call('/servers', { token: alice.token })).servers.find((x) => x.id === pub.id).channels.filter((c) => ['rules', 'announcements'].includes(c.type));
+    for (const c of extras) assert.strictEqual((await call(`/servers/${pub.id}/channels/${c.id}`, { method: 'DELETE', token: alice.token })).status, 200);
+    info = (await P()).publish;
+    assert.strictEqual(info.met, true); assert.strictEqual(info.metPublic, false);
+    const rp = await P('', 'PUT', { visibility: 'public', description: 'x' });
+    assert.strictEqual(rp.status, 400); assert.ok(/1 more rules channel and 1 more announcements channel/.test(rp.error), rp.error);
+    await mkc('r', 'rules'); assert.ok(/1 more announcements channel/.test((await P('', 'PUT', { visibility: 'public', description: 'x' })).error));
+    await mkc('a', 'announcements'); assert.strictEqual((await P()).publish.metPublic, true);
+    step('publish requirements: 3 text + 2 voice for everything, plus rules + announcements for public');
+
+    assert.strictEqual((await P('', 'PUT', { visibility: 'bogus' })).status, 400);
+    assert.strictEqual((await P('', 'PUT', { visibility: 'unlisted' }, bob.token)).status, 403);
+    assert.strictEqual((await P('', 'PUT', { visibility: 'public' })).status, 400, 'public needs a description');
+    let r = await P('', 'PUT', { visibility: 'public', description: '  A cosy place  ' });
+    assert.strictEqual(r.server.visibility, 'public'); assert.strictEqual(r.server.description, 'A cosy place');
+    assert.strictEqual((await call('/servers/join', { method: 'POST', token: carol.token, body: { code: pub.inviteCode } })).status, 200, 'public: code works');
+    // a published server must keep meeting the requirements
+    const gone = await call(`/servers/${pub.id}/channels/${lastV.id}`, { method: 'DELETE', token: alice.token });
+    assert.strictEqual(gone.status, 400); assert.ok(/Unpublish/.test(gone.error));
+    step('public needs a description; join works; published servers cannot drop below the requirements');
+
+    // private: only listed people can join, existing members stay
+    r = await P('', 'PUT', { visibility: 'private' });
+    assert.strictEqual(r.server.visibility, 'private');
+    assert.strictEqual((await call('/servers/join', { method: 'POST', token: dave.token, body: { code: pub.inviteCode } })).status, 403, 'unlisted person is refused');
+    assert.strictEqual((await call(`/invites/${pub.inviteCode}`, { token: dave.token })).status, 403, 'invite card hidden too');
+    assert.strictEqual((await call('/servers/join', { method: 'POST', token: carol.token, body: { code: pub.inviteCode } })).status, 200, 'existing member is fine');
+    assert.strictEqual((await P('/allowed', 'POST', { username: 'nobody-here' })).status, 404);
+    assert.strictEqual((await P('/allowed', 'POST', { username: 'alice' })).status, 400, 'owner needs no entry');
+    assert.strictEqual((await P('/allowed', 'POST', { username: '@PubDave' }, bob.token)).status, 403);
+    info = (await P('/allowed', 'POST', { username: '@PubDave' })).publish;
+    assert.deepStrictEqual(info.allowed.map((u) => u.username), ['pubdave']);
+    assert.strictEqual((await P('/allowed', 'POST', { username: 'pubdave' })).status, 400, 'no duplicates');
+    assert.strictEqual((await call(`/invites/${pub.inviteCode}`, { token: dave.token })).status, 200);
+    assert.strictEqual((await call('/servers/join', { method: 'POST', token: dave.token, body: { code: pub.inviteCode } })).status, 200, 'listed person joins');
+    info = (await P(`/allowed/${dave.user.id}`, 'DELETE')).publish;
+    assert.strictEqual(info.allowed.length, 0);
+    const erin = await makeUser('pubfred');
+    assert.strictEqual((await call('/servers/join', { method: 'POST', token: erin.token, body: { code: pub.inviteCode } })).status, 403);
+    step('private: only listed people can join (card hidden for others), members stay, list add/remove');
+
+    // unlisted and unpublish
+    assert.strictEqual((await P('', 'PUT', { visibility: 'unlisted' })).server.visibility, 'unlisted');
+    assert.strictEqual((await call('/servers/join', { method: 'POST', token: erin.token, body: { code: pub.inviteCode } })).status, 200, 'unlisted: code is enough');
+    r = await P('', 'PUT', { visibility: null });
+    assert.strictEqual(r.server.visibility, null);
+    assert.strictEqual((await call(`/servers/${pub.id}/channels/${lastV.id}`, { method: 'DELETE', token: alice.token })).status, 200, 'unpublished servers can delete freely');
+    step('unlisted works with just the code; unpublish clears the status');
+  }
+
   // tamper: move one row's ciphertext onto another row; GCM + AAD must reject it
   const victim = (await store.query('SELECT id, data FROM messages LIMIT 1')).rows[0];
   const donor = (await store.query('SELECT data FROM users LIMIT 1')).rows[0];

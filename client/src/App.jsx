@@ -14,6 +14,7 @@ import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
 import RulesView from './Rules.jsx';
+import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
@@ -345,6 +346,72 @@ function Main({ me, setMe, privKey }) {
   const onlineMembers = members.filter((m) => statusOf(m.id) !== 'offline');
   const offlineMembers = members.filter((m) => statusOf(m.id) === 'offline');
 
+  // ---------- drag and drop (owner): reorder channels and categories, move channels between categories ----------
+  const dragRef = useRef(null);
+  const [dragging, setDragging] = useState(false); // while dragging, the ungrouped header always shows so channels can be dropped back into it
+  const [mark, setMark] = useState(null); // { kind: 'chan' | 'cat', id, pos: 'before' | 'after' | 'into' | 'end' } drop indicator
+  const applyLayout = async (next) => {
+    if (!server) return;
+    const before = server, cur = layoutOf(server);
+    if (sameLayout(cur, next)) return;
+    const byId = new Map(server.channels.map((c) => [c.id, c])), catById = new Map((server.categories || []).map((c) => [c.id, c]));
+    const optimistic = { ...server, categories: next.cats.map((id) => catById.get(id)),
+      channels: next.chans.map((x) => { const { categoryId, ...c } = byId.get(x.id); return x.categoryId ? { ...c, categoryId: x.categoryId } : c; }) };
+    setServers((p) => p.map((x) => (x.id === server.id ? optimistic : x)));
+    try { const { server: sv } = await saveLayout(api, server.id, next); setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); }
+    catch (e) { setServers((p) => p.map((x) => (x.id === before.id ? before : x))); alert(e.message); }
+  };
+  const endDrag = () => { dragRef.current = null; setMark(null); setDragging(false); };
+  const startDrag = (kind, id, e) => { dragRef.current = { kind, id }; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); setTimeout(() => dragRef.current && setDragging(true), 0); };
+  const halfOf = (e) => { const r = e.currentTarget.getBoundingClientRect(); return e.clientY - r.top < r.height / 2 ? 'before' : 'after'; };
+  // The thing after `id` in the layout, when it is in the same group, else null (= end of the group)
+  const nextInGroup = (lay, id) => { const i = lay.chans.findIndex((c) => c.id === id), me2 = lay.chans[i], nx = lay.chans[i + 1]; return nx && (nx.categoryId || null) === (me2.categoryId || null) ? nx.id : null; };
+  const chanDnd = (c, isOwner) => !isOwner ? {} : {
+    draggable: true,
+    onDragStart: (e) => startDrag('chan', c.id, e),
+    onDragEnd: endDrag,
+    onDragOver: (e) => { if (dragRef.current?.kind !== 'chan') return; e.preventDefault(); const pos = halfOf(e); setMark((m) => (m && m.id === c.id && m.pos === pos ? m : { kind: 'chan', id: c.id, pos })); },
+    onDrop: (e) => {
+      const d = dragRef.current; if (d?.kind !== 'chan') return;
+      e.preventDefault();
+      const lay = layoutOf(server), cat = lay.chans.find((x) => x.id === c.id).categoryId, pos = halfOf(e);
+      endDrag();
+      applyLayout(moveChannel(lay, d.id, cat, pos === 'before' ? c.id : nextInGroup(lay, c.id) === d.id ? null : nextInGroup(lay, c.id)));
+    },
+  };
+  // headers accept channels (drop = top of that group) and, for categories, other categories
+  const headDnd = (cat, isOwner) => !isOwner ? {} : {
+    ...(cat ? { draggable: true, onDragStart: (e) => startDrag('cat', cat.id, e), onDragEnd: endDrag } : {}),
+    onDragOver: (e) => {
+      const d = dragRef.current; if (!d) return;
+      if (d.kind === 'cat' && !cat) return;
+      e.preventDefault();
+      const pos = d.kind === 'cat' ? halfOf(e) : 'into', id = cat ? cat.id : '_loose';
+      setMark((m) => (m && m.id === id && m.pos === pos ? m : { kind: 'cat', id, pos }));
+    },
+    onDrop: (e) => {
+      const d = dragRef.current; if (!d) return;
+      e.preventDefault();
+      const lay = layoutOf(server), catId = cat ? cat.id : null;
+      if (d.kind === 'chan') {
+        const first = lay.chans.find((x) => (x.categoryId || null) === catId && x.id !== d.id);
+        endDrag(); applyLayout(moveChannel(lay, d.id, catId, first ? first.id : null));
+      } else {
+        const pos = halfOf(e), at = lay.cats.indexOf(cat.id);
+        endDrag(); applyLayout(moveCategory(lay, d.id, pos === 'before' ? cat.id : lay.cats[at + 1] === d.id ? null : lay.cats[at + 1] || null));
+      }
+    },
+  };
+  const markClass = (kind, id) => (mark && mark.kind === kind && mark.id === id ? ' drop-' + mark.pos : '');
+
+  // If the channel you are in was deleted (by the owner, on any device), move to the first one left
+  useEffect(() => {
+    if (view?.kind === 'server' && server && !channel) {
+      const first = server.channels[0];
+      if (first) setView({ kind: 'server', serverId: server.id, channelId: first.id });
+    }
+  }, [server, channel]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const membersToggle = <button className="icon-btn members-toggle" title="Members" aria-label="Show members" onClick={() => setMembersOpen((o) => !o)}><Icon name="users" size={18} /></button>;
 
   if (!view) return <div className="splash"><img src="/aduna-icon.png" alt="Aduna" /></div>;
@@ -402,7 +469,7 @@ function Main({ me, setMe, privKey }) {
                 const loose = server.channels.filter((c) => !c.categoryId || !catIds.has(c.categoryId));
                 const row = (c) => (
                   <React.Fragment key={c.id}>
-                    <button className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] ? ' unread' : '')} onClick={() => openChannel(c)}>
+                    <button className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] ? ' unread' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} {...chanDnd(c, isOwner)}>
                       <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{unread['c:' + c.id] > 0 && <span className="badge inline">{unread['c:' + c.id]}</span>}
                     </button>
                     {c.type === 'voice' && (voice.members[c.id] || []).map((id) => users[id] && (
@@ -412,8 +479,8 @@ function Main({ me, setMe, privKey }) {
                 );
                 return (
                   <>
-                    {(loose.length > 0 || cats.length === 0) && (
-                      <div className="cat-head"><span className="cat-name static">CHANNELS</span>
+                    {(loose.length > 0 || cats.length === 0 || (isOwner && dragging)) && (
+                      <div className={'cat-head' + markClass('cat', '_loose')} {...headDnd(null, isOwner)}><span className="cat-name static">CHANNELS</span>
                         {isOwner && <button className="icon-btn cat-add" title="Create channel" aria-label="Create channel" onClick={() => setModal({ type: 'channel' })}><Icon name="plus" size={16} /></button>}
                       </div>
                     )}
@@ -424,7 +491,7 @@ function Main({ me, setMe, privKey }) {
                       const shown = folded ? items.filter((c) => c.id === view.channelId || unread['c:' + c.id]) : items; // a folded category still shows where you are and what is unread
                       return (
                         <div key={cat.id} className="cat">
-                          <div className="cat-head">
+                          <div className={'cat-head' + markClass('cat', cat.id)} {...headDnd(cat, isOwner)}>
                             <button className={'cat-name' + (folded ? ' folded' : '')} aria-expanded={!folded} onClick={() => setCollapsed((p) => ({ ...p, [cat.id]: !p[cat.id] }))}>
                               <Icon name="chevron" size={12} /><span>{cat.name.toUpperCase()}</span>
                             </button>

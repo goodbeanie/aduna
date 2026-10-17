@@ -111,6 +111,8 @@ function serverView(s) {
     bannerImage: s.bannerImage || null,
     theme: s.theme || null, // { dark, bg, accent } or null: members see the app fade to it on this server
     categories: s.categories || [],
+    visibility: s.visibility || null, // null = not published (the invite code still works, same as unlisted)
+    description: s.description || '',
     channels: s.channels,
     members: s.members.map((m) => db().users[m]).filter(Boolean).map(publicUser),
   };
@@ -632,10 +634,31 @@ app.post('/api/servers', auth, (req, res) => {
   res.json({ server: serverView(s) });
 });
 
+// Publishing: a server must have enough channels before it can pick a visibility.
+//   private  = only the users the owner lists can join (with the invite code)
+//   unlisted = anyone with the invite code (also how a server that was never published behaves)
+//   public   = anyone with the code, and it is meant to show in the server explorer (not built yet)
+const PUBLISH_REQ = { text: 3, voice: 2 };            // needed for any visibility
+const PUBLIC_REQ = { rules: 1, announcements: 1 };    // public servers also need these
+const VISIBILITIES = ['private', 'unlisted', 'public'];
+const MAX_ALLOWED = 100, MAX_DESC = 200;
+const canJoin = (s, uid) => s.visibility !== 'private' || (s.allowed || []).includes(uid);
+function publishCounts(s) {
+  const n = { text: 0, voice: 0, rules: 0, announcements: 0 };
+  for (const c of s.channels) n[typeOf(c)]++;
+  return n;
+}
+const KIND_WORD = { text: 'text channel', voice: 'voice channel', rules: 'rules channel', announcements: 'announcements channel' };
+function publishMissing(s, vis) {
+  const n = publishCounts(s), need = vis === 'public' ? { ...PUBLISH_REQ, ...PUBLIC_REQ } : PUBLISH_REQ;
+  return Object.entries(need).filter(([k, v]) => n[k] < v).map(([k, v]) => `${v - n[k]} more ${KIND_WORD[k]}${v - n[k] === 1 ? '' : 's'}`);
+}
+
 app.post('/api/servers/join', auth, (req, res) => {
   const code = String(req.body?.code || '').trim().toLowerCase();
   const s = Object.values(db().servers).find((x) => x.inviteCode === code);
   if (!s) return res.status(404).json({ error: 'Invalid invite code' });
+  if (!s.members.includes(req.user.id) && !canJoin(s, req.user.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
   if (!s.members.includes(req.user.id)) {
     s.members.push(req.user.id);
     store.save();
@@ -725,6 +748,134 @@ app.post('/api/servers/:id/categories', auth, (req, res) => {
   res.json({ server: serverView(s) });
 });
 
+// ----- edit / delete / reorder channels and categories (owner only) -----
+function ownerOf(req, res) {
+  const s = db().servers[req.params.id];
+  if (!s || s.ownerId !== req.user.id) { res.status(403).json({ error: 'Only the server owner can do that' }); return null; }
+  return s;
+}
+const cleanChannelName = (v) => clip(v, 30).toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/^-+|-+$/g, '');
+const pushServer = (s, res) => { store.save(); io.to('server:' + s.id).emit('server:update', serverView(s)); res.json({ server: serverView(s) }); };
+
+app.patch('/api/servers/:id/channels/:cid', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  const c = s.channels.find((x) => x.id === req.params.cid);
+  if (!c) return res.status(404).json({ error: 'Channel not found' });
+  const name = cleanChannelName(req.body?.name);
+  if (!name) return res.status(400).json({ error: 'Invalid channel name' });
+  c.name = name;
+  pushServer(s, res);
+});
+
+app.delete('/api/servers/:id/channels/:cid', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  const c = s.channels.find((x) => x.id === req.params.cid);
+  if (!c) return res.status(404).json({ error: 'Channel not found' });
+  if (s.channels.length <= 1) return res.status(400).json({ error: 'A server needs at least one channel' });
+  if (s.visibility) { // a published server must keep meeting the publish requirements
+    const rest = { ...s, channels: s.channels.filter((x) => x.id !== c.id) };
+    const missing = publishMissing(rest, s.visibility);
+    if (missing.length) return res.status(400).json({ error: `This server is published and needs its channels. Unpublish it first, or add ${missing.join(' and ')} before deleting this one.` });
+  }
+  // everything in the channel goes with it, including uploaded files
+  const gone = Object.values(db().messages).filter((m) => m.channelId === c.id);
+  const fileIds = gone.flatMap((m) => (m.attachments || []).map((a) => a.id).filter(Boolean));
+  for (const m of gone) delete db().messages[m.id];
+  s.channels = s.channels.filter((x) => x.id !== c.id);
+  const room = voice.get(c.id);
+  if (room) { for (const sid of room.values()) io.to(sid).emit('voice:kicked', { channelId: c.id }); voice.delete(c.id); }
+  io.in('channel:' + c.id).socketsLeave('channel:' + c.id);
+  store.deleteFiles(fileIds).catch((e) => console.error(e));
+  pushServer(s, res);
+});
+
+app.patch('/api/servers/:id/categories/:catid', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  const cat = (s.categories || []).find((x) => x.id === req.params.catid);
+  if (!cat) return res.status(404).json({ error: 'Category not found' });
+  const name = clip(req.body?.name, 30).trim();
+  if (!name) return res.status(400).json({ error: 'Category name required' });
+  if (s.categories.some((x) => x.id !== cat.id && x.name.toLowerCase() === name.toLowerCase())) return res.status(400).json({ error: 'You already have a category with that name' });
+  cat.name = name;
+  pushServer(s, res);
+});
+
+// Deleting a category keeps its channels; they move to the ungrouped list at the top.
+app.delete('/api/servers/:id/categories/:catid', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  if (!(s.categories || []).some((x) => x.id === req.params.catid)) return res.status(404).json({ error: 'Category not found' });
+  s.categories = s.categories.filter((x) => x.id !== req.params.catid);
+  for (const c of s.channels) if (c.categoryId === req.params.catid) delete c.categoryId;
+  pushServer(s, res);
+});
+
+// One call saves a whole drag-and-drop result: the order of the categories, and the order of the channels with
+// the category each one now sits in (null = ungrouped). It must list exactly the channels and categories that exist.
+app.put('/api/servers/:id/layout', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  const cats = req.body?.categories, chans = req.body?.channels;
+  const same = (given, have) => Array.isArray(given) && given.length === have.length && new Set(given).size === given.length && have.every((x) => given.includes(x));
+  if (!same(cats, (s.categories || []).map((c) => c.id))) return res.status(400).json({ error: 'Category list is out of date, reload and try again' });
+  if (!Array.isArray(chans) || !same(chans.map((c) => c?.id), s.channels.map((c) => c.id))) return res.status(400).json({ error: 'Channel list is out of date, reload and try again' });
+  if (chans.some((c) => c.categoryId !== null && !cats.includes(c.categoryId))) return res.status(400).json({ error: 'That category does not exist' });
+  const byId = new Map(s.channels.map((c) => [c.id, c]));
+  s.channels = chans.map((x) => { const c = byId.get(x.id); if (x.categoryId) c.categoryId = x.categoryId; else delete c.categoryId; return c; });
+  const catById = new Map((s.categories || []).map((c) => [c.id, c]));
+  s.categories = cats.map((id) => catById.get(id));
+  pushServer(s, res);
+});
+
+// ----- publish settings (owner only) -----
+function publishView(s) {
+  return {
+    requirements: PUBLISH_REQ, publicRequirements: PUBLIC_REQ, counts: publishCounts(s),
+    met: publishMissing(s).length === 0, metPublic: publishMissing(s, 'public').length === 0,
+    visibility: s.visibility || null, description: s.description || '',
+    allowed: (s.allowed || []).map((id) => db().users[id]).filter(Boolean).map(publicUser),
+  };
+}
+app.get('/api/servers/:id/publish', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  res.json({ publish: publishView(s) });
+});
+app.put('/api/servers/:id/publish', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  const v = req.body?.visibility;
+  if (v === null) { delete s.visibility; } // unpublish; the allowed list and description are kept for next time
+  else {
+    if (!VISIBILITIES.includes(v)) return res.status(400).json({ error: 'Pick private, unlisted or public' });
+    const missing = publishMissing(s, v);
+    if (missing.length) return res.status(400).json({ error: `Add ${missing.join(' and ')} before publishing` });
+    const desc = req.body?.description === undefined ? (s.description || '') : clip(req.body.description, MAX_DESC).trim();
+    if (v === 'public' && !desc) return res.status(400).json({ error: 'Write a short description so people know what your public server is about' });
+    s.description = desc;
+    s.visibility = v;
+    s.publishedAt = s.publishedAt || now();
+  }
+  store.save();
+  io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ publish: publishView(s), server: serverView(s) });
+});
+app.post('/api/servers/:id/publish/allowed', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  const name = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
+  const target = Object.values(db().users).find((u) => u.username.toLowerCase() === name);
+  if (!name || !target) return res.status(404).json({ error: "We couldn't find anyone with that username" });
+  if (target.id === s.ownerId) return res.status(400).json({ error: 'You own this server, so you can always join it' });
+  s.allowed = s.allowed || [];
+  if (s.allowed.includes(target.id)) return res.status(400).json({ error: 'That person is already on the list' });
+  if (s.allowed.length >= MAX_ALLOWED) return res.status(400).json({ error: `The list is limited to ${MAX_ALLOWED} people` });
+  s.allowed.push(target.id);
+  store.save();
+  res.json({ publish: publishView(s) });
+});
+app.delete('/api/servers/:id/publish/allowed/:uid', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  s.allowed = (s.allowed || []).filter((id) => id !== req.params.uid);
+  store.save();
+  res.json({ publish: publishView(s) });
+});
+
 app.post('/api/servers/:id/leave', auth, (req, res) => {
   const s = db().servers[req.params.id];
   if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
@@ -781,6 +932,7 @@ app.get('/api/servers/:id/invite-check', auth, (req, res) => {
 app.get('/api/invites/:code', auth, (req, res) => {
   const s = Object.values(db().servers).find((x) => x.inviteCode === cleanInvite(req.params.code));
   if (!s) return res.status(404).json({ error: 'This invite is no longer valid' });
+  if (!s.members.includes(req.user.id) && !canJoin(s, req.user.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
   res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, theme: s.theme || null, memberCount: s.members.length } });
 });
 
