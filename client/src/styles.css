@@ -853,3 +853,25 @@ button { touch-action: manipulation; }
 .pub-saved { margin: 12px 0 0; text-align: left; }
 .link-btn { background: none; padding: 0; color: var(--link); text-decoration: underline; }
 .live-tag.only { background: var(--bg3); color: var(--muted); font-weight: 500; }
+
+/* ---------- Server explorer and tags ---------- */
+.explore-body { flex: 1; overflow-y: auto; padding: 16px; max-width: 1200px; width: 100%; margin: 0 auto; }
+.explore-bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+.explore-search { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 999px; background: var(--field); color: var(--muted); }
+.explore-search input { flex: 1; margin: 0; background: none; border: 0; box-shadow: none; padding: 11px 0; min-width: 0; }
+.explore-sort { display: flex; align-items: center; gap: 8px; }
+.explore-sort select { margin: 0; padding: 8px 12px; border-radius: 999px; background: var(--bg3); color: var(--text); }
+.explore-count { margin: 4px 4px 12px; }
+.explore-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; align-items: start; transition: opacity .15s; }
+.explore-grid.busy { opacity: .5; }
+.explore-grid .invite-card { max-width: none; width: 100%; margin: 0; }
+.explore-more { text-align: center; padding: 20px 0 8px; }
+.ex-desc { margin: 8px 0 0; font-size: 14px; color: var(--text); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tag { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 999px; background: var(--bg3); color: var(--text); font-size: 12px; }
+button.tag:hover { background: var(--sel); }
+.tag.on button { background: none; display: inline-grid; place-items: center; padding: 0; color: var(--muted); }
+.tag-input { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 6px 10px; min-height: 44px; border-radius: 10px; background: var(--field); cursor: text; }
+.tag-input input { flex: 1; min-width: 120px; margin: 0; background: none; border: 0; box-shadow: none; padding: 6px 0; }
+.dm-home-explore { color: var(--head); }
+.explore-sort span { white-space: nowrap; } .explore-sort { flex: none; }

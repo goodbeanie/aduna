@@ -113,6 +113,7 @@ function serverView(s) {
     categories: s.categories || [],
     visibility: s.visibility || null, // null = not published (the invite code still works, same as unlisted)
     description: s.description || '',
+    tags: s.tags || [],
     channels: s.channels,
     members: s.members.map((m) => db().users[m]).filter(Boolean).map(publicUser),
   };
@@ -936,6 +937,55 @@ app.get('/api/invites/:code', auth, (req, res) => {
   res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, theme: s.theme || null, memberCount: s.members.length } });
 });
 
+// Tags help people find a public server. Up to 5, each 2-20 characters of a-z 0-9 and -, stored lowercase.
+const MAX_TAGS = 5;
+function cleanTags(v) {
+  if (!Array.isArray(v)) return 'Tags must be a list';
+  const out = [];
+  for (const raw of v) {
+    const t = String(raw ?? '').trim().toLowerCase().replace(/\s+/g, '-').replace(/^#/, '');
+    if (!/^[a-z0-9][a-z0-9-]{0,18}[a-z0-9]$/.test(t)) return `"${clip(raw, 24)}" is not a valid tag. Use 2 to 20 letters, numbers or dashes.`;
+    if (!out.includes(t)) out.push(t);
+  }
+  if (out.length > MAX_TAGS) return `You can use up to ${MAX_TAGS} tags`;
+  return out;
+}
+
+// ----- server explorer: public servers only -----
+// sort=popular (default): most members first; when searching, the best match comes first and members break ties.
+// A tag that matches counts for the most, then the name, then the description, so tags boost a server in search.
+const EXPLORE_PAGE = 24;
+function matchScore(s, tokens) {
+  const name = s.name.toLowerCase(), desc = (s.description || '').toLowerCase(), tags = s.tags || [];
+  let total = 0;
+  for (const t of tokens) {
+    let sc = 0;
+    if (tags.includes(t)) sc = 6;
+    else if (tags.some((g) => g.includes(t))) sc = 4;
+    if (name.startsWith(t)) sc = Math.max(sc, 5); else if (name.includes(t)) sc = Math.max(sc, 3);
+    if (desc.includes(t)) sc = Math.max(sc, 1);
+    if (!sc) return 0; // every word must match something
+    total += sc;
+  }
+  return total;
+}
+app.get('/api/explore', auth, (req, res) => {
+  const q = clip(req.query.q, 60).toLowerCase().replace(/^#/, '').trim();
+  const tokens = q.split(/\s+/).filter(Boolean).slice(0, 6).map((t) => t.replace(/^#/, ''));
+  const sort = ['popular', 'az', 'za'].includes(req.query.sort) ? req.query.sort : 'popular';
+  const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+  let list = Object.values(db().servers).filter((s) => s.visibility === 'public').map((s) => ({ s, score: tokens.length ? matchScore(s, tokens) : 1 })).filter((x) => x.score > 0);
+  const byName = (a, b) => a.s.name.localeCompare(b.s.name, undefined, { sensitivity: 'base' });
+  if (sort === 'az') list.sort(byName);
+  else if (sort === 'za') list.sort((a, b) => byName(b, a));
+  else list.sort((a, b) => b.score - a.score || b.s.members.length - a.s.members.length || byName(a, b));
+  const page = list.slice(offset, offset + EXPLORE_PAGE).map(({ s }) => ({
+    code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null,
+    theme: s.theme || null, memberCount: s.members.length, description: s.description || '', tags: s.tags || [],
+  }));
+  res.json({ servers: page, total: list.length, next: offset + EXPLORE_PAGE < list.length ? offset + EXPLORE_PAGE : null });
+});
+
 app.patch('/api/servers/:id', auth, (req, res) => {
   const s = ownedServer(req, res);
   if (!s) return;
@@ -958,6 +1008,11 @@ app.patch('/api/servers/:id', auth, (req, res) => {
     const theme = cleanServerTheme(b.theme);
     if (theme === undefined) return res.status(400).json({ error: 'Invalid theme' });
     s.theme = theme;
+  }
+  if (b.tags !== undefined) {
+    const tags = cleanTags(b.tags);
+    if (typeof tags === 'string') return res.status(400).json({ error: tags });
+    s.tags = tags;
   }
   if (newCode) s.inviteCode = newCode;
   store.save();

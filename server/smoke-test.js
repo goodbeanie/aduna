@@ -817,6 +817,75 @@ async function putImg(kind, body, type, token) {
     step('unlisted works with just the code; unpublish clears the status');
   }
 
+  // ---- tags and the server explorer ----
+  {
+    const mkPublic = async (name, desc, tags, joiners = []) => {
+      const { server: sv } = await call('/servers', { method: 'POST', token: alice.token, body: { name } });
+      for (const [n, t] of [['t2', 'text'], ['t3', 'text'], ['v1', 'voice'], ['v2', 'voice'], ['rules', 'rules'], ['news', 'announcements']]) await call(`/servers/${sv.id}/channels`, { method: 'POST', token: alice.token, body: { name: n, type: t } });
+      const tg = await call(`/servers/${sv.id}`, { method: 'PATCH', token: alice.token, body: { tags } });
+      assert.strictEqual(tg.status, 200, JSON.stringify(tg));
+      const pr = await call(`/servers/${sv.id}/publish`, { method: 'PUT', token: alice.token, body: { visibility: 'public', description: desc } });
+      assert.strictEqual(pr.status, 200, JSON.stringify(pr));
+      for (const u of joiners) await call('/servers/join', { method: 'POST', token: u.token, body: { code: sv.inviteCode } });
+      return sv;
+    };
+    // tag validation
+    const { server: tmp } = await call('/servers', { method: 'POST', token: alice.token, body: { name: 'TagTest' } });
+    const T = (tags, token = alice.token) => call(`/servers/${tmp.id}`, { method: 'PATCH', token, body: { tags } });
+    assert.deepStrictEqual((await T(['  Gaming ', '#Chill-Out', 'gaming', 'two words'])).server.tags, ['gaming', 'chill-out', 'two-words'], 'normalised, deduped');
+    assert.strictEqual((await T(['a'])).status, 400, 'too short');
+    assert.strictEqual((await T(['x'.repeat(21)])).status, 400, 'too long');
+    assert.strictEqual((await T(['bad!tag'])).status, 400);
+    assert.strictEqual((await T(['a1', 'b2', 'c3', 'd4', 'e5', 'f6'])).status, 400, 'max 5');
+    assert.strictEqual((await T('nope')).status, 400);
+    assert.strictEqual((await T(['ok'], bob.token)).status, 404);
+    assert.strictEqual((await T([])).server.tags.length, 0);
+    step('tags: normalised, validated (2-20 chars, max 5), owner only');
+
+    const zeta = await mkPublic('Zeta Hangout', 'A calm place to chat', ['gaming', 'chill']);
+    const alpha = await mkPublic('Alpha Studio', 'Share your drawings', ['art', 'gaming'], [bob]);
+    const mid = await mkPublic('Mid Study Group', 'We talk about gaming history sometimes', ['study']);
+    const hidden = await mkPublic('Hidden One', 'will be unpublished', ['gaming']);
+    await call(`/servers/${hidden.id}/publish`, { method: 'PUT', token: alice.token, body: { visibility: 'unlisted' } });
+    const X = async (qs, token = bob.token) => (await call('/explore' + qs, { token }));
+    const names = (r) => r.servers.map((x) => x.name);
+    let r = await X('');
+    assert.deepStrictEqual(names(r), ['Alpha Studio', 'Mid Study Group', 'Zeta Hangout'], 'most members first, ties by name');
+    assert.strictEqual(names(r)[0], 'Alpha Studio', 'default sort is most popular (Alpha has 2 members)');
+    assert.strictEqual(r.total, 3, 'only public servers are listed');
+    assert.ok(!names(r).includes('Hidden One'), 'unlisted servers are not listed');
+    assert.deepStrictEqual(names(await X('?sort=az')), ['Alpha Studio', 'Mid Study Group', 'Zeta Hangout']);
+    assert.deepStrictEqual(names(await X('?sort=za')), ['Zeta Hangout', 'Mid Study Group', 'Alpha Studio']);
+    const card = r.servers[0];
+    for (const k of ['code', 'serverId', 'name', 'memberCount', 'description', 'tags', 'theme', 'iconImage', 'bannerImage']) assert.ok(k in card, 'card has ' + k);
+    assert.strictEqual(card.memberCount, 2);
+    step('explorer: public servers only, most popular by default, A-Z and Z-A');
+
+    // search: tag matches rank above description matches, whatever the member count
+    r = await X('?q=gaming');
+    assert.deepStrictEqual(names(r), ['Alpha Studio', 'Zeta Hangout', 'Mid Study Group'], 'tag matches first (more members first), description-only match last');
+    r = await X('?q=%23chill'); assert.deepStrictEqual(names(r), ['Zeta Hangout'], '# prefix and tag search');
+    assert.deepStrictEqual(names(await X('?q=draw')), ['Alpha Studio'], 'description search');
+    assert.deepStrictEqual(names(await X('?q=zeta')), ['Zeta Hangout'], 'name search');
+    assert.deepStrictEqual(names(await X('?q=gaming+art')), ['Alpha Studio'], 'every word must match');
+    assert.strictEqual((await X('?q=nothingmatches')).total, 0);
+    assert.deepStrictEqual(names(await X('?q=gaming&sort=az')), ['Alpha Studio', 'Mid Study Group', 'Zeta Hangout'], 'search plus alphabetical');
+    step('explorer search: name, description and tags; tags rank first; all words must match');
+
+    // joining straight from an explorer card uses the same join call as an invite
+    const joined = await call('/servers/join', { method: 'POST', token: bob.token, body: { code: zeta.inviteCode } });
+    assert.strictEqual(joined.status, 200);
+    assert.strictEqual((await X('')).servers.find((x) => x.name === 'Zeta Hangout').memberCount, 2);
+    // paging
+    assert.strictEqual((await X('?offset=2')).servers.length, 1);
+    assert.strictEqual((await X('?offset=0')).next, null);
+    // a server that goes unpublished disappears; so does one that goes private
+    await call(`/servers/${alpha.id}/publish`, { method: 'PUT', token: alice.token, body: { visibility: 'private' } });
+    assert.ok(!names(await X('')).includes('Alpha Studio'));
+    assert.strictEqual((await call('/explore', { token: undefined })).status, 401, 'login required');
+    step('explorer: joining, paging, unpublished and private servers drop out');
+  }
+
   // tamper: move one row's ciphertext onto another row; GCM + AAD must reject it
   const victim = (await store.query('SELECT id, data FROM messages LIMIT 1')).rows[0];
   const donor = (await store.query('SELECT data FROM users LIMIT 1')).rows[0];

@@ -23,11 +23,8 @@ const cache = new Map(); // code -> invite info, or null when the code no longer
 
 // A box with the server's banner and icon in the server's theme, and a Join button.
 export function InviteCard({ code }) {
-  const { servers, onJoined, onOpen } = useContext(InviteContext);
   const key = String(code).toLowerCase();
   const [info, setInfo] = useState(() => cache.get(key));
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
 
   useEffect(() => {
     let live = true;
@@ -42,6 +39,15 @@ export function InviteCard({ code }) {
   }
   if (!info) return <div className="invite-card loading" aria-busy="true"><div className="ic-banner" /><div className="ic-body"><div className="ic-label">Server invite</div></div></div>;
 
+  return <InviteBox info={info} label="You have been invited to join a server" />;
+}
+
+// The box itself: banner, icon and name in the server's own theme, with Join / Open. Used for invite cards in
+// messages (InviteCard above) and for the server explorer, which passes `info` straight from the explorer list.
+export function InviteBox({ info, label, extra }) {
+  const { servers, onJoined, onOpen } = useContext(InviteContext);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
   const member = servers.find((s) => s.id === info.serverId);
   async function join() {
     setBusy(true); setErr('');
@@ -57,7 +63,7 @@ export function InviteCard({ code }) {
       <div className="ic-banner" style={info.bannerImage ? { backgroundImage: `url("${imageUrl(info.bannerImage)}")` } : undefined} />
       <div className="ic-icon"><ServerIcon server={{ name: info.name, iconImage: info.iconImage }} fill /></div>
       <div className="ic-body">
-        <div className="ic-label">You have been invited to join a server</div>
+        <div className="ic-label">{label}</div>
         <div className="ic-row">
           <div className="ic-text">
             <div className="ic-name">{info.name}</div>
@@ -67,6 +73,7 @@ export function InviteCard({ code }) {
             ? <button className="btn ic-join" onClick={() => onOpen(member)}>Open</button>
             : <button className="btn primary ic-join" onClick={join} disabled={busy}>{busy ? 'Joining…' : 'Join'}</button>}
         </div>
+        {extra}
         {err && <div className="error">{err}</div>}
       </div>
     </div>

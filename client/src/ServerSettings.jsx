@@ -19,6 +19,7 @@ export function ServerSettings({ server, onClose, onSaved }) {
   const [name, setName] = useState(server.name);
   const [code, setCode] = useState(server.inviteCode);
   const [codeState, setCodeState] = useState({ status: 'current', reason: '' }); // current | checking | free | taken | invalid
+  const [tags, setTags] = useState(server.tags || []);
   const [themeOn, setThemeOn] = useState(!!server.theme);
   const [theme, setTheme] = useState(server.theme || seedOf(DEFAULT_CUSTOM));
   const [staged, setStaged] = useState({ icon: undefined, banner: undefined });
@@ -83,7 +84,7 @@ export function ServerSettings({ server, onClose, onSaved }) {
     setSaving(true);
     setErr('');
     try {
-      let { server: sv } = await api(`/servers/${server.id}`, { method: 'PATCH', body: { name, theme: themeOn ? theme : null, inviteCode: code.trim().toLowerCase() } });
+      let { server: sv } = await api(`/servers/${server.id}`, { method: 'PATCH', body: { name, tags, theme: themeOn ? theme : null, inviteCode: code.trim().toLowerCase() } });
       for (const kind of ['icon', 'banner']) {
         const s = staged[kind];
         if (s === undefined) continue;
@@ -140,6 +141,10 @@ export function ServerSettings({ server, onClose, onSaved }) {
                 {(codeState.status === 'taken' || codeState.status === 'invalid') && codeState.reason}
               </p>
               <p className="muted small hint">Changing the code stops the old one from working, including invite cards already sent.</p>
+
+              <label>TAGS</label>
+              <TagInput tags={tags} onChange={setTags} />
+              <p className="muted small hint">Tags help people find your server when it is public: searching for a tag ranks your server above ones that only mention the word. Up to 5. Press Enter or comma to add one.</p>
 
               <label>ICON AND BANNER</label>
               <div className="upload-row">
@@ -415,6 +420,35 @@ function PublishTab({ server, onChange, goChannels }) {
         {current && <button className="btn" disabled={busy} onClick={unpublish}>Unpublish</button>}{' '}
         <button className="btn primary" disabled={busy || !info.met || !dirty} onClick={publish}>{current ? 'Update' : 'Publish'}</button>
       </div>
+    </>
+  );
+}
+
+// Chips plus a text box. Enter, comma or leaving the box adds the tag; Backspace on an empty box removes the last one.
+function TagInput({ tags, onChange }) {
+  const [text, setText] = useState('');
+  const [msg, setMsg] = useState('');
+  const clean = (t) => t.trim().toLowerCase().replace(/^#/, '').replace(/\s+/g, '-');
+  function add(raw) {
+    const t = clean(raw);
+    if (!t) return;
+    if (!/^[a-z0-9][a-z0-9-]{0,18}[a-z0-9]$/.test(t)) return setMsg('Tags are 2 to 20 letters, numbers or dashes');
+    if (tags.includes(t)) { setText(''); return setMsg(''); }
+    if (tags.length >= 5) return setMsg('You can use up to 5 tags');
+    onChange([...tags, t]); setText(''); setMsg('');
+  }
+  return (
+    <>
+      <div className="tag-input" onClick={(e) => e.currentTarget.querySelector('input')?.focus()}>
+        {tags.map((t) => <span className="tag on" key={t}>#{t}<button type="button" aria-label={`Remove tag ${t}`} onClick={() => onChange(tags.filter((x) => x !== t))}><Icon name="close" size={12} /></button></span>)}
+        {tags.length < 5 && (
+          <input value={text} maxLength={21} placeholder={tags.length ? '' : 'gaming, art, study…'} aria-label="Add a tag"
+            onChange={(e) => { setMsg(''); const v = e.target.value; if (v.endsWith(',')) add(v.slice(0, -1)); else setText(v); }}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(text); } else if (e.key === 'Backspace' && !text && tags.length) onChange(tags.slice(0, -1)); }}
+            onBlur={() => text && add(text)} />
+        )}
+      </div>
+      {msg && <p className="code-hint invalid" role="status">{msg}</p>}
     </>
   );
 }

@@ -14,6 +14,7 @@ import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
 import RulesView from './Rules.jsx';
+import Explorer from './Explorer.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 
@@ -429,7 +430,7 @@ function Main({ me, setMe, privKey }) {
     <div className="app">
       {/* server bar (top) */}
       <nav className="rail">
-        <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title="Direct Messages" onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null }); setShowList(true); setMembersOpen(false); }}>
+        <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title="Direct Messages" onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore }); setShowList(true); setMembersOpen(false); }}>
           <img src="/aduna-icon.png" alt="" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
         <div className="rail-sep" />
@@ -513,7 +514,10 @@ function Main({ me, setMe, privKey }) {
               <button className="icon-btn" title="New message" onClick={() => setModal({ type: 'dm' })}><Icon name="plus" size={17} /></button>
             </div>
             <div className="side-list">
-              <button className={'chan' + (!view.userId ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
+              <button className={'chan' + (view.explore ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}>
+                <span className="hash"><Icon name="globe" size={20} /></span>Server explorer
+              </button>
+              <button className={'chan' + (!view.userId && !view.explore ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
                 <span className="hash"><Icon name="users" size={20} /></span>Friends{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
               <div className="side-label">DIRECT MESSAGES</div>
@@ -568,7 +572,8 @@ function Main({ me, setMe, privKey }) {
           </>}
           notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && <><br />You aren\u2019t friends with {dmUser.displayName}, so you can\u2019t send new messages until you are.</>}</>} />
       )}
-      {view.kind === 'dm' && !dmUser && (
+      {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} />}
+      {view.kind === 'dm' && !dmUser && !view.explore && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
       )}
 
