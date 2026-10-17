@@ -5,9 +5,36 @@ import { buildPalette } from './themes.js';
 import { Icon, ServerIcon } from './ui.jsx';
 
 // App provides { servers, onJoined, onOpen } so a card in any message can join or open the server.
-export const InviteContext = createContext({ servers: [], onJoined: () => {}, onOpen: () => {} });
+// onNeedAuth is only set on the public invite page for a visitor who is not signed in: Join then asks them to sign in first.
+export const InviteContext = createContext({ servers: [], onJoined: () => {}, onOpen: () => {}, onNeedAuth: null });
 
 export const INVITE_CODE_RE = /^[a-z0-9_-]{3,32}$/i;
+
+// An invite is a link: https://aduna.onrender.com/invite/aduna (whatever host the app is served from).
+export const inviteLink = (code) => location.origin + '/invite/' + code;
+
+const LINK_RE = /https?:\/\/([^\s/<>]+)\/invite\/([a-z0-9_-]{3,32})(?![a-z0-9_-])/gi;
+
+// Codes of the Aduna invite links in a piece of message text (at most 3), so each can be drawn as a box.
+export function inviteCodesIn(text) {
+  const out = [];
+  if (!text) return out;
+  const hosts = new Set([location.host.toLowerCase(), 'aduna.onrender.com']);
+  for (const m of String(text).matchAll(LINK_RE)) {
+    if (!hosts.has(m[1].toLowerCase())) continue;
+    const c = m[2].toLowerCase();
+    if (!out.includes(c)) out.push(c);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+// "Join with invite" accepts a pasted link or a bare code.
+export function codeFromInput(text) {
+  const t = String(text || '').trim();
+  const m = /\/invite\/([a-z0-9_-]{3,32})/i.exec(t);
+  return (m ? m[1] : t).toLowerCase();
+}
 
 // Colour variables for the card, generated from the server's theme (same palette builder the app uses),
 // so the box is drawn in the server's colours whatever theme the reader has.
@@ -45,11 +72,12 @@ export function InviteCard({ code }) {
 // The box itself: banner, icon and name in the server's own theme, with Join / Open. Used for invite cards in
 // messages (InviteCard above) and for the server explorer, which passes `info` straight from the explorer list.
 export function InviteBox({ info, label, extra }) {
-  const { servers, onJoined, onOpen } = useContext(InviteContext);
+  const { servers, onJoined, onOpen, onNeedAuth } = useContext(InviteContext);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const member = servers.find((s) => s.id === info.serverId);
   async function join() {
+    if (onNeedAuth) return onNeedAuth();
     setBusy(true); setErr('');
     try {
       const { server } = await api('/servers/join', { method: 'POST', body: { code: info.code } });
@@ -77,5 +105,40 @@ export function InviteBox({ info, label, extra }) {
         {err && <div className="error">{err}</div>}
       </div>
     </div>
+  );
+}
+
+// The page behind an invite link (/invite/<code>), for people who open it in a browser: a box with the server's
+// banner and icon, drawn in the server's theme on a background of the same theme. Works signed out (Join asks you
+// to sign in first) and signed in (Join, or Open if you are already a member).
+export function InvitePage({ code, signedIn, onNeedAuth, onJoined, onClose }) {
+  const [info, setInfo] = useState(undefined); // undefined = loading, null = gone, { error } = cannot see it
+  const [servers, setServers] = useState([]);
+
+  useEffect(() => {
+    let live = true;
+    api('/invites/' + encodeURIComponent(code))
+      .then((r) => { if (live) setInfo(r.invite); })
+      .catch((e) => { if (live) setInfo(e.status === 404 ? null : { error: e.message }); });
+    if (signedIn) api('/servers').then((r) => { if (live) setServers(r.servers); }).catch(() => {});
+    return () => { live = false; };
+  }, [code, signedIn]);
+
+  const ctx = { servers, onJoined, onOpen: onJoined, onNeedAuth: signedIn ? null : onNeedAuth };
+  const vars = info && !info.error ? themeVars(info.theme) : undefined;
+  const home = signedIn ? <button className="ip-home" onClick={onClose}>Go to Aduna</button> : null;
+
+  let body;
+  if (info === undefined) body = <div className="invite-card loading" aria-busy="true"><div className="ic-banner" /><div className="ic-body"><div className="ic-label">Server invite</div></div></div>;
+  else if (info === null) body = <div className="invite-card dead"><div className="ic-body"><div className="ic-label">Server invite</div><div className="ic-name">Invite no longer valid</div><div className="muted small">The link was changed or the server is gone.</div></div></div>;
+  else if (info.error) body = <div className="invite-card dead"><div className="ic-body"><div className="ic-label">Server invite</div><div className="ic-name">You can't join this server</div><div className="muted small">{info.error}</div></div></div>;
+  else body = <InviteBox info={info} label="You have been invited to join a server" />;
+
+  return (
+    <InviteContext.Provider value={ctx}>
+      <div className="invite-page" style={vars}>
+        <div className="ip-wrap">{body}{home}</div>
+      </div>
+    </InviteContext.Provider>
   );
 }

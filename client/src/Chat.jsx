@@ -3,7 +3,7 @@ import { Avatar, Icon, Modal, timeLabel } from './ui.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
 import { Rich, useEmoji } from './Emoji.jsx';
-import { InviteCard } from './Invite.jsx';
+import { InviteCard, inviteCodesIn } from './Invite.jsx';
 import { MentionMenu, fromMentionTokens, mentionPreview, toMentionTokens, useMentionComplete } from './Mentions.jsx';
 import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
 
@@ -109,6 +109,7 @@ function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdi
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} allowEmpty={!!m.attachments?.length || !!m.invite} onSave={(t) => { const x = encode(t); if (x.length > 2000) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
             : (m.content || m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {m.invite && <InviteCard code={m.invite} />}
+          {!editing && inviteCodesIn(m.content).filter((c) => c !== m.invite).map((c) => <InviteCard key={c} code={c} />)}
           <Attachments atts={m.attachments} dm={dm} onOpen={(v) => onOpen({ ...v, dm })} />
           {Object.keys(m.reactions || {}).length > 0 && (
             <div className="reactions">

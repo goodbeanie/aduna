@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { Avatar, Banner, Icon, Modal, STATUS_LABEL } from './ui.jsx';
 import { processImage, uploadImage, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
 import { safetyNumber } from './crypto.js';
+import { inviteLink, codeFromInput } from './Invite.jsx';
 
 export function ServerModal({ onClose, onDone }) {
   const [tab, setTab] = useState('create');
@@ -16,7 +17,7 @@ export function ServerModal({ onClose, onDone }) {
     try {
       const { server } = tab === 'create'
         ? await api('/servers', { method: 'POST', body: { name } })
-        : await api('/servers/join', { method: 'POST', body: { code } });
+        : await api('/servers/join', { method: 'POST', body: { code: codeFromInput(code) } });
       onDone(server);
     } catch (e2) { setErr(e2.message); }
   }
@@ -29,7 +30,7 @@ export function ServerModal({ onClose, onDone }) {
       </div>
       <form onSubmit={go}>
         {tab === 'create' ? (<><label>SERVER NAME</label><input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={40} required placeholder="My awesome server" /></>)
-          : (<><label>INVITE CODE</label><input autoFocus value={code} onChange={(e) => setCode(e.target.value)} required placeholder="e.g. 1a2b3c4d" /></>)}
+          : (<><label>INVITE LINK OR CODE</label><input autoFocus value={code} onChange={(e) => setCode(e.target.value)} required placeholder="aduna.onrender.com/invite/aduna" /></>)}
         {err && <div className="error">{err}</div>}
         <div className="modal-foot"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">{tab === 'create' ? 'Create' : 'Join'}</button></div>
       </form>
@@ -103,17 +104,17 @@ export function InviteModal({ server, friends, isOwner, onSend, onClose }) {
   const list = friends.filter((u) => (u.username + ' ' + u.displayName).toLowerCase().includes(q.trim().toLowerCase()));
   async function send(u) {
     setState((p) => ({ ...p, [u.id]: 'sending' }));
-    try { await onSend(u, server.inviteCode); setState((p) => ({ ...p, [u.id]: 'sent' })); }
+    try { await onSend(u, inviteLink(server.inviteCode)); setState((p) => ({ ...p, [u.id]: 'sent' })); }
     catch (e) { setState((p) => ({ ...p, [u.id]: e.message || 'Failed' })); }
   }
   return (
     <Modal title={`Invite people to ${server.name}`} onClose={onClose}>
-      <label>INVITE CODE</label>
+      <label>INVITE LINK</label>
       <div className="invite">
-        <code>{server.inviteCode}</code>
-        <button className="btn primary" onClick={() => { navigator.clipboard?.writeText(server.inviteCode); setCopied(true); }}>{copied ? 'Copied!' : 'Copy'}</button>
+        <code className="invite-url">{inviteLink(server.inviteCode)}</code>
+        <button className="btn primary" onClick={() => { navigator.clipboard?.writeText(inviteLink(server.inviteCode)); setCopied(true); }}>{copied ? 'Copied!' : 'Copy'}</button>
       </div>
-      <p className="muted small hint">Anyone with this code can join from “Join with invite”.{isOwner ? ' You can set your own code in Server settings.' : ''}</p>
+      <p className="muted small hint">Paste the link in any chat and it turns into a join box. Anyone who opens it can join.{isOwner ? ' You can set your own link ending in Server settings.' : ''}</p>
 
       <label>DIRECT INVITE</label>
       {friends.length === 0 ? <p className="muted">Add friends to send them an invite directly.</p> : (

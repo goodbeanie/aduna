@@ -413,6 +413,8 @@ async function putImg(kind, body, type, token) {
   const info = await call('/invites/my-crew', { token: ivan.token });
   assert.strictEqual(info.invite.name, priv.name);
   assert.strictEqual((await call('/invites/nothing-here', { token: ivan.token })).status, 404);
+  assert.strictEqual((await call('/invites/my-crew')).invite.name, priv.name, 'invite link page works signed out');
+  assert.strictEqual((await call('/invites/nothing-here')).status, 404);
   step('categories and custom invite codes');
 
   // accounts without keys can set them up once, and only once
@@ -793,6 +795,7 @@ async function putImg(kind, body, type, token) {
     assert.strictEqual(r.server.visibility, 'private');
     assert.strictEqual((await call('/servers/join', { method: 'POST', token: dave.token, body: { code: pub.inviteCode } })).status, 403, 'unlisted person is refused');
     assert.strictEqual((await call(`/invites/${pub.inviteCode}`, { token: dave.token })).status, 403, 'invite card hidden too');
+    assert.strictEqual((await call(`/invites/${pub.inviteCode}`)).status, 403, 'private server hidden from signed-out visitors');
     assert.strictEqual((await call('/servers/join', { method: 'POST', token: carol.token, body: { code: pub.inviteCode } })).status, 200, 'existing member is fine');
     assert.strictEqual((await P('/allowed', 'POST', { username: 'nobody-here' })).status, 404);
     assert.strictEqual((await P('/allowed', 'POST', { username: 'alice' })).status, 400, 'owner needs no entry');

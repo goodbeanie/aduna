@@ -9,7 +9,7 @@ import { ServerSettings } from './ServerSettings.jsx';
 import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, UserCard, ProfileEditor, SafetyModal } from './Modals.jsx';
 import { api, connectSocket, emitAck, getToken, setToken } from './api.js';
 import { SettingsScreen } from './Settings.jsx';
-import { InviteContext, INVITE_CODE_RE } from './Invite.jsx';
+import { InviteContext, INVITE_CODE_RE, InvitePage } from './Invite.jsx';
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
@@ -35,10 +35,16 @@ const mergeById = (a, b) => {
 
 const CHANNEL_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone' };
 
+const INVITE_PATH = /^\/invite\/([a-z0-9_-]{3,32})\/?$/i;
+
 export default function App() {
   const [boot, setBoot] = useState('loading');
   const [me, setMe] = useState(null);
   const [privKey, setPrivKey] = useState(null);
+  // opened from an invite link (/invite/<code>): show the join box page first
+  const [invite, setInvite] = useState(() => (INVITE_PATH.exec(location.pathname)?.[1] || '').toLowerCase() || null);
+  const [signingIn, setSigningIn] = useState(false); // a signed-out visitor pressed Join
+  const [openId, setOpenId] = useState(null); // server to open once the app loads
 
   useEffect(() => {
     (async () => {
@@ -52,12 +58,26 @@ export default function App() {
     })();
   }, []);
 
+  const leaveInvite = () => { history.replaceState(null, '', '/app'); setInvite(null); setSigningIn(false); };
+
   if (boot === 'loading') return <div className="splash"><img src="/aduna-icon.png" alt="Aduna" /></div>;
-  if (boot === 'auth') return <Auth onAuthed={(u, k) => { setMe(u); setPrivKey(k); setBoot('ready'); }} />;
-  return <EmojiProvider><Main me={me} setMe={setMe} privKey={privKey} /></EmojiProvider>;
+  if (boot === 'auth' && invite && !signingIn) return <InvitePage code={invite} signedIn={false} onNeedAuth={() => setSigningIn(true)} />;
+  if (boot === 'auth') {
+    return <Auth onAuthed={async (u, k) => {
+      setMe(u); setPrivKey(k);
+      if (invite) { // they pressed Join: finish it as soon as they are signed in
+        try { const { server } = await api('/servers/join', { method: 'POST', body: { code: invite } }); setOpenId(server.id); leaveInvite(); }
+        catch { setSigningIn(false); } // e.g. a private server: the invite page shows why
+      }
+      setBoot('ready');
+    }} />;
+  }
+  if (invite) return <InvitePage code={invite} signedIn onJoined={(sv) => { setOpenId(sv.id); leaveInvite(); }} onClose={leaveInvite} />;
+  return <EmojiProvider><Main me={me} setMe={setMe} privKey={privKey} openServerId={openId} /></EmojiProvider>;
 }
 
-function Main({ me, setMe, privKey }) {
+function Main({ me, setMe, privKey, openServerId }) {
+  const firstOpen = useRef(openServerId); // an invite link just joined this server: start there
   const [servers, setServers] = useState([]);
   const [users, setUsers] = useState({ [me.id]: me });
   const [presence, setPresence] = useState({});
@@ -131,7 +151,7 @@ function Main({ me, setMe, privKey }) {
       addUsers(sv.flatMap((s) => s.members));
       addUsers(conversations.map((c) => c.user));
       setConvos(conversations.map((c) => c.user.id));
-      const first = sv[0];
+      const first = sv.find((x) => x.id === firstOpen.current) || sv[0];
       if (first) setView({ kind: 'server', serverId: first.id, channelId: first.channels[0].id });
       else setView({ kind: 'dm', userId: null });
     })().catch((e) => { if (e.status === 401) logout(); });
@@ -358,9 +378,9 @@ function Main({ me, setMe, privKey }) {
     } catch (e) { alert(e.message); }
   };
 
-  // Direct invite: a normal end-to-end encrypted DM whose envelope carries the code; the receiver's client draws the card.
-  const sendInvite = async (friend, code) => {
-    const enc = await encryptFor(privKey, friend.publicKey, wrapDm('', [], code));
+  // Direct invite: a normal end-to-end encrypted DM containing the invite link; the receiver's client draws the join box.
+  const sendInvite = async (friend, link) => {
+    const enc = await encryptFor(privKey, friend.publicKey, wrapDm(link, [], undefined));
     await emitAck(socketRef.current, 'dm:send', { to: friend.id, ...enc, files: [] });
   };
   const onInviteJoined = (sv) => { setServers((p) => (p.some((x) => x.id === sv.id) ? p : [...p, sv])); addUsers(sv.members); openServer(sv); };

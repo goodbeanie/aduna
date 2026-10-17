@@ -132,7 +132,7 @@ export function ServerSettings({ server, onClose, onSaved }) {
               <label>SERVER NAME</label>
               <input value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
 
-              <label>CUSTOM INVITE CODE</label>
+              <label>CUSTOM INVITE LINK ENDING</label>
               <input className={'code-input ' + codeState.status} value={code} maxLength={32} spellCheck={false} autoCapitalize="none" autoCorrect="off" onChange={(e) => setCode(e.target.value.replace(/\s/g, ''))} aria-describedby="code-hint" />
               <p id="code-hint" className={'code-hint ' + codeState.status} role="status">
                 {codeState.status === 'current' && 'This is your current invite code.'}
@@ -140,7 +140,7 @@ export function ServerSettings({ server, onClose, onSaved }) {
                 {codeState.status === 'free' && 'Available. It becomes your invite code when you save.'}
                 {(codeState.status === 'taken' || codeState.status === 'invalid') && codeState.reason}
               </p>
-              <p className="muted small hint">Changing the code stops the old one from working, including invite cards already sent.</p>
+              <p className="muted small hint">Changing the code stops the old one from working, including invite links already shared.</p>
 
               <label>TAGS</label>
               <TagInput tags={tags} onChange={setTags} />

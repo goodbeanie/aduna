@@ -962,12 +962,19 @@ app.get('/api/servers/:id/invite-check', auth, (req, res) => {
 });
 
 // what an invite card shows: public details of the server a code points to
-app.get('/api/invites/:code', auth, (req, res) => {
+// Open to people who are not signed in: the page at /invite/<code> shows this box to a visitor before they have an account.
+// A signed-in token is still honoured so members and listed people of a private server get the card.
+app.get('/api/invites/:code', (req, res) => {
+  const me = userFromToken((req.headers.authorization || '').replace(/^Bearer /, ''));
+  if (!me) return authLimiter(req, res, () => sendInvite(req, res, null));
+  sendInvite(req, res, me);
+});
+function sendInvite(req, res, me) {
   const s = Object.values(db().servers).find((x) => x.inviteCode === cleanInvite(req.params.code));
   if (!s) return res.status(404).json({ error: 'This invite is no longer valid' });
-  if (!s.members.includes(req.user.id) && !canJoin(s, req.user.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
+  if (!(me && s.members.includes(me.id)) && !canJoin(s, me?.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
   res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, theme: s.theme || null, memberCount: s.members.length } });
-});
+}
 
 // Tags help people find a public server. Up to 5, each 2-20 characters of a-z 0-9 and -, stored lowercase.
 const MAX_TAGS = 5;

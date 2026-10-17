@@ -764,6 +764,12 @@ button { touch-action: manipulation; }
 .invite-card .btn { color: var(--head); } .invite-card .btn.primary { background: var(--ink); color: var(--on-ink); }
 .invite-card.dead, .invite-card.loading { box-shadow: none; } .invite-card.dead .ic-body { padding-top: 14px; }
 .invite-card .error { margin-top: 8px; }
+.invite .invite-url { font-size: 14px; letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* the page behind an invite link: the server's theme colours fill the whole screen */
+.invite-page { min-height: 100%; display: grid; place-items: center; padding: 24px 16px; background: var(--bg2); color: var(--text); }
+.ip-wrap { width: min(420px, 100%); display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.invite-page .invite-card { width: 100%; margin-top: 0; box-shadow: 0 10px 40px var(--shadow); }
+.ip-home { background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; text-decoration: underline; }
 
 /* ---------- Channel presets: voice, rules, announcements ---------- */
 .chan .hash { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; }
