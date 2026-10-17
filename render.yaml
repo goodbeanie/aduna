@@ -1,0 +1,33 @@
+# Render Blueprint: in Render choose New > Blueprint and pick your GitHub repo.
+services:
+  - type: web
+    name: aduna
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      # Neon connection string (Neon dashboard > Connect). Paste it in Render's dashboard.
+      - key: DATABASE_URL
+        sync: false
+      # 64 hex characters. Generate once and KEEP A COPY: without it the data in Neon cannot be read.
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - key: DB_ENCRYPTION_KEY
+        sync: false
+      # optional: GIF search
+      - key: GIPHY_API_KEY
+        sync: false
+      # optional: Cloudflare R2 for images and files (set all four, or none)
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false

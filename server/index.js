@@ -1,0 +1,1133 @@
+const path = require('path');
+const fs = require('fs');
+const http = require('http');
+const crypto = require('crypto');
+const express = require('express');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const { Server } = require('socket.io');
+const store = require('./db');
+const { sniffImage, cleanGif } = require('./images');
+
+const PORT = process.env.PORT || 3000;
+const MAX_MSG = 2000;
+const MAX_CIPHER = 12000;
+
+// ---------- secret ----------
+// JWT_SECRET from the environment, otherwise a random secret kept (encrypted) in the database.
+// It is filled in by start(), before the server accepts connections.
+let SECRET = null;
+
+// ---------- helpers ----------
+const db = () => store.db;
+// drop uploaded images that no profile points at (e.g. left over from a crash mid-upload)
+const referencedImages = () => new Set([
+  ...Object.values(store.db.users).flatMap((u) => [u.avatarImage, u.bannerImage]),
+  ...Object.values(store.db.servers).flatMap((sv) => [sv.iconImage, sv.bannerImage]), // server icon + banner
+  ...Object.values(store.db.emojis).map((e) => e.imageId), // custom emoji pictures live in the same table
+].filter(Boolean));
+const now = () => Date.now();
+const MAX_FILE = 20 * 1024 * 1024;          // largest file a person can attach
+const FILE_SLACK = 4096;                    // DM files are encrypted in the browser, which adds a few bytes
+// How long attachments are kept: files up to LARGE_ATTACHMENT_MB (default 10) for ATTACHMENT_TTL_DAYS (default 14),
+// bigger files for LARGE_ATTACHMENT_TTL_DAYS (default 5) so they don't fill the storage.
+const posNum = (v, fallback) => (Number(v) > 0 ? Number(v) : fallback);
+const ATTACH_RULES = {
+  smallMs: posNum(process.env.ATTACHMENT_TTL_DAYS, 14) * 24 * 3600 * 1000,
+  largeMs: posNum(process.env.LARGE_ATTACHMENT_TTL_DAYS, 5) * 24 * 3600 * 1000,
+  thresholdBytes: posNum(process.env.LARGE_ATTACHMENT_MB, 10) * 1024 * 1024,
+};
+const MAX_ATTACH = 4;
+// Types the client may render inline (as <img>, <video>, <audio> from a blob). Everything else is a download.
+const INLINE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/mp4', 'audio/webm']);
+const GIPHY_KEY = process.env.GIPHY_API_KEY || '';
+const isGifUrl = (u) => {
+  try { const x = new URL(u); return x.protocol === 'https:' && /^(media\d*|i)\.giphy\.com$/.test(x.hostname) && String(u).length < 500; } catch { return false; }
+};
+const dim = (n) => (Number.isInteger(n) && n > 0 && n <= 20000 ? n : undefined);
+const referencedFiles = () => new Set([
+  ...Object.values(store.db.messages).flatMap((m) => (m.attachments || []).map((a) => a.id)),
+  ...Object.values(store.db.dms).flatMap((m) => m.files || []),
+].filter(Boolean));
+
+// Attachments are deleted after ATTACH_RULES (14 days, or 5 days for files over 10 MB) to keep storage small.
+// The message stays; channel attachments are flagged `expired` so clients show a placeholder
+// (DM clients see a 404 for the file and show the same placeholder).
+async function expireOldAttachments() {
+  const gone = new Set(await store.expireFiles(ATTACH_RULES));
+  if (!gone.size) return 0;
+  const changed = [];
+  for (const m of Object.values(store.db.messages)) {
+    let hit = false;
+    for (const a of m.attachments || []) if (a.id && gone.has(a.id) && !a.expired) { a.expired = true; hit = true; }
+    if (hit) changed.push(m);
+  }
+  if (changed.length) store.save();
+  for (const m of changed) io.to('channel:' + m.channelId).emit('message:edited', { kind: 'channel', message: m });
+  return gone.size;
+}
+const runCleanup = async () => { try { await store.pruneFiles(referencedFiles()); await expireOldAttachments(); } catch (e) { console.error(e); } };
+const hex = /^#[0-9a-fA-F]{6}$/;
+const clip = (s, n) => String(s ?? '').slice(0, n);
+
+function publicUser(u) {
+  return {
+    id: u.id,
+    username: u.username,
+    displayName: u.displayName,
+    bio: u.bio,
+    avatarColor: u.avatarColor,
+    avatarEmoji: u.avatarEmoji,
+    avatarLogo: !!u.avatarLogo,
+    links: Array.isArray(u.links) ? u.links : [],
+    usernameChangedAt: u.usernameChangedAt || null,
+    bannerColor: u.bannerColor,
+    avatarImage: u.avatarImage || null,
+    bannerImage: u.bannerImage || null,
+    accentColor: u.accentColor,
+    status: u.status,
+    publicKey: u.publicKey,
+    createdAt: u.createdAt,
+  };
+}
+
+const convoKey = (a, b) => [a, b].sort().join(':');
+const signToken = (u) => jwt.sign({ uid: u.id }, SECRET, { expiresIn: '30d' });
+
+function userFromToken(token) {
+  try {
+    const { uid } = jwt.verify(token, SECRET);
+    return db().users[uid] || null;
+  } catch { return null; }
+}
+
+function serverView(s) {
+  return {
+    id: s.id,
+    name: s.name,
+    ownerId: s.ownerId,
+    inviteCode: s.inviteCode,
+    iconImage: s.iconImage || null,
+    bannerImage: s.bannerImage || null,
+    theme: s.theme || null, // { dark, bg, accent } or null: members see the app fade to it on this server
+    channels: s.channels,
+    members: s.members.map((m) => db().users[m]).filter(Boolean).map(publicUser),
+  };
+}
+
+const online = new Map(); // userId -> socket count
+const isOnline = (uid) => (online.get(uid) || 0) > 0;
+
+// ---------- app ----------
+const app = express();
+// Express 4 does not catch rejected promises from async handlers; this passes them to the error handler.
+const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+// Behind Render's (or any) reverse proxy, req.ip must be the visitor, not the proxy, or rate limits would be shared by everyone.
+if (process.env.TRUST_PROXY !== '0') app.set('trust proxy', 1);
+app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
+app.use(express.json({ limit: '64kb' }));
+
+// naive per-IP rate limit for auth endpoints
+const hits = new Map();
+function authLimiter(req, res, next) {
+  const k = req.ip;
+  const t = now();
+  const arr = (hits.get(k) || []).filter((x) => t - x < 60_000);
+  if (arr.length >= 20) return res.status(429).json({ error: 'Too many attempts, try again in a minute' });
+  arr.push(t);
+  hits.set(k, arr);
+  next();
+}
+
+function auth(req, res, next) {
+  const h = req.headers.authorization || '';
+  const u = userFromToken(h.replace(/^Bearer /, ''));
+  if (!u) return res.status(401).json({ error: 'Unauthorized' });
+  req.user = u;
+  next();
+}
+
+const validKeyBlob = (b) => b && typeof b === 'object' && ['salt', 'iv', 'data'].every((k) => typeof b[k] === 'string' && b[k].length < 4000);
+
+app.post('/api/register', authLimiter, (req, res) => {
+  const { username, password, publicKey, encPrivKey } = req.body || {};
+  if (!/^[a-zA-Z0-9_]{3,20}$/.test(username || '')) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
+  if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  if (typeof publicKey !== 'string' || publicKey.length > 2000) return res.status(400).json({ error: 'Missing public key' });
+  if (!validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing key backup' });
+  const taken = Object.values(db().users).some((u) => u.username.toLowerCase() === username.toLowerCase());
+  if (taken) return res.status(409).json({ error: 'Username already taken' });
+
+  const hues = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e'];
+  const user = {
+    id: store.id(),
+    username,
+    passHash: bcrypt.hashSync(password, 10),
+    displayName: username,
+    bio: '',
+    avatarColor: hues[Math.floor(Math.random() * hues.length)],
+    avatarEmoji: '',
+    bannerColor: '#e3dccb',
+    accentColor: '#2a251e',
+    status: 'online',
+    publicKey,
+    encPrivKey,
+    createdAt: now(),
+  };
+  db().users[user.id] = user;
+
+  store.save();
+  res.json({ token: signToken(user), user: { ...publicUser(user) } });
+});
+
+app.post('/api/login', authLimiter, (req, res) => {
+  const { username, password } = req.body || {};
+  const user = Object.values(db().users).find((u) => u.username.toLowerCase() === String(username || '').toLowerCase());
+  if (!user || !bcrypt.compareSync(String(password || ''), user.passHash)) return res.status(401).json({ error: 'Invalid username or password' });
+  res.json({ token: signToken(user), user: publicUser(user), encPrivKey: user.encPrivKey });
+});
+
+app.get('/api/me', auth, (req, res) => res.json({ user: publicUser(req.user), encPrivKey: req.user.encPrivKey }));
+
+app.put('/api/me/keys', auth, (req, res) => {
+  const { publicKey, encPrivKey } = req.body || {};
+  if (req.user.publicKey || req.user.encPrivKey) return res.status(409).json({ error: 'Keys already set' });
+  if (typeof publicKey !== 'string' || publicKey.length > 2000 || !validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Bad keys' });
+  req.user.publicKey = publicKey;
+  req.user.encPrivKey = encPrivKey;
+  store.save();
+  const view = publicUser(req.user);
+  io.emit('user:update', view);
+  res.json({ user: view });
+});
+
+const USERNAME_COOLDOWN_MS = 7 * 24 * 3600 * 1000; // a username can be changed once a week
+const MAX_LINKS = 5;
+
+// Returns a cleaned list of { label, url }, or throws an Error with a user-facing message.
+function cleanLinks(input) {
+  if (!Array.isArray(input)) throw new Error('Links must be a list');
+  if (input.length > MAX_LINKS) throw new Error(`You can add up to ${MAX_LINKS} links`);
+  const out = [];
+  for (const item of input) {
+    let raw = String(item?.url ?? '').trim();
+    if (!raw) continue;
+    if (raw.length > 200) throw new Error('A link is too long (max 200 characters)');
+    if (!/^[a-z][a-z0-9+.-]*:/i.test(raw)) raw = 'https://' + raw; // "twitter.com/me" -> https://twitter.com/me
+    let url;
+    try { url = new URL(raw); } catch { throw new Error(`"${raw}" is not a valid link`); }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Links must start with http:// or https://');
+    if (!url.hostname.includes('.')) throw new Error(`"${raw}" is not a valid link`);
+    const label = clip(item?.label, 24).trim() || url.hostname.replace(/^www\./, '');
+    out.push({ label, url: url.href });
+  }
+  return out;
+}
+
+app.patch('/api/me', auth, (req, res) => {
+  const u = req.user;
+  const b = req.body || {};
+
+  // Validate everything that can fail first so a rejected request changes nothing.
+  let newLinks;
+  if (b.links !== undefined) {
+    try { newLinks = cleanLinks(b.links); } catch (e) { return res.status(400).json({ error: e.message }); }
+  }
+  let newUsername;
+  if (b.username !== undefined && String(b.username).trim() !== u.username) {
+    newUsername = String(b.username).trim().replace(/^@/, '');
+    if (!/^[a-zA-Z0-9_]{3,20}$/.test(newUsername)) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
+    const wait = (u.usernameChangedAt || 0) + USERNAME_COOLDOWN_MS - now();
+    if (wait > 0) {
+      const when = new Date(u.usernameChangedAt + USERNAME_COOLDOWN_MS).toISOString();
+      return res.status(429).json({ error: 'You can only change your username once every 7 days', availableAt: when });
+    }
+    const taken = Object.values(db().users).some((x) => x.id !== u.id && x.username.toLowerCase() === newUsername.toLowerCase());
+    if (taken) return res.status(409).json({ error: 'Username already taken' });
+  }
+
+  if (newUsername !== undefined) {
+    // Someone who never picked a display name keeps showing their username.
+    if (u.displayName === u.username && (b.displayName === undefined || b.displayName === u.displayName)) { u.displayName = newUsername; delete b.displayName; }
+    u.username = newUsername;
+    u.usernameChangedAt = now();
+  }
+  if (newLinks !== undefined) u.links = newLinks;
+  if (b.avatarLogo !== undefined) u.avatarLogo = !!b.avatarLogo;
+  if (b.displayName !== undefined) u.displayName = clip(b.displayName, 32).trim() || u.username;
+  if (b.bio !== undefined) u.bio = clip(b.bio, 190);
+  if (b.avatarEmoji !== undefined) u.avatarEmoji = clip(b.avatarEmoji, 8);
+  for (const k of ['avatarColor', 'bannerColor', 'accentColor']) if (b[k] !== undefined && hex.test(b[k])) u[k] = b[k];
+  if (b.status !== undefined && ['online', 'idle', 'dnd', 'invisible'].includes(b.status)) u.status = b.status;
+  store.save();
+  const view = publicUser(u);
+  io.emit('user:update', view);
+  broadcastPresence(u.id);
+  res.json({ user: view });
+});
+
+// ----- profile images (avatar / banner) -----
+// The browser resizes and re-encodes the picture before upload; the server still checks the real
+// file signature and dimensions, never the Content-Type header. Images are stored encrypted in the
+// database and served from an unguessable URL, so they work in plain <img> tags.
+const IMAGE_RULES = {
+  avatar: { field: 'avatarImage', maxDim: 500 },
+  banner: { field: 'bannerImage', maxDim: 4096 },
+};
+const uploadHits = new Map();
+function uploadLimiter(req, res, next) {
+  const t = now();
+  const arr = (uploadHits.get(req.user.id) || []).filter((x) => t - x < 60_000);
+  if (arr.length >= 10) return res.status(429).json({ error: 'Too many uploads, try again in a minute' });
+  arr.push(t);
+  uploadHits.set(req.user.id, arr);
+  next();
+}
+const rawImage = express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '1mb' });
+
+async function setProfileImage(u, field, buf) {
+  const old = u[field];
+  u[field] = buf ? await store.putImage(buf) : null;
+  await store.flush(); // make sure the profile points at the new image before the old one is deleted
+  await store.deleteImage(old);
+  const view = publicUser(u);
+  io.emit('user:update', view);
+  return view;
+}
+
+for (const [kind, rule] of Object.entries(IMAGE_RULES)) {
+  app.put(`/api/me/${kind}`, auth, uploadLimiter, rawImage, ah(async (req, res) => {
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a PNG, JPEG or WebP image' });
+    const info = sniffImage(buf);
+    if (!info) return res.status(400).json({ error: 'That file is not a valid PNG, JPEG or WebP image' });
+    if (info.width > rule.maxDim || info.height > rule.maxDim) return res.status(400).json({ error: `Image is too large (max ${rule.maxDim}px per side)` });
+    res.json({ user: await setProfileImage(req.user, rule.field, buf) });
+  }));
+  app.delete(`/api/me/${kind}`, auth, ah(async (req, res) => {
+    res.json({ user: await setProfileImage(req.user, rule.field, null) });
+  }));
+}
+
+app.get('/api/images/:id', ah(async (req, res) => {
+  const buf = await store.getImage(req.params.id);
+  const info = buf && sniffImage(buf);
+  if (!info) return res.status(404).json({ error: 'Not found' });
+  res.set({
+    'Content-Type': info.mime,
+    'Cache-Control': 'public, max-age=31536000, immutable', // a new upload gets a new id
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'",
+  });
+  res.send(buf);
+}));
+
+// ----- custom emoji -----
+// An emoji is a small picture with a name. db.emojis[id] = { id, name, ownerId, imageId, mime, animated,
+// width, height, hash, createdAt, reports: [userId], disabled }. Each user has a library
+// (user.emojiLib = [{ id, name }]) of emoji they uploaded or saved from other people. Messages refer
+// to an emoji as <:name:id>, reactions as c:id. Pictures are served from an unguessable URL, like
+// profile pictures, so they work in plain <img> tags.
+const EMOJI = { maxBytes: 256 * 1024, minDim: 16, maxDim: 512, maxRatio: 2, maxOwned: 50, maxLib: 100, reportsToDisable: 3, maxStrikes: 2 };
+const EMOJI_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+// Names are checked against this list after removing look-alike characters. Short words only match a
+// whole word (so "cucumber" is fine); longer ones match anywhere. Extend it with EMOJI_BLOCKED_WORDS=a,b,c
+const BLOCKED_WORDS = ['nazi', 'hitler', 'heil', 'swastika', 'kkk', 'porn', 'nsfw', 'hentai', 'rape', 'rapist', 'nude', 'nudes', 'cum', 'dick', 'cock', 'pussy', 'whore', 'slut', 'fag', 'faggot', 'nigger', 'nigga', 'retard', 'kys', 'killyourself', 'suicide',
+  ...String(process.env.EMOJI_BLOCKED_WORDS || '').toLowerCase().split(',').map((w) => w.trim()).filter(Boolean)];
+function checkEmojiName(name) {
+  if (!/^[a-z0-9_]{2,32}$/.test(name)) return 'Names are 2-32 characters: lowercase letters, numbers and underscores';
+  const fold = (s) => s.replace(/0/g, 'o').replace(/[1!|]/g, 'i').replace(/3/g, 'e').replace(/[4@]/g, 'a').replace(/[5$]/g, 's').replace(/7/g, 't');
+  const tokens = name.split('_').map(fold);
+  const joined = tokens.join('');
+  for (const w of BLOCKED_WORDS) if (tokens.includes(w) || (w.length >= 5 && joined.includes(w))) return 'That name is not allowed';
+  return null;
+}
+const liveEmoji = (id) => { const e = db().emojis[id]; return e && !e.disabled ? e : null; };
+const ownedBy = (uid) => Object.values(db().emojis).filter((e) => e.ownerId === uid);
+const emojiView = (e, uid, alias) => ({ id: e.id, name: alias || e.name, animated: e.animated, w: e.width, h: e.height, mine: e.ownerId === uid });
+const libOf = (u) => (u.emojiLib || (u.emojiLib = []));
+const rawEmoji = express.raw({ type: EMOJI_TYPES, limit: EMOJI.maxBytes });
+
+app.get('/api/emoji/mine', auth, (req, res) => {
+  const lib = libOf(req.user);
+  const keep = lib.filter((x) => liveEmoji(x.id)); // drop entries whose emoji was deleted or removed after reports
+  if (keep.length !== lib.length) { req.user.emojiLib = keep; store.save(); }
+  res.json({ emoji: keep.map((x) => emojiView(db().emojis[x.id], req.user.id, x.name)), limits: { owned: EMOJI.maxOwned, library: EMOJI.maxLib, bytes: EMOJI.maxBytes } });
+});
+
+// Every check runs here: the browser's own checks are only for quick feedback.
+app.put('/api/emoji', auth, uploadLimiter, rawEmoji, ah(async (req, res) => {
+  const u = req.user;
+  const fail = (status, error, extra = {}) => res.status(status).json({ error, ...extra });
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) return fail(400, 'Choose a PNG, JPEG, WebP or GIF image');
+  const name = String(req.query.name || '').trim().toLowerCase();
+  const nameErr = checkEmojiName(name);
+  if (nameErr) return fail(400, nameErr);
+  const mine = ownedBy(u.id);
+  if (mine.filter((e) => e.disabled).length >= EMOJI.maxStrikes) return fail(403, 'Uploads are turned off for your account because your emoji were reported');
+  if (mine.filter((e) => !e.disabled).length >= EMOJI.maxOwned) return fail(400, `You can upload up to ${EMOJI.maxOwned} emoji`);
+  if (libOf(u).length >= EMOJI.maxLib) return fail(400, `Your emoji list is full (${EMOJI.maxLib})`);
+  if (libOf(u).some((x) => x.name === name)) return fail(409, `You already have an emoji named :${name}:`);
+
+  let data = buf, info;
+  const gif = buf.toString('latin1', 0, 3) === 'GIF';
+  if (gif) {
+    info = cleanGif(buf);
+    if (!info) return fail(400, 'That GIF is damaged or has too many frames (max 150)');
+    data = info.buf;
+    info.mime = 'image/gif';
+  } else {
+    info = sniffImage(buf);
+    if (!info) return fail(400, 'That file is not a valid PNG, JPEG, WebP or GIF image');
+  }
+  if (info.width < EMOJI.minDim || info.height < EMOJI.minDim) return fail(400, `Too small: emoji must be at least ${EMOJI.minDim}x${EMOJI.minDim} pixels`);
+  if (info.width > EMOJI.maxDim || info.height > EMOJI.maxDim) return fail(400, `Too large: emoji can be at most ${EMOJI.maxDim}x${EMOJI.maxDim} pixels`);
+  if (Math.max(info.width, info.height) / Math.min(info.width, info.height) > EMOJI.maxRatio) return fail(400, 'Emoji should be roughly square (no more than twice as wide as tall)');
+  if (data.length > EMOJI.maxBytes) return fail(400, 'Emoji is too large (max 256 KB)');
+
+  const hash = crypto.createHash('sha256').update(data).digest('hex');
+  const same = Object.values(db().emojis).find((e) => e.hash === hash);
+  if (same?.disabled) return fail(400, 'This image was removed after reports and cannot be uploaded again');
+  if (same) return fail(409, 'Someone already uploaded this exact image', { existing: emojiView(same, u.id), alreadySaved: libOf(u).some((x) => x.id === same.id) });
+
+  const imageId = await store.putImage(data);
+  const dup = Object.values(db().emojis).find((e) => e.hash === hash); // someone may have uploaded it while we were saving
+  if (dup) { await store.deleteImage(imageId); return fail(409, 'Someone already uploaded this exact image', { existing: emojiView(dup, u.id), alreadySaved: libOf(u).some((x) => x.id === dup.id) }); }
+  const e = { id: store.id(), name, ownerId: u.id, imageId, mime: info.mime, animated: gif && info.frames > 1,
+    width: info.width, height: info.height, hash, createdAt: now(), reports: [], disabled: false };
+  db().emojis[e.id] = e;
+  libOf(u).push({ id: e.id, name });
+  await store.flush();
+  res.json({ emoji: emojiView(e, u.id) });
+}));
+
+app.post('/api/emoji/:id/save', auth, (req, res) => {
+  const e = liveEmoji(req.params.id);
+  if (!e) return res.status(404).json({ error: 'That emoji is no longer available' });
+  const lib = libOf(req.user);
+  const have = lib.find((x) => x.id === e.id);
+  if (have) return res.json({ emoji: emojiView(e, req.user.id, have.name) });
+  if (lib.length >= EMOJI.maxLib) return res.status(400).json({ error: `Your emoji list is full (${EMOJI.maxLib})` });
+  let name = e.name, n = 2; // keep names unique inside your own list
+  while (lib.some((x) => x.name === name)) name = e.name.slice(0, 29) + '_' + n++;
+  lib.push({ id: e.id, name });
+  store.save();
+  res.json({ emoji: emojiView(e, req.user.id, name) });
+});
+
+// the owner deletes the emoji for everyone; anyone else just removes it from their own list
+app.delete('/api/emoji/:id', auth, ah(async (req, res) => {
+  const e = db().emojis[req.params.id];
+  if (!e) return res.json({ ok: true });
+  if (e.ownerId === req.user.id && !e.disabled) {
+    delete db().emojis[e.id];
+    await store.deleteImage(e.imageId);
+    for (const x of Object.values(db().users)) if (x.emojiLib) x.emojiLib = x.emojiLib.filter((l) => l.id !== e.id);
+  } else req.user.emojiLib = libOf(req.user).filter((l) => l.id !== e.id);
+  store.save();
+  res.json({ ok: true });
+}));
+
+// Enough different people reporting an emoji switches it off for everyone. The picture is deleted but
+// its fingerprint is kept, so the same image cannot be uploaded again.
+app.post('/api/emoji/:id/report', auth, ah(async (req, res) => {
+  const e = db().emojis[req.params.id];
+  if (!e) return res.status(404).json({ error: 'Not found' });
+  if (e.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot report your own emoji' });
+  if (!e.reports.includes(req.user.id)) e.reports.push(req.user.id);
+  req.user.emojiLib = libOf(req.user).filter((l) => l.id !== e.id);
+  if (!e.disabled && e.reports.length >= EMOJI.reportsToDisable) {
+    e.disabled = true;
+    const gone = e.imageId;
+    e.imageId = null;
+    await store.deleteImage(gone);
+    for (const x of Object.values(db().users)) if (x.emojiLib) x.emojiLib = x.emojiLib.filter((l) => l.id !== e.id);
+  }
+  store.save();
+  res.json({ ok: true, disabled: e.disabled });
+}));
+
+app.get('/api/emoji/:id/image', ah(async (req, res) => {
+  const e = liveEmoji(req.params.id);
+  const buf = e && await store.getImage(e.imageId);
+  if (!buf) return res.status(404).json({ error: 'Not found' });
+  res.set({ 'Content-Type': e.mime, 'Cache-Control': 'public, max-age=604800, immutable', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" });
+  res.send(buf);
+}));
+
+// ----- message attachments -----
+// Files are uploaded first (raw bytes), then referenced by id when the message is sent. For DMs the
+// browser encrypts the bytes with the conversation key, so the server only ever holds ciphertext.
+const fileHits = new Map();
+function fileLimiter(req, res, next) {
+  const t = now();
+  const arr = (fileHits.get(req.user.id) || []).filter((x) => t - x < 60_000);
+  if (arr.length >= 20) return res.status(429).json({ error: 'Too many uploads, try again in a minute' });
+  arr.push(t);
+  fileHits.set(req.user.id, arr);
+  next();
+}
+// scope string a user may upload to / read from, or null
+function fileScope(uid, kind, target) {
+  if (kind === 'channel') {
+    const f = findChannel(target);
+    return f && f.server.members.includes(uid) ? 'channel:' + f.channel.id : null;
+  }
+  if (kind === 'dm') return db().users[target] && target !== uid && areFriends(uid, target) ? 'dm:' + convoKey(uid, target) : null;
+  return null;
+}
+function canReadScope(uid, scope) {
+  const [kind, rest] = String(scope).split(/:(.*)/s);
+  if (kind === 'channel') { const f = findChannel(rest); return !!f && f.server.members.includes(uid); }
+  if (kind === 'dm') return rest.split(':').includes(uid);
+  return false;
+}
+app.post('/api/files', auth, fileLimiter, express.raw({ type: '*/*', limit: MAX_FILE + FILE_SLACK }), ah(async (req, res) => {
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a file to send' });
+  const scope = fileScope(req.user.id, req.query.kind, String(req.query.target || ''));
+  if (!scope) return res.status(403).json({ error: 'You cannot send files here' });
+  if (req.query.kind !== 'dm' && buf.length > MAX_FILE) return res.status(413).json({ error: 'File is too large (max 20 MB)' });
+  const fid = await store.putFile(buf, { owner: req.user.id, scope, size: buf.length });
+  res.json({ id: fid });
+}));
+app.get('/api/files/:id', auth, ah(async (req, res) => {
+  const meta = await store.fileMeta(req.params.id);
+  if (!meta || !canReadScope(req.user.id, meta.scope) || (!meta.attached && meta.owner !== req.user.id)) return res.status(404).json({ error: 'Not found' });
+  res.set({
+    'Content-Type': 'application/octet-stream',
+    'Cache-Control': 'private, max-age=86400, immutable',
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'",
+    'Content-Disposition': 'attachment',
+  });
+  const bytes = await store.getFileBytes(req.params.id);
+  if (!bytes) return res.status(404).json({ error: 'Not found' });
+  res.send(bytes);
+}));
+app.delete('/api/files/:id', auth, ah(async (req, res) => { // discard an upload that was never sent
+  const meta = await store.fileMeta(req.params.id);
+  if (meta && meta.owner === req.user.id && !meta.attached) await store.deleteFiles([req.params.id]);
+  res.json({ ok: true });
+}));
+
+// GIF search is proxied so the API key stays on the server. Enabled by setting GIPHY_API_KEY.
+const gifHits = new Map();
+app.get('/api/gifs/config', auth, (_req, res) => res.json({ enabled: !!GIPHY_KEY }));
+app.get('/api/gifs', auth, async (req, res) => {
+  if (!GIPHY_KEY) return res.status(503).json({ error: 'GIF search is not configured' });
+  const t = now();
+  const arr = (gifHits.get(req.user.id) || []).filter((x) => t - x < 60_000);
+  if (arr.length >= 90) return res.status(429).json({ error: 'Slow down' }); // scrolling loads a page at a time
+  arr.push(t); gifHits.set(req.user.id, arr);
+  const q = clip(req.query.q, 60).trim();
+  const offset = Math.min(450, Math.max(0, parseInt(req.query.offset, 10) || 0)); // GIPHY allows paging to 499
+  const limit = 24;
+  const url = `https://api.giphy.com/v1/gifs/${q ? 'search' : 'trending'}?api_key=${encodeURIComponent(GIPHY_KEY)}&limit=${limit}&offset=${offset}&rating=pg-13${q ? '&q=' + encodeURIComponent(q) : ''}`;
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) throw new Error('bad status');
+    const body = await r.json();
+    const raw = body.data || [];
+    const gifs = raw.map((g) => {
+      const im = g.images?.fixed_height || {};
+      return { id: String(g.id), title: clip(g.title, 80), url: im.url, w: Number(im.width), h: Number(im.height) };
+    }).filter((g) => isGifUrl(g.url) && g.w > 0 && g.h > 0);
+    const total = Number(body.pagination?.total_count) || 0;
+    const reached = offset + raw.length;
+    res.json({ gifs, next: raw.length === limit && reached < Math.min(total || Infinity, 500) ? reached : null });
+  } catch { res.status(502).json({ error: 'Could not reach the GIF service' }); }
+});
+
+app.get('/api/users/:id', auth, (req, res) => {
+  const u = db().users[req.params.id];
+  if (!u) return res.status(404).json({ error: 'Not found' });
+  res.json({ user: publicUser(u) });
+});
+
+// ----- friends -----
+// db.friendships[convoKey(a, b)] = { from, to, status: 'pending' | 'friends', createdAt }
+const friendship = (a, b) => db().friendships[convoKey(a, b)];
+const areFriends = (a, b) => friendship(a, b)?.status === 'friends';
+const notifyFriends = (...ids) => ids.forEach((id) => io.to('user:' + id).emit('friends:changed'));
+
+function friendsView(uid) {
+  const out = { friends: [], incoming: [], outgoing: [] };
+  for (const f of Object.values(db().friendships)) {
+    if (f.from !== uid && f.to !== uid) continue;
+    const other = db().users[f.from === uid ? f.to : f.from];
+    if (!other) continue;
+    if (f.status === 'friends') out.friends.push(publicUser(other));
+    else if (f.to === uid) out.incoming.push({ user: publicUser(other), createdAt: f.createdAt });
+    else out.outgoing.push({ user: publicUser(other), createdAt: f.createdAt });
+  }
+  out.friends.sort((a, b) => a.displayName.localeCompare(b.displayName));
+  out.incoming.sort((a, b) => b.createdAt - a.createdAt);
+  out.outgoing.sort((a, b) => b.createdAt - a.createdAt);
+  return out;
+}
+
+app.get('/api/friends', auth, (req, res) => res.json(friendsView(req.user.id)));
+
+app.post('/api/friends/request', auth, (req, res) => {
+  const me = req.user;
+  const name = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
+  if (!name) return res.status(400).json({ error: 'Enter a username' });
+  const target = Object.values(db().users).find((u) => u.username.toLowerCase() === name);
+  if (!target) return res.status(404).json({ error: "We couldn't find anyone with that username" });
+  if (target.id === me.id) return res.status(400).json({ error: "You can't add yourself" });
+
+  const f = friendship(me.id, target.id);
+  if (f?.status === 'friends') return res.status(400).json({ error: `You're already friends with ${target.displayName}` });
+  if (f && f.from === me.id) return res.status(400).json({ error: 'You already sent them a request' });
+  if (f) { // they already asked you: that's a yes
+    f.status = 'friends';
+    store.save();
+    notifyFriends(me.id, target.id);
+    return res.json({ result: 'friends', user: publicUser(target) });
+  }
+  const pendingOut = Object.values(db().friendships).filter((x) => x.from === me.id && x.status === 'pending').length;
+  if (pendingOut >= 50) return res.status(400).json({ error: 'Too many pending requests' });
+  db().friendships[convoKey(me.id, target.id)] = { from: me.id, to: target.id, status: 'pending', createdAt: now() };
+  store.save();
+  notifyFriends(me.id, target.id);
+  res.json({ result: 'sent', user: publicUser(target) });
+});
+
+app.post('/api/friends/:id/accept', auth, (req, res) => {
+  const f = friendship(req.user.id, req.params.id);
+  if (!f || f.status !== 'pending' || f.to !== req.user.id) return res.status(404).json({ error: 'No request from that user' });
+  f.status = 'friends';
+  store.save();
+  notifyFriends(f.from, f.to);
+  res.json({ ok: true });
+});
+
+// decline an incoming request, cancel an outgoing one, or remove a friend
+app.delete('/api/friends/:id', auth, (req, res) => {
+  const key = convoKey(req.user.id, req.params.id);
+  const f = db().friendships[key];
+  if (!f) return res.status(404).json({ error: 'Not found' });
+  delete db().friendships[key];
+  store.save();
+  notifyFriends(f.from, f.to);
+  res.json({ ok: true });
+});
+
+// ----- servers & channels -----
+const myServers = (uid) => Object.values(db().servers).filter((s) => s.members.includes(uid));
+
+app.get('/api/servers', auth, (req, res) => res.json({ servers: myServers(req.user.id).map(serverView) }));
+
+app.post('/api/servers', auth, (req, res) => {
+  const name = clip(req.body?.name, 40).trim();
+  if (!name) return res.status(400).json({ error: 'Name required' });
+  const s = { id: store.id(), name, ownerId: req.user.id, inviteCode: store.inviteCode(), members: [req.user.id],
+    channels: [{ id: store.id(), name: 'general' }] };
+  db().servers[s.id] = s;
+  store.save();
+  joinRooms(req.user.id);
+  res.json({ server: serverView(s) });
+});
+
+app.post('/api/servers/join', auth, (req, res) => {
+  const code = String(req.body?.code || '').trim().toLowerCase();
+  const s = Object.values(db().servers).find((x) => x.inviteCode === code);
+  if (!s) return res.status(404).json({ error: 'Invalid invite code' });
+  if (!s.members.includes(req.user.id)) {
+    s.members.push(req.user.id);
+    store.save();
+    joinRooms(req.user.id);
+    io.to('server:' + s.id).emit('server:update', serverView(s));
+  }
+  res.json({ server: serverView(s) });
+});
+
+app.post('/api/servers/:id/channels', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || s.ownerId !== req.user.id) return res.status(403).json({ error: 'Only the server owner can add channels' });
+  const name = clip(req.body?.name, 30).toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!name) return res.status(400).json({ error: 'Invalid channel name' });
+  if (s.channels.length >= 30) return res.status(400).json({ error: 'Channel limit reached' });
+  s.channels.push({ id: store.id(), name });
+  store.save();
+  io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ server: serverView(s) });
+});
+
+app.post('/api/servers/:id/leave', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  s.members = s.members.filter((m) => m !== req.user.id);
+  if (s.ownerId === req.user.id) {
+    if (s.members.length) s.ownerId = s.members[0];
+    else { delete db().servers[s.id]; store.deleteImage(s.iconImage).catch(() => {}); store.deleteImage(s.bannerImage).catch(() => {}); }
+  }
+  store.save();
+  for (const sock of userSockets(req.user.id)) { sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id)); }
+  if (db().servers[s.id]) io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ ok: true });
+});
+
+// ----- server settings (owner only): name, icon, banner, theme -----
+const SERVER_IMAGE_RULES = {
+  icon: { field: 'iconImage', maxDim: 512 },
+  banner: { field: 'bannerImage', maxDim: 4096 },
+};
+// A server theme is just the three seeds themes.js builds a whole palette from.
+function cleanServerTheme(t) {
+  if (t === null) return null;
+  if (!t || typeof t !== 'object' || typeof t.dark !== 'boolean' || !hex.test(t.bg) || !hex.test(t.accent)) return undefined;
+  return { dark: t.dark, bg: t.bg.toLowerCase(), accent: t.accent.toLowerCase() };
+}
+const ownedServer = (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
+  if (s.ownerId !== req.user.id) { res.status(403).json({ error: 'Only the server owner can change server settings' }); return null; }
+  return s;
+};
+const broadcastServer = (s) => { const view = serverView(s); io.to('server:' + s.id).emit('server:update', view); return view; };
+
+app.patch('/api/servers/:id', auth, (req, res) => {
+  const s = ownedServer(req, res);
+  if (!s) return;
+  const b = req.body || {};
+  if (b.name !== undefined) {
+    const name = clip(b.name, 40).trim();
+    if (!name) return res.status(400).json({ error: 'Name required' });
+    s.name = name;
+  }
+  if (b.theme !== undefined) {
+    const theme = cleanServerTheme(b.theme);
+    if (theme === undefined) return res.status(400).json({ error: 'Invalid theme' });
+    s.theme = theme;
+  }
+  store.save();
+  res.json({ server: broadcastServer(s) });
+});
+
+async function setServerImage(s, field, buf) {
+  const old = s[field];
+  s[field] = buf ? await store.putImage(buf) : null;
+  await store.flush(); // the server must point at the new image before the old one is deleted
+  await store.deleteImage(old);
+  return broadcastServer(s);
+}
+
+for (const [kind, rule] of Object.entries(SERVER_IMAGE_RULES)) {
+  app.put(`/api/servers/:id/${kind}`, auth, uploadLimiter, rawImage, ah(async (req, res) => {
+    const s = ownedServer(req, res);
+    if (!s) return;
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a PNG, JPEG or WebP image' });
+    const info = sniffImage(buf);
+    if (!info) return res.status(400).json({ error: 'That file is not a valid PNG, JPEG or WebP image' });
+    if (info.width > rule.maxDim || info.height > rule.maxDim) return res.status(400).json({ error: `Image is too large (max ${rule.maxDim}px per side)` });
+    res.json({ server: await setServerImage(s, rule.field, buf) });
+  }));
+  app.delete(`/api/servers/:id/${kind}`, auth, ah(async (req, res) => {
+    const s = ownedServer(req, res);
+    if (!s) return;
+    res.json({ server: await setServerImage(s, rule.field, null) });
+  }));
+}
+
+// ----- messages -----
+function findChannel(channelId) {
+  for (const s of Object.values(db().servers)) {
+    const c = s.channels.find((x) => x.id === channelId);
+    if (c) return { server: s, channel: c };
+  }
+  return null;
+}
+
+app.get('/api/channels/:id/messages', auth, (req, res) => {
+  const f = findChannel(req.params.id);
+  if (!f || !f.server.members.includes(req.user.id)) return res.status(403).json({ error: 'Forbidden' });
+  const list = Object.values(db().messages).filter((m) => m.channelId === f.channel.id).sort((a, b) => a.createdAt - b.createdAt).slice(-100);
+  res.json({ messages: list });
+});
+
+app.get('/api/dms', auth, (req, res) => {
+  const me = req.user.id;
+  const latest = new Map();
+  for (const m of Object.values(db().dms)) {
+    if (m.from !== me && m.to !== me) continue;
+    const other = m.from === me ? m.to : m.from;
+    if (!latest.has(other) || latest.get(other).createdAt < m.createdAt) latest.set(other, m);
+  }
+  const convos = [...latest.entries()].sort((a, b) => b[1].createdAt - a[1].createdAt)
+    .map(([uid, last]) => ({ user: publicUser(db().users[uid]), last })).filter((c) => c.user.id);
+  res.json({ conversations: convos });
+});
+
+app.get('/api/dms/:userId/messages', auth, (req, res) => {
+  if (!db().users[req.params.userId]) return res.status(404).json({ error: 'Not found' });
+  const key = convoKey(req.user.id, req.params.userId);
+  const list = Object.values(db().dms).filter((m) => m.convo === key).sort((a, b) => a.createdAt - b.createdAt).slice(-100);
+  res.json({ messages: list });
+});
+
+app.get('/api/presence', auth, (req, res) => {
+  const out = {};
+  for (const u of Object.values(db().users)) out[u.id] = isOnline(u.id) && u.status !== 'invisible' ? u.status : 'offline';
+  res.json({ presence: out });
+});
+
+// ICE (STUN/TURN) servers for calls. This must be registered before the /api 404 handler below.
+app.get('/api/call/config', auth, (_req, res) => res.json({ iceServers: iceServers() }));
+app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
+
+// JSON errors instead of Express's default HTML page (oversized uploads, malformed JSON, ...)
+app.use((err, req, res, _next) => {
+  if (err.type === 'entity.too.large') return res.status(413).json({ error: req.path.startsWith('/api/emoji') ? 'Emoji is too large (max 256 KB)' : 'File is too large (max 20 MB, or 1 MB for profile pictures)' });
+  if (err.code === 'STORAGE_FULL') return res.status(507).json({ error: 'Uploads are paused: the storage limit has been reached. Try again later.' });
+  if (err.status && err.status < 500) return res.status(err.status).json({ error: 'Bad request' });
+  console.error(err);
+  res.status(500).json({ error: 'Server error' });
+});
+
+// ----- static client -----
+const dist = path.join(__dirname, '..', 'client', 'dist');
+if (fs.existsSync(dist)) {
+  app.use(express.static(dist));
+  app.get(/^\/(?!api|socket\.io).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
+}
+
+// ---------- sockets ----------
+const httpServer = http.createServer(app);
+const io = new Server(httpServer, { cors: { origin: false } });
+
+const userSockets = (uid) => [...io.sockets.sockets.values()].filter((s) => s.data.uid === uid);
+
+function joinRooms(uid) {
+  for (const sock of userSockets(uid)) {
+    sock.join('user:' + uid);
+    for (const s of myServers(uid)) {
+      sock.join('server:' + s.id);
+      s.channels.forEach((c) => sock.join('channel:' + c.id));
+    }
+  }
+}
+
+function broadcastPresence(uid) {
+  const u = db().users[uid];
+  if (!u) return;
+  io.emit('presence', { userId: uid, status: isOnline(uid) && u.status !== 'invisible' ? u.status : 'offline' });
+}
+
+io.use((socket, next) => {
+  const u = userFromToken(socket.handshake.auth?.token);
+  if (!u) return next(new Error('unauthorized'));
+  socket.data.uid = u.id;
+  next();
+});
+
+// ----- calls (1:1 voice / video in DMs) -----
+// The server only rings, tracks who is on a call and relays signalling. Media flows directly between
+// the two browsers (WebRTC, encrypted with DTLS-SRTP). The signalling itself (SDP and ICE) is
+// encrypted in the browser with the conversation key, so the server cannot read or alter it.
+const RING_MS = Number(process.env.CALL_RING_MS) || 45_000;
+const calls = new Map(); // callId -> { id, a (caller), b (callee), video, state: 'ringing' | 'active', timer }
+const callOf = (uid) => [...calls.values()].find((c) => c.a === uid || c.b === uid);
+function endCall(c, reason) {
+  if (!calls.delete(c.id)) return;
+  clearTimeout(c.timer);
+  io.to('user:' + c.a).to('user:' + c.b).emit('call:ended', { callId: c.id, reason });
+}
+function iceServers() {
+  try { const v = JSON.parse(process.env.ICE_SERVERS || ''); if (Array.isArray(v)) return v; } catch {}
+  return [{ urls: 'stun:stun.l.google.com:19302' }];
+}
+
+io.on('connection', (socket) => {
+  const uid = socket.data.uid;
+  online.set(uid, (online.get(uid) || 0) + 1);
+  joinRooms(uid);
+  broadcastPresence(uid);
+  // a call that is still ringing is shown again if this device connects (or reconnects) after it started
+  const ringing = [...calls.values()].find((c) => c.b === uid && c.state === 'ringing');
+  if (ringing) socket.emit('call:incoming', { callId: ringing.id, from: ringing.a, video: ringing.video });
+
+  // flood control: 8 events / 5s
+  let bucket = [];
+  const allowed = () => {
+    const t = now();
+    bucket = bucket.filter((x) => t - x < 5000);
+    if (bucket.length >= 8) return false;
+    bucket.push(t);
+    return true;
+  };
+
+  // Checks attachments on a channel message. File ids must be uploads by this user for this channel
+  // that no message uses yet; GIFs must come from the GIF host. Returns null if anything is wrong.
+  const buildAttachments = async (list, who, scope) => {
+    if (list === undefined || list === null) return [];
+    if (!Array.isArray(list) || list.length > MAX_ATTACH) return null;
+    const out = [], used = new Set();
+    for (const a of list) {
+      if (a?.gif) {
+        if (!isGifUrl(a.url) || !dim(a.w) || !dim(a.h)) return null;
+        out.push({ gif: true, url: a.url, w: a.w, h: a.h, title: clip(a.title, 80) });
+        continue;
+      }
+      const meta = typeof a?.id === 'string' && !used.has(a.id) && await store.fileMeta(a.id);
+      if (!meta || meta.owner !== who || meta.scope !== scope || meta.attached) return null;
+      used.add(a.id);
+      out.push({ id: a.id, name: clip(a.name, 120) || 'file', size: meta.size, type: INLINE_TYPES.has(a.type) ? a.type : 'application/octet-stream', w: dim(a.w), h: dim(a.h) });
+    }
+    return out;
+  };
+
+  const validReply = (collection, replyTo, check) => {
+    if (!replyTo) return null;
+    const m = collection[replyTo];
+    return m && check(m) ? replyTo : null;
+  };
+
+  socket.on('message:send', async (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!allowed()) return reply({ error: 'Slow down' });
+    const content = clip(p?.content, MAX_MSG).trim();
+    const f = findChannel(p?.channelId);
+    if (!f || !f.server.members.includes(uid)) return reply({ error: 'Cannot send' });
+    let atts;
+    try { atts = await buildAttachments(p.attachments, uid, 'channel:' + f.channel.id); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
+    if (atts === null) return reply({ error: 'Bad attachment' });
+    if (!content && !atts.length) return reply({ error: 'Cannot send' });
+    try { await store.markAttached(atts.map((a) => a.id).filter(Boolean)); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
+    const msg = {
+      id: store.id(), channelId: f.channel.id, serverId: f.server.id, authorId: uid, content, attachments: atts,
+      replyTo: validReply(db().messages, p.replyTo, (m) => m.channelId === f.channel.id),
+      reactions: {}, createdAt: now(),
+    };
+    db().messages[msg.id] = msg;
+    store.save();
+    io.to('channel:' + f.channel.id).emit('message:new', msg);
+    reply({ ok: true });
+  });
+
+  // DMs: server only ever sees ciphertext + iv
+  socket.on('dm:send', async (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!allowed()) return reply({ error: 'Slow down' });
+    const to = db().users[p?.to];
+    if (!to || to.id === uid) return reply({ error: 'Cannot send' });
+    if (!areFriends(uid, to.id)) return reply({ error: 'You can only message friends' });
+    if (!to.publicKey) return reply({ error: 'They have not set up encryption yet' });
+    if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > MAX_CIPHER || p.iv.length > 64)
+      return reply({ error: 'Bad payload' });
+    const key = convoKey(uid, to.id);
+    let files = [];
+    if (p.files !== undefined) {
+      if (!Array.isArray(p.files) || p.files.length > MAX_ATTACH || new Set(p.files).size !== p.files.length) return reply({ error: 'Bad attachment' });
+      try {
+        for (const fid of p.files) {
+          const meta = typeof fid === 'string' && await store.fileMeta(fid);
+          if (!meta || meta.owner !== uid || meta.scope !== 'dm:' + key || meta.attached) return reply({ error: 'Bad attachment' });
+        }
+        files = p.files;
+        await store.markAttached(files);
+      } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
+    }
+    const msg = {
+      id: store.id(), convo: key, from: uid, to: to.id, ciphertext: p.ciphertext, iv: p.iv, files,
+      replyTo: validReply(db().dms, p.replyTo, (m) => m.convo === key),
+      reactions: {}, createdAt: now(),
+    };
+    db().dms[msg.id] = msg;
+    store.save();
+    io.to('user:' + uid).to('user:' + to.id).emit('dm:new', msg);
+    reply({ ok: true });
+  });
+
+  socket.on('reaction:toggle', (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!allowed()) return reply({ error: 'Slow down' });
+    const custom = /^c:[0-9a-f]{16}$/.test(String(p?.emoji));
+    const emoji = custom ? p.emoji : clip(p?.emoji, 8);
+    if (!emoji || (custom && !liveEmoji(emoji.slice(2)))) return reply({ error: 'Bad emoji' });
+    let msg, rooms;
+    if (p.kind === 'channel') {
+      msg = db().messages[p.messageId];
+      const f = msg && findChannel(msg.channelId);
+      if (!f || !f.server.members.includes(uid)) return reply({ error: 'Forbidden' });
+      rooms = ['channel:' + msg.channelId];
+    } else if (p.kind === 'dm') {
+      msg = db().dms[p.messageId];
+      if (!msg || (msg.from !== uid && msg.to !== uid)) return reply({ error: 'Forbidden' });
+      rooms = ['user:' + msg.from, 'user:' + msg.to];
+    } else return reply({ error: 'Bad kind' });
+
+    const list = msg.reactions[emoji] || (msg.reactions[emoji] = []);
+    const i = list.indexOf(uid);
+    if (i >= 0) list.splice(i, 1); else list.push(uid);
+    if (!list.length) delete msg.reactions[emoji];
+    if (Object.keys(msg.reactions).length > 20) { list.splice(list.indexOf(uid), 1); if (!list.length) delete msg.reactions[emoji]; return reply({ error: 'Too many reactions' }); }
+    store.save();
+    let target = io;
+    rooms.forEach((r) => { target = target.to(r); });
+    target.emit('reaction:update', { kind: p.kind, messageId: msg.id, reactions: msg.reactions });
+    reply({ ok: true });
+  });
+
+  // ----- edit / delete (author only; server owners may also delete channel messages) -----
+  socket.on('message:edit', (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!allowed()) return reply({ error: 'Slow down' });
+    if (p?.kind === 'channel') {
+      const msg = db().messages[p.messageId];
+      const f = msg && findChannel(msg.channelId);
+      if (!f || !f.server.members.includes(uid) || msg.authorId !== uid) return reply({ error: 'Forbidden' });
+      const content = clip(p.content, MAX_MSG).trim();
+      if (!content && !msg.attachments?.length) return reply({ error: 'Message cannot be empty' });
+      msg.content = content;
+      msg.editedAt = now();
+      store.save();
+      io.to('channel:' + msg.channelId).emit('message:edited', { kind: 'channel', message: msg });
+      return reply({ ok: true });
+    }
+    if (p?.kind === 'dm') {
+      const msg = db().dms[p.messageId];
+      if (!msg || msg.from !== uid) return reply({ error: 'Forbidden' });
+      if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > MAX_CIPHER || p.iv.length > 64)
+        return reply({ error: 'Bad payload' });
+      msg.ciphertext = p.ciphertext;
+      msg.iv = p.iv;
+      msg.editedAt = now();
+      store.save();
+      io.to('user:' + msg.from).to('user:' + msg.to).emit('message:edited', { kind: 'dm', message: msg });
+      return reply({ ok: true });
+    }
+    reply({ error: 'Bad kind' });
+  });
+
+  socket.on('message:delete', async (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!allowed()) return reply({ error: 'Slow down' });
+    if (p?.kind === 'channel') {
+      const msg = db().messages[p.messageId];
+      const f = msg && findChannel(msg.channelId);
+      if (!f || !f.server.members.includes(uid)) return reply({ error: 'Forbidden' });
+      if (msg.authorId !== uid && f.server.ownerId !== uid) return reply({ error: 'Forbidden' });
+      delete db().messages[msg.id];
+      store.save();
+      store.deleteFiles((msg.attachments || []).map((a) => a.id).filter(Boolean)).catch((e) => console.error(e));
+      io.to('channel:' + msg.channelId).emit('message:deleted', { kind: 'channel', messageId: msg.id, channelId: msg.channelId });
+      return reply({ ok: true });
+    }
+    if (p?.kind === 'dm') {
+      const msg = db().dms[p.messageId];
+      if (!msg || msg.from !== uid) return reply({ error: 'Forbidden' });
+      delete db().dms[msg.id];
+      store.save();
+      store.deleteFiles(msg.files).catch((e) => console.error(e));
+      io.to('user:' + msg.from).to('user:' + msg.to).emit('message:deleted', { kind: 'dm', messageId: msg.id, convo: msg.convo, from: msg.from, to: msg.to });
+      return reply({ ok: true });
+    }
+    reply({ error: 'Bad kind' });
+  });
+
+  // ----- calls -----
+  let sigBucket = [];
+  const sigAllowed = () => { // ICE candidates arrive in bursts, so signalling has its own, larger budget
+    const t = now();
+    sigBucket = sigBucket.filter((x) => t - x < 5000);
+    if (sigBucket.length >= 80) return false;
+    sigBucket.push(t);
+    return true;
+  };
+  const myCall = (callId) => { const c = calls.get(String(callId)); return c && (c.a === uid || c.b === uid) ? c : null; };
+
+  socket.on('call:invite', (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!allowed()) return reply({ error: 'Slow down' });
+    const to = db().users[p?.to];
+    if (!to || to.id === uid || !areFriends(uid, to.id)) return reply({ error: 'You can only call friends' });
+    if (callOf(uid)) return reply({ error: 'You are already on a call' });
+    if (!isOnline(to.id)) return reply({ error: `${to.displayName} is offline` });
+    if (callOf(to.id)) return reply({ error: `${to.displayName} is on another call` });
+    const c = { id: store.id(), a: uid, b: to.id, video: !!p.video, state: 'ringing' };
+    c.timer = setTimeout(() => { if (c.state === 'ringing') endCall(c, 'missed'); }, RING_MS);
+    calls.set(c.id, c);
+    io.to('user:' + to.id).emit('call:incoming', { callId: c.id, from: uid, video: c.video });
+    reply({ ok: true, callId: c.id });
+  });
+
+  socket.on('call:accept', (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    const c = myCall(p?.callId);
+    if (!c || c.b !== uid || c.state !== 'ringing') return reply({ error: 'This call has ended' });
+    c.state = 'active';
+    clearTimeout(c.timer);
+    socket.to('user:' + uid).emit('call:handled', { callId: c.id }); // stop ringing on the callee's other devices
+    io.to('user:' + c.a).emit('call:accepted', { callId: c.id });
+    reply({ ok: true });
+  });
+
+  // decline while ringing, cancel (caller), or hang up
+  const finish = (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    const c = myCall(p?.callId);
+    if (!c) return reply({ ok: true });
+    if (c.state === 'ringing') {
+      if (c.b === uid) socket.to('user:' + uid).emit('call:handled', { callId: c.id });
+      endCall(c, uid === c.a ? 'cancelled' : 'declined');
+    } else endCall(c, 'hangup');
+    reply({ ok: true });
+  };
+  socket.on('call:decline', finish);
+  socket.on('call:hangup', finish);
+
+  socket.on('call:signal', (p) => {
+    const c = myCall(p?.callId);
+    const d = p?.data;
+    if (!c || c.state !== 'active' || !sigAllowed()) return;
+    if (!d || typeof d.ciphertext !== 'string' || typeof d.iv !== 'string' || d.ciphertext.length > 20000 || d.iv.length > 64) return;
+    io.to('user:' + (uid === c.a ? c.b : c.a)).emit('call:signal', { callId: c.id, data: { ciphertext: d.ciphertext, iv: d.iv } });
+  });
+
+  socket.on('typing', (p) => {
+    if (p?.channelId) {
+      const f = findChannel(p.channelId);
+      if (f && f.server.members.includes(uid)) socket.to('channel:' + f.channel.id).emit('typing', { channelId: f.channel.id, userId: uid });
+    } else if (p?.to && areFriends(uid, p.to)) {
+      io.to('user:' + p.to).emit('typing', { dmWith: uid, userId: uid });
+    }
+  });
+
+  socket.on('disconnect', () => {
+    const n = (online.get(uid) || 1) - 1;
+    if (n <= 0) {
+      online.delete(uid);
+      const c = callOf(uid);
+      // A call that is still ringing for this user survives a reload or a short network drop: it is shown
+      // again when they reconnect (see the connection handler) and otherwise ends by the ring timeout.
+      if (c && !(c.state === 'ringing' && c.b === uid)) endCall(c, 'dropped');
+    } else online.set(uid, n);
+    broadcastPresence(uid);
+  });
+});
+
+// Connect to Postgres, load the data, then start serving. `ready` resolves once that is done.
+async function start() {
+  await store.init();
+  SECRET = store.jwtSecret;
+  await store.pruneImages(referencedImages());   // drop images no profile or emoji points at (left over from a crash mid-upload)
+  await store.pruneFiles(referencedFiles());
+  await runCleanup(); // also clear out anything that expired while the server was off
+  setInterval(runCleanup, 3600_000).unref();
+}
+const ready = start();
+
+if (require.main === module) {
+  ready
+    .then(() => httpServer.listen(PORT, () => console.log(`Aduna running on port ${PORT}`)))
+    .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
+}
+
+module.exports = { httpServer, app, io, expireOldAttachments, ready };
+
+
+/* HANDOFF: see HANDOFF.md in the project root for what this server does, what is done, and what is left. */
