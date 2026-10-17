@@ -170,6 +170,13 @@ function auth(req, res, next) {
 
 const validKeyBlob = (b) => b && typeof b === 'object' && ['salt', 'iv', 'data'].every((k) => typeof b[k] === 'string' && b[k].length < 4000);
 
+function defaultServer() {
+  const code = String(process.env.DEFAULT_SERVER_INVITE ?? 'aduna').trim().toLowerCase();
+  if (!code || code === 'off') return null;
+  const all = Object.values(db().servers);
+  return all.find((x) => x.inviteCode === code) || all.find((x) => String(x.name).trim().toLowerCase() === 'aduna') || null;
+}
+
 app.post('/api/register', authLimiter, (req, res) => {
   const { username, password, publicKey, encPrivKey } = req.body || {};
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username || '')) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
@@ -196,6 +203,14 @@ app.post('/api/register', authLimiter, (req, res) => {
     createdAt: now(),
   };
   db().users[user.id] = user;
+
+  // Everyone who signs up starts in the official Aduna server. It is found by invite code
+  // (DEFAULT_SERVER_INVITE, default "aduna"), else by the name "Aduna". Set DEFAULT_SERVER_INVITE=off to disable.
+  const dflt = defaultServer();
+  if (dflt && !dflt.members.includes(user.id)) {
+    dflt.members.push(user.id);
+    io.to('server:' + dflt.id).emit('server:update', serverView(dflt));
+  }
 
   store.save();
   res.json({ token: signToken(user), user: { ...publicUser(user) } });
@@ -1120,7 +1135,10 @@ app.use((err, req, res, _next) => {
 // ----- static client -----
 const dist = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(dist)) {
-  app.use(express.static(dist));
+  // "/" is the public home page; the app itself lives at /app (and any other path falls through to it).
+  const landing = path.join(dist, 'landing.html');
+  if (fs.existsSync(landing)) app.get('/', (_req, res) => res.sendFile(landing));
+  app.use(express.static(dist, { index: false }));
   app.get(/^\/(?!api|socket\.io).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
 }
 

@@ -46,7 +46,7 @@ Run the automated checks with `TEST_DATABASE_URL=postgres://... npm test` (use a
 - Direct messages between friends, end-to-end encrypted
 - Profile customization: display name, bio, emoji avatar, avatar/banner/name colors, status (online, idle, do not disturb, invisible)
 
-There is no default server: a new account starts in your DMs and can create a server or join one with an invite code.
+New accounts automatically join the official Aduna server (see `DEFAULT_SERVER_INVITE`); if it doesn't exist they start in their DMs and can create a server or join one with an invite code.
 
 ## How the encryption works
 
@@ -77,6 +77,7 @@ Environment variables:
 | `R2_BUCKET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | no | Keep images and attachments in a Cloudflare R2 bucket instead of Postgres (see below). Set all four or none. |
 | `STORAGE_LIMIT_GB` | no | With R2: refuse new uploads once this many GB are stored (default **9**, to stay inside R2's 10 GB free tier; `0` = no limit). |
 | `GIPHY_API_KEY` | no | GIF search. |
+| `DEFAULT_SERVER_INVITE` | no | Invite code of the server every new account joins automatically at sign-up (default `aduna`; falls back to a server named "Aduna"). Set to `off` to disable. |
 | `ATTACHMENT_TTL_DAYS` | no | Days to keep attachments of 10 MB or less (default 14). |
 | `LARGE_ATTACHMENT_TTL_DAYS` | no | Days to keep attachments over `LARGE_ATTACHMENT_MB` (default 5). |
 | `LARGE_ATTACHMENT_MB` | no | The size, in MB, above which the shorter expiry applies (default 10). |

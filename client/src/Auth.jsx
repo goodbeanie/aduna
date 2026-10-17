@@ -3,7 +3,7 @@ import { api, setToken } from './api.js';
 import { createIdentity, unlockIdentity, saveKey, hasCrypto } from './crypto.js';
 
 export default function Auth({ onAuthed }) {
-  const [mode, setMode] = useState('login');
+  const [mode, setMode] = useState(typeof location !== 'undefined' && location.hash === '#signup' ? 'register' : 'login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
