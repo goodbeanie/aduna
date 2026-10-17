@@ -1,0 +1,24 @@
+{
+  "name": "aduna",
+  "version": "1.0.0",
+  "description": "A Discord-style chat app with servers, channels, E2EE direct messages and profile customization",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "concurrently \"node --watch server/index.js\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client install --include=dev && npm --prefix client run build",
+    "test": "node server/smoke-test.js && node server/profile-test.js && node server/files-test.js && node server/r2-test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "aws4fetch": "^1.0.20",
+    "pg": "^8.13.1",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "socket.io-client": "^4.7.5"
+  }
+}
