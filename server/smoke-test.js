@@ -605,6 +605,85 @@ async function putImg(kind, body, type, token) {
   assert.ok(/DATABASE_URL is not set/.test(noUrl.stderr), 'missing DATABASE_URL gives a clear error');
   step('wrong or missing master key / DATABASE_URL is refused');
 
+  // ---- channel presets: text, voice, rules, announcements ----
+  {
+    const mk = (token, body) => call(`/servers/${hub.id}/channels`, { method: 'POST', token, body });
+    assert.strictEqual(hub.channels[0].type, 'text', 'new servers start with a text channel');
+    assert.strictEqual((await mk(alice.token, { name: 'x', type: 'bogus' })).status, 400, 'unknown type refused');
+    assert.strictEqual((await mk(bob.token, { name: 'x', type: 'voice' })).status, 403, 'members cannot add channels');
+    let sv = (await mk(alice.token, { name: 'Lounge', type: 'voice' })).server;
+    const voiceCh = sv.channels.find((c) => c.name === 'lounge');
+    sv = (await mk(alice.token, { name: 'rules', type: 'rules' })).server;
+    const rulesCh = sv.channels.find((c) => c.type === 'rules');
+    sv = (await mk(alice.token, { name: 'news', type: 'announcements' })).server;
+    const newsCh = sv.channels.find((c) => c.type === 'announcements');
+    assert.strictEqual(voiceCh.type, 'voice'); assert.deepStrictEqual(rulesCh.rules, []);
+    step('channel presets can be created (owner only, unknown types refused)');
+
+    // rules: owner builds the list with POST, edits, deletes; members only read
+    const rp = `/servers/${hub.id}/channels/${rulesCh.id}/rules`;
+    assert.strictEqual((await call(rp, { method: 'POST', token: bob.token, body: { text: 'nope' } })).status, 403);
+    assert.strictEqual((await call(rp, { method: 'POST', token: alice.token, body: { text: '  ' } })).status, 400);
+    let r = await call(rp, { method: 'POST', token: alice.token, body: { text: 'Be kind' } });
+    r = await call(rp, { method: 'POST', token: alice.token, body: { text: 'No spam' } });
+    let list = r.server.channels.find((c) => c.id === rulesCh.id).rules;
+    assert.deepStrictEqual(list.map((x) => x.text), ['Be kind', 'No spam']);
+    assert.deepStrictEqual((await call('/servers', { token: bob.token })).servers.find((x) => x.id === hub.id).channels.find((c) => c.id === rulesCh.id).rules.map((x) => x.text), ['Be kind', 'No spam'], 'members see the rules');
+    assert.strictEqual((await call(`${rp}/${list[0].id}`, { method: 'PATCH', token: bob.token, body: { text: 'hacked' } })).status, 403);
+    r = await call(`${rp}/${list[0].id}`, { method: 'PATCH', token: alice.token, body: { text: 'Be kind to everyone' } });
+    assert.strictEqual(r.server.channels.find((c) => c.id === rulesCh.id).rules[0].text, 'Be kind to everyone');
+    r = await call(`${rp}/${list[1].id}`, { method: 'DELETE', token: alice.token });
+    assert.strictEqual(r.server.channels.find((c) => c.id === rulesCh.id).rules.length, 1);
+    assert.strictEqual((await call(`${rp}/nope`, { method: 'DELETE', token: alice.token })).status, 404);
+    assert.strictEqual((await call(`/servers/${hub.id}/channels/${general.id}/rules`, { method: 'POST', token: alice.token, body: { text: 'x' } })).status, 404, 'only rules channels take rules');
+    for (let i = 0; i < 30; i++) await call(rp, { method: 'POST', token: alice.token, body: { text: 'r' + i } });
+    assert.strictEqual((await call('/servers', { token: alice.token })).servers.find((x) => x.id === hub.id).channels.find((c) => c.id === rulesCh.id).rules.length, 25, 'rule limit');
+    step('rules: owner adds / edits / deletes, members read only, 25 max');
+
+    // nobody types in rules or voice channels
+    assert.ok((await ack(sa, 'message:send', { channelId: rulesCh.id, content: 'hi' })).error);
+    assert.ok((await ack(sa, 'message:send', { channelId: voiceCh.id, content: 'hi' })).error);
+
+    // announcements: only the owner posts; everyone in the server is notified
+    assert.ok((await ack(sb, 'message:send', { channelId: newsCh.id, content: 'fake news' })).error, 'member cannot announce');
+    const note = once(sb, 'announcement:new'), msgGot = once(sb, 'message:new');
+    assert.ok((await ack(sa, 'message:send', { channelId: newsCh.id, content: 'Server party!' })).ok);
+    const n = await note;
+    assert.strictEqual(n.channelId, newsCh.id); assert.strictEqual(n.serverId, hub.id);
+    assert.strictEqual((await msgGot).content, 'Server party!');
+    assert.strictEqual((await call(`/channels/${newsCh.id}/messages`, { token: bob.token })).messages.length, 1, 'only the owner post exists');
+    step('announcements: owner-only posting, everyone notified');
+
+    // voice: join, list, signalling between members only, leave, one channel at a time
+    const sv2 = (await mk(alice.token, { name: 'second-voice', type: 'voice' })).server.channels.find((c) => c.name === 'second-voice');
+    assert.ok((await ack(sa, 'voice:join', { channelId: general.id })).error, 'cannot join a text channel');
+    const seen = once(sb, 'voice:state');
+    const ja = await ack(sa, 'voice:join', { channelId: voiceCh.id });
+    assert.ok(ja.ok); assert.deepStrictEqual(ja.peers, []);
+    assert.deepStrictEqual((await seen).users, [alice.user.id]);
+    const sig = once(sa, 'voice:signal');
+    const jb = await ack(sb, 'voice:join', { channelId: voiceCh.id });
+    assert.deepStrictEqual(jb.peers, [alice.user.id], 'joiner is told who to connect to');
+    sb.emit('voice:signal', { channelId: voiceCh.id, to: alice.user.id, data: { description: { type: 'offer', sdp: 'x' } } });
+    const got2 = await sig;
+    assert.strictEqual(got2.from, bob.user.id); assert.strictEqual(got2.data.description.type, 'offer');
+    const left = once(sa, 'voice:left');
+    const st = once(sa, 'voice:state');
+    const moved = once(sb, 'voice:state');
+    assert.ok((await ack(sb, 'voice:join', { channelId: sv2.id })).ok, 'moving to another channel works');
+    assert.strictEqual((await left).userId, bob.user.id);
+    assert.ok((await st) && (await moved));
+    sb.emit('voice:leave');
+    await new Promise((r2) => setTimeout(r2, 150));
+    sa.emit('voice:leave');
+    await new Promise((r2) => setTimeout(r2, 150));
+    const lateJoin = connect(base, { auth: { token: bob.token } });
+    const empty = await new Promise((res) => { let any = false; lateJoin.on('voice:state', () => { any = true; }); setTimeout(() => res(!any), 400); });
+    assert.ok(empty, 'channels are empty after everyone leaves');
+    lateJoin.close();
+    step('voice channels: join, who-is-here, signalling, switching, leaving');
+  }
+
   // tamper: move one row's ciphertext onto another row; GCM + AAD must reject it
   const victim = (await store.query('SELECT id, data FROM messages LIMIT 1')).rows[0];
   const donor = (await store.query('SELECT data FROM users LIMIT 1')).rows[0];

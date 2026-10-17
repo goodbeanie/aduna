@@ -12,6 +12,8 @@ import { SettingsScreen } from './Settings.jsx';
 import { InviteContext, INVITE_CODE_RE } from './Invite.jsx';
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, useCall } from './Call.jsx';
+import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
+import RulesView from './Rules.jsx';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
@@ -27,6 +29,8 @@ const mergeById = (a, b) => {
   [...a, ...b].forEach((m) => map.set(m.id, { ...(map.get(m.id) || {}), ...m }));
   return [...map.values()].sort((x, y) => x.createdAt - y.createdAt);
 };
+
+const CHANNEL_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone' };
 
 export default function App() {
   const [boot, setBoot] = useState('loading');
@@ -73,6 +77,8 @@ function Main({ me, setMe, privKey }) {
   useEffect(() => { api('/gifs/config').then((r) => setGifEnabled(r.enabled)).catch(() => {}); }, []);
 
   const socketRef = useRef(null);
+  const [toast, setToast] = useState(null); // an announcement banner: { key, serverId, channelId, title, body }
+  const serversRef = useRef([]);
   const viewRef = useRef(view);
   const usersRef = useRef(users);
   const plainRef = useRef(plain);
@@ -82,6 +88,7 @@ function Main({ me, setMe, privKey }) {
   const callHandleRef = useRef(call.handle);
   callHandleRef.current = call.handle;
   viewRef.current = view;
+  serversRef.current = servers;
   usersRef.current = users;
   plainRef.current = plain;
 
@@ -201,6 +208,21 @@ function Main({ me, setMe, privKey }) {
       callHandleRef.current('call:incoming', p);
     });
     s.on('disconnect', () => callHandleRef.current('disconnect'));
+    // An announcement notifies every member, whichever channel they are looking at.
+    s.on('announcement:new', async ({ serverId, channelId, messageId, authorId }) => {
+      if (authorId === me.id) return;
+      const sv = serversRef.current.find((x) => x.id === serverId), ch = sv?.channels.find((c) => c.id === channelId);
+      if (!sv || !ch) return;
+      const v = viewRef.current;
+      if (v?.kind === 'server' && v.channelId === channelId && !document.hidden) return; // already reading it
+      const title = `${sv.name} · #${ch.name}`;
+      let body = 'New announcement';
+      try { const m = (await api(`/channels/${channelId}/messages`)).messages.find((x) => x.id === messageId); if (m?.content) body = m.content.slice(0, 140); } catch { /* keep the default */ }
+      setToast({ key: messageId, serverId, channelId, title, body });
+      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
+        try { const n = new Notification(title, { body, tag: 'aduna-announce-' + channelId, icon: '/aduna-icon.png' }); n.onclick = () => { window.focus(); n.close(); }; } catch { /* best effort */ }
+      }
+    });
     s.on('friends:changed', () => loadFriends().catch(() => {}));
     s.on('presence', ({ userId, status }) => setPresence((p) => ({ ...p, [userId]: status })));
     s.on('user:update', (u) => { addUsers([u]); if (u.id === me.id) setMe((m) => ({ ...m, ...u })); });
@@ -216,6 +238,9 @@ function Main({ me, setMe, privKey }) {
     const iv = setInterval(() => tick((n) => n + 1), 1000);
     return () => { clearInterval(iv); s.disconnect(); };
   }, [me.id, setMe, addUsers, logout, loadFriends]);
+
+  const voice = useVoice({ socketRef, ready: me.id });
+  useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
 
   // ---------- load history when the view changes ----------
   useEffect(() => {
@@ -320,6 +345,8 @@ function Main({ me, setMe, privKey }) {
   const onlineMembers = members.filter((m) => statusOf(m.id) !== 'offline');
   const offlineMembers = members.filter((m) => statusOf(m.id) === 'offline');
 
+  const membersToggle = <button className="icon-btn members-toggle" title="Members" aria-label="Show members" onClick={() => setMembersOpen((o) => !o)}><Icon name="users" size={18} /></button>;
+
   if (!view) return <div className="splash"><img src="/aduna-icon.png" alt="Aduna" /></div>;
 
   const memberRow = (u) => (
@@ -374,14 +401,19 @@ function Main({ me, setMe, privKey }) {
                 const catIds = new Set(cats.map((c) => c.id));
                 const loose = server.channels.filter((c) => !c.categoryId || !catIds.has(c.categoryId));
                 const row = (c) => (
-                  <button key={c.id} className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] ? ' unread' : '')} onClick={() => openChannel(c)}>
-                    <span className="hash">#</span>{c.name}{unread['c:' + c.id] > 0 && <span className="badge inline">{unread['c:' + c.id]}</span>}
-                  </button>
+                  <React.Fragment key={c.id}>
+                    <button className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] ? ' unread' : '')} onClick={() => openChannel(c)}>
+                      <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{unread['c:' + c.id] > 0 && <span className="badge inline">{unread['c:' + c.id]}</span>}
+                    </button>
+                    {c.type === 'voice' && (voice.members[c.id] || []).map((id) => users[id] && (
+                      <div key={id} className="voice-member"><Avatar user={users[id]} size={20} /><span>{users[id].displayName}</span>{id === me.id && voice.state.channelId === c.id && voice.state.muted && <Icon name="micoff" size={13} />}</div>
+                    ))}
+                  </React.Fragment>
                 );
                 return (
                   <>
                     {(loose.length > 0 || cats.length === 0) && (
-                      <div className="cat-head"><span className="cat-name static">TEXT CHANNELS</span>
+                      <div className="cat-head"><span className="cat-name static">CHANNELS</span>
                         {isOwner && <button className="icon-btn cat-add" title="Create channel" aria-label="Create channel" onClick={() => setModal({ type: 'channel' })}><Icon name="plus" size={16} /></button>}
                       </div>
                     )}
@@ -440,12 +472,22 @@ function Main({ me, setMe, privKey }) {
       </aside>
 
       {/* main */}
-      {server && channel && (
-        <Chat title={channel.name} subtitle="#" onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
+      {server && channel?.type === 'voice' && (
+        <VoicePanel channel={channel} voice={voice} users={users} me={me} presence={presence} onBack={() => setShowList(true)} headerExtra={membersToggle} />
+      )}
+      {server && channel?.type === 'rules' && (
+        <RulesView server={server} channel={channel} isOwner={server.ownerId === me.id} onBack={() => setShowList(true)} headerExtra={membersToggle}
+          onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
+      )}
+      {server && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
+        <Chat title={channel.name} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={server?.ownerId === me.id} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
-          placeholder={`Message #${channel.name}`} notice={null}
-          headerExtra={<button className="icon-btn members-toggle" title="Members" aria-label="Show members" onClick={() => setMembersOpen((o) => !o)}><Icon name="users" size={18} /></button>} />
+          placeholder={channel.type === 'announcements' ? `Announce to everyone in ${server.name}` : `Message #${channel.name}`}
+          notice={channel.type === 'announcements' ? <><Icon name="megaphone" size={14} className="inline-icon" /> Everyone in this server is notified when the owner posts here.</> : null}
+          readOnly={channel.type === 'announcements' && server.ownerId !== me.id ? 'Only the server owner can post in this channel.' : null}
+          subtitle={CHANNEL_ICON[channel.type] ? <Icon name={CHANNEL_ICON[channel.type]} size={20} /> : '#'}
+          headerExtra={membersToggle} />
       )}
       {dmUser && (
         <Chat title={dmUser.displayName} subtitle="@" onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
@@ -475,6 +517,12 @@ function Main({ me, setMe, privKey }) {
         </aside>
         </>
       )}
+      <VoiceAudio voice={voice} />
+      {voice.state.channelId && !(channel?.id === voice.state.channelId) && (() => {
+        const sv = servers.find((x) => x.channels.some((c) => c.id === voice.state.channelId)); const ch = sv?.channels.find((c) => c.id === voice.state.channelId);
+        return ch && <div className="voice-dock"><Icon name="speaker" size={16} /><button className="link-btn" onClick={() => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }}>Voice connected · {ch.name}</button><button className="icon-btn" title={voice.state.muted ? 'Unmute' : 'Mute'} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={16} /></button><button className="icon-btn" title="Leave voice" onClick={voice.actions.leave}><Icon name="phone" size={16} /></button></div>;
+      })()}
+      {toast && <button className="toast" onClick={() => { const sv = servers.find((x) => x.id === toast.serverId); if (sv) { lastChan.current[sv.id] = toast.channelId; setView({ kind: 'server', serverId: sv.id, channelId: toast.channelId }); setShowList(false); } setToast(null); }}><Icon name="megaphone" size={18} /><span><b>{toast.title}</b><br />{toast.body}</span></button>}
       <CallUI call={call.call} actions={call.actions} users={users} me={me} />
       </div>
 

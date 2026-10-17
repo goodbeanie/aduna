@@ -764,3 +764,50 @@ button { touch-action: manipulation; }
 .invite-card .btn { color: var(--head); } .invite-card .btn.primary { background: var(--ink); color: var(--on-ink); }
 .invite-card.dead, .invite-card.loading { box-shadow: none; } .invite-card.dead .ic-body { padding-top: 14px; }
 .invite-card .error { margin-top: 8px; }
+
+/* ---------- Channel presets: voice, rules, announcements ---------- */
+.chan .hash { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; }
+.chat-head .hash { display: inline-flex; align-items: center; }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 14px; }
+.preset { display: flex; gap: 10px; align-items: center; text-align: left; padding: 10px; border-radius: 12px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); }
+.preset:hover { background: var(--hover); }
+.preset.on { box-shadow: inset 0 0 0 2px var(--ink); background: var(--sel); }
+.preset-icon { flex: none; width: 36px; height: 36px; display: grid; place-items: center; border-radius: 10px; background: var(--bg3); color: var(--head); }
+.preset-text { display: flex; flex-direction: column; min-width: 0; color: var(--head); }
+.preset-text .muted { line-height: 1.25; }
+@media (max-width: 480px) { .presets { grid-template-columns: 1fr; } }
+
+.voice-member { display: flex; align-items: center; gap: 8px; padding: 2px 10px 2px 34px; color: var(--muted); font-size: 14px; }
+.voice-member span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.voice-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 24px; padding: 24px 16px; overflow-y: auto; }
+.voice-grid { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; max-width: 720px; }
+.voice-tile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; width: 120px; padding: 16px 8px; border-radius: 14px; background: var(--bg2); }
+.voice-name { font-size: 14px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voice-muted { position: absolute; top: 8px; right: 8px; color: var(--danger); }
+.voice-controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.voice-controls .btn.on { background: var(--sel); box-shadow: inset 0 0 0 1px var(--line2); }
+.voice-error { max-width: 420px; }
+.voice-dock { position: fixed; left: 12px; bottom: 76px; z-index: 40; display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-radius: 999px; background: var(--raised); color: var(--green); box-shadow: 0 4px 18px rgba(0,0,0,.18), inset 0 0 0 1px var(--line); font-size: 14px; }
+.voice-dock .link-btn { color: var(--head); background: none; padding: 4px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.rules-body { flex: 1; overflow-y: auto; padding: 24px 16px; }
+.rules-inner { max-width: 680px; margin: 0 auto; }
+.rules-inner h2 { color: var(--head); margin: 0 0 16px; font-size: 22px; }
+.rules-list { list-style: none; counter-reset: rule; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 8px; }
+.rules-list li { counter-increment: rule; display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--bg2); }
+.rules-list li::before { content: counter(rule); flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; background: var(--ink); color: var(--on-ink); font-size: 13px; }
+.rule-text { flex: 1; min-width: 0; padding-top: 2px; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--head); }
+.rule-tools { display: flex; flex: none; }
+.rule-edit { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+.rule-edit textarea { width: 100%; resize: vertical; font: inherit; }
+.rule-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.add-rule { display: flex; align-items: center; gap: 8px; width: 100%; padding: 12px 14px; border-radius: 12px; color: var(--muted); border: 1px dashed var(--line2); }
+.add-rule:hover { background: var(--hover); color: var(--head); }
+
+.composer-wrap.readonly { padding: 12px 16px 16px; }
+.readonly-note { text-align: center; color: var(--muted); font-size: 14px; padding: 12px; border-radius: 12px; background: var(--bg2); }
+
+.toast { position: fixed; top: 14px; right: 14px; z-index: 80; display: flex; gap: 10px; align-items: flex-start; max-width: min(360px, calc(100vw - 28px)); text-align: left; padding: 12px 14px; border-radius: 14px; background: var(--raised); color: var(--text); box-shadow: 0 8px 28px rgba(0,0,0,.22), inset 0 0 0 1px var(--line); font-size: 14px; }
+.toast b { color: var(--head); }
+.toast span { overflow-wrap: anywhere; }
+@media (max-width: 720px) { .voice-dock { bottom: 70px; } }

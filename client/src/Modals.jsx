@@ -57,19 +57,37 @@ export function CategoryModal({ server, onClose, onDone }) {
   );
 }
 
+const PRESETS = [
+  { type: 'text', icon: 'hash', title: 'Text', desc: 'Chat with messages, files and GIFs', name: '' },
+  { type: 'voice', icon: 'speaker', title: 'Voice', desc: 'Hang out and talk, up to 8 people', name: 'voice' },
+  { type: 'rules', icon: 'rules', title: 'Rules', desc: 'A list of server rules you build with +', name: 'rules' },
+  { type: 'announcements', icon: 'megaphone', title: 'Announcements', desc: 'Notifies everyone; only the owner can post', name: 'announcements' },
+];
 export function ChannelModal({ server, category, onClose, onDone }) {
+  const [type, setType] = useState('text');
   const [name, setName] = useState('');
+  const [touched, setTouched] = useState(false); // once you type a name, picking a preset stops overwriting it
   const [err, setErr] = useState('');
+  const pick = (p) => { setType(p.type); if (!touched) setName(p.name); };
   async function go(e) {
     e.preventDefault();
-    try { const { server: s } = await api(`/servers/${server.id}/channels`, { method: 'POST', body: { name, categoryId: category?.id } }); onDone(s); }
+    try { const { server: s } = await api(`/servers/${server.id}/channels`, { method: 'POST', body: { name, type, categoryId: category?.id } }); onDone(s); }
     catch (e2) { setErr(e2.message); }
   }
   return (
     <Modal title={category ? `Create channel in ${category.name}` : 'Create channel'} onClose={onClose}>
       <form onSubmit={go}>
+        <label>CHANNEL TYPE</label>
+        <div className="presets" role="radiogroup" aria-label="Channel type">
+          {PRESETS.map((p) => (
+            <button type="button" key={p.type} role="radio" aria-checked={type === p.type} className={'preset' + (type === p.type ? ' on' : '')} onClick={() => pick(p)}>
+              <span className="preset-icon"><Icon name={p.icon} size={22} /></span>
+              <span className="preset-text"><b>{p.title}</b><span className="muted small">{p.desc}</span></span>
+            </button>
+          ))}
+        </div>
         <label>CHANNEL NAME</label>
-        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="new-channel" maxLength={30} required />
+        <input autoFocus value={name} onChange={(e) => { setName(e.target.value); setTouched(true); }} placeholder="new-channel" maxLength={30} required />
         {err && <div className="error">{err}</div>}
         <div className="modal-foot"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Create</button></div>
       </form>
