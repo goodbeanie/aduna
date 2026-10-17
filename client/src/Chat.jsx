@@ -127,7 +127,7 @@ function Message({ m, users, me, byId, presence, onReact, onReply, onUser, onEdi
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, onBack, messages, users, me, presence, onSend, onReact, onEdit, onDelete, canModerate, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled }) {
+export default function Chat({ title, subtitle, headerExtra, onBack, messages, users, me, presence, onSend, onReact, onEdit, onDelete, canModerate, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly }) {
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [err, setErr] = useState('');
@@ -274,7 +274,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
             tapped={tapped === m.id} onTap={() => setTapped((t) => (t === m.id ? null : m.id))} />;
         })}
       </div>
-      <div className="composer-wrap">
+      {readOnly ? <div className="composer-wrap readonly"><div className="readonly-note"><Icon name="lock" size={15} className="inline-icon" /> {readOnly}</div></div> : <div className="composer-wrap">
         {replyTo && (
           <div className="replying">
             Replying to <b>{users[replyTo.authorId]?.displayName || 'Unknown'}</b>
@@ -317,7 +317,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
           {pop === 'gif' && <GifPop enabled={gifEnabled} onClose={() => setPop(null)} onPick={sendGif} />}
         </div>
         <div className="typing">{err ? <span className="error-text">{err}</span> : typingNames.length ? `${typingNames.join(', ')} ${typingNames.length > 1 ? 'are' : 'is'} typing…` : ' '}</div>
-      </div>
+      </div>}
       {dragging && <div className="drop-hint"><Icon name="clip" size={28} />Drop files to send</div>}
       {lightbox && <Lightbox view={lightbox} onClose={() => setLightbox(null)} />}
       {confirmDel && (

@@ -625,7 +625,7 @@ app.post('/api/servers', auth, (req, res) => {
   const name = clip(req.body?.name, 40).trim();
   if (!name) return res.status(400).json({ error: 'Name required' });
   const s = { id: store.id(), name, ownerId: req.user.id, inviteCode: store.inviteCode(), members: [req.user.id],
-    channels: [{ id: store.id(), name: 'general' }] };
+    channels: [{ id: store.id(), name: 'general', type: 'text' }] };
   db().servers[s.id] = s;
   store.save();
   joinRooms(req.user.id);
@@ -645,13 +645,21 @@ app.post('/api/servers/join', auth, (req, res) => {
   res.json({ server: serverView(s) });
 });
 
+// Channel presets. Channels saved before presets existed have no type and count as text.
+const CHANNEL_TYPES = ['text', 'voice', 'rules', 'announcements'];
+const typeOf = (c) => c.type || 'text';
+const MAX_RULES = 25, MAX_RULE = 300;
+
 app.post('/api/servers/:id/channels', auth, (req, res) => {
   const s = db().servers[req.params.id];
   if (!s || s.ownerId !== req.user.id) return res.status(403).json({ error: 'Only the server owner can add channels' });
   const name = clip(req.body?.name, 30).toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/^-+|-+$/g, '');
   if (!name) return res.status(400).json({ error: 'Invalid channel name' });
   if (s.channels.length >= 30) return res.status(400).json({ error: 'Channel limit reached' });
-  const channel = { id: store.id(), name };
+  const type = req.body?.type === undefined ? 'text' : req.body.type;
+  if (!CHANNEL_TYPES.includes(type)) return res.status(400).json({ error: 'Unknown channel type' });
+  const channel = { id: store.id(), name, type };
+  if (type === 'rules') channel.rules = [];
   const categoryId = req.body?.categoryId;
   if (categoryId) {
     if (!(s.categories || []).some((c) => c.id === categoryId)) return res.status(400).json({ error: 'That category does not exist' });
@@ -659,8 +667,47 @@ app.post('/api/servers/:id/channels', auth, (req, res) => {
   }
   s.channels.push(channel);
   store.save();
+  s.members.forEach(joinRooms); // members' open sockets must join the new channel's room or they miss its live messages
   io.to('server:' + s.id).emit('server:update', serverView(s));
   res.json({ server: serverView(s) });
+});
+
+// Rules channel: a list the owner builds up with +. Stored on the channel and sent with the server.
+function rulesChannel(req, res) {
+  const s = db().servers[req.params.id];
+  if (!s || s.ownerId !== req.user.id) { res.status(403).json({ error: 'Only the server owner can edit rules' }); return null; }
+  const c = s.channels.find((x) => x.id === req.params.cid);
+  if (!c || typeOf(c) !== 'rules') { res.status(404).json({ error: 'Rules channel not found' }); return null; }
+  c.rules = c.rules || [];
+  return { s, c };
+}
+function rulesDone(s, res) {
+  store.save();
+  io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ server: serverView(s) });
+}
+app.post('/api/servers/:id/channels/:cid/rules', auth, (req, res) => {
+  const f = rulesChannel(req, res); if (!f) return;
+  const text = clip(req.body?.text, MAX_RULE).trim();
+  if (!text) return res.status(400).json({ error: 'Rule text required' });
+  if (f.c.rules.length >= MAX_RULES) return res.status(400).json({ error: `Rule limit reached (${MAX_RULES})` });
+  f.c.rules.push({ id: store.id(), text });
+  rulesDone(f.s, res);
+});
+app.patch('/api/servers/:id/channels/:cid/rules/:rid', auth, (req, res) => {
+  const f = rulesChannel(req, res); if (!f) return;
+  const r = f.c.rules.find((x) => x.id === req.params.rid);
+  const text = clip(req.body?.text, MAX_RULE).trim();
+  if (!r) return res.status(404).json({ error: 'Rule not found' });
+  if (!text) return res.status(400).json({ error: 'Rule text required' });
+  r.text = text;
+  rulesDone(f.s, res);
+});
+app.delete('/api/servers/:id/channels/:cid/rules/:rid', auth, (req, res) => {
+  const f = rulesChannel(req, res); if (!f) return;
+  if (!f.c.rules.some((x) => x.id === req.params.rid)) return res.status(404).json({ error: 'Rule not found' });
+  f.c.rules = f.c.rules.filter((x) => x.id !== req.params.rid);
+  rulesDone(f.s, res);
 });
 
 // Categories split the channel list into groups. Channels without a categoryId stay in the ungrouped list at the top.
@@ -899,6 +946,23 @@ function iceServers() {
   return [{ urls: 'stun:stun.l.google.com:19302' }];
 }
 
+// ----- voice channels -----
+// Everyone in the channel connects to everyone else (a mesh, fine for small groups). The server only keeps
+// the list of who is in each channel and relays signalling between two members; audio goes browser to browser.
+const MAX_VOICE = 8;
+const voice = new Map(); // channelId -> Map(userId -> socketId)
+const voiceUsers = (cid) => [...(voice.get(cid)?.keys() || [])];
+const voiceBroadcast = (cid) => { const f = findChannel(cid); if (f) io.to('server:' + f.server.id).emit('voice:state', { channelId: cid, users: voiceUsers(cid) }); };
+function voiceLeave(uid, sid) {
+  for (const [cid, room] of voice) {
+    if (room.get(uid) !== sid) continue;
+    room.delete(uid);
+    if (!room.size) voice.delete(cid);
+    for (const peer of room.values()) io.to(peer).emit('voice:left', { channelId: cid, userId: uid });
+    voiceBroadcast(cid);
+  }
+}
+
 io.on('connection', (socket) => {
   const uid = socket.data.uid;
   online.set(uid, (online.get(uid) || 0) + 1);
@@ -907,6 +971,9 @@ io.on('connection', (socket) => {
   // a call that is still ringing is shown again if this device connects (or reconnects) after it started
   const ringing = [...calls.values()].find((c) => c.b === uid && c.state === 'ringing');
   if (ringing) socket.emit('call:incoming', { callId: ringing.id, from: ringing.a, video: ringing.video });
+
+  // everyone sees who is in which voice channel
+  for (const [cid] of voice) { const f = findChannel(cid); if (f && f.server.members.includes(uid)) socket.emit('voice:state', { channelId: cid, users: voiceUsers(cid) }); }
 
   // flood control: 8 events / 5s
   let bucket = [];
@@ -950,6 +1017,9 @@ io.on('connection', (socket) => {
     const content = clip(p?.content, MAX_MSG).trim();
     const f = findChannel(p?.channelId);
     if (!f || !f.server.members.includes(uid)) return reply({ error: 'Cannot send' });
+    const kind = typeOf(f.channel);
+    if (kind === 'voice' || kind === 'rules') return reply({ error: 'You cannot send messages in this channel' });
+    if (kind === 'announcements' && f.server.ownerId !== uid) return reply({ error: 'Only the server owner can post announcements' });
     let atts;
     try { atts = await buildAttachments(p.attachments, uid, 'channel:' + f.channel.id); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
     if (atts === null) return reply({ error: 'Bad attachment' });
@@ -963,6 +1033,8 @@ io.on('connection', (socket) => {
     db().messages[msg.id] = msg;
     store.save();
     io.to('channel:' + f.channel.id).emit('message:new', msg);
+    // Announcements notify everyone in the server, whichever channel they are looking at.
+    if (kind === 'announcements') io.to('server:' + f.server.id).emit('announcement:new', { serverId: f.server.id, channelId: f.channel.id, messageId: msg.id, authorId: uid });
     reply({ ok: true });
   });
 
@@ -1155,7 +1227,40 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('voice:join', (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    const f = findChannel(p?.channelId);
+    if (!f || !f.server.members.includes(uid) || typeOf(f.channel) !== 'voice') return reply({ error: 'Cannot join' });
+    const cid = f.channel.id;
+    voiceLeave(uid, socket.id);
+    for (const [other, room] of voice) if (other !== cid && room.has(uid)) { // one voice channel at a time, even across tabs
+      const old = room.get(uid); room.delete(uid); if (!room.size) voice.delete(other);
+      io.to(old).emit('voice:kicked', { channelId: other });
+      for (const peer of room.values()) io.to(peer).emit('voice:left', { channelId: other, userId: uid });
+      voiceBroadcast(other);
+    }
+    const room = voice.get(cid) || new Map();
+    if (!room.has(uid) && room.size >= MAX_VOICE) return reply({ error: `This channel is full (${MAX_VOICE} people)` });
+    const peers = [...room.keys()].filter((x) => x !== uid);
+    const prev = room.get(uid);
+    if (prev && prev !== socket.id) io.to(prev).emit('voice:kicked', { channelId: cid }); // joined from another tab: move here
+    room.set(uid, socket.id);
+    voice.set(cid, room);
+    voiceBroadcast(cid);
+    reply({ ok: true, peers }); // the joiner starts a connection to each of these
+  });
+  socket.on('voice:leave', () => voiceLeave(uid, socket.id));
+  socket.on('voice:signal', (p) => {
+    const room = voice.get(p?.channelId);
+    const target = room && room.get(uid) === socket.id && room.get(p.to);
+    if (!target || p.to === uid) return;
+    const d = p.data;
+    if (!d || typeof d !== 'object' || JSON.stringify(d).length > 20000) return;
+    io.to(target).emit('voice:signal', { channelId: p.channelId, from: uid, data: d });
+  });
+
   socket.on('disconnect', () => {
+    voiceLeave(uid, socket.id);
     const n = (online.get(uid) || 1) - 1;
     if (n <= 0) {
       online.delete(uid);
