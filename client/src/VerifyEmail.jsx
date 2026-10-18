@@ -8,8 +8,13 @@ export default function VerifyEmail({ me, onUpdate, onLogout }) {
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
   const [wait, setWait] = useState(0); // seconds until "resend" works again
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(!me.email); // older accounts may have no email yet
   const [email, setEmail] = useState(me.email || '');
+
+  useEffect(() => { // an older account that has an email but was never sent a code: send one now
+    if (me.email && !me.codeSent) api('/me/resend-verification', { method: 'POST' }).then(() => setWait(60)).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (wait <= 0) return undefined;
@@ -43,7 +48,8 @@ export default function VerifyEmail({ me, onUpdate, onLogout }) {
     <div className="auth-bg">
       <form className="auth-card" onSubmit={editing ? changeEmail : verify}>
         <img className="wordmark" src="/aduna-wordmark.png" alt="Aduna" width="190" />
-        <h1>Check your email</h1>
+        <h1>{me.email ? 'Check your email' : 'Add your email'}</h1>
+        {!me.email && <p className="muted center">Please add an email address so we can verify your account.</p>}
         {editing ? (
           <>
             <label>EMAIL</label>

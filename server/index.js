@@ -139,14 +139,15 @@ function publicUser(u) {
 
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
-const ownUser = (u) => ({ ...publicUser(u), email: u.email || null, emailVerified: u.emailVerified !== false });
+const ownUser = (u) => ({ ...publicUser(u), email: u.email || null, emailVerified: !needsVerify(u), codeSent: !!(u.verify && u.verify.expires > now()) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
-// are locked out of everything except the verification endpoints until they enter it. Accounts created before this
-// existed have no `emailVerified` flag and are treated as verified. Only a hash of the code is stored.
+// are locked out of everything except the verification endpoints until they enter it. That includes accounts created
+// before verification existed (no `emailVerified` flag): they are asked at their next sign-in, and those with no email
+// on file are asked to add one. Only a hash of the code is stored.
 const CODE_TTL_MS = 15 * 60_000, CODE_COOLDOWN_MS = 60_000, CODE_MAX_TRIES = 5;
-const needsVerify = (u) => mailer.enabled() && u.emailVerified === false;
+const needsVerify = (u) => mailer.enabled() && u.emailVerified !== true;
 const codeHash = (uid, code) => crypto.createHash('sha256').update(uid + ':' + code).digest('hex');
 const resends = new security.RateWindow(5, 3600_000); // emails per account per hour
 async function issueCode(u) {
@@ -281,7 +282,6 @@ app.post('/api/register', authLimiter, async (req, res) => {
     encPrivKey,
     createdAt: now(),
   };
-  if (mailer.enabled()) user.emailVerified = false;
   db().users[user.id] = user;
 
   if (!needsVerify(user)) joinDefaultServer(user);
@@ -324,6 +324,7 @@ app.post('/api/me/verify-email', authLimiter, authAny, (req, res) => {
 app.post('/api/me/resend-verification', authLimiter, authAny, async (req, res) => {
   const u = req.user;
   if (!needsVerify(u)) return res.json({ ok: true, retryAfter: 0 });
+  if (!u.email) return res.status(400).json({ error: 'Add your email address first.' });
   const wait = (u.verify?.sentAt || 0) + CODE_COOLDOWN_MS - now();
   if (wait > 0) return res.status(429).json({ error: `Wait ${Math.ceil(wait / 1000)}s before requesting another code.`, retryAfter: Math.ceil(wait / 1000) });
   if (!resends.allow(u.id)) return res.status(429).json({ error: 'Too many emails sent. Try again later.', retryAfter: 3600 });

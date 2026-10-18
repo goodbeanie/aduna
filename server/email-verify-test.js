@@ -58,9 +58,17 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual((await call('/friends', { token: a.token })).status, 403);
   assert.ok(lastCode('vera2@example.com')); step('changing email re-locks until verified');
 
-  // legacy accounts (no flag) stay verified
-  const old = Object.values(store.db.users).find((x) => x.username === 'walt'); delete old.emailVerified;
-  assert.strictEqual((await call('/friends', { token: b.token })).status, 200); step('accounts without the flag keep working');
+  // older accounts (no flag) are asked to verify at their next sign-in; one with no email must add one
+  const old = Object.values(store.db.users).find((x) => x.username === 'walt'); delete old.emailVerified; delete old.verify;
+  r = await call('/me', { token: b.token }); assert.strictEqual(r.user.emailVerified, false); assert.strictEqual(r.user.codeSent, false);
+  assert.strictEqual((await call('/friends', { token: b.token })).status, 403);
+  r = await call('/me/resend-verification', { method: 'POST', token: b.token }); assert.strictEqual(r.status, 200);
+  assert.strictEqual((await call('/me/verify-email', { method: 'POST', token: b.token, body: { code: lastCode('walt@example.com') } })).status, 200);
+  assert.strictEqual((await call('/friends', { token: b.token })).status, 200); step('older accounts get a code and verify');
+  const c2 = await reg('xena'); const xe = Object.values(store.db.users).find((x) => x.username === 'xena'); delete xe.email; delete xe.emailVerified; delete xe.verify;
+  assert.strictEqual((await call('/me/resend-verification', { method: 'POST', token: c2.token })).status, 400);
+  r = await call('/me', { method: 'PATCH', token: c2.token, body: { email: 'xena2@example.com' } });
+  assert.strictEqual(r.status, 200); assert.ok(lastCode('xena2@example.com')); step('older account with no email adds one and is sent a code');
 
   console.log('\nemail-verify-test: all passed');
 })().catch((e) => { console.error('FAIL', e); process.exitCode = 1; }).finally(async () => { httpServer.close(); await cleanup(); process.exit(process.exitCode || 0); });
