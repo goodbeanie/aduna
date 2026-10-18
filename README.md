@@ -208,3 +208,9 @@ The picker (composer and message reactions) has the full Unicode emoji set with 
 ## Themes
 
 Open the palette icon in the sidebar footer to choose an appearance: Parchment (default), five light colour themes, five dark themes, "match my device", or a Custom theme (pick a light/dark base, background and accent; the rest is generated). The choice is stored in `localStorage` on the device. A server owner can also give their server a theme (Server settings > Server theme); while you are on that server the whole app fades to it, and fades back in DMs. Turn that off under *Server themes* in Appearance. The fade works by registering the palette variables with `@property` in `styles.css` and transitioning them on `<html>`; `setServerTheme()` in `themes.js` swaps the palette. Theme logic lives in `client/src/themes.js`; the picker is `client/src/Appearance.jsx`. All colours in `styles.css` are CSS variables, so new themes only need a seed entry in `THEMES`.
+
+## Installing Aduna as an app (no download)
+Aduna is an installable web app. In Chrome or Edge the "Download Aduna" button on the home page (or the install icon in the
+address bar) installs it with its own window, shortcut and taskbar icon. This goes through the browser, so there is no .exe and
+no Windows SmartScreen warning. Files: `client/public/manifest.webmanifest`, `sw.js` (does not cache anything), `pwa.js`, icons.
+The separate Windows installer in `desktop/` still works but is unsigned, so Windows warns about it.

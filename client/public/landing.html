@@ -10,6 +10,8 @@
 <meta property="og:description" content="Servers, live chat, encrypted DMs, calls and themes. Come gather.">
 <meta property="og:image" content="/aduna-icon.png">
 <link rel="icon" type="image/png" href="/favicon.png">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 @font-face{font-family:'Bree Serif';src:url('/fonts/bree-serif.woff2') format('woff2');font-display:swap}
 :root{--cream:#fffbef;--ink:#111112;--muted:#6d675a;--line:#e7dfc8;--card:#fff;--gold:#e0b04a;--green:#3fb577;
@@ -79,14 +81,17 @@ h2{font-weight:400;font-size:clamp(36px,5vw,64px);line-height:1.08;letter-spacin
 footer{border-top:2px solid var(--line);padding:32px 0 48px;color:var(--muted);font-size:17px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
 @media(max-width:900px){.grid{grid-template-columns:1fr 1fr}.split{grid-template-columns:1fr}.mock .body{grid-template-columns:1fr}.mock .side,.mock .mem{display:none}nav .links a.t{display:none}}
 @media(max-width:560px){.grid{grid-template-columns:1fr}.btn.big{height:58px;font-size:22px}}
+#pwa-toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);max-width:min(92vw,440px);background:var(--ink);color:#fff;padding:14px 18px;border-radius:14px;font-size:15px;line-height:1.4;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50}
+#pwa-toast.show{opacity:1;transform:translate(-50%,0)}
 </style>
+<script src="/pwa.js" defer></script>
 </head>
 <body>
 <div class="wrap">
   <nav>
     <a class="brand" href="/"><img src="/aduna-wordmark.png" alt="aduna."></a>
     <div class="links"><a class="t" href="#features">Features</a><a class="t" href="#privacy">Privacy</a><a class="t" href="#themes">Themes</a>
-      <a class="btn sm dl" href="/Aduna-Setup.exe" download>Download Aduna</a></div>
+      <a class="btn sm dl" href="/app">Download Aduna</a></div>
   </nav>
 
   <header class="hero">
