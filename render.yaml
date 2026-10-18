@@ -36,7 +36,13 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
-      # email verification. Free option: Gmail. Set both of these (app password: Google Account > Security > App passwords).
+      # email verification. Free option that works on Render's free plan: Brevo (HTTPS). Set BREVO_API_KEY and EMAIL_FROM
+      # (a sender you verified in Brevo). Render's free plan blocks SMTP, so the Gmail option below needs a paid plan.
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      # Gmail over SMTP (paid Render plans / other hosts):
       - key: GMAIL_USER
         sync: false
       - key: GMAIL_APP_PASSWORD
@@ -45,8 +51,6 @@ services:
       # EMAIL_FROM must be an address on a domain you verified in Resend, e.g. "Aduna <noreply@yourdomain.com>".
       # (The default onboarding@resend.dev can only send to your own Resend account's email.)
       - key: RESEND_API_KEY
-        sync: false
-      - key: EMAIL_FROM
         sync: false
       # your site's public address, used for Stripe's return links (default: taken from the request)
       - key: PUBLIC_URL

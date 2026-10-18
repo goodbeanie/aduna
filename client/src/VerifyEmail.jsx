@@ -39,8 +39,10 @@ export default function VerifyEmail({ me, onUpdate, onLogout }) {
     e.preventDefault();
     setError(''); setInfo(''); setBusy(true);
     try {
-      const { user } = await api('/me', { method: 'PATCH', body: { email: email.trim() } });
-      onUpdate(user); setEditing(false); setCode(''); setInfo('We sent a code to ' + user.email + '.'); setWait(60);
+      const { user, mailFailed } = await api('/me', { method: 'PATCH', body: { email: email.trim() } });
+      onUpdate(user); setEditing(false); setCode('');
+      if (mailFailed) setError('Your email was saved, but we could not send the code. Press "Resend code" to try again.');
+      else { setInfo('We sent a code to ' + user.email + '.'); setWait(60); }
     } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
 

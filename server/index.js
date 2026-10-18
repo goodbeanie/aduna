@@ -431,8 +431,9 @@ app.patch('/api/me', authAny, async (req, res) => {
   const view = publicUser(u);
   io.emit('user:update', view);
   broadcastPresence(u.id);
-  if (newEmail && needsVerify(u)) { try { await issueCode(u); } catch (e) { console.error('verification email failed:', e.message); } }
-  res.json({ user: ownUser(u) });
+  let mailFailed = false;
+  if (newEmail && needsVerify(u)) { try { await issueCode(u); } catch (e) { mailFailed = true; console.error('verification email failed:', e.message); } }
+  res.json({ user: ownUser(u), mailFailed });
 });
 
 // ----- profile images (avatar / banner) -----

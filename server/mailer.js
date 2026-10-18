@@ -1,17 +1,22 @@
 // Sends email. Two providers, picked by environment variables (never put keys or passwords in code):
 //
-//  A) Gmail, free, no domain needed:
+//  A) Gmail over SMTP. NOTE: Render's free plan blocks SMTP ports, so this only works on paid plans or other hosts:
 //   GMAIL_USER          the Gmail address to send from, e.g. adunachatapp@gmail.com
 //   GMAIL_APP_PASSWORD  a Google "app password" (Google Account > Security > 2-Step Verification > App passwords)
 //                       Limit: about 500 emails a day.
 //
-//  B) Resend (used when the Gmail variables are not set):
+//  B) Brevo, free (300 emails/day), no domain needed, works on Render's free plan (HTTPS API):
+//   BREVO_API_KEY       Brevo > SMTP & API > API keys
+//   EMAIL_FROM          a sender you verified in Brevo (Senders & IP > Senders), e.g. "Aduna <you@gmail.com>"
+//
+//  C) Resend (used when neither of the above is set):
 //   RESEND_API_KEY  your Resend API key. Without it, email verification is switched off.
 //   EMAIL_FROM      sender, e.g. "Aduna <noreply@yourdomain.com>". Defaults to Resend's test sender
 //                   onboarding@resend.dev, which can ONLY deliver to the email of your own Resend account.
 //                   To email real users, verify a domain in Resend and use an address on it.
-const useGmail = () => !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD);
-const enabled = () => useGmail() || !!process.env.RESEND_API_KEY;
+const useBrevo = () => !!process.env.BREVO_API_KEY;
+const useGmail = () => !useBrevo() && !!(process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) ; // Brevo wins when both are set
+const enabled = () => useBrevo() || useGmail() || !!process.env.RESEND_API_KEY;
 const from = () => process.env.EMAIL_FROM || (useGmail() ? `Aduna <${process.env.GMAIL_USER}>` : 'Aduna <onboarding@resend.dev>');
 
 let client = null, smtp = null;
@@ -19,13 +24,24 @@ const outbox = []; // tests (NODE_ENV=test) read sent mail here instead of calli
 
 async function send({ to, subject, html, text }) {
   if (process.env.NODE_ENV === 'test') { outbox.push({ to, subject, html, text }); return; }
+  if (useBrevo()) {
+    const m = /^\s*(?:"?([^"<]*?)"?\s*)?<([^>]+)>\s*$/.exec(from());
+    const sender = m ? { name: (m[1] || '').trim() || 'Aduna', email: m[2] } : { name: 'Aduna', email: from().trim() };
+    const r = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST', signal: AbortSignal.timeout(15_000),
+      headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ sender, to: [{ email: to }], subject, htmlContent: html, textContent: text }),
+    });
+    if (!r.ok) throw new Error('Brevo: ' + ((await r.json().catch(() => ({}))).message || r.status));
+    return;
+  }
   if (useGmail()) {
-    if (!smtp) smtp = require('nodemailer').createTransport({ service: 'gmail', auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD.replace(/\s/g, '') } });
+    if (!smtp) smtp = require('nodemailer').createTransport({ service: 'gmail', connectionTimeout: 10_000, greetingTimeout: 10_000, socketTimeout: 15_000, auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD.replace(/\s/g, '') } });
     await smtp.sendMail({ from: from(), to, subject, html, text });
     return;
   }
   if (!client) { const { Resend } = require('resend'); client = new Resend(process.env.RESEND_API_KEY); }
-  const { error } = await client.emails.send({ from: from(), to, subject, html, text });
+  const { error } = await Promise.race([new Promise((_, rej) => setTimeout(() => rej(new Error('Email service timed out')), 15_000)), client.emails.send({ from: from(), to, subject, html, text })]);
   if (error) throw new Error(error.message || 'Email could not be sent');
 }
 
