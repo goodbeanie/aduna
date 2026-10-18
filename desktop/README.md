@@ -11,10 +11,17 @@ To point it at a different server, change `ORIGIN` at the top of `main.js`.
   (it downloads as a zip; unzip it to get the .exe).
 - On a Windows PC: double-click `build-installer.bat` (installs the build tools, builds, and opens `desktop/dist/`). Needs Node.js from nodejs.org.
 
-## Updates (like Discord)
-The installed app checks for updates 10 seconds after it opens and every 30 minutes. A new version downloads in the
-background, then a small popup appears in the bottom-right corner of the window: "Restart & update" installs it now, "Later"
-installs it automatically the next time Aduna is closed. Aduna menu > "Check for updates…" checks on demand.
+## Window and updates
+The window is frameless with its own top bar (`titlebar.html`): logo, a scan-for-updates button, and custom SVG minimize / maximize-restore /
+close buttons. The bar reads its colours from the page, so it follows the theme (including server themes) automatically.
+
+Update status shows on the right of the server bar. The app scans 10 seconds after it opens, every 30 minutes (quietly), and when you press the
+refresh icon in the top bar or Ctrl+Shift+U:
+- "Checking for update..." while scanning
+- "No update available" for 10 seconds, then it fades away
+- "Update available 1.2.1 [Install]" stays until you act. Install downloads (with a percentage), then restarts into the new version.
+
+To try the chip without a packaged build: `set ADUNA_FAKE_UPDATE=available` (or `none`) and run `npm start`.
 
 To release an update:
 1. Raise `"version"` in `desktop/package.json` (for example 1.1.0 to 1.1.1). Updates are only offered when the number goes up.

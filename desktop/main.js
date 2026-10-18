@@ -1,81 +1,160 @@
 // Aduna desktop app: a window that opens https://aduna.onrender.com/app and nothing else.
 // All secrets and settings live on the server, so nothing sensitive is stored in this app.
 // Updates are fetched from https://aduna.onrender.com/updates/ (see the publish setting in package.json).
-const { app, BrowserWindow, Menu, shell, session, screen, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, shell, session, ipcMain } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 const ORIGIN = 'https://aduna.onrender.com';
 const APP_URL = ORIGIN + '/app';
 const iconPath = path.join(__dirname, 'build', 'icon.png');
+const BAR_H = 36; // height of the custom title bar
 
-let win = null, popup = null, readyVersion = null;
+let win = null, page = null, bar = null;
+let theme = {};                       // latest colours from the page, forwarded to the title bar
+let upd = { phase: 'idle' };          // update status shown in the server bar: idle | checking | none | available | downloading | installing | error
 
 function openExternal(url) { try { if (/^https?:$/.test(new URL(url).protocol)) shell.openExternal(url); } catch { /* ignore */ } }
+const alive = (v) => v && v.webContents && !v.webContents.isDestroyed();
+
+// ----- window: frameless, with our own title bar (a small local page) stacked above the Aduna page -----
+function layout() {
+  if (!win || win.isDestroyed()) return;
+  const { width, height } = win.getContentBounds();
+  const h = win.isFullScreen() ? 0 : BAR_H;
+  bar.setVisible(h > 0);
+  bar.setBounds({ x: 0, y: 0, width, height: h });
+  page.setBounds({ x: 0, y: h, width, height: Math.max(0, height - h) });
+}
+function sendBarState() {
+  if (alive(bar) && win && !win.isDestroyed()) bar.webContents.send('bar-state', { maximized: win.isMaximized(), focused: win.isFocused() });
+}
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 1280, height: 820, minWidth: 900, minHeight: 600, backgroundColor: '#141917', icon: iconPath, autoHideMenuBar: true,
-    webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    width: 1280, height: 820, minWidth: 900, minHeight: 600, backgroundColor: '#ebe4d4', icon: iconPath,
+    frame: false, autoHideMenuBar: true,
   });
-  win.webContents.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
-  win.webContents.on('will-navigate', (e, url) => {
+  page = new WebContentsView({
+    webPreferences: { preload: path.join(__dirname, 'page-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  bar = new WebContentsView({
+    webPreferences: { preload: path.join(__dirname, 'titlebar-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+  });
+  page.setBackgroundColor('#ebe4d4');
+  bar.setBackgroundColor('#ebe4d4');
+  win.contentView.addChildView(page);
+  win.contentView.addChildView(bar);
+  layout();
+  for (const ev of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) win.on(ev, () => { layout(); sendBarState(); });
+  for (const ev of ['focus', 'blur']) win.on(ev, sendBarState);
+  win.on('closed', () => { win = null; page = null; bar = null; });
+
+  bar.webContents.on('will-navigate', (e) => e.preventDefault());
+  bar.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  bar.webContents.on('did-finish-load', () => { bar.webContents.send('bar-theme', theme); sendBarState(); });
+  bar.webContents.loadFile(path.join(__dirname, 'titlebar.html'));
+
+  const wc = page.webContents;
+  wc.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
+  wc.on('will-navigate', (e, url) => {
     if (url.startsWith('file://') || new URL(url).origin === ORIGIN) return;
     e.preventDefault(); openExternal(url);
   });
   // No connection: show a small page that keeps retrying.
-  win.webContents.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
-    if (isMainFrame && code !== -3) win.loadFile(path.join(__dirname, 'offline.html'));
+  wc.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3) wc.loadFile(path.join(__dirname, 'offline.html'));
   });
-  win.loadURL(APP_URL);
+  wc.on('did-finish-load', pushUpd);
+  wc.loadURL(APP_URL);
 }
 
-// ----- updates (like Discord): the app checks quietly, downloads in the background, then shows a small popup in the
-// corner of the window. "Restart & update" installs now; "Later" installs automatically the next time Aduna is closed.
-const POPUP_W = 372, POPUP_H = 130;
-function placePopup() {
-  if (!popup || popup.isDestroyed() || !win) return;
-  const b = win.isMinimized() || !win.isVisible() ? screen.getPrimaryDisplay().workArea : win.getBounds();
-  popup.setPosition(Math.round(b.x + b.width - POPUP_W - 16), Math.round(b.y + b.height - POPUP_H - 16));
-}
-function showUpdatePopup(version) {
-  if (!win) return;
-  if (popup && !popup.isDestroyed()) popup.close();
-  popup = new BrowserWindow({
-    width: POPUP_W, height: POPUP_H, parent: win, frame: false, transparent: true, hasShadow: false, resizable: false,
-    movable: false, minimizable: false, maximizable: false, fullscreenable: false, skipTaskbar: true, show: false,
-    webPreferences: { preload: path.join(__dirname, 'update-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
-  });
-  popup.setMenu(null);
-  popup.loadFile(path.join(__dirname, 'update.html'), { query: { v: String(version || '') } });
-  popup.once('ready-to-show', () => { placePopup(); popup.showInactive(); });
-  popup.on('closed', () => { popup = null; });
-}
-ipcMain.on('update-action', (e, action) => {
-  if (!popup || popup.isDestroyed() || e.sender !== popup.webContents) return; // only the popup may ask
-  if (action === 'install') autoUpdater.quitAndInstall(true, true);
-  else popup.close();
+// Only the title bar may drive the window, only the Aduna page may talk about updates or send theme colours.
+const fromBar = (e) => alive(bar) && e.sender === bar.webContents;
+const fromPage = (e) => alive(page) && e.sender === page.webContents && !!e.senderFrame && String(e.senderFrame.url).startsWith(ORIGIN);
+
+ipcMain.on('bar-action', (e, action) => {
+  if (!fromBar(e) || !win) return;
+  if (action === 'min') win.minimize();
+  else if (action === 'max') { if (win.isMaximized()) win.unmaximize(); else win.maximize(); }
+  else if (action === 'close') win.close();
+  else if (action === 'check') runCheck(true);
 });
-function setupUpdates() {
-  if (!app.isPackaged) return; // updates only apply to the installed app
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-  autoUpdater.on('update-downloaded', (info) => { readyVersion = info.version; showUpdatePopup(info.version); });
-  autoUpdater.on('error', (err) => console.error('Update check failed:', err && err.message));
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
-  setTimeout(check, 10 * 1000);
-  setInterval(check, 30 * 60 * 1000);
-  for (const ev of ['move', 'resize', 'minimize', 'restore']) win.on(ev, placePopup);
+
+ipcMain.on('theme-vars', (e, vars) => {
+  if (!fromPage(e) || !vars || typeof vars !== 'object') return;
+  const clean = {};
+  for (const k of ['--bg3', '--line', '--head', '--muted', '--hover', '--danger', '--ink', '--on-ink']) {
+    const v = vars[k];
+    if (typeof v === 'string' && v.length < 200 && /^[#a-zA-Z0-9(),.%\s-]+$/.test(v)) clean[k] = v;
+  }
+  theme = clean;
+  if (alive(bar)) bar.webContents.send('bar-theme', clean);
+  if (bar && clean['--bg3'] && /^#[0-9a-fA-F]{6}$/.test(clean['--bg3'])) { bar.setBackgroundColor(clean['--bg3']); page.setBackgroundColor(clean['--bg3']); }
+});
+
+// ----- updates: status lives on the right of the server bar. Scan -> "Checking for update…" -> "No update available" (10s, then
+// fades) or "Update available [Install]". Install downloads, then restarts into the new version. -----
+function pushUpd() { if (alive(page)) page.webContents.send('upd-state', upd); }
+let idleTimer = null;
+function setUpd(next, autoMs, then) {
+  upd = next; clearTimeout(idleTimer); pushUpd();
+  if (autoMs) idleTimer = setTimeout(() => setUpd(then || { phase: 'idle' }), autoMs);
 }
-async function manualUpdateCheck() {
-  const info = (message, detail) => dialog.showMessageBox(win, { type: 'info', message, detail, buttons: ['OK'] });
-  if (!app.isPackaged) return info('Updates only work in the installed app.');
-  if (readyVersion) return showUpdatePopup(readyVersion);
-  try {
-    const r = await autoUpdater.checkForUpdates();
-    if (r && r.isUpdateAvailable) info('An update was found.', 'It is downloading now. You will get a popup when it is ready to install.');
-    else info('Aduna is up to date.', 'Version ' + app.getVersion());
-  } catch { info('Could not check for updates.', 'Check your internet connection and try again.'); }
+ipcMain.on('upd-get', (e) => { if (fromPage(e)) pushUpd(); });
+ipcMain.on('upd-install', (e) => { if (fromPage(e)) startInstall(); });
+
+let checking = false, showChecks = false, downloading = false;
+function runCheck(manual) {
+  if (['available', 'downloading', 'installing'].includes(upd.phase)) { pushUpd(); return; } // already know about one
+  if (checking) return;
+  showChecks = !!manual;
+  if (!app.isPackaged) return fakeCheck();           // dev run: simulate so the UI can be tried (ADUNA_FAKE_UPDATE=available|none)
+  checking = true;
+  if (showChecks) setUpd({ phase: 'checking' });
+  autoUpdater.checkForUpdates().catch(() => {}).finally(() => { checking = false; });
+}
+function startInstall() {
+  if (upd.phase !== 'available') return;
+  if (!app.isPackaged) return fakeInstall();
+  downloading = true;
+  setUpd({ phase: 'downloading', version: upd.version, pct: 0 });
+  autoUpdater.downloadUpdate().catch(() => {});
+}
+function setupUpdates() {
+  autoUpdater.autoDownload = false;          // the person presses Install
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.on('update-available', (info) => { setUpd({ phase: 'available', version: info && info.version }); });
+  autoUpdater.on('update-not-available', () => { if (showChecks) setUpd({ phase: 'none' }, 10 * 1000); });
+  autoUpdater.on('download-progress', (p) => { upd = { phase: 'downloading', version: upd.version, pct: p.percent }; pushUpd(); });
+  autoUpdater.on('update-downloaded', () => {
+    downloading = false;
+    setUpd({ phase: 'installing', version: upd.version });
+    setTimeout(() => autoUpdater.quitAndInstall(true, true), 700);
+  });
+  autoUpdater.on('error', (err) => {
+    console.error('Update error:', err && err.message);
+    if (downloading) { downloading = false; setUpd({ phase: 'error', message: 'Update failed' }, 6000, { phase: 'available', version: upd.version }); }
+    else if (showChecks) setUpd({ phase: 'error', message: 'Couldn\u2019t check for updates' }, 10 * 1000);
+  });
+  setTimeout(() => runCheck(true), 10 * 1000);            // startup scan is shown, like a manual one
+  setInterval(() => runCheck(false), 30 * 60 * 1000);     // later scans stay quiet unless something is found
+}
+// Dev-only simulation so the chip can be seen without a packaged build.
+function fakeCheck() {
+  checking = true; setUpd({ phase: 'checking' });
+  setTimeout(() => {
+    checking = false;
+    if (process.env.ADUNA_FAKE_UPDATE === 'available') setUpd({ phase: 'available', version: '9.9.9' });
+    else setUpd({ phase: 'none' }, 10 * 1000);
+  }, 1800);
+}
+function fakeInstall() {
+  let p = 0; setUpd({ phase: 'downloading', version: upd.version, pct: 0 });
+  const t = setInterval(() => {
+    p += 12; if (p < 100) { upd = { phase: 'downloading', version: upd.version, pct: p }; pushUpd(); return; }
+    clearInterval(t); setUpd({ phase: 'installing', version: upd.version }); setTimeout(() => setUpd({ phase: 'idle' }), 1500);
+  }, 250);
 }
 
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -86,8 +165,9 @@ else {
     const ok = (wc, perm) => ['media', 'notifications', 'fullscreen', 'clipboard-sanitized-write'].includes(perm) && !!wc && wc.getURL().startsWith(ORIGIN);
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(ok(wc, perm)));
     session.defaultSession.setPermissionCheckHandler((wc, perm) => ok(wc, perm));
+    // No visible menu any more (the window is frameless), but the shortcuts still work.
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Aduna', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => win && win.loadURL(APP_URL) }, { label: 'Check for updates…', click: manualUpdateCheck }, { type: 'separator' }, { role: 'quit' }] },
+      { label: 'Aduna', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => page && page.webContents.loadURL(APP_URL) }, { label: 'Check for updates\u2026', accelerator: 'CmdOrCtrl+Shift+U', click: () => runCheck(true) }, { type: 'separator' }, { role: 'quit' }] },
       { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: 'View', submenu: [{ role: 'togglefullscreen' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' }] },
     ]));
