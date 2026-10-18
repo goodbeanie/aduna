@@ -1404,6 +1404,7 @@ credits.register(app, {
 let vapidReady = false;
 const push = createPush({
   users: () => db().users,
+  onError: (e) => console.error('push send failed:', e && e.statusCode, String((e && (e.body || e.message)) || e).slice(0, 200)),
   save: () => store.save(),
   get enabled() { return !!store.vapid && process.env.PUSH !== 'off'; },
   get publicKey() { return store.vapid?.publicKey; },
@@ -1422,6 +1423,13 @@ app.post('/api/push/subscribe', auth, (req, res) => {
   if (!push.enabled) return res.status(503).json({ error: 'Push notifications are off on this server' });
   if (!push.add(req.user, req.body?.subscription, req.headers['user-agent'])) return res.status(400).json({ error: 'Bad subscription' });
   res.json({ ok: true });
+});
+const pushTestAt = new Map(); // user id -> last test time (a test is one request per 5 s)
+app.post('/api/push/test', auth, async (req, res) => {
+  const t = Date.now();
+  if (t - (pushTestAt.get(req.user.id) || 0) < 5000) return res.status(429).json({ error: 'Wait a few seconds between tests' });
+  pushTestAt.set(req.user.id, t);
+  try { res.json(await push.test(req.user.id)); } catch (e) { res.status(500).json({ error: 'Test failed' }); }
 });
 app.post('/api/push/unsubscribe', auth, (req, res) => {
   if (typeof req.body?.endpoint === 'string') push.remove(req.user, req.body.endpoint);

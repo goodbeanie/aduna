@@ -35,7 +35,7 @@ function alertIncoming(name, video, peerId) {
   titleBase = document.title;
   let on = false;
   titleTimer = setInterval(() => { on = !on; document.title = on ? `\u{1F4DE} ${name} is calling…` : titleBase; }, 900);
-  if (notify.away()) notify.show({ title: `${name} is calling`, body: `Incoming ${video ? 'video' : 'voice'} call`, tag: 'call', target: 'd:' + peerId, sticky: true });
+  if (notify.away()) notify.show({ title: `${name} is calling`, body: `Incoming ${video ? 'video' : 'voice'} call`, tag: 'call', target: 'd:' + peerId, kind: 'call', sticky: true });
 }
 function clearAlert() {
   clearInterval(titleTimer); titleTimer = null;

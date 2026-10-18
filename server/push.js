@@ -73,13 +73,35 @@ function createPush(d) {
     let sent = 0, dead = [];
     await Promise.all(u.pushSubs.map(async (sub) => {
       try { await d.sender(sub, body, opts); sent++; }
-      catch (e) { if (e && (e.statusCode === 404 || e.statusCode === 410)) dead.push(sub.endpoint); /* anything else: try again next time */ }
+      catch (e) { if (e && (e.statusCode === 404 || e.statusCode === 410)) dead.push(sub.endpoint); else if (d.onError) d.onError(e); /* anything else: try again next time */ }
     }));
     if (dead.length) { u.pushSubs = u.pushSubs.filter((x) => !dead.includes(x.endpoint)); d.save(); }
     return sent;
   }
 
-  return { add, remove, send, prefsOf, get enabled() { return !!d.enabled; }, get publicKey() { return d.publicKey || null; } };
+  // Settings > Notifications > "Send a test push": goes to every device of the account, ignoring the per-kind switches, and says what happened
+  // to each one so a broken device can be told apart from a broken server. `force` makes the service worker show it even if Aduna is open.
+  async function test(uid) {
+    const u = users()[uid];
+    const subs = u?.pushSubs || [];
+    const res = { enabled: !!d.enabled, devices: subs.length, sent: 0, failed: [] };
+    if (!d.enabled || !subs.length) return res;
+    const body = JSON.stringify({ kind: 'test', title: 'Test notification', body: 'Aduna can reach this device.', url: '/app', tag: 'aduna-test-push', force: true, ts: nowFn() });
+    const dead = [];
+    await Promise.all(subs.map(async (sub) => {
+      try { await d.sender(sub, body, { TTL: 60, urgency: 'high' }); res.sent++; }
+      catch (e) {
+        const status = e && e.statusCode || 0;
+        if (status === 404 || status === 410) dead.push(sub.endpoint);
+        res.failed.push({ status, message: clip(e && (e.body || e.message), 140) });
+        if (d.onError) d.onError(e);
+      }
+    }));
+    if (dead.length) { u.pushSubs = u.pushSubs.filter((x) => !dead.includes(x.endpoint)); d.save(); }
+    return res;
+  }
+
+  return { add, remove, send, test, prefsOf, get enabled() { return !!d.enabled; }, get publicKey() { return d.publicKey || null; } };
 }
 
 module.exports = { createPush, cleanPrefs, cleanSub, DEFAULT_PREFS };

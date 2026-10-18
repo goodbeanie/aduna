@@ -988,3 +988,10 @@ span.mention { cursor: default; }
 .notify-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .notify-actions:empty { display: none; }
 @media (max-width: 720px) { .notify-prompt { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); } }
+
+/* Settings > Notifications: step-by-step check */
+.notify-diag { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 8px; }
+.notify-diag li { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.notify-diag li > span:first-child { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: var(--hover); color: var(--muted); }
+.notify-diag li.ok > span:first-child { background: var(--ok-bg); color: var(--ok-fg); }
+.notify-diag li.bad > span:first-child { background: var(--err-bg); color: var(--err-fg); }

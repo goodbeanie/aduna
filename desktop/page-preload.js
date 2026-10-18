@@ -5,17 +5,20 @@
 const { ipcRenderer, contextBridge } = require('electron');
 
 if (location.protocol === 'https:') {
-  // ---------- 0. notifications: lets the page (client/src/notify.js) show native Windows notifications ----------
+  // ---------- 0. notifications: lets the page (client/src/notify.js) show cards in the corner of the screen ----------
   let onClick = null;
+  let active = true; // is the Aduna window visible and in front? main.js keeps this up to date
   ipcRenderer.on('notif-click', (_e, target) => { if (onClick) onClick(String(target || '')); });
+  ipcRenderer.on('presence', (_e, v) => { active = !!v; });
   contextBridge.exposeInMainWorld('adunaDesktop', {
-    notify: (n) => ipcRenderer.send('notify', { title: String(n && n.title || ''), body: String(n && n.body || ''), tag: String(n && n.tag || ''), target: String(n && n.target || ''), sticky: !!(n && n.sticky) }),
+    notify: (n) => ipcRenderer.send('notify', { title: String(n && n.title || ''), body: String(n && n.body || ''), tag: String(n && n.tag || ''), target: String(n && n.target || ''), kind: String(n && n.kind || ''), sticky: !!(n && n.sticky) }),
     dismiss: (tag) => ipcRenderer.send('notify-dismiss', String(tag || '')),
     onClick: (cb) => { onClick = typeof cb === 'function' ? cb : null; return () => { onClick = null; }; },
+    isActive: () => active,
   });
 
   // ---------- 1. theme sync ----------
-  const KEYS = ['--bg3', '--line', '--head', '--muted', '--hover', '--danger', '--ink', '--on-ink'];
+  const KEYS = ['--bg', '--bg3', '--raised', '--text', '--line', '--head', '--muted', '--hover', '--danger', '--green', '--ink', '--on-ink'];
   let last = '';
   const sample = () => {
     const cs = getComputedStyle(document.documentElement);
@@ -145,5 +148,6 @@ if (location.protocol === 'https:') {
     new MutationObserver(onMutate).observe(document.body, { childList: true, subtree: true });
     window.addEventListener('storage', follow);
     ipcRenderer.send('upd-get');
+    ipcRenderer.send('presence-get');
   });
 }

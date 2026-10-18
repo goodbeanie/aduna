@@ -11,6 +11,17 @@ To point it at a different server, change `ORIGIN` at the top of `main.js`.
   (it downloads as a zip; unzip it to get the .exe).
 - On a Windows PC: double-click `build-installer.bat` (installs the build tools, builds, and opens `desktop/dist/`). Needs Node.js from nodejs.org.
 
+## Running in the background + notifications
+Closing the window (the X) hides Aduna to the system tray instead of quitting, so the page stays connected and mentions, DMs, calls,
+announcements and friend requests still pop up. Notifications are small cards in the bottom-right corner of the screen, drawn in the
+current Aduna theme (including server themes) by `toast.html` in its own transparent always-on-top window; clicking one opens that chat,
+the X on a card dismisses it, they fade after 7 s (a ringing call stays until answered), and up to 4 stack. Nothing is shown while the
+Aduna window is open and in front. If that window ever fails, it falls back to a native Windows notification.
+
+Tray icon: click = open, right-click = Open / Check for updates / Start with Windows / Quit. A fresh install turns on "Start with Windows"
+(starts hidden in the tray with `--hidden`), and the tray menu turns it off. Only "Quit Aduna" in the tray (or an update install) really
+exits. The first time the window is closed, a card explains that Aduna is still running.
+
 ## Window and updates
 The window is frameless with its own top bar (`titlebar.html`): logo, a scan-for-updates button, and custom SVG minimize / maximize-restore /
 close buttons. The bar reads its colours from the page, so it follows the theme (including server themes) automatically.
@@ -36,6 +47,7 @@ to that bucket's public address. If it is not set, the site serves the installer
 The installer is always named `Aduna-Setup.exe` (no version in the name), and `latest.yml` points at that name, so the file in the bucket must have exactly that name. Replace it on every release; if an update ever fails its checksum, the bucket or a CDN is still serving the old copy (purge its cache).
 
 Only versions 1.1.0 and newer can update themselves, so anyone on an older install needs to install once by hand.
+The installer config does not change for this feature: `toast.html` and `toast-preload.js` are listed under `build.files` in package.json, so a normal build includes them. Release it as a new version (1.4.0) like any update.
 
 ## Notes
 - The installer is not code-signed, so Windows SmartScreen may say "Windows protected your PC": More info > Run anyway.

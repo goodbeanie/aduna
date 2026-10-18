@@ -96,8 +96,17 @@ npm test needs TEST_DATABASE_URL (any Postgres). Browser flows were checked with
   (service worker, or the desktop app bridge). `NotifyPrompt.jsx` is the one-time "Turn on" banner; `Notifications.jsx` is Settings > Notifications.
   Tapping a notification opens `/app?n=c:<serverId>:<channelId>` | `d:<userId>` | `f`. Logging out unsubscribes the device.
   The installed app icon shows a count (mentions + unread DMs + friend requests) where the browser supports it.
-- Desktop (Electron, version 1.3.0): the page calls `window.adunaDesktop.notify(...)` (preload) and main.js shows a native Windows notification;
-  clicking it focuses the window and opens the chat; the taskbar button flashes while the window is not focused. Electron has no Web Push, so these only
-  appear while the Aduna app is running (it quits when the window closes). A tray icon / "keep running in background" would be the next step.
+- Desktop (Electron, version 1.4.0): closing the window hides it to a tray icon (main.js `close` handler, `quitting` flag, Tray menu: Open / Check for
+  updates / Start with Windows / Quit); the page runs with backgroundThrottling off so its socket stays alive. Notifications are drawn by the app, not
+  by Windows: `desktop/toast.html` + `toast-preload.js` is a transparent, always-on-top, non-focusable window pinned to the bottom-right of the primary
+  display's work area; main.js `showToast()` sends cards to it, it reports its stack height (`toast-size`) and main.js resizes/positions/hides it.
+  Colours come from the page's theme variables (page-preload.js KEYS -> `theme-vars` -> `toast-theme`). Native Windows notification is the fallback.
+  Whether to show a card is decided by main.js `isActive()` (window visible + not minimised + focused), exposed to the page as
+  `window.adunaDesktop.isActive()` and used by `notify.away()` (document.hidden is unreliable for a window hidden in the tray). First run of an installed
+  copy registers "Start with Windows" (`--hidden`); `desktop-prefs.json` in userData remembers that and the one-time tray hint. Tested in real Electron 33
+  under Xvfb (card position, theme, click -> chat target, dismiss, X-to-tray, toast while hidden); NOT tested on Windows itself (tray, login item, update install).
+- Phones: Settings > Notifications has "Check notifications" (permission, service worker, server push on, device registered) and "Send a test push from
+  the server" (POST /api/push/test, 1 per 5 s, forced past the "app is open" check, reports per-device status codes). Failed pushes other than 404/410 are
+  now logged on the server (`push send failed: <status>`). sw.js uses /notif-icon-192.png as the large icon and /icon-192.png (alpha mask) as the badge.
 - Tests: `node server/push-test.js`, `node server/push-flow-test.js` (real server, needs TEST_DATABASE_URL). Both run first in `npm test`.
 - Known: in the original upload, `smoke-test.js` (429 instead of 403 near the end) and `profile-test.js` (409 instead of 200) already fail on a clean checkout.

@@ -1,6 +1,6 @@
 {
   "name": "aduna-desktop",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Aduna desktop app: opens aduna.onrender.com/app",
   "main": "main.js",
   "author": "Aduna",
@@ -25,6 +25,8 @@
       "offline.html",
       "titlebar.html",
       "titlebar-preload.js",
+      "toast.html",
+      "toast-preload.js",
       "page-preload.js",
       "build/icon.png",
       "build/bree-serif.woff2"

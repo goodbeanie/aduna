@@ -25,17 +25,18 @@ export function registration() {
 }
 
 // True when the person is not looking at Aduna (tab hidden, another window in front, phone locked).
-export const away = () => document.hidden || !document.hasFocus();
+// In the desktop app the window itself says whether it is visible and in front (it may be hidden in the tray, where the page is kept running).
+export const away = () => { const d = desktop(); return d?.isActive ? !d.isActive() : document.hidden || !document.hasFocus(); };
 
-// Show one notification. n: { title, body, tag, target ('c:<serverId>:<channelId>' | 'd:<userId>' | 'f'), sticky }
+// Show one notification. n: { title, body, tag, target ('c:<serverId>:<channelId>' | 'd:<userId>' | 'f'), kind ('dm' | 'mention' | 'announcement' | 'call' | 'friend'), sticky }
 // Safe to call whenever: does nothing unless notifications are allowed.
 export async function show(n) {
   try {
     if (permission() !== 'granted') return;
     const url = '/app' + (n.target ? '?n=' + encodeURIComponent(n.target) : '');
     const d = desktop();
-    if (d) { d.notify({ title: n.title, body: n.body || '', tag: n.tag || '', target: n.target || '', sticky: !!n.sticky }); return; }
-    const opts = { body: n.body || '', tag: n.tag, icon: '/icon-192.png', badge: '/icon-192.png', data: { url }, requireInteraction: !!n.sticky };
+    if (d) { d.notify({ title: n.title, body: n.body || '', tag: n.tag || '', target: n.target || '', kind: n.kind || '', sticky: !!n.sticky }); return; }
+    const opts = { body: n.body || '', tag: n.tag, icon: '/notif-icon-192.png', badge: '/icon-192.png', data: { url }, requireInteraction: !!n.sticky };
     const reg = await registration();
     if (reg) { await reg.showNotification(n.title, opts); return; }
     const x = new Notification(n.title, opts);
@@ -55,9 +56,11 @@ export async function enable() {
   if (isDesktopApp()) return 'granted';
   if (!('Notification' in window)) return permission();
   const p = Notification.permission === 'default' ? await Notification.requestPermission() : Notification.permission;
-  if (p === 'granted') await subscribe().catch(() => {});
+  if (p === 'granted') await subscribe().catch((e) => { lastError = e?.message || String(e); });
   return p;
 }
+let lastError = '';
+export const subscribeError = () => lastError;
 
 function b64ToBytes(b64) {
   const pad = '='.repeat((4 - (b64.length % 4)) % 4);
@@ -65,6 +68,7 @@ function b64ToBytes(b64) {
   return Uint8Array.from(raw, (c) => c.charCodeAt(0));
 }
 export async function subscribe() {
+  lastError = '';
   if (!pushSupported()) return false;
   const { enabled, publicKey } = await api('/push/key');
   if (!enabled || !publicKey) return false;
@@ -98,3 +102,27 @@ export async function isSubscribed() {
 export function setBadge(n) {
   try { if (n > 0) navigator.setAppBadge?.(n); else navigator.clearAppBadge?.(); } catch { /* not supported */ }
 }
+
+// Step-by-step check of the whole path (permission > service worker > server > this device's subscription), for Settings > Notifications.
+// Each step: { ok: true | false | null (info only), label, detail }
+export async function diagnose() {
+  const out = [];
+  const perm = permission();
+  out.push({ ok: perm === 'granted', label: 'Notifications allowed on this device', detail: perm === 'granted' ? '' : perm === 'denied' ? 'Blocked in the browser / phone settings.' : perm === 'needs-install' ? 'Add Aduna to the Home Screen first.' : perm === 'unsupported' ? 'This browser has no notifications.' : 'Not asked yet.' });
+  if (!pushSupported()) { out.push({ ok: false, label: 'Closed-app notifications supported', detail: 'This browser cannot receive push messages.' }); return out; }
+  let reg = null;
+  try { reg = await Promise.race([registration(), new Promise((r) => setTimeout(() => r(null), 6000))]); } catch { /* below */ }
+  out.push({ ok: !!reg, label: 'Background service is running', detail: reg ? '' : 'The service worker could not start. Reload the app.' });
+  let key = null;
+  try { key = await api('/push/key'); } catch (e) { out.push({ ok: false, label: 'Server reachable', detail: e.message || 'Could not reach the server.' }); return out; }
+  out.push({ ok: !!(key.enabled && key.publicKey), label: 'Server can send push messages', detail: key.enabled ? '' : 'Push is switched off on the server (PUSH=off or no keys).' });
+  let sub = null;
+  try { sub = await reg?.pushManager.getSubscription(); } catch { /* none */ }
+  let host = '';
+  try { host = sub ? new URL(sub.endpoint).host : ''; } catch { /* ignore */ }
+  out.push({ ok: !!sub, label: 'This device is registered', detail: sub ? host : (lastError || 'Not registered yet. Press \u201cEnable while closed\u201d.') });
+  out.push({ ok: null, label: 'Installed as an app', detail: isInstalled() ? 'Yes' : 'No. Notifications while closed work best from the installed app.' });
+  return out;
+}
+// Ask the server to push a test message to every device of this account. Resolves { devices, sent, failed: [{ status, message }] }.
+export const pushTest = () => api('/push/test', { method: 'POST', body: {} });

@@ -62,6 +62,28 @@ assert.deepStrictEqual(cleanPrefs({ calls: false }, { ...DEFAULT_PREFS, dm: fals
   await push.send('a', 'mention', { title: 'x', body: 'y' });
   assert.ok(users.a.pushSubs.some((x) => x.endpoint.endsWith('/8')), 'a temporary error keeps it');
 
+  // test push: ignores switches + Do Not Disturb, forces display, reports per-device failures, drops dead devices
+  users.a.pushSubs = []; users.a.notifPrefs = { dm: false, mentions: false, calls: false }; users.a.status = 'dnd';
+  push.add(users.a, goodSub(41), 'UA'); push.add(users.a, goodSub(42), 'UA'); push.add(users.a, goodSub(43), 'UA');
+  calls = [];
+  failWith = null;
+  const sender2 = push; // same instance; make 42 fail with 403 and 43 with 410
+  const origSub = users.a.pushSubs.slice();
+  let errs = 0;
+  const tp = createPush({
+    users: () => users, save() {}, enabled: true, onError: () => { errs++; },
+    sender: async (sub, body) => { calls.push(JSON.parse(body)); if (sub.endpoint.endsWith('/42')) throw Object.assign(new Error('forbidden'), { statusCode: 403, body: 'bad vapid' }); if (sub.endpoint.endsWith('/43')) throw Object.assign(new Error('gone'), { statusCode: 410 }); },
+  });
+  const r = await tp.test('a');
+  assert.deepStrictEqual([r.enabled, r.devices, r.sent, r.failed.length], [true, 3, 1, 2]);
+  assert.ok(r.failed.some((f) => f.status === 403 && f.message === 'bad vapid'), 'the failure status is reported');
+  assert.ok(calls.every((c) => c.force === true && c.kind === 'test'), 'a test is forced past the "app is open" check');
+  assert.ok(users.a.pushSubs.some((x) => x.endpoint.endsWith('/42')) && !users.a.pushSubs.some((x) => x.endpoint.endsWith('/43')), '410 is dropped, 403 is kept');
+  assert.strictEqual(errs, 2);
+  assert.deepStrictEqual(await tp.test('nobody'), { enabled: true, devices: 0, sent: 0, failed: [] });
+  assert.strictEqual((await createPush({ users: () => users, save() {}, enabled: false, sender: async () => {} }).test('a')).sent, 0);
+  users.a.status = 'online';
+
   // off switch
   const off = createPush({ users: () => users, save() {}, enabled: false, sender: async () => { throw new Error('should not send'); } });
   assert.strictEqual(await off.send('a', 'mention', { title: 'x', body: 'y' }), 0);

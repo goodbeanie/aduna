@@ -158,7 +158,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     const ids = new Set(r.incoming.map((x) => x.user.id));
     if (frIncoming.current) { // not the first load: anything new is a fresh request
       for (const x of r.incoming) {
-        if (!frIncoming.current.has(x.user.id) && notify.away() && meRef.current.notifPrefs?.friends !== false) notify.show({ title: x.user.displayName, body: 'sent you a friend request', tag: 'friend:' + x.user.id, target: 'f' });
+        if (!frIncoming.current.has(x.user.id) && notify.away() && meRef.current.notifPrefs?.friends !== false) notify.show({ title: x.user.displayName, body: 'sent you a friend request', tag: 'friend:' + x.user.id, target: 'f', kind: 'friend' });
       }
     }
     frIncoming.current = ids;
@@ -243,7 +243,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         notify.show({
           title: `${who} ${m.everyone ? 'pinged everyone' : 'mentioned you'} in ${sv?.name || 'a server'}${ch ? ' \u00b7 #' + ch.name : ''}`,
           body: mentionPreview(m.content, usersRef.current).slice(0, 140) || 'Sent an attachment',
-          tag: 'm:' + m.id, target: `c:${m.serverId}:${m.channelId}`,
+          tag: 'm:' + m.id, target: `c:${m.serverId}:${m.channelId}`, kind: 'mention',
         });
       }
       if (!usersRef.current[m.authorId]) api('/users/' + m.authorId).then((r) => addUsers([r.user])).catch(() => {});
@@ -260,7 +260,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         // DMs are encrypted: this device decrypts the text for the notification, the server never sees it
         (async () => {
           const [t, who] = await Promise.all([decryptMsg(m), usersRef.current[partner] || api('/users/' + partner).then((r) => r.user).catch(() => null)]);
-          notify.show({ title: who?.displayName || 'New message', body: t.invite ? 'Sent you a server invite' : t.text?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent you a message'), tag: 'm:' + m.id, target: 'd:' + partner });
+          notify.show({ title: who?.displayName || 'New message', body: t.invite ? 'Sent you a server invite' : t.text?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent you a message'), tag: 'm:' + m.id, target: 'd:' + partner, kind: 'dm' });
         })().catch(() => {});
       }
       if (!usersRef.current[partner]) api('/users/' + partner).then((r) => addUsers([r.user])).catch(() => {});
@@ -310,7 +310,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       let body = 'New announcement';
       try { const m = (await api(`/channels/${channelId}/messages`)).messages.find((x) => x.id === messageId); if (m?.content) body = m.content.slice(0, 140); } catch { /* keep the default */ }
       setToast({ key: messageId, serverId, channelId, title, body });
-      if (notify.away() && prefsOf().announcements !== false) notify.show({ title, body, tag: 'm:' + messageId, target: `c:${serverId}:${channelId}` });
+      if (notify.away() && prefsOf().announcements !== false) notify.show({ title, body, tag: 'm:' + messageId, target: `c:${serverId}:${channelId}`, kind: 'announcement' });
     });
     s.on('credits:update', ({ balance: b, delta, reason }) => {
       setBalance(b); setCreditsRev((n) => n + 1);

@@ -16,6 +16,7 @@ export function NotificationSettings({ me, onPrefs }) {
   const [subbed, setSubbed] = useState(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [diag, setDiag] = useState(null);
   const prefs = me.notifPrefs || {};
   const desktop = notify.isDesktopApp();
 
@@ -29,10 +30,21 @@ export function NotificationSettings({ me, onPrefs }) {
       if (p === 'granted') {
         const ok = await notify.isSubscribed();
         setSubbed(ok);
-        if (!ok && notify.pushSupported()) setMsg('Notifications work while Aduna is open. Notifications while it is closed are not available on this server right now.');
+        if (!ok && notify.pushSupported()) setMsg('Notifications work while Aduna is open. Closed-app notifications could not be set up' + (notify.subscribeError() ? ': ' + notify.subscribeError() : '.') + ' Press \u201cCheck notifications\u201d for details.');
         notify.show({ title: 'Notifications are on', body: 'You’ll see DMs, mentions and calls here.', tag: 'aduna-test' });
       }
     } finally { setBusy(false); }
+  };
+  const check = async () => { setBusy(true); setMsg(''); try { setDiag(await notify.diagnose()); } finally { setBusy(false); } };
+  const serverTest = async () => {
+    setBusy(true); setMsg('');
+    try {
+      const r = await notify.pushTest();
+      if (!r.enabled) setMsg('Push is switched off on the server.');
+      else if (!r.devices) setMsg('No device of yours is registered for push yet. Press \u201cEnable while closed\u201d first.');
+      else if (r.failed.length && !r.sent) setMsg('The push service refused the message (' + r.failed.map((f) => f.status || 'network error').join(', ') + '). Press \u201cStop while-closed notifications\u201d, then \u201cEnable while closed\u201d to register this device again.');
+      else setMsg('Sent to ' + r.sent + ' of ' + r.devices + ' device' + (r.devices === 1 ? '' : 's') + '. It should appear within a few seconds. If it does not, check this app\u2019s notification settings in your phone\u2019s system settings (and that battery use is not restricted).');
+    } catch (e) { setMsg(e.message || 'Test failed'); } finally { setBusy(false); }
   };
   const turnOff = async () => { setBusy(true); await notify.unsubscribe(); setSubbed(false); setBusy(false); setMsg('Closed-app notifications are off for this device. To stop all notifications, block them in your browser or phone settings.'); };
   const set = async (key, value) => {
@@ -48,7 +60,7 @@ export function NotificationSettings({ me, onPrefs }) {
 
       <label>THIS DEVICE</label>
       <div className="notify-status">
-        {desktop && <p>Notifications show as Windows notifications while the Aduna app is running. Clicking one opens that chat.</p>}
+        {desktop && <p>Aduna keeps running in the tray when you close the window. DMs, mentions and calls show as a card in the bottom-right corner of your screen; clicking it opens that chat. Right-click the tray icon to turn off \u201cStart with Windows\u201d or to quit.</p>}
         {!desktop && perm === 'granted' && <p><b>On.</b> {subbed ? 'You will also get them while Aduna is closed.' : notify.pushSupported() ? 'You get them while Aduna is open in the background.' : 'You get them while Aduna is open in the background.'}</p>}
         {!desktop && perm === 'default' && <p>Off. Turn them on to hear about DMs, mentions and calls.</p>}
         {!desktop && perm === 'denied' && <p><b>Blocked.</b> Allow notifications for Aduna in your browser or phone settings (the lock icon next to the address, or Settings &gt; Notifications on your phone), then come back.</p>}
@@ -59,9 +71,21 @@ export function NotificationSettings({ me, onPrefs }) {
           {!desktop && perm === 'granted' && <button className="btn" disabled={busy} onClick={() => notify.show({ title: 'Test notification', body: 'This is what Aduna notifications look like.', tag: 'aduna-test' })}>Send a test</button>}
           {!desktop && perm === 'granted' && subbed === false && notify.pushSupported() && <button className="btn" disabled={busy} onClick={turnOn}>Enable while closed</button>}
           {!desktop && perm === 'granted' && subbed && <button className="btn" disabled={busy} onClick={turnOff}>Stop while-closed notifications</button>}
+          {!desktop && perm === 'granted' && notify.pushSupported() && <button className="btn" disabled={busy} onClick={serverTest}>Send a test push from the server</button>}
+          {!desktop && <button className="btn" disabled={busy} onClick={check}>Check notifications</button>}
           {desktop && <button className="btn" onClick={() => notify.show({ title: 'Test notification', body: 'This is what Aduna notifications look like.', tag: 'aduna-test' })}>Send a test</button>}
         </div>
         {msg && <p className="muted small hint">{msg}</p>}
+        {diag && (
+          <ul className="notify-diag">
+            {diag.map((d) => (
+              <li key={d.label} className={d.ok === true ? 'ok' : d.ok === false ? 'bad' : ''}>
+                <span aria-hidden="true">{d.ok === true ? '\u2713' : d.ok === false ? '\u2717' : '\u2022'}</span>
+                <span><b>{d.label}</b>{d.detail ? <><br /><span className="muted small">{d.detail}</span></> : null}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <label>WHAT TO TELL ME ABOUT</label>

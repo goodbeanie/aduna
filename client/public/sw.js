@@ -8,14 +8,15 @@ self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', () => { /* network only */ });
 
 const IOS = /iPhone|iPad|iPod/.test(self.navigator.userAgent);
-const ICON = '/icon-192.png';
+const ICON = '/notif-icon-192.png'; // dark logo on parchment: readable on light and dark notification shades
+const BADGE = '/icon-192.png';      // the small status-bar icon: Android only uses its shape (alpha), so the transparent logo is right
 
 self.addEventListener('push', (e) => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch { /* not JSON: show the generic text */ }
   e.waitUntil((async () => {
     // Someone looking at Aduna right now already sees the message. (iOS insists that every push is shown, so it always is.)
-    if (!IOS) {
+    if (!IOS && !d.force) {
       const wins = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
       if (wins.some((w) => w.visibilityState === 'visible' && w.focused)) return;
     }
@@ -25,9 +26,10 @@ self.addEventListener('push', (e) => {
       body: d.body || '',
       tag: d.tag,
       icon: ICON,
-      badge: ICON,
+      badge: BADGE,
       data: { url: d.url || '/app' },
       requireInteraction: d.kind === 'call',
+      renotify: !!d.force,
       vibrate: d.kind === 'call' ? [300, 150, 300, 150, 300] : [120],
     });
   })());
