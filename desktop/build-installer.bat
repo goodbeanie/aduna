@@ -22,7 +22,7 @@ if errorlevel 1 goto fail
 
 echo.
 echo Done. Your installer is in the dist folder:
-dir /b dist\Aduna-Setup-*.exe
+dir /b dist\Aduna-Setup*.exe
 
 rem The website keeps only the small update list (latest.yml). The installer itself goes in your R2 "downloads" bucket.
 if exist "..\client\public" (
@@ -34,7 +34,7 @@ if exist "..\client\public" (
 )
 echo.
 echo NOW: upload these two files from the dist folder to your R2 "downloads" bucket:
-dir /b dist\Aduna-Setup-*.exe dist\Aduna-Setup-*.exe.blockmap
+dir /b dist\Aduna-Setup*.exe dist\Aduna-Setup*.exe.blockmap
 start "" "%~dp0dist"
 pause
 exit /b 0

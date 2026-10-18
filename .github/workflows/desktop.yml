@@ -1,4 +1,4 @@
-# Builds the Windows installer (Aduna-Setup-x.y.z.exe) on GitHub. Run it from the Actions tab > "Build desktop app" > Run workflow.
+# Builds the Windows installer (Aduna-Setup.exe) on GitHub. Run it from the Actions tab > "Build desktop app" > Run workflow.
 name: Build desktop app
 on: workflow_dispatch
 jobs:
@@ -16,6 +16,6 @@ jobs:
         with:
           name: Aduna-Setup
           path: |
-            desktop/dist/Aduna-Setup-*.exe
-            desktop/dist/Aduna-Setup-*.exe.blockmap
+            desktop/dist/Aduna-Setup*.exe
+            desktop/dist/Aduna-Setup*.exe.blockmap
             desktop/dist/latest.yml

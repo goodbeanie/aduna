@@ -26,12 +26,14 @@ To try the chip without a packaged build: `set ADUNA_FAKE_UPDATE=available` (or 
 To release an update:
 1. Raise `"version"` in `desktop/package.json` (for example 1.1.0 to 1.1.1). Updates are only offered when the number goes up.
 2. Run `build-installer.bat`. It copies the small `latest.yml` into `client/public/updates/`.
-3. Upload the new `Aduna-Setup-x.y.z.exe` and its `.blockmap` (both in `desktop/dist/`) to your public R2 "downloads" bucket.
+3. Upload the new `Aduna-Setup.exe` and its `Aduna-Setup.exe.blockmap` (both in `desktop/dist/`) to your public R2 "downloads" bucket.
 4. Commit and deploy the site. Installed apps read the update list from https://aduna.onrender.com/updates/latest.yml and
    download the installer from R2.
 
 The installer lives in a separate public R2 bucket, never the bucket that holds user uploads. Set `DOWNLOAD_BASE_URL` on Render
 to that bucket's public address. If it is not set, the site serves the installer from `client/public/updates/` instead.
+
+The installer is always named `Aduna-Setup.exe` (no version in the name), and `latest.yml` points at that name, so the file in the bucket must have exactly that name. Replace it on every release; if an update ever fails its checksum, the bucket or a CDN is still serving the old copy (purge its cache).
 
 Only versions 1.1.0 and newer can update themselves, so anyone on an older install needs to install once by hand.
 
