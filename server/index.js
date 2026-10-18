@@ -1418,7 +1418,8 @@ if (fs.existsSync(dist)) {
   // 80 MB file never touches this server. The file name always comes from updates/latest.yml, so the link never goes stale.
   const DL_BASE = String(process.env.DOWNLOAD_BASE_URL || '').trim().replace(/\/+$/, '');
   const readFeed = () => { try { return fs.readFileSync(path.join(dist, 'updates', 'latest.yml'), 'utf8'); } catch { return null; } };
-  app.get('/download', (_req, res) => {
+  app.get('/download', (_req, res) => res.sendFile(path.join(dist, 'download.html'))); // instructions page; it starts the download
+  app.get('/download/file', (_req, res) => {
     const file = ((readFeed() || '').match(/^path:\s*(\S+)\s*$/m) || [])[1];
     if (file && /^[\w.\-]+\.exe$/.test(file) && (DL_BASE || fs.existsSync(path.join(dist, 'updates', file)))) return res.redirect(302, (DL_BASE ? DL_BASE + '/' : '/updates/') + file);
     res.redirect(302, '/app');

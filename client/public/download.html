@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download Aduna</title>
+<meta name="theme-color" content="#fffbef">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+@font-face{font-family:'Bree Serif';src:url('/fonts/bree-serif.woff2') format('woff2');font-display:swap}
+:root{--cream:#fffbef;--ink:#111112;--muted:#6d675a;--line:#e7dfc8;--card:#fff;--gold:#e0b04a;--green:#3fb577}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Bree Serif',Georgia,serif;background:var(--cream);color:var(--ink);line-height:1.45;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+.wrap{max-width:860px;margin:0 auto;padding:0 22px 70px}
+nav{display:flex;align-items:center;justify-content:space-between;height:84px}
+nav img{height:44px;display:block}
+nav a.back{color:var(--muted);font-size:18px;text-decoration:none}nav a.back:hover{color:var(--ink)}
+header{text-align:center;padding:18px 0 26px}
+h1{font-weight:400;font-size:clamp(34px,6vw,54px);line-height:1.05;letter-spacing:-.01em;margin-bottom:12px}
+.lead{font-size:clamp(18px,2.2vw,22px);color:var(--muted);max-width:640px;margin:0 auto}
+.btn{display:inline-flex;align-items:center;justify-content:center;height:50px;padding:0 28px;border-radius:30px;font:inherit;font-size:20px;border:2px solid var(--ink);background:var(--ink);color:var(--cream);cursor:pointer;text-decoration:none;transition:transform .15s,box-shadow .15s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,.18)}
+.again{text-align:center;margin:18px 0 6px}
+.again small{display:block;margin-top:10px;color:var(--muted);font-size:16px}
+.note{background:#fff7dd;border:1px solid var(--gold);border-radius:16px;padding:14px 18px;margin:26px 0 8px;font-size:17px;color:#4a4330}
+.steps{list-style:none;counter-reset:s;margin-top:22px}
+.step{counter-increment:s;background:var(--card);border:1px solid var(--line);border-radius:22px;padding:22px;margin-bottom:18px;display:grid;grid-template-columns:48px 1fr;gap:6px 16px;align-items:start}
+.step::before{content:counter(s);width:44px;height:44px;border-radius:50%;background:var(--ink);color:var(--cream);display:flex;align-items:center;justify-content:center;font-size:22px;grid-row:1 / span 3}
+.step h2{font-weight:400;font-size:24px;line-height:1.2;margin-top:6px}
+.step p{color:var(--muted);font-size:18px}
+.step p b{color:var(--ink);font-weight:400;background:rgba(224,176,74,.35);padding:0 5px;border-radius:5px}
+.step img{display:block;max-width:min(100%,440px);width:auto;height:auto;margin-top:10px;filter:drop-shadow(0 8px 18px rgba(0,0,0,.22))}
+.step.done::before{content:"✓";background:var(--green)}
+#other{display:none;text-align:center}
+#other .step{display:block;text-align:left}
+#other .step::before{display:none}
+.hide{display:none}
+footer{text-align:center;color:var(--muted);font-size:15px;margin-top:30px}
+@media(max-width:560px){.step{grid-template-columns:1fr}.step::before{grid-row:auto}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a href="/"><img src="/aduna-wordmark.png" alt="aduna."></a>
+    <a class="back" href="/">← Back</a>
+  </nav>
+
+  <div id="win">
+    <header>
+      <h1>Your download is starting</h1>
+      <p class="lead">Aduna for Windows. Windows and your browser will show a couple of warnings because Aduna is new. Here is what to click.</p>
+    </header>
+
+    <div class="again">
+      <a class="btn" id="again" href="/download/file">Download again</a>
+      <small>Didn’t start? Click the button above.</small>
+    </div>
+
+    <div class="note">Aduna is new and not yet signed with a paid Microsoft certificate, so Chrome and Windows warn about it. Only continue if you got this installer from this page.</div>
+
+    <ol class="steps">
+      <li class="step">
+        <h2>If your browser asks, click “Keep”</h2>
+        <p>Chrome may say the file “is not commonly downloaded”. Click <b>Keep</b>. In Edge, open the downloads list, open the “…” menu next to the file and choose <b>Keep</b>.</p>
+        <img src="/guide/step-1-keep.png" alt="Chrome's Confirm download box with the Keep button" width="448" height="166">
+      </li>
+      <li class="step">
+        <h2>Open the file, then click “More info”</h2>
+        <p>Open <b>Aduna-Setup</b> from your Downloads. When Windows says it protected your PC, click <b>More info</b> (the small link, not the big button).</p>
+        <img src="/guide/step-2-more-info.png" alt="Windows protected your PC with the More info link" width="532" height="498">
+      </li>
+      <li class="step">
+        <h2>Click “Run anyway”</h2>
+        <p>The <b>Run anyway</b> button appears after More info. Click it and Aduna installs in a few seconds.</p>
+        <img src="/guide/step-3-run-anyway.png" alt="Windows protected your PC with the Run anyway button" width="532" height="498">
+      </li>
+      <li class="step done">
+        <h2>You’re in</h2>
+        <p>Aduna opens when it finishes and adds a shortcut to your desktop and Start menu. After this, updates install from inside the app without these warnings.</p>
+      </li>
+    </ol>
+  </div>
+
+  <div id="other">
+    <header>
+      <h1>Aduna on this device</h1>
+      <p class="lead">The installer is for Windows computers. On this device you can use Aduna right in your browser, or add it to your home screen or apps.</p>
+    </header>
+    <p><a class="btn" href="/app">Open Aduna</a></p>
+    <ol class="steps">
+      <li class="step"><h2>Chrome or Edge on a computer or Android</h2><p>Open Aduna, then click the install icon at the right of the address bar, or open the browser menu and choose <b>Install Aduna</b>.</p></li>
+      <li class="step"><h2>iPhone or iPad</h2><p>Open Aduna in Safari, tap the Share button, then <b>Add to Home Screen</b>.</p></li>
+    </ol>
+  </div>
+
+  <footer>aduna. · to gather.</footer>
+</div>
+<script src="/download.js"></script>
+</body>
+</html>
