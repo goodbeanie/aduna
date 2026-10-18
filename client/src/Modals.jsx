@@ -227,7 +227,7 @@ function ColorRow({ label, value, onChange, colors = COLORS }) {
 
 export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const [f, setF] = useState({
-    displayName: me.displayName, username: me.username, bio: me.bio, avatarEmoji: me.avatarEmoji, avatarColor: me.avatarColor,
+    displayName: me.displayName, username: me.username, email: me.email || '', bio: me.bio, avatarEmoji: me.avatarEmoji, avatarColor: me.avatarColor,
     bannerColor: me.bannerColor, accentColor: me.accentColor, status: me.status,
     links: (me.links || []).map((l) => ({ ...l })),
   });
@@ -319,6 +319,10 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
         <div className="editor-form">
           <label>DISPLAY NAME</label>
           <input value={f.displayName} maxLength={32} onChange={(e) => set('displayName')(e.target.value)} />
+
+          <label>EMAIL</label>
+          <input type="email" value={f.email} maxLength={254} autoComplete="email" placeholder="you@example.com" onChange={(e) => set('email')(e.target.value)} />
+          <p className="muted small hint">Private: other people never see it. Used for payment receipts and important account notices.</p>
 
           <label>USERNAME</label>
           <div className="at-input">

@@ -16,7 +16,7 @@ async function call(p, { method = 'GET', body, token } = {}) {
   return { status: r.status, ...(await r.json().catch(() => ({}))) };
 }
 const blob = { salt: 'a', iv: 'b', data: 'c' };
-const reg = (username) => call('/register', { method: 'POST', body: { username, password: 'password123', publicKey: 'pk' + username, encPrivKey: blob } });
+const reg = (username) => call('/register', { method: 'POST', body: { username, email: username + '@example.com', password: 'password123', publicKey: 'pk' + username, encPrivKey: blob } });
 const ack = (s, ev, p) => new Promise((res) => s.emit(ev, p, res));
 const once = (s, ev) => new Promise((res) => s.once(ev, res));
 const step = (m) => console.log('✓', m);

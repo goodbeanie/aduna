@@ -36,6 +36,18 @@ services:
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      # email verification. Free option: Gmail. Set both of these (app password: Google Account > Security > App passwords).
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      # Or use Resend instead (needs a verified domain). With neither set, verification is off.
+      # EMAIL_FROM must be an address on a domain you verified in Resend, e.g. "Aduna <noreply@yourdomain.com>".
+      # (The default onboarding@resend.dev can only send to your own Resend account's email.)
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
       # your site's public address, used for Stripe's return links (default: taken from the request)
       - key: PUBLIC_URL
         sync: false

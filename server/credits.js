@@ -320,6 +320,7 @@ async function createCheckout({ user, pack, origin, fetchImpl = fetch }) {
     'metadata[userId]': user.id,
     'metadata[packId]': pack.id,
   });
+  if (user.email) body.set('customer_email', user.email); // pre-fills the checkout page and where Stripe sends the receipt
   // Stripe accounts can have "Managed Payments" (Stripe as seller of record, handles tax) switched on by default; it
   // rejects checkouts whose products have no tax code. Aduna does not send tax codes, so it opts out per session
   // unless STRIPE_MANAGED_PAYMENTS=on is set (then a tax code must be added to the line item first).

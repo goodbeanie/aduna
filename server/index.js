@@ -9,6 +9,8 @@ const { Server } = require('socket.io');
 const store = require('./db');
 const { sniffImage, cleanGif } = require('./images');
 const credits = require('./credits');
+const security = require('./security');
+const mailer = require('./mailer');
 
 const PORT = process.env.PORT || 3000;
 const MAX_MSG = 2000;
@@ -135,6 +137,29 @@ function publicUser(u) {
   };
 }
 
+// What the signed-in person gets about themselves: the public profile plus their private email.
+// Never use this for anything other people receive (user:update events, member lists, other people's profiles).
+const ownUser = (u) => ({ ...publicUser(u), email: u.email || null, emailVerified: u.emailVerified !== false });
+
+// ---------- email verification ----------
+// On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
+// are locked out of everything except the verification endpoints until they enter it. Accounts created before this
+// existed have no `emailVerified` flag and are treated as verified. Only a hash of the code is stored.
+const CODE_TTL_MS = 15 * 60_000, CODE_COOLDOWN_MS = 60_000, CODE_MAX_TRIES = 5;
+const needsVerify = (u) => mailer.enabled() && u.emailVerified === false;
+const codeHash = (uid, code) => crypto.createHash('sha256').update(uid + ':' + code).digest('hex');
+const resends = new security.RateWindow(5, 3600_000); // emails per account per hour
+async function issueCode(u) {
+  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  u.verify = { hash: codeHash(u.id, code), expires: now() + CODE_TTL_MS, tries: 0, sentAt: now() };
+  store.save();
+  await mailer.sendVerificationCode(u.email, code, u.username);
+}
+const emailTaken = (email, exceptId) => {
+  const key = security.emailKey(email);
+  return Object.values(db().users).some((x) => x.id !== exceptId && x.email && security.emailKey(x.email) === key);
+};
+
 const convoKey = (a, b) => [a, b].sort().join(':');
 const signToken = (u) => jwt.sign({ uid: u.id }, SECRET, { expiresIn: '30d' });
 
@@ -175,9 +200,15 @@ const app = express();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 // Behind Render's (or any) reverse proxy, req.ip must be the visitor, not the proxy, or rate limits would be shared by everyone.
 if (process.env.TRUST_PROXY !== '0') app.set('trust proxy', 1);
+app.disable('x-powered-by');
+app.use(security.securityHeaders()); // CSP, clickjacking, nosniff, referrer, permissions, HSTS over HTTPS (see security.js)
 app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
 // Stripe signs the exact bytes it sends, so the credits webhook keeps the raw body next to the parsed one.
 app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl === '/api/credits/webhook') req.rawBody = buf; } }));
+
+// API answers can hold private data (balances, email): browsers and proxies must not keep them.
+// Images and files set their own caching below, which overrides this.
+app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 // naive per-IP rate limit for auth endpoints
 const hits = new Map();
@@ -191,12 +222,18 @@ function authLimiter(req, res, next) {
   next();
 }
 
-function auth(req, res, next) {
+function authAny(req, res, next) { // signed in, verified or not: only for the email-verification routes
   const h = req.headers.authorization || '';
   const u = userFromToken(h.replace(/^Bearer /, ''));
   if (!u) return res.status(401).json({ error: 'Unauthorized' });
   req.user = u;
   next();
+}
+function auth(req, res, next) {
+  authAny(req, res, () => {
+    if (needsVerify(req.user)) return res.status(403).json({ error: 'Verify your email address first', code: 'email_unverified' });
+    next();
+  });
 }
 
 const validKeyBlob = (b) => b && typeof b === 'object' && ['salt', 'iv', 'data'].every((k) => typeof b[k] === 'string' && b[k].length < 4000);
@@ -208,14 +245,24 @@ function defaultServer() {
   return all.find((x) => x.inviteCode === code) || all.find((x) => String(x.name).trim().toLowerCase() === 'aduna') || null;
 }
 
-app.post('/api/register', authLimiter, (req, res) => {
+const signups = new security.RateWindow(posNum(process.env.SIGNUPS_PER_HOUR, 10), 3600_000); // new accounts per address per hour
+const loginGuard = new security.LoginGuard();
+const DUMMY_HASH = bcrypt.hashSync('aduna-not-a-real-password', 10); // so a wrong username takes as long as a wrong password
+
+app.post('/api/register', authLimiter, async (req, res) => {
   const { username, password, publicKey, encPrivKey } = req.body || {};
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username || '')) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
+  const email = security.cleanEmail(req.body?.email);
+  if (!email) return res.status(400).json({ error: 'Enter a valid email address' });
   if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  const weak = process.env.NODE_ENV === 'test' ? null : security.weakPassword(password, { username, email });
+  if (weak) return res.status(400).json({ error: weak });
   if (typeof publicKey !== 'string' || publicKey.length > 2000) return res.status(400).json({ error: 'Missing public key' });
   if (!validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing key backup' });
   const taken = Object.values(db().users).some((u) => u.username.toLowerCase() === username.toLowerCase());
   if (taken) return res.status(409).json({ error: 'Username already taken' });
+  if (emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
+  if (!signups.allow(req.ip)) return res.status(429).json({ error: 'Too many accounts were created from this connection. Try again later.' });
 
   const hues = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e'];
   const user = {
@@ -223,6 +270,7 @@ app.post('/api/register', authLimiter, (req, res) => {
     username,
     passHash: bcrypt.hashSync(password, 10),
     displayName: username,
+    email, // private: never part of publicUser(); stored encrypted like every other record
     bio: '',
     avatarColor: hues[Math.floor(Math.random() * hues.length)],
     avatarEmoji: '',
@@ -233,28 +281,72 @@ app.post('/api/register', authLimiter, (req, res) => {
     encPrivKey,
     createdAt: now(),
   };
+  if (mailer.enabled()) user.emailVerified = false;
   db().users[user.id] = user;
 
-  // Everyone who signs up starts in the official Aduna server. It is found by invite code
-  // (DEFAULT_SERVER_INVITE, default "aduna"), else by the name "Aduna". Set DEFAULT_SERVER_INVITE=off to disable.
+  if (!needsVerify(user)) joinDefaultServer(user);
+  store.save();
+  if (needsVerify(user)) {
+    try { await issueCode(user); } catch (e) { console.error('verification email failed:', e.message); } // they can press "resend"
+  }
+  res.json({ token: signToken(user), user: ownUser(user) });
+});
+
+// Everyone starts in the official Aduna server. It is found by invite code (DEFAULT_SERVER_INVITE, default "aduna"),
+// else by the name "Aduna". Set DEFAULT_SERVER_INVITE=off to disable. Unverified accounts join once they verify.
+function joinDefaultServer(user) {
   const dflt = defaultServer();
   if (dflt && !dflt.members.includes(user.id)) {
     dflt.members.push(user.id);
     io.to('server:' + dflt.id).emit('server:update', serverView(dflt));
   }
+}
 
+app.post('/api/me/verify-email', authLimiter, authAny, (req, res) => {
+  const u = req.user;
+  if (!needsVerify(u)) return res.json({ user: ownUser(u) });
+  const v = u.verify;
+  const code = String(req.body?.code ?? '').replace(/\s/g, '');
+  if (!v || v.expires < now()) return res.status(400).json({ error: 'That code has expired. Request a new one.' });
+  if (v.tries >= CODE_MAX_TRIES) return res.status(429).json({ error: 'Too many wrong codes. Request a new one.' });
+  const a = Buffer.from(codeHash(u.id, code)), b = Buffer.from(v.hash);
+  if (!/^\d{6}$/.test(code) || !crypto.timingSafeEqual(a, b)) {
+    v.tries += 1; store.save();
+    return res.status(400).json({ error: 'That code is not right.' });
+  }
+  u.emailVerified = true;
+  delete u.verify;
+  joinDefaultServer(u);
   store.save();
-  res.json({ token: signToken(user), user: { ...publicUser(user) } });
+  res.json({ user: ownUser(u) });
+});
+
+app.post('/api/me/resend-verification', authLimiter, authAny, async (req, res) => {
+  const u = req.user;
+  if (!needsVerify(u)) return res.json({ ok: true, retryAfter: 0 });
+  const wait = (u.verify?.sentAt || 0) + CODE_COOLDOWN_MS - now();
+  if (wait > 0) return res.status(429).json({ error: `Wait ${Math.ceil(wait / 1000)}s before requesting another code.`, retryAfter: Math.ceil(wait / 1000) });
+  if (!resends.allow(u.id)) return res.status(429).json({ error: 'Too many emails sent. Try again later.', retryAfter: 3600 });
+  try { await issueCode(u); } catch (e) { console.error('verification email failed:', e.message); return res.status(502).json({ error: 'The email could not be sent. Check the address and try again.' }); }
+  res.json({ ok: true, retryAfter: CODE_COOLDOWN_MS / 1000 });
 });
 
 app.post('/api/login', authLimiter, (req, res) => {
   const { username, password } = req.body || {};
-  const user = Object.values(db().users).find((u) => u.username.toLowerCase() === String(username || '').toLowerCase());
-  if (!user || !bcrypt.compareSync(String(password || ''), user.passHash)) return res.status(401).json({ error: 'Invalid username or password' });
-  res.json({ token: signToken(user), user: publicUser(user), encPrivKey: user.encPrivKey });
+  const name = String(username || '');
+  const lock = loginGuard.check(name, req.ip);
+  if (lock.blocked) {
+    res.set('Retry-After', String(lock.retryAfterSec));
+    return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
+  }
+  const user = Object.values(db().users).find((u) => u.username.toLowerCase() === name.toLowerCase());
+  const ok = bcrypt.compareSync(String(password || ''), user ? user.passHash : DUMMY_HASH); // always one comparison: no timing hint about which names exist
+  if (!user || !ok) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'Invalid username or password' }); }
+  loginGuard.success(name, req.ip);
+  res.json({ token: signToken(user), user: ownUser(user), encPrivKey: user.encPrivKey });
 });
 
-app.get('/api/me', auth, (req, res) => res.json({ user: publicUser(req.user), encPrivKey: req.user.encPrivKey }));
+app.get('/api/me', authAny, (req, res) => res.json({ user: ownUser(req.user), encPrivKey: req.user.encPrivKey }));
 
 app.put('/api/me/keys', auth, (req, res) => {
   const { publicKey, encPrivKey } = req.body || {};
@@ -265,7 +357,7 @@ app.put('/api/me/keys', auth, (req, res) => {
   store.save();
   const view = publicUser(req.user);
   io.emit('user:update', view);
-  res.json({ user: view });
+  res.json({ user: ownUser(req.user) });
 });
 
 const USERNAME_COOLDOWN_MS = 7 * 24 * 3600 * 1000; // a username can be changed once a week
@@ -291,7 +383,7 @@ function cleanLinks(input) {
   return out;
 }
 
-app.patch('/api/me', auth, (req, res) => {
+app.patch('/api/me', authAny, async (req, res) => {
   const u = req.user;
   const b = req.body || {};
 
@@ -313,6 +405,14 @@ app.patch('/api/me', auth, (req, res) => {
     if (taken) return res.status(409).json({ error: 'Username already taken' });
   }
 
+  let newEmail;
+  if (b.email !== undefined && String(b.email).trim().toLowerCase() !== (u.email || '')) {
+    newEmail = security.cleanEmail(b.email); // an account that has an email cannot clear it
+    if (!newEmail) return res.status(400).json({ error: 'Enter a valid email address' });
+    if (emailTaken(newEmail, u.id)) return res.status(409).json({ error: 'An account with this email already exists' });
+  }
+
+  if (newEmail) { u.email = newEmail; if (mailer.enabled()) u.emailVerified = false; } // a new address must be verified again
   if (newUsername !== undefined) {
     // Someone who never picked a display name keeps showing their username.
     if (u.displayName === u.username && (b.displayName === undefined || b.displayName === u.displayName)) { u.displayName = newUsername; delete b.displayName; }
@@ -330,7 +430,8 @@ app.patch('/api/me', auth, (req, res) => {
   const view = publicUser(u);
   io.emit('user:update', view);
   broadcastPresence(u.id);
-  res.json({ user: view });
+  if (newEmail && needsVerify(u)) { try { await issueCode(u); } catch (e) { console.error('verification email failed:', e.message); } }
+  res.json({ user: ownUser(u) });
 });
 
 // ----- profile images (avatar / banner) -----
@@ -1339,6 +1440,7 @@ function broadcastPresence(uid) {
 io.use((socket, next) => {
   const u = userFromToken(socket.handshake.auth?.token);
   if (!u) return next(new Error('unauthorized'));
+  if (needsVerify(u)) return next(new Error('unverified'));
   socket.data.uid = u.id;
   next();
 });

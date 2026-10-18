@@ -13,7 +13,7 @@ async function call(p, { method = 'GET', body, token } = {}) {
   const r = await fetch(base + '/api' + p, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
   return { status: r.status, ...(await r.json()) };
 }
-const reg = (username) => call('/register', { method: 'POST', body: { username, password: 'password123', publicKey: 'pk' + username, encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } });
+const reg = (username) => call('/register', { method: 'POST', body: { username, email: username + '@example.com', password: 'password123', publicKey: 'pk' + username, encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } });
 const upload = async (token, kind, target, bytes) => {
   const r = await fetch(`${base}/api/files?kind=${kind}&target=${target}`, { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/octet-stream' }, body: bytes });
   return { status: r.status, ...(await r.json()) };

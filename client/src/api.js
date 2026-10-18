@@ -17,6 +17,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
+    if (res.status === 403 && data.code === 'email_unverified') window.dispatchEvent(new Event('aduna:unverified'));
     const err = new Error(data.error || 'Request failed');
     err.status = res.status;
     throw err;

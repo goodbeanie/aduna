@@ -11,6 +11,7 @@ process.env.DB_SCHEMA = 't_' + crypto.randomBytes(4).toString('hex');
 process.env.DB_ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
 delete process.env.JWT_SECRET;
 process.env.NODE_ENV = 'test';
+process.env.SIGNUPS_PER_HOUR = '100000'; // the tests create many accounts from one address
 
 const store = require('./db');
 // Every byte stored in every table, as one string: what someone with a copy of the database would see.

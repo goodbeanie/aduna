@@ -29,7 +29,7 @@ async function makeUser(name) {
   const pair = await crypto.subtle.generateKey(ECDH, true, ['deriveKey']);
   const pub = await crypto.subtle.exportKey('jwk', pair.publicKey);
   const publicKey = JSON.stringify({ kty: pub.kty, crv: pub.crv, x: pub.x, y: pub.y });
-  const r = await call('/register', { method: 'POST', body: { username: name, password: 'password123', publicKey, encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } });
+  const r = await call('/register', { method: 'POST', body: { username: name, email: name + '@example.com', password: 'password123', publicKey, encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } });
   assert.strictEqual(r.status, 200, 'register ' + name + ' ' + JSON.stringify(r));
   return { ...r, privateKey: pair.privateKey, publicKey };
 }
@@ -71,7 +71,7 @@ async function putImg(kind, body, type, token) {
   const bob = await makeUser('bob');
   step('registered two users');
 
-  assert.strictEqual((await call('/register', { method: 'POST', body: { username: 'ALICE', password: 'password123', publicKey: 'x', encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } })).status, 409);
+  assert.strictEqual((await call('/register', { method: 'POST', body: { username: 'ALICE', email: 'other@example.com', password: 'password123', publicKey: 'x', encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } })).status, 409);
   assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'alice', password: 'wrongpass' } })).status, 401);
   assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'alice', password: 'password123' } })).status, 200);
   assert.strictEqual((await call('/me')).status, 401);

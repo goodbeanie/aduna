@@ -5,6 +5,7 @@ import { createIdentity, unlockIdentity, saveKey, hasCrypto } from './crypto.js'
 export default function Auth({ onAuthed }) {
   const [mode, setMode] = useState(typeof location !== 'undefined' && location.hash === '#signup' ? 'register' : 'login');
   const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -22,7 +23,7 @@ export default function Auth({ onAuthed }) {
         const ident = await createIdentity(password);
         const { token, user } = await api('/register', {
           method: 'POST',
-          body: { username, password, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey },
+          body: { username, email: email.trim(), password, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey },
         });
         setToken(token);
         await saveKey(user.id, ident.privateKey);
@@ -57,6 +58,14 @@ export default function Auth({ onAuthed }) {
 
         <label>USERNAME</label>
         <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required autoComplete="username" maxLength={20} />
+
+        {mode === 'register' && (
+          <>
+            <label>EMAIL</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" maxLength={254} placeholder="you@example.com" />
+            <p className="hint">Never shown to other people. We'll email you a code to verify it, and use it for payment receipts and important account notices.</p>
+          </>
+        )}
 
         <label>PASSWORD</label>
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'register' ? 8 : 1}

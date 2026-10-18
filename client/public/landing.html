@@ -167,14 +167,6 @@ footer{border-top:2px solid var(--line);padding:32px 0 48px;color:var(--muted);f
   <footer style="margin-top:90px;border:none;justify-content:center"><span>aduna. · to gather.</span></footer>
 </div>
 
-<script>
-// If you're already signed in, the buttons just open the app.
-try{
-  if(localStorage.getItem('aduna_token')){
-    document.querySelectorAll('a.go').forEach(function(a){a.textContent='Open Aduna';a.setAttribute('href','/app');});
-    document.querySelectorAll('a.login').forEach(function(a){a.style.display='none'});
-  }
-}catch(e){}
-</script>
+<script src="/landing.js"></script>
 </body>
 </html>

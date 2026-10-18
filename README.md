@@ -28,6 +28,7 @@ Run the automated checks with `TEST_DATABASE_URL=postgres://... npm test` (use a
 
 ## Features
 
+- Accounts need an email address (private, never shown to anyone, pre-fills Stripe receipts), a username and a password; existing accounts can add one in Settings
 - Accounts with hashed passwords (bcrypt) and 30-day sessions
 - Accounts, servers, channel messages, DMs and friendships stored in Postgres (Neon), every record encrypted at rest (AES-256-GCM)
 - Profile pictures and banners: upload a PNG, JPEG, WebP or GIF; it is cropped and resized in the browser, then stored encrypted
@@ -80,6 +81,8 @@ Environment variables:
 | `GIPHY_API_KEY` | no | GIF search. |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | no | Buying credits with real money (see Credits). Set both or neither; without them the Buy buttons are disabled. |
 | `PUBLIC_URL` | no | Your site's address (e.g. `https://aduna.onrender.com`), used for the links Stripe sends people back to. Defaults to the address of the request. |
+| `CSP_MODE` | no | `enforce` (default), `report-only` (the browser only logs policy violations: use this if a page ever looks broken after an update) or `off`. |
+| `SIGNUPS_PER_HOUR` | no | New accounts allowed per IP address per hour (default 10). |
 | `STRIPE_MANAGED_PAYMENTS` | no | Set to `on` only if you want Stripe's Managed Payments (Stripe handles sales tax). Aduna opts out of it per checkout by default because Managed Payments needs a tax code on every product, which Aduna does not send. |
 | `DEFAULT_SERVER_INVITE` | no | Invite code of the server every new account joins automatically at sign-up (default `aduna`; falls back to a server named "Aduna"). Set to `off` to disable. |
 | `ATTACHMENT_TTL_DAYS` | no | Days to keep attachments of 10 MB or less (default 14). |
@@ -141,6 +144,18 @@ In **Edit profile**, choose *Upload image* for the profile picture and/or the ba
 - The camera and microphone need https or localhost. Both people see each other's IP address, as in any peer-to-peer call.
 - Not built yet: group and voice-channel calls, call history messages in the DM, push notifications for calls when the tab is closed.
 
+## Security
+
+- **HTTPS everywhere** on Render, plus `Strict-Transport-Security` so browsers stay on it.
+- **Browser protections** on every response (`server/security.js`): a Content-Security-Policy that only runs scripts, styles and fonts from the site itself (images and media also from GIPHY, `blob:` and `data:` for previews), no framing of the site (clickjacking), `nosniff`, a strict referrer policy, and camera/microphone/screen share limited to the site (calls need them). The two small scripts the pages used to inline now live in `client/public/theme-init.js` and `landing.js` for this reason. This is what stops an injected script from running, which matters because the login token is kept in the browser's localStorage.
+- **Login lockout:** 5 wrong passwords for one username from one address lock that pair for 15 minutes; 25 from anywhere lock the username for 15 minutes (so guessing spread across many addresses fails; the cost is that someone can annoy a user by spamming their name from many addresses). A wrong username takes as long to answer as a wrong password.
+- **Sign-up:** valid email required and unique (`name+tag@` and Gmail dots count as the same mailbox), common, repetitive or username-containing passwords refused, at most 10 new accounts per IP per hour.
+- **Privacy of API answers:** `Cache-Control: no-store` on API responses.
+
+Email verification: either set `GMAIL_USER` + `GMAIL_APP_PASSWORD` (free, about 500 emails a day) or `RESEND_API_KEY` and `EMAIL_FROM` (an address on a domain verified in Resend) and new accounts, and accounts that change their email, must enter a 6-digit code (15 min expiry, 5 tries, 60s resend cooldown, 5 emails/hour) before they can use the app. With none of these set, verification is off. Accounts created earlier count as verified.
+
+Not covered: accounts still have no password reset (the encryption key depends on the password); the login token is still in localStorage rather than an httpOnly cookie; no two-factor sign-in; no audit by an outside party. Treat this as a solid base, not a guarantee.
+
 ## Credits
 
 Credits are Aduna's currency. Everyone has a balance (private to them) shown in the sidebar and on the **Credits** page, which also lists quests and recent activity. Nothing in the app spends credits yet: the server has `spend()` ready in `server/credits.js` for whatever you add next.
@@ -165,6 +180,7 @@ Credits are added by the signed webhook, never by the browser's return to the si
 ```
 server/index.js        REST API + Socket.IO
 server/db.js           encrypted Postgres/Neon persistence (records, images, files)
+server/security.js     browser headers, email rules, login lockout, password checks
 server/credits.js      credits: balances, earning rules, quests, Stripe checkout + webhook
 server/images.js       checks uploaded images (file signature + dimensions)
 server/r2-test.js      R2 storage test (uses a local S3 stand-in)

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Auth from './Auth.jsx';
+import VerifyEmail from './VerifyEmail.jsx';
 import Chat from './Chat.jsx';
 import Friends from './Friends.jsx';
 import { Avatar, Icon, ServerIcon, STATUS_LABEL } from './ui.jsx';
@@ -60,6 +61,13 @@ export default function App() {
     })();
   }, []);
 
+  // the server refused a request because the email is not verified (e.g. they just changed it)
+  useEffect(() => {
+    const h = () => setMe((m) => (m ? { ...m, emailVerified: false } : m));
+    window.addEventListener('aduna:unverified', h);
+    return () => window.removeEventListener('aduna:unverified', h);
+  }, []);
+
   const leaveInvite = () => { history.replaceState(null, '', '/app'); setInvite(null); setSigningIn(false); };
 
   if (boot === 'loading') return <div className="splash"><img src="/aduna-icon.png" alt="Aduna" /></div>;
@@ -73,6 +81,9 @@ export default function App() {
       }
       setBoot('ready');
     }} />;
+  }
+  if (me?.emailVerified === false) {
+    return <VerifyEmail me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={() => { setToken(''); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
   }
   if (invite) return <InvitePage code={invite} signedIn onJoined={(sv) => { setOpenId(sv.id); leaveInvite(); }} onClose={leaveInvite} />;
   return <EmojiProvider><Main me={me} setMe={setMe} privKey={privKey} openServerId={openId} /></EmojiProvider>;
@@ -694,7 +705,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onMessage={() => openDm(users[modal.id])} onEdit={() => setModal({ type: 'edit' })}
           onAddFriend={() => requestFriend(users[modal.id].username).catch((e) => alert(e.message))} onAccept={() => acceptFriend(modal.id)} />
       )}
-      {modal?.type === 'edit' && <SettingsScreen me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe(u); addUsers([u]); }} onLogout={logout} />}
+      {modal?.type === 'edit' && <SettingsScreen me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onLogout={logout} />}
     </div>
     </InviteContext.Provider>
   );

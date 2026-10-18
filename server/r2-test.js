@@ -41,7 +41,7 @@ const step = (m) => console.log('✓', m);
   };
 
   // profile picture through the API
-  const u = await call('/register', { method: 'POST', body: { username: 'r2user', password: 'password123', publicKey: 'pk', encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } });
+  const u = await call('/register', { method: 'POST', body: { username: 'r2user', email: 'r2user@example.com', password: 'password123', publicKey: 'pk', encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } });
   const marker = 'R2-MARKER-' + 'x'.repeat(40);
   const put = await fetch(base + '/api/me/avatar', { method: 'PUT', headers: { 'Content-Type': 'image/png', Authorization: 'Bearer ' + u.token }, body: makePng(8, 8, marker) });
   const up = await put.json();
