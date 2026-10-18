@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Aduna</title>
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#141917;color:#eef0ec;font:15px system-ui,sans-serif}
+  form{width:min(440px,90vw);background:#1b211e;border:1px solid #2c3631;border-radius:18px;padding:32px}
+  h1{margin:0 0 6px;font-size:22px} p{color:#9aa59e;margin:0 0 18px;line-height:1.45}
+  label{display:block;font-size:12px;letter-spacing:.06em;color:#9aa59e;margin-bottom:6px}
+  input{width:100%;box-sizing:border-box;padding:11px 12px;border-radius:10px;border:1px solid #2c3631;background:#232b27;color:inherit;font-size:15px}
+  button{margin-top:16px;width:100%;padding:12px;border:0;border-radius:10px;background:#4a8a63;color:#0c1410;font-weight:600;font-size:15px;cursor:pointer}
+  .err{color:#ff8a7a;margin:0 0 14px}
+</style></head><body>
+<form id="f">
+  <h1>Connect to Aduna</h1>
+  <p id="msg">Enter the address of your Aduna server.</p>
+  <div id="err" class="err" hidden></div>
+  <label for="u">SERVER ADDRESS</label>
+  <input id="u" placeholder="https://your-aduna.onrender.com" autofocus required>
+  <button>Connect</button>
+</form>
+<script>
+  const q = new URLSearchParams(location.search);
+  const u = document.getElementById('u'), err = document.getElementById('err');
+  if (q.get('url')) u.value = q.get('url');
+  if (q.get('error')) { err.hidden = false; err.textContent = q.get('error'); }
+  document.getElementById('f').addEventListener('submit', async (e) => {
+    e.preventDefault(); err.hidden = true;
+    const r = await window.adunaDesktop.setServer(u.value);
+    if (r && r.error) { err.hidden = false; err.textContent = r.error; }
+  });
+</script></body></html>

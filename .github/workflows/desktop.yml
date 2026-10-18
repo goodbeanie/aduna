@@ -1,0 +1,21 @@
+# Builds the Windows installer (Aduna-Setup-x.y.z.exe) on GitHub. Run it from the Actions tab > "Build desktop app" > Run workflow.
+# Optional: set a repository variable ADUNA_URL (Settings > Secrets and variables > Actions > Variables) to bake your server address in.
+name: Build desktop app
+on: workflow_dispatch
+jobs:
+  win:
+    runs-on: windows-latest
+    defaults: { run: { working-directory: desktop } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: npm install
+      - name: Bake in the server address
+        if: ${{ vars.ADUNA_URL != '' }}
+        run: node -e "require('fs').writeFileSync('config.json', JSON.stringify({url: process.env.U}))"
+        env: { U: '${{ vars.ADUNA_URL }}' }
+      - run: npx electron-builder --win nsis --x64 --publish never
+        env: { CSC_IDENTITY_AUTO_DISCOVERY: 'false' }
+      - uses: actions/upload-artifact@v4
+        with: { name: Aduna-Setup, path: desktop/dist/Aduna-Setup-*.exe }
