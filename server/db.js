@@ -26,7 +26,7 @@ const { Pool, types } = require('pg');
 types.setTypeParser(20, (v) => Number(v)); // BIGINT (timestamps) -> number
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis'];
+const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments'];
 const SCHEMA = process.env.DB_SCHEMA;
 if (SCHEMA && !/^[a-z_][a-z0-9_]*$/i.test(SCHEMA)) throw new Error('DB_SCHEMA may only contain letters, digits and underscores');
 

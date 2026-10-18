@@ -17,6 +17,7 @@ import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
 import RulesView from './Rules.jsx';
 import { mentionPreview } from './Mentions.jsx';
 import Explorer from './Explorer.jsx';
+import Credits from './Credits.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 
@@ -99,6 +100,13 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [, tick] = useState(0);
   const { openManager } = useEmoji();
   const [gifEnabled, setGifEnabled] = useState(false);
+  const [balance, setBalance] = useState(null);   // your credits (private; arrives from /api/credits and the credits:update event)
+  const [creditsRev, setCreditsRev] = useState(0); // goes up when the balance changes so the Credits page refreshes
+  const [gain, setGain] = useState(null);         // the little "+2" after a rewarded message
+  const [justPaid, setJustPaid] = useState(false); // we just came back from Stripe Checkout
+  const payReturn = useRef(new URLSearchParams(location.search).get('credits')); // 'paid' | 'cancelled' | null
+  useEffect(() => { api('/credits').then((r) => setBalance(r.balance)).catch(() => {}); }, []);
+  useEffect(() => { if (!gain) return undefined; const t = setTimeout(() => setGain(null), 2400); return () => clearTimeout(t); }, [gain]);
   useEffect(() => { api('/gifs/config').then((r) => setGifEnabled(r.enabled)).catch(() => {}); }, []);
 
   const socketRef = useRef(null);
@@ -155,6 +163,12 @@ function Main({ me, setMe, privKey, openServerId }) {
       const first = sv.find((x) => x.id === firstOpen.current) || sv[0];
       if (first) setView({ kind: 'server', serverId: first.id, channelId: first.channels[0].id });
       else setView({ kind: 'dm', userId: null });
+      if (payReturn.current) { // back from Stripe Checkout: show the Credits page
+        setView({ kind: 'dm', userId: null, credits: true }); setShowList(false);
+        if (payReturn.current === 'paid') setJustPaid(true);
+        history.replaceState(null, '', '/app');
+        payReturn.current = null;
+      }
     })().catch((e) => { if (e.status === 401) logout(); });
   }, [addUsers, logout]);
 
@@ -262,6 +276,10 @@ function Main({ me, setMe, privKey, openServerId }) {
         try { const n = new Notification(title, { body, tag: 'aduna-announce-' + channelId, icon: '/aduna-icon.png' }); n.onclick = () => { window.focus(); n.close(); }; } catch { /* best effort */ }
       }
     });
+    s.on('credits:update', ({ balance: b, delta, reason }) => {
+      setBalance(b); setCreditsRev((n) => n + 1);
+      if (delta > 0 && (reason === 'message' || reason === 'purchase')) setGain({ key: Date.now(), delta });
+    });
     s.on('friends:changed', () => loadFriends().catch(() => {}));
     s.on('presence', ({ userId, status }) => setPresence((p) => ({ ...p, [userId]: status })));
     s.on('user:update', (u) => { addUsers([u]); if (u.id === me.id) setMe((m) => ({ ...m, ...u })); });
@@ -351,9 +369,9 @@ function Main({ me, setMe, privKey, openServerId }) {
   };
 
   // ---------- actions ----------
-  const send = async (text, replyTo, atts = []) => {
+  const send = async (text, replyTo, atts = [], typing) => {
     const s = socketRef.current;
-    if (view.kind === 'server') return emitAck(s, 'message:send', { channelId: view.channelId, content: text, replyTo, attachments: atts });
+    if (view.kind === 'server') return emitAck(s, 'message:send', { channelId: view.channelId, content: text, replyTo, attachments: atts, typing });
     const enc = await encryptFor(privKey, dmUser.publicKey, wrapDm(text, atts));
     return emitAck(s, 'dm:send', { to: dmUser.id, ...enc, replyTo, files: atts.map((a) => a.id).filter(Boolean) });
   };
@@ -486,7 +504,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     <div className="app">
       {/* server bar (top) */}
       <nav className="rail">
-        <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title="Direct Messages" onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore }); setShowList(true); setMembersOpen(false); }}>
+        <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title="Direct Messages" onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, credits: view.kind === 'dm' && !!view.credits }); setShowList(true); setMembersOpen(false); }}>
           <img src="/aduna-icon.png" alt="" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
         <div className="rail-sep" />
@@ -574,7 +592,10 @@ function Main({ me, setMe, privKey, openServerId }) {
               <button className={'chan' + (view.explore ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}>
                 <span className="hash"><Icon name="globe" size={20} /></span>Server explorer
               </button>
-              <button className={'chan' + (!view.userId && !view.explore ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
+              <button className={'chan' + (view.credits ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, credits: true }); setShowList(false); }}>
+                <span className="hash"><Icon name="coin" size={20} /></span>Credits{balance !== null && <span className="credit-count">{balance.toLocaleString()}</span>}
+              </button>
+              <button className={'chan' + (!view.userId && !view.explore && !view.credits ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
                 <span className="hash"><Icon name="users" size={20} /></span>Friends{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
               <div className="side-label">DIRECT MESSAGES</div>
@@ -594,6 +615,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             <Avatar user={me} size={34} presence={myPresence} />
             <div><div className="me-name">{me.displayName}</div><div className="muted small">{STATUS_LABEL[myPresence]}</div></div>
           </button>
+          <button className="credit-chip" title="Credits" onClick={() => { setView({ kind: 'dm', userId: null, credits: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
           <button className="icon-btn" title="Custom emoji" onClick={openManager}><Icon name="smile" size={18} /></button>
           <button className="icon-btn" title="Settings" onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
         </div>
@@ -631,7 +653,8 @@ function Main({ me, setMe, privKey, openServerId }) {
           notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && <><br />You aren\u2019t friends with {dmUser.displayName}, so you can\u2019t send new messages until you are.</>}</>} />
       )}
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} />}
-      {view.kind === 'dm' && !dmUser && !view.explore && (
+      {view.kind === 'dm' && !dmUser && view.credits && <Credits onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} />}
+      {view.kind === 'dm' && !dmUser && !view.explore && !view.credits && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
       )}
 
@@ -653,6 +676,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         return ch && <div className="voice-dock"><Icon name="speaker" size={16} /><button className="link-btn" onClick={() => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }}>Voice connected · {ch.name}</button><button className="icon-btn" title={voice.state.muted ? 'Unmute' : 'Mute'} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={16} /></button><button className="icon-btn" title="Leave voice" onClick={voice.actions.leave}><Icon name="phone" size={16} /></button></div>;
       })()}
       {toast && <button className="toast" onClick={() => { const sv = servers.find((x) => x.id === toast.serverId); if (sv) { lastChan.current[sv.id] = toast.channelId; setView({ kind: 'server', serverId: sv.id, channelId: toast.channelId }); setShowList(false); } setToast(null); }}><Icon name="megaphone" size={18} /><span><b>{toast.title}</b><br />{toast.body}</span></button>}
+      {gain && <div className="credit-gain" key={gain.key} aria-live="polite"><Icon name="coin" size={16} />+{gain.delta} credits</div>}
       <CallUI call={call.call} actions={call.actions} users={users} me={me} />
       </div>
 

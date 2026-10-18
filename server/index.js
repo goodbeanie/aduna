@@ -8,6 +8,7 @@ const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const store = require('./db');
 const { sniffImage, cleanGif } = require('./images');
+const credits = require('./credits');
 
 const PORT = process.env.PORT || 3000;
 const MAX_MSG = 2000;
@@ -175,7 +176,8 @@ const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 // Behind Render's (or any) reverse proxy, req.ip must be the visitor, not the proxy, or rate limits would be shared by everyone.
 if (process.env.TRUST_PROXY !== '0') app.set('trust proxy', 1);
 app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
-app.use(express.json({ limit: '64kb' }));
+// Stripe signs the exact bytes it sends, so the credits webhook keeps the raw body next to the parsed one.
+app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl === '/api/credits/webhook') req.rawBody = buf; } }));
 
 // naive per-IP rate limit for auth endpoints
 const hits = new Map();
@@ -1286,6 +1288,11 @@ app.get('/api/presence', auth, (req, res) => {
 
 // ICE (STUN/TURN) servers for calls. This must be registered before the /api 404 handler below.
 app.get('/api/call/config', auth, (_req, res) => res.json({ iceServers: iceServers() }));
+// Credits (balance, quests, buying). Must be registered before the /api 404 handler below.
+credits.register(app, {
+  auth, ah, db, save: () => store.save(),
+  notify: (uid, payload) => io.to('user:' + uid).emit('credits:update', payload),
+});
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // JSON errors instead of Express's default HTML page (oversized uploads, malformed JSON, ...)
@@ -1440,7 +1447,11 @@ io.on('connection', (socket) => {
       reactions: {}, createdAt: now(),
     };
     db().messages[msg.id] = msg;
+    // Credits for real, typed, different messages (see credits.js). Checked before this message counts as "someone spoke".
+    const earned = credits.rewardMessage({ user: db().users[uid], content, proof: p.typing, server: f.server, channel: f.channel });
+    credits.noteChannelMessage(f.channel.id, uid);
     store.save();
+    if (earned.ok) io.to('user:' + uid).emit('credits:update', { balance: earned.balance, delta: earned.amount, reason: 'message' });
     io.to('channel:' + f.channel.id).emit('message:new', msg);
     // Announcements notify everyone in the server, whichever channel they are looking at.
     if (kind === 'announcements') io.to('server:' + f.server.id).emit('announcement:new', { serverId: f.server.id, channelId: f.channel.id, messageId: msg.id, authorId: uid });
@@ -1502,8 +1513,10 @@ io.on('connection', (socket) => {
     const list = msg.reactions[emoji] || (msg.reactions[emoji] = []);
     const i = list.indexOf(uid);
     if (i >= 0) list.splice(i, 1); else list.push(uid);
+    const added = i < 0;
     if (!list.length) delete msg.reactions[emoji];
     if (Object.keys(msg.reactions).length > 20) { list.splice(list.indexOf(uid), 1); if (!list.length) delete msg.reactions[emoji]; return reply({ error: 'Too many reactions' }); }
+    if (added) credits.noteReaction(db().users[uid], msg.id, msg.authorId || msg.from); // counts towards the daily react quest
     store.save();
     let target = io;
     rooms.forEach((r) => { target = target.to(r); });

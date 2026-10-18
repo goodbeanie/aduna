@@ -45,6 +45,7 @@ Run the automated checks with `TEST_DATABASE_URL=postgres://... npm test` (use a
 - Friend requests (send by username, accept, decline, cancel) and a Friends page
 - Direct messages between friends, end-to-end encrypted
 - Profile customization: display name, bio, emoji avatar, avatar/banner/name colors, status (online, idle, do not disturb, invisible)
+- Credits: a currency you buy with real money (Stripe) or earn by chatting and finishing quests. See "Credits" below
 
 New accounts automatically join the official Aduna server (see `DEFAULT_SERVER_INVITE`); if it doesn't exist they start in their DMs and can create a server or join one with an invite code.
 
@@ -65,7 +66,7 @@ New accounts automatically join the official Aduna server (see `DEFAULT_SERVER_I
 
 ## Database and encryption at rest
 
-Everything lives in Postgres (tables `users`, `servers`, `messages`, `dms`, `friendships`, `emojis`, `images`, `files`, `meta`). Each record is encrypted with **AES-256-GCM** by the server *before* it is sent to the database, and the table and row id are bound into the ciphertext so rows can't be swapped around. Neon only ever stores ciphertext. Passwords are never stored: only a **bcrypt hash**, which is itself inside an encrypted record.
+Everything lives in Postgres (tables `users`, `servers`, `messages`, `dms`, `friendships`, `emojis`, `payments`, `images`, `files`, `meta`). Each record is encrypted with **AES-256-GCM** by the server *before* it is sent to the database, and the table and row id are bound into the ciphertext so rows can't be swapped around. Neon only ever stores ciphertext. Passwords are never stored: only a **bcrypt hash**, which is itself inside an encrypted record.
 
 Environment variables:
 
@@ -77,6 +78,8 @@ Environment variables:
 | `R2_BUCKET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | no | Keep images and attachments in a Cloudflare R2 bucket instead of Postgres (see below). Set all four or none. |
 | `STORAGE_LIMIT_GB` | no | With R2: refuse new uploads once this many GB are stored (default **9**, to stay inside R2's 10 GB free tier; `0` = no limit). |
 | `GIPHY_API_KEY` | no | GIF search. |
+| `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | no | Buying credits with real money (see Credits). Set both or neither; without them the Buy buttons are disabled. |
+| `PUBLIC_URL` | no | Your site's address (e.g. `https://aduna.onrender.com`), used for the links Stripe sends people back to. Defaults to the address of the request. |
 | `DEFAULT_SERVER_INVITE` | no | Invite code of the server every new account joins automatically at sign-up (default `aduna`; falls back to a server named "Aduna"). Set to `off` to disable. |
 | `ATTACHMENT_TTL_DAYS` | no | Days to keep attachments of 10 MB or less (default 14). |
 | `LARGE_ATTACHMENT_TTL_DAYS` | no | Days to keep attachments over `LARGE_ATTACHMENT_MB` (default 5). |
@@ -137,11 +140,31 @@ In **Edit profile**, choose *Upload image* for the profile picture and/or the ba
 - The camera and microphone need https or localhost. Both people see each other's IP address, as in any peer-to-peer call.
 - Not built yet: group and voice-channel calls, call history messages in the DM, push notifications for calls when the tab is closed.
 
+## Credits
+
+Credits are Aduna's currency. Everyone has a balance (private to them) shown in the sidebar and on the **Credits** page, which also lists quests and recent activity. Nothing in the app spends credits yet: the server has `spend()` ready in `server/credits.js` for whatever you add next.
+
+**Earning**
+
+- **Messages**: a message in a server text channel earns 2 credits, up to 40 a day (resets at 00:00 UTC). It only counts if it is typed (the browser reports key presses vs paste/drop; scripted events are ignored), is a real sentence (about 16+ letters and 4+ words; not repeated words, key mashing, emoji, links or mentions only), is different from your last 20 messages (similar wording counts as the same) and from text another account sent in the last hour, comes at least 45 seconds after your last rewarded message, is sent in a server with 3+ members, and someone else has spoken in that channel in the last 30 minutes. Accounts under 30 minutes old earn and claim nothing. Direct messages never earn (the server cannot read them). All of it is checked on the server; every number is in `EARN` at the top of `server/credits.js`.
+- **Quests**: daily (check-in with a streak bonus, have a conversation, react to 3 messages) and one-time (profile picture, bio, first friend, join a second server, create a server, upload an emoji, first rewarded message). Progress is read from real data on the server and each reward is claimed once.
+
+**Buying** uses [Stripe Checkout](https://stripe.com/payments/checkout); card details never touch Aduna. Packs are in `PACKS` in `server/credits.js` (price in cents, USD). To switch it on:
+
+1. In Stripe, copy your secret key (use test mode first: `sk_test_...`) into `STRIPE_SECRET_KEY`.
+2. Developers > Webhooks > Add endpoint: `https://<your site>/api/credits/webhook`, events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded` and `charge.dispute.created`. Copy its signing secret (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`.
+3. Optionally set `PUBLIC_URL`, redeploy, and try a test purchase with card `4242 4242 4242 4242`.
+
+Credits are added by the signed webhook, never by the browser's return to the site, once per checkout session, and only if the amount paid matches the pack. A full refund or a dispute takes the credits back (the balance can go below zero until it is earned back). Partial refunds are not handled.
+
+**Limits to know about**: the typing check comes from the browser, so a determined person with a script can fake it; the daily cap, cooldown, similarity, account age and conversation rules are what bound the damage (at most 40 credits a day per account from messages; one-time quests are claimable once per account, so many fake accounts can still farm them). Dictation and some swipe keyboards will not earn because they insert whole words without key presses. Counters used by the checks (who spoke in a channel, recently seen messages) live in memory and reset on restart.
+
 ## Layout
 
 ```
 server/index.js        REST API + Socket.IO
 server/db.js           encrypted Postgres/Neon persistence (records, images, files)
+server/credits.js      credits: balances, earning rules, quests, Stripe checkout + webhook
 server/images.js       checks uploaded images (file signature + dimensions)
 server/r2-test.js      R2 storage test (uses a local S3 stand-in)
 server/smoke-test.js   end-to-end tests (npm test)

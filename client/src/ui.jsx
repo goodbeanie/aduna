@@ -40,6 +40,7 @@ export function Banner({ user }) {
 }
 
 const PATHS = {
+  coin: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="5" /><path d="M12 9.6v4.8M10.3 11h2.7a1 1 0 010 2h-2.7" /></>,
   camera: <><path d="M4 8.5h3.2L9 6h6l1.8 2.5H20v10H4z" /><circle cx="12" cy="13.2" r="3.2" /></>,
   link: <><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 00-5.7 0l-3 3A4 4 0 0011 18.7l1-1" /></>,
   plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,

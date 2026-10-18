@@ -5,6 +5,7 @@ import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
 import { Rich, useEmoji } from './Emoji.jsx';
 import { InviteCard, inviteCodesIn } from './Invite.jsx';
 import { MentionMenu, fromMentionTokens, mentionPreview, toMentionTokens, useMentionComplete } from './Mentions.jsx';
+import { useTypingProof } from './typing.js';
 import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
 
 function Picker({ onPick, onClose }) {
@@ -158,6 +159,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
   const lastTyping = useRef(0);
   const inputRef = useRef(null);
   const mc = useMentionComplete({ text, setText, inputRef, people, everyone: canEveryone });
+  const typed = useTypingProof(inputRef, !!readOnly); // how this message was written, sent along so the server can decide if it earns credits
 
   const byId = Object.fromEntries(messages.map((m) => [m.id, m]));
 
@@ -166,7 +168,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
     if (el && stick.current) el.scrollTop = el.scrollHeight;
   }, [messages]);
 
-  useEffect(() => { setReplyTo(null); setEditing(null); setConfirmDel(null); setPop(null); clearPending(true); setText(''); stick.current = true; setTapped(null); if (window.matchMedia?.('(hover: hover)').matches) inputRef.current?.focus(); }, [title]);
+  useEffect(() => { setReplyTo(null); setEditing(null); setConfirmDel(null); setPop(null); clearPending(true); setText(''); typed.reset(); stick.current = true; setTapped(null); if (window.matchMedia?.('(hover: hover)').matches) inputRef.current?.focus(); }, [title]);
 
   // drop a pending reply / edit if its message disappears
   useEffect(() => {
@@ -228,7 +230,8 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
     if (t.length > 2000) return setErr('That message is too long once emoji and mentions are expanded');
     setErr('');
     try {
-      await onSend(t, replyTo?.id || null, atts);
+      await onSend(t, replyTo?.id || null, atts, typed.proof());
+      typed.reset();
       setText('');
       clearPending(false);
       setReplyTo(null);
