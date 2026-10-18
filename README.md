@@ -76,6 +76,7 @@ Environment variables:
 | `DATABASE_URL` | yes | Neon connection string (Neon dashboard > Connect). |
 | `DB_ENCRYPTION_KEY` | yes in production | 64 hex characters. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
 | `JWT_SECRET` | no | Session signing secret. If unset, a random one is created and stored (encrypted) in the database, so logins survive restarts. |
+| `DOWNLOAD_BASE_URL` | no | Public address of a separate public R2 bucket holding the Windows installer. The home page's Download button and the desktop app's updates use it. |
 | `R2_BUCKET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | no | Keep images and attachments in a Cloudflare R2 bucket instead of Postgres (see below). Set all four or none. |
 | `STORAGE_LIMIT_GB` | no | With R2: refuse new uploads once this many GB are stored (default **9**, to stay inside R2's 10 GB free tier; `0` = no limit). |
 | `GIPHY_API_KEY` | no | GIF search. |

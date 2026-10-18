@@ -13,4 +13,9 @@ jobs:
       - run: npx electron-builder --win nsis --x64 --publish never
         env: { CSC_IDENTITY_AUTO_DISCOVERY: 'false' }
       - uses: actions/upload-artifact@v4
-        with: { name: Aduna-Setup, path: desktop/dist/Aduna-Setup-*.exe }
+        with:
+          name: Aduna-Setup
+          path: |
+            desktop/dist/Aduna-Setup-*.exe
+            desktop/dist/Aduna-Setup-*.exe.blockmap
+            desktop/dist/latest.yml

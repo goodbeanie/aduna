@@ -31,6 +31,10 @@ services:
         sync: false
       - key: R2_BUCKET
         sync: false
+      # optional: public address of a SEPARATE public R2 bucket that holds the Windows installer (e.g. https://pub-xxxx.r2.dev or
+      # https://downloads.yourdomain.com). Without it the installer is served from this site.
+      - key: DOWNLOAD_BASE_URL
+        sync: false
       # optional: buying credits with real money (Stripe). Both keys are needed; without them the Buy buttons are off.
       - key: STRIPE_SECRET_KEY
         sync: false

@@ -1,16 +1,17 @@
 {
   "name": "aduna-desktop",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Aduna desktop app: opens aduna.onrender.com/app",
   "main": "main.js",
   "author": "Aduna",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win nsis --x64"
+    "dist": "electron-builder --win nsis --x64 --publish never"
   },
   "devDependencies": {
     "electron": "^33.2.1",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "rcedit": "^4.0.1"
   },
   "build": {
     "appId": "app.aduna.desktop",
@@ -22,6 +23,8 @@
     "files": [
       "main.js",
       "offline.html",
+      "update.html",
+      "update-preload.js",
       "build/icon.png"
     ],
     "win": {
@@ -40,7 +43,21 @@
       "oneClick": true,
       "perMachine": false,
       "deleteAppDataOnUninstall": false,
-      "artifactName": "Aduna-Setup-${version}.${ext}"
-    }
+      "artifactName": "Aduna-Setup-${version}.${ext}",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "shortcutName": "Aduna"
+    },
+    "afterPack": "afterPack.js",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://aduna.onrender.com/updates/"
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
   }
 }

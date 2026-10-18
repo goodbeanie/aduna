@@ -1413,6 +1413,23 @@ if (fs.existsSync(dist)) {
   // "/" is the public home page; the app itself lives at /app (and any other path falls through to it).
   const landing = path.join(dist, 'landing.html');
   if (fs.existsSync(landing)) app.get('/', (_req, res) => res.sendFile(landing));
+  // Windows installer. By default it is served from this site (client/public/updates/). If DOWNLOAD_BASE_URL is set (the public
+  // address of a separate, public Cloudflare R2 bucket), /download and the auto-update feed point there instead, so the
+  // 80 MB file never touches this server. The file name always comes from updates/latest.yml, so the link never goes stale.
+  const DL_BASE = String(process.env.DOWNLOAD_BASE_URL || '').trim().replace(/\/+$/, '');
+  const readFeed = () => { try { return fs.readFileSync(path.join(dist, 'updates', 'latest.yml'), 'utf8'); } catch { return null; } };
+  app.get('/download', (_req, res) => {
+    const file = ((readFeed() || '').match(/^path:\s*(\S+)\s*$/m) || [])[1];
+    if (file && /^[\w.\-]+\.exe$/.test(file) && (DL_BASE || fs.existsSync(path.join(dist, 'updates', file)))) return res.redirect(302, (DL_BASE ? DL_BASE + '/' : '/updates/') + file);
+    res.redirect(302, '/app');
+  });
+  // The desktop app's update feed. With DOWNLOAD_BASE_URL set, the file addresses inside it are rewritten to point at R2.
+  app.get('/updates/latest.yml', (_req, res) => {
+    let yml = readFeed();
+    if (yml === null) return res.status(404).type('text/plain').send('No update available');
+    if (DL_BASE) yml = yml.replace(/^(\s*-\s*url:\s*)(?!https?:\/\/)(\S+)\s*$/gm, (_m, pre, f) => pre + DL_BASE + '/' + f);
+    res.set('Cache-Control', 'no-cache').type('text/yaml').send(yml);
+  });
   app.use(express.static(dist, { index: false }));
   app.get(/^\/(?!api|socket\.io).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
 }

@@ -1,4 +1,5 @@
-// Registers the service worker and powers the "Download Aduna" button (installs Aduna as a desktop app).
+// Registers the service worker and powers the "Download Aduna" button.
+// Windows PCs download the installer (/download). Other devices install Aduna as a web app instead.
 (function () {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
@@ -23,7 +24,11 @@
     clearTimeout(toast.h); toast.h = setTimeout(function () { t.className = ''; }, 9000);
   }
 
+  var isWindowsPC = /Windows NT/.test(navigator.userAgent) && !/Mobile/.test(navigator.userAgent);
+  if (isWindowsPC) return; // the link itself downloads the installer
+
   btns.forEach(function (b) {
+    b.removeAttribute('download');
     b.addEventListener('click', function (e) {
       e.preventDefault();
       if (deferred) {
