@@ -320,6 +320,10 @@ async function createCheckout({ user, pack, origin, fetchImpl = fetch }) {
     'metadata[userId]': user.id,
     'metadata[packId]': pack.id,
   });
+  // Stripe accounts can have "Managed Payments" (Stripe as seller of record, handles tax) switched on by default; it
+  // rejects checkouts whose products have no tax code. Aduna does not send tax codes, so it opts out per session
+  // unless STRIPE_MANAGED_PAYMENTS=on is set (then a tax code must be added to the line item first).
+  if (process.env.STRIPE_MANAGED_PAYMENTS !== 'on') body.set('managed_payments[enabled]', 'false');
   const r = await fetchImpl('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + stripeKey(), 'Content-Type': 'application/x-www-form-urlencoded' },

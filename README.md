@@ -80,6 +80,7 @@ Environment variables:
 | `GIPHY_API_KEY` | no | GIF search. |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | no | Buying credits with real money (see Credits). Set both or neither; without them the Buy buttons are disabled. |
 | `PUBLIC_URL` | no | Your site's address (e.g. `https://aduna.onrender.com`), used for the links Stripe sends people back to. Defaults to the address of the request. |
+| `STRIPE_MANAGED_PAYMENTS` | no | Set to `on` only if you want Stripe's Managed Payments (Stripe handles sales tax). Aduna opts out of it per checkout by default because Managed Payments needs a tax code on every product, which Aduna does not send. |
 | `DEFAULT_SERVER_INVITE` | no | Invite code of the server every new account joins automatically at sign-up (default `aduna`; falls back to a server named "Aduna"). Set to `off` to disable. |
 | `ATTACHMENT_TTL_DAYS` | no | Days to keep attachments of 10 MB or less (default 14). |
 | `LARGE_ATTACHMENT_TTL_DAYS` | no | Days to keep attachments over `LARGE_ATTACHMENT_MB` (default 5). |

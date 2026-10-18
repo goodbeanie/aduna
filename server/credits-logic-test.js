@@ -264,8 +264,11 @@ const sign = (body, t, secret = SECRET) => `t=${t},v1=${crypto.createHmac('sha25
   assert.strictEqual(sent.get('metadata[userId]'), 'u1'); assert.strictEqual(sent.get('metadata[packId]'), 'p500');
   assert.strictEqual(sent.get('success_url'), 'https://aduna.test/app?credits=paid');
   assert.strictEqual(calls[0].init.headers.Authorization, 'Bearer sk_test_x');
+  assert.strictEqual(sent.get('managed_payments[enabled]'), 'false', 'opts out of Managed Payments (no tax codes are sent)');
+  process.env.STRIPE_MANAGED_PAYMENTS = 'on'; await run('POST /api/credits/checkout', { body: { packId: 'p500' } });
+  assert.strictEqual(new URLSearchParams(calls[1].init.body).has('managed_payments[enabled]'), false, 'STRIPE_MANAGED_PAYMENTS=on leaves it to the account'); delete process.env.STRIPE_MANAGED_PAYMENTS;
   process.env.PUBLIC_URL = 'https://aduna.onrender.com/'; await run('POST /api/credits/checkout', { body: { packId: 'p500' } });
-  assert.strictEqual(new URLSearchParams(calls[1].init.body).get('cancel_url'), 'https://aduna.onrender.com/app?credits=cancelled'); delete process.env.PUBLIC_URL;
+  assert.strictEqual(new URLSearchParams(calls.at(-1).init.body).get('cancel_url'), 'https://aduna.onrender.com/app?credits=cancelled'); delete process.env.PUBLIC_URL;
   for (let i = 0; i < 5; i++) await run('POST /api/credits/checkout', { body: { packId: 'p500' } });
   assert.strictEqual((await run('POST /api/credits/checkout', { body: { packId: 'p500' } })).status, 429, 'checkout is rate limited');
 
