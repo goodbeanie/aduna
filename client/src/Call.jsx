@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Avatar, Icon } from './ui.jsx';
 import { api, emitAck } from './api.js';
 import { encryptFor, decryptFrom } from './crypto.js';
+import * as notify from './notify.js';
 
 // ---------- ringtones (generated, no audio files) ----------
 let audioCtx = null, ringTimer = null;
@@ -19,35 +20,28 @@ function beep(freq, dur) {
   } catch { /* sound is best effort */ }
 }
 // Browsers keep sound blocked until the page has had a click or key press, which made incoming calls
-// ring silently. Unlock audio on the first interaction, and ask once to show desktop notifications.
+// ring silently. Unlock audio on the first interaction. (Notification permission is asked in NotifyPrompt / Settings.)
 if (typeof window !== 'undefined') {
   const unlock = () => {
     try { ctx(); } catch { /* no audio support */ }
-    try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch { /* not supported */ }
   };
   window.addEventListener('pointerdown', unlock, { once: true });
   window.addEventListener('keydown', unlock, { once: true });
 }
 // While a call is ringing the tab title flashes, and a desktop notification shows if the tab is hidden.
-let titleTimer = null, titleBase = '', notif = null;
-function alertIncoming(name, video) {
-  clearAlert();
+let titleTimer = null, titleBase = '';
+function alertIncoming(name, video, peerId) {
+  clearInterval(titleTimer); if (titleBase) document.title = titleBase; // (not clearAlert: that would also close the notification shown below)
   titleBase = document.title;
   let on = false;
   titleTimer = setInterval(() => { on = !on; document.title = on ? `\u{1F4DE} ${name} is calling…` : titleBase; }, 900);
-  if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-    try {
-      notif = new Notification(`${name} is calling`, { body: `Incoming ${video ? 'video' : 'voice'} call`, tag: 'aduna-call', requireInteraction: true, icon: '/aduna-icon.png' });
-      notif.onclick = () => { window.focus(); notif?.close(); };
-    } catch { /* notifications are best effort */ }
-  }
+  if (notify.away()) notify.show({ title: `${name} is calling`, body: `Incoming ${video ? 'video' : 'voice'} call`, tag: 'call', target: 'd:' + peerId, sticky: true });
 }
 function clearAlert() {
   clearInterval(titleTimer); titleTimer = null;
   if (titleBase) document.title = titleBase;
   titleBase = '';
-  try { notif?.close(); } catch { /* already closed */ }
-  notif = null;
+  notify.dismiss('call');
 }
 function startRing(kind) {
   stopRing();
@@ -263,7 +257,7 @@ export function useCall({ socketRef, privKey, getUser }) {
       cRef.current = { ...IDLE, phase: 'incoming', callId: p.callId, peerId: p.from, video: p.video };
       setCall(cRef.current);
       startRing('in');
-      alertIncoming(nameOf(p.from), p.video);
+      alertIncoming(nameOf(p.from), p.video, p.from);
     } else if (ev === 'call:accepted') {
       if (p.callId !== c.callId || c.phase !== 'outgoing') return;
       stopRing();

@@ -21,6 +21,8 @@ import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
+import * as notify from './notify.js';
+import { NotifyPrompt } from './NotifyPrompt.jsx';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
 // Older messages are plain strings.
@@ -115,6 +117,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [creditsRev, setCreditsRev] = useState(0); // goes up when the balance changes so the Credits page refreshes
   const [gain, setGain] = useState(null);         // the little "+2" after a rewarded message
   const [justPaid, setJustPaid] = useState(false); // we just came back from Stripe Checkout
+  const [loaded, setLoaded] = useState(false); // servers, presence and DMs have been fetched
   const payReturn = useRef(new URLSearchParams(location.search).get('credits')); // 'paid' | 'cancelled' | null
   useEffect(() => { api('/credits').then((r) => setBalance(r.balance)).catch(() => {}); }, []);
   useEffect(() => { if (!gain) return undefined; const t = setTimeout(() => setGain(null), 2400); return () => clearTimeout(t); }, [gain]);
@@ -124,6 +127,11 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [toast, setToast] = useState(null); // an announcement banner: { key, serverId, channelId, title, body }
   const serversRef = useRef([]);
   const viewRef = useRef(view);
+  const meRef = useRef(me);
+  const prefsOf = () => meRef.current.notifPrefs || {}; // which notifications you want (Settings > Notifications); undefined = on
+  const pendingNav = useRef(new URLSearchParams(location.search).get('n')); // a tapped notification opened the app on a chat
+  const openTargetRef = useRef(() => {});
+  const frIncoming = useRef(null);
   const usersRef = useRef(users);
   const plainRef = useRef(plain);
   const pending = useRef(new Set());
@@ -132,6 +140,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const callHandleRef = useRef(call.handle);
   callHandleRef.current = call.handle;
   viewRef.current = view;
+  meRef.current = me;
   serversRef.current = servers;
   usersRef.current = users;
   plainRef.current = plain;
@@ -146,6 +155,13 @@ function Main({ me, setMe, privKey, openServerId }) {
   const loadFriends = useCallback(async () => {
     const r = await api('/friends');
     setFr(r);
+    const ids = new Set(r.incoming.map((x) => x.user.id));
+    if (frIncoming.current) { // not the first load: anything new is a fresh request
+      for (const x of r.incoming) {
+        if (!frIncoming.current.has(x.user.id) && notify.away() && meRef.current.notifPrefs?.friends !== false) notify.show({ title: x.user.displayName, body: 'sent you a friend request', tag: 'friend:' + x.user.id, target: 'f' });
+      }
+    }
+    frIncoming.current = ids;
     addUsers([...r.friends, ...r.incoming.map((x) => x.user), ...r.outgoing.map((x) => x.user)]);
   }, [addUsers]);
   const bump = (key) => setUnread((p) => ({ ...p, [key]: (p[key] || 0) + 1 }));
@@ -157,6 +173,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   const logout = useCallback(async () => {
     socketRef.current?.disconnect();
+    await Promise.race([notify.unsubscribe(), new Promise((r) => setTimeout(r, 2500))]); // stop pushes to this device before the token goes
     await clearKeys();
     setToken('');
     location.reload();
@@ -180,6 +197,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         history.replaceState(null, '', '/app');
         payReturn.current = null;
       }
+      setLoaded(true);
     })().catch((e) => { if (e.status === 401) logout(); });
   }, [addUsers, logout]);
 
@@ -217,14 +235,16 @@ function Main({ me, setMe, privKey, openServerId }) {
       const watching = v?.kind === 'server' && v.channelId === m.channelId && !document.hidden;
       if (!watching && m.authorId !== me.id) bump('c:' + m.channelId);
       // The server decides who a message mentions (members only; @everyone only from the owner).
-      if (!watching && m.authorId !== me.id && (m.everyone || m.mentions?.includes(me.id))) {
-        bumpMention('c:' + m.channelId);
-        if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-          const sv = serversRef.current.find((x) => x.id === m.serverId), ch = sv?.channels.find((c) => c.id === m.channelId);
-          const who = usersRef.current[m.authorId]?.displayName || 'Someone';
-          const body = mentionPreview(m.content, usersRef.current).slice(0, 140) || 'Sent an attachment';
-          try { const n = new Notification(`${who} ${m.everyone ? 'pinged everyone' : 'mentioned you'} in ${sv?.name || 'a server'}${ch ? ' · #' + ch.name : ''}`, { body, tag: 'aduna-mention-' + m.channelId, icon: '/aduna-icon.png' }); n.onclick = () => { window.focus(); n.close(); }; } catch { /* best effort */ }
-        }
+      const pinged = m.authorId !== me.id && (m.everyone || m.mentions?.includes(me.id));
+      if (!watching && pinged) bumpMention('c:' + m.channelId);
+      if (pinged && notify.away() && prefsOf().mentions !== false) {
+        const sv = serversRef.current.find((x) => x.id === m.serverId), ch = sv?.channels.find((c) => c.id === m.channelId);
+        const who = usersRef.current[m.authorId]?.displayName || 'Someone';
+        notify.show({
+          title: `${who} ${m.everyone ? 'pinged everyone' : 'mentioned you'} in ${sv?.name || 'a server'}${ch ? ' \u00b7 #' + ch.name : ''}`,
+          body: mentionPreview(m.content, usersRef.current).slice(0, 140) || 'Sent an attachment',
+          tag: 'm:' + m.id, target: `c:${m.serverId}:${m.channelId}`,
+        });
       }
       if (!usersRef.current[m.authorId]) api('/users/' + m.authorId).then((r) => addUsers([r.user])).catch(() => {});
     });
@@ -236,6 +256,13 @@ function Main({ me, setMe, privKey, openServerId }) {
       const v = viewRef.current;
       const watching = v?.kind === 'dm' && v.userId === partner && !document.hidden;
       if (!watching && m.from !== me.id) bump('d:' + partner);
+      if (m.from !== me.id && notify.away() && prefsOf().dm !== false) {
+        // DMs are encrypted: this device decrypts the text for the notification, the server never sees it
+        (async () => {
+          const [t, who] = await Promise.all([decryptMsg(m), usersRef.current[partner] || api('/users/' + partner).then((r) => r.user).catch(() => null)]);
+          notify.show({ title: who?.displayName || 'New message', body: t.invite ? 'Sent you a server invite' : t.text?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent you a message'), tag: 'm:' + m.id, target: 'd:' + partner });
+        })().catch(() => {});
+      }
       if (!usersRef.current[partner]) api('/users/' + partner).then((r) => addUsers([r.user])).catch(() => {});
     });
 
@@ -283,9 +310,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       let body = 'New announcement';
       try { const m = (await api(`/channels/${channelId}/messages`)).messages.find((x) => x.id === messageId); if (m?.content) body = m.content.slice(0, 140); } catch { /* keep the default */ }
       setToast({ key: messageId, serverId, channelId, title, body });
-      if (document.hidden && 'Notification' in window && Notification.permission === 'granted') {
-        try { const n = new Notification(title, { body, tag: 'aduna-announce-' + channelId, icon: '/aduna-icon.png' }); n.onclick = () => { window.focus(); n.close(); }; } catch { /* best effort */ }
-      }
+      if (notify.away() && prefsOf().announcements !== false) notify.show({ title, body, tag: 'm:' + messageId, target: `c:${serverId}:${channelId}` });
     });
     s.on('credits:update', ({ balance: b, delta, reason }) => {
       setBalance(b); setCreditsRev((n) => n + 1);
@@ -338,6 +363,42 @@ function Main({ me, setMe, privKey, openServerId }) {
     document.addEventListener('visibilitychange', seen);
     return () => document.removeEventListener('visibilitychange', seen);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---------- notifications: tapping one opens that chat; the app icon shows a count ----------
+  // targets: 'c:<serverId>:<channelId>' (a channel), 'd:<userId>' (a DM), 'f' (friend requests)
+  const openTarget = async (t) => {
+    const [kind, a, b] = String(t || '').split(':');
+    if (kind === 'c') {
+      const sv = serversRef.current.find((x) => x.id === a);
+      if (!sv || !sv.channels.some((c) => c.id === b)) return;
+      lastChan.current[sv.id] = b;
+      setView({ kind: 'server', serverId: sv.id, channelId: b }); setShowList(false); setMembersOpen(false);
+    } else if (kind === 'd' && /^[0-9a-f]{16}$/.test(a || '')) {
+      let u = usersRef.current[a];
+      if (!u) { try { u = (await api('/users/' + a)).user; } catch { return; } }
+      openDm(u);
+    } else if (kind === 'f') { setView({ kind: 'dm', userId: null }); setShowList(false); }
+  };
+  openTargetRef.current = openTarget;
+  useEffect(() => { // the app was opened by tapping a notification (/app?n=...)
+    if (!loaded || !pendingNav.current) return;
+    const t = pendingNav.current; pendingNav.current = null;
+    history.replaceState(null, '', '/app');
+    openTargetRef.current(t);
+  }, [loaded]);
+  useEffect(() => { // ...or was already open: the service worker / desktop app / page tells it where to go
+    const fromSw = (e) => { if (e.data?.type === 'aduna:open') openTargetRef.current(e.data.target); };
+    const fromPage = (e) => openTargetRef.current(e.detail);
+    navigator.serviceWorker?.addEventListener('message', fromSw);
+    window.addEventListener('aduna:open', fromPage);
+    const off = window.adunaDesktop?.onClick?.((t) => openTargetRef.current(t));
+    return () => { navigator.serviceWorker?.removeEventListener('message', fromSw); window.removeEventListener('aduna:open', fromPage); off?.(); };
+  }, []);
+  useEffect(() => { // keep this device's push subscription fresh (browsers rotate them now and then)
+    if (notify.pushSupported() && notify.permission() === 'granted') notify.subscribe().catch(() => {});
+  }, []);
+  const badgeCount = Object.values(mentions).reduce((n, x) => n + x, 0) + Object.entries(unread).reduce((n, [k, x]) => n + (k.startsWith('d:') ? x : 0), 0) + fr.incoming.length;
+  useEffect(() => { notify.setBadge(badgeCount); }, [badgeCount]);
 
   // ---------- derived ----------
   const server = view?.kind === 'server' ? servers.find((s) => s.id === view.serverId) : null;
@@ -687,6 +748,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         return ch && <div className="voice-dock"><Icon name="speaker" size={16} /><button className="link-btn" onClick={() => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }}>Voice connected · {ch.name}</button><button className="icon-btn" title={voice.state.muted ? 'Unmute' : 'Mute'} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={16} /></button><button className="icon-btn" title="Leave voice" onClick={voice.actions.leave}><Icon name="phone" size={16} /></button></div>;
       })()}
       {toast && <button className="toast" onClick={() => { const sv = servers.find((x) => x.id === toast.serverId); if (sv) { lastChan.current[sv.id] = toast.channelId; setView({ kind: 'server', serverId: sv.id, channelId: toast.channelId }); setShowList(false); } setToast(null); }}><Icon name="megaphone" size={18} /><span><b>{toast.title}</b><br />{toast.body}</span></button>}
+      <NotifyPrompt />
       {gain && <div className="credit-gain" key={gain.key} aria-live="polite"><Icon name="coin" size={16} />+{gain.delta} credits</div>}
       <CallUI call={call.call} actions={call.actions} users={users} me={me} />
       </div>
@@ -705,7 +767,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onMessage={() => openDm(users[modal.id])} onEdit={() => setModal({ type: 'edit' })}
           onAddFriend={() => requestFriend(users[modal.id].username).catch((e) => alert(e.message))} onAccept={() => acceptFriend(modal.id)} />
       )}
-      {modal?.type === 'edit' && <SettingsScreen me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onLogout={logout} />}
+      {modal?.type === 'edit' && <SettingsScreen me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} />}
     </div>
     </InviteContext.Provider>
   );

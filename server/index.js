@@ -11,6 +11,8 @@ const { sniffImage, cleanGif } = require('./images');
 const credits = require('./credits');
 const security = require('./security');
 const mailer = require('./mailer');
+const webpush = require('web-push');
+const { createPush, cleanPrefs } = require('./push');
 
 const PORT = process.env.PORT || 3000;
 const MAX_MSG = 2000;
@@ -139,7 +141,7 @@ function publicUser(u) {
 
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
-const ownUser = (u) => ({ ...publicUser(u), email: u.email || null, emailVerified: !needsVerify(u), codeSent: !!(u.verify && u.verify.expires > now()) });
+const ownUser = (u) => ({ ...publicUser(u), email: u.email || null, emailVerified: !needsVerify(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -762,6 +764,7 @@ app.post('/api/friends/request', auth, (req, res) => {
   db().friendships[convoKey(me.id, target.id)] = { from: me.id, to: target.id, status: 'pending', createdAt: now() };
   store.save();
   notifyFriends(me.id, target.id);
+  pushSafe(target.id, 'friend', { title: me.displayName, body: 'sent you a friend request', url: '/app?n=f', tag: 'friend:' + me.id });
   res.json({ result: 'sent', user: publicUser(target) });
 });
 
@@ -1396,6 +1399,40 @@ credits.register(app, {
   auth, ah, db, save: () => store.save(),
   notify: (uid, payload) => io.to('user:' + uid).emit('credits:update', payload),
 });
+// ----- push notifications (installed mobile app / browsers while Aduna is closed) -----
+// Keys are generated once and kept in the database (see db.js). The service worker (client/public/sw.js) shows the notification.
+let vapidReady = false;
+const push = createPush({
+  users: () => db().users,
+  save: () => store.save(),
+  get enabled() { return !!store.vapid && process.env.PUSH !== 'off'; },
+  get publicKey() { return store.vapid?.publicKey; },
+  sender: (sub, body, opts) => {
+    if (!vapidReady) {
+      webpush.setVapidDetails(process.env.VAPID_SUBJECT || (/^https:/.test(process.env.PUBLIC_URL || '') ? process.env.PUBLIC_URL : 'https://aduna.onrender.com'), store.vapid.publicKey, store.vapid.privateKey);
+      vapidReady = true;
+    }
+    return webpush.sendNotification(sub, body, opts);
+  },
+});
+const pushSafe = (uid, kind, payload) => { push.send(uid, kind, payload).catch((e) => console.error('push failed:', e.message)); };
+
+app.get('/api/push/key', auth, (_req, res) => res.json({ enabled: push.enabled, publicKey: push.publicKey }));
+app.post('/api/push/subscribe', auth, (req, res) => {
+  if (!push.enabled) return res.status(503).json({ error: 'Push notifications are off on this server' });
+  if (!push.add(req.user, req.body?.subscription, req.headers['user-agent'])) return res.status(400).json({ error: 'Bad subscription' });
+  res.json({ ok: true });
+});
+app.post('/api/push/unsubscribe', auth, (req, res) => {
+  if (typeof req.body?.endpoint === 'string') push.remove(req.user, req.body.endpoint);
+  res.json({ ok: true });
+});
+// Which kinds of notification this account gets (on every device).
+app.put('/api/me/notifications', auth, (req, res) => {
+  req.user.notifPrefs = cleanPrefs(req.body, req.user.notifPrefs);
+  store.save();
+  res.json({ notifPrefs: req.user.notifPrefs });
+});
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // JSON errors instead of Express's default HTML page (oversized uploads, malformed JSON, ...)
@@ -1547,6 +1584,20 @@ io.on('connection', (socket) => {
     return m && check(m) ? replyTo : null;
   };
 
+  // Phone / closed-app notifications: only for things aimed at someone (a mention, @everyone, an announcement), never every chat line.
+  const pushChannelMessage = (f, msg, kind) => {
+    const author = db().users[uid];
+    const preview = clip(msg.content.replace(MENTION_TOKEN, '@someone'), 120) || 'Sent an attachment';
+    const url = `/app?n=c:${f.server.id}:${f.channel.id}`;
+    const who = author?.displayName || 'Someone';
+    const where = `${f.server.name} \u00b7 #${f.channel.name}`;
+    const sent = new Set([uid]);
+    const to = (id, k, title, body) => { if (sent.has(id) || !f.server.members.includes(id)) return; sent.add(id); pushSafe(id, k, { title, body, url, tag: 'm:' + msg.id }); };
+    for (const id of msg.mentions || []) to(id, 'mention', `${who} mentioned you in ${where}`, preview);
+    if (msg.everyone) for (const id of f.server.members) to(id, 'mention', `${who} pinged everyone in ${where}`, preview);
+    if (kind === 'announcements') for (const id of f.server.members) to(id, 'announcement', where, preview);
+  };
+
   socket.on('message:send', async (p, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!allowed()) return reply({ error: 'Slow down' });
@@ -1577,6 +1628,7 @@ io.on('connection', (socket) => {
     io.to('channel:' + f.channel.id).emit('message:new', msg);
     // Announcements notify everyone in the server, whichever channel they are looking at.
     if (kind === 'announcements') io.to('server:' + f.server.id).emit('announcement:new', { serverId: f.server.id, channelId: f.channel.id, messageId: msg.id, authorId: uid });
+    pushChannelMessage(f, msg, kind);
     reply({ ok: true });
   });
 
@@ -1611,6 +1663,8 @@ io.on('connection', (socket) => {
     db().dms[msg.id] = msg;
     store.save();
     io.to('user:' + uid).to('user:' + to.id).emit('dm:new', msg);
+    // end-to-end encrypted: the server cannot read it, so the notification only says who wrote
+    pushSafe(to.id, 'dm', { title: db().users[uid]?.displayName || 'Someone', body: 'Sent you a message', url: `/app?n=d:${uid}`, tag: 'm:' + msg.id });
     reply({ ok: true });
   });
 
@@ -1721,12 +1775,14 @@ io.on('connection', (socket) => {
     const to = db().users[p?.to];
     if (!to || to.id === uid || !areFriends(uid, to.id)) return reply({ error: 'You can only call friends' });
     if (callOf(uid)) return reply({ error: 'You are already on a call' });
-    if (!isOnline(to.id)) return reply({ error: `${to.displayName} is offline` });
+    // someone with the app closed can still be rung through a push notification (the ring is shown when they open it)
+    if (!isOnline(to.id) && !(push.enabled && to.pushSubs?.length && push.prefsOf(to).calls && to.status !== 'dnd')) return reply({ error: `${to.displayName} is offline` });
     if (callOf(to.id)) return reply({ error: `${to.displayName} is on another call` });
     const c = { id: store.id(), a: uid, b: to.id, video: !!p.video, state: 'ringing' };
     c.timer = setTimeout(() => { if (c.state === 'ringing') endCall(c, 'missed'); }, RING_MS);
     calls.set(c.id, c);
     io.to('user:' + to.id).emit('call:incoming', { callId: c.id, from: uid, video: c.video });
+    pushSafe(to.id, 'call', { title: `${db().users[uid]?.displayName || 'Someone'} is calling`, body: `Incoming ${c.video ? 'video' : 'voice'} call`, url: `/app?n=d:${uid}`, tag: 'call' });
     reply({ ok: true, callId: c.id });
   });
 

@@ -1,7 +1,7 @@
 // Aduna desktop app: a window that opens https://aduna.onrender.com/app and nothing else.
 // All secrets and settings live on the server, so nothing sensitive is stored in this app.
 // Updates are fetched from https://aduna.onrender.com/updates/ (see the publish setting in package.json).
-const { app, BrowserWindow, WebContentsView, Menu, shell, session, ipcMain } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, shell, session, ipcMain, Notification } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
@@ -11,6 +11,7 @@ const iconPath = path.join(__dirname, 'build', 'icon.png');
 const BAR_H = 36; // height of the custom title bar
 
 let win = null, page = null, bar = null;
+const toasts = new Map();             // tag -> the Windows notification currently showing, so a newer one replaces it
 let theme = {};                       // latest colours from the page, forwarded to the title bar
 let upd = { phase: 'idle' };          // update status shown in the server bar: idle | checking | none | available | downloading | installing | error
 
@@ -48,6 +49,7 @@ function createWindow() {
   layout();
   for (const ev of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) win.on(ev, () => { layout(); sendBarState(); });
   for (const ev of ['focus', 'blur']) win.on(ev, sendBarState);
+  win.on('focus', () => win.flashFrame(false));
   win.on('closed', () => { win = null; page = null; bar = null; });
 
   bar.webContents.on('will-navigate', (e) => e.preventDefault());
@@ -80,6 +82,26 @@ ipcMain.on('bar-action', (e, action) => {
   else if (action === 'close') win.close();
   else if (action === 'check') runCheck(true);
 });
+
+// ----- notifications: the page says what to show; the app shows it as a native Windows notification, and clicking it
+// brings the window forward and tells the page which chat to open. -----
+const clean = (v, n) => String(v == null ? '' : v).slice(0, n);
+function showToast(n) {
+  if (!Notification.isSupported()) return;
+  const tag = clean(n.tag, 80);
+  if (tag && toasts.has(tag)) { try { toasts.get(tag).close(); } catch { /* already gone */ } }
+  const t = new Notification({ title: clean(n.title, 100) || 'Aduna', body: clean(n.body, 200), icon: iconPath, silent: false, timeoutType: n.sticky ? 'never' : 'default' });
+  t.on('click', () => {
+    if (win) { if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
+    if (alive(page)) page.webContents.send('notif-click', clean(n.target, 80));
+  });
+  t.on('close', () => { if (tag && toasts.get(tag) === t) toasts.delete(tag); });
+  if (tag) toasts.set(tag, t);
+  t.show();
+  if (win && !win.isFocused()) win.flashFrame(true); // flashes the taskbar button until the window is focused
+}
+ipcMain.on('notify', (e, n) => { if (fromPage(e) && n && typeof n === 'object') showToast(n); });
+ipcMain.on('notify-dismiss', (e, tag) => { if (!fromPage(e)) return; const t = toasts.get(clean(tag, 80)); if (t) { try { t.close(); } catch { /* ignore */ } toasts.delete(clean(tag, 80)); } });
 
 ipcMain.on('theme-vars', (e, vars) => {
   if (!fromPage(e) || !vars || typeof vars !== 'object') return;
@@ -157,6 +179,7 @@ function fakeInstall() {
   }, 250);
 }
 
+app.setAppUserModelId('app.aduna.desktop'); // same as build.appId: Windows needs it to show notifications from the app
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });

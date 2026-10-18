@@ -7,7 +7,7 @@
     "start": "node server/index.js",
     "dev": "concurrently \"node --watch server/index.js\" \"npm --prefix client run dev\"",
     "build": "npm --prefix client install --include=dev && npm --prefix client run build",
-    "test": "node server/security-test.js && node server/credits-logic-test.js && node server/smoke-test.js && node server/profile-test.js && node server/files-test.js && node server/r2-test.js && node server/credits-test.js && node server/email-verify-test.js"
+    "test": "node server/push-test.js && node server/push-flow-test.js && node server/security-test.js && node server/credits-logic-test.js && node server/smoke-test.js && node server/profile-test.js && node server/files-test.js && node server/r2-test.js && node server/credits-test.js && node server/email-verify-test.js"
   },
   "dependencies": {
     "aws4fetch": "^1.0.20",
@@ -17,7 +17,8 @@
     "nodemailer": "^10.1.6",
     "pg": "^8.13.1",
     "resend": "^6.34.1",
-    "socket.io": "^4.7.5"
+    "socket.io": "^4.7.5",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

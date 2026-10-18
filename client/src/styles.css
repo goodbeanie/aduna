@@ -974,3 +974,17 @@ span.mention { cursor: default; }
   .quest { flex-wrap: wrap; } .quest-bar { max-width: none; }
   .credit-gain { bottom: calc(80px + env(safe-area-inset-bottom, 0px)); right: 12px; }
 }
+
+/* notifications: the "turn on" banner and the settings page */
+.notify-prompt { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 85; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; max-width: min(560px, calc(100vw - 28px)); padding: 12px 14px; border-radius: 16px; background: var(--raised); color: var(--text); box-shadow: 0 8px 28px rgba(0,0,0,.22), inset 0 0 0 1px var(--line); font-size: 14px; }
+.notify-prompt > span { flex: 1 1 220px; min-width: 0; }
+.notify-prompt .btn { padding: 7px 16px; font-size: 14px; }
+.btn.ghost { background: transparent; }
+.btn.ghost:hover { background: var(--hover); }
+.notify-settings { padding-bottom: 40px; }
+.notify-settings > label:not(.check-row) { display: block; margin-top: 22px; }
+.notify-status { margin-top: 8px; padding: 14px 16px; border-radius: 14px; background: var(--bg3); }
+.notify-status p { margin: 0 0 10px; overflow-wrap: anywhere; }
+.notify-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.notify-actions:empty { display: none; }
+@media (max-width: 720px) { .notify-prompt { bottom: calc(12px + env(safe-area-inset-bottom, 0px)); } }

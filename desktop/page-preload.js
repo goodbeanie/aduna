@@ -1,9 +1,19 @@
-// Runs inside the Aduna web page (sandboxed, https only). It does two things:
+// Runs inside the Aduna web page (sandboxed, https only). It does three things:
+//  0. Exposes window.adunaDesktop so the page can show native notifications.
 //  1. Streams the page's theme colours to the title bar so the bar always matches the UI (including server themes).
 //  2. Shows the update status on the right side of the server bar (.rail): checking / no update / available + Install.
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, contextBridge } = require('electron');
 
 if (location.protocol === 'https:') {
+  // ---------- 0. notifications: lets the page (client/src/notify.js) show native Windows notifications ----------
+  let onClick = null;
+  ipcRenderer.on('notif-click', (_e, target) => { if (onClick) onClick(String(target || '')); });
+  contextBridge.exposeInMainWorld('adunaDesktop', {
+    notify: (n) => ipcRenderer.send('notify', { title: String(n && n.title || ''), body: String(n && n.body || ''), tag: String(n && n.tag || ''), target: String(n && n.target || ''), sticky: !!(n && n.sticky) }),
+    dismiss: (tag) => ipcRenderer.send('notify-dismiss', String(tag || '')),
+    onClick: (cb) => { onClick = typeof cb === 'function' ? cb : null; return () => { onClick = null; }; },
+  });
+
   // ---------- 1. theme sync ----------
   const KEYS = ['--bg3', '--line', '--head', '--muted', '--hover', '--danger', '--ink', '--on-ink'];
   let last = '';

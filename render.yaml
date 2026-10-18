@@ -56,6 +56,12 @@ services:
       # (The default onboarding@resend.dev can only send to your own Resend account's email.)
       - key: RESEND_API_KEY
         sync: false
+      # optional: Web Push signing keys for notifications while the app is closed. Leave unset: they are generated once and kept
+      # (encrypted) in the database. Set both only if you want to supply your own.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
       # your site's public address, used for Stripe's return links (default: taken from the request)
       - key: PUBLIC_URL
         sync: false

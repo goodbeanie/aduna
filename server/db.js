@@ -80,6 +80,7 @@ const empty = () => Object.fromEntries(COLLECTIONS.map((t) => [t, {}]));
 let db = empty();
 const written = Object.fromEntries(COLLECTIONS.map((t) => [t, new Map()])); // id -> JSON last persisted
 let jwtSecret = null;
+let vapidKeys = null; // { publicKey, privateKey } for Web Push (env VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY win)
 
 async function load() {
   db = empty();
@@ -147,6 +148,18 @@ async function init() {
       row = (await q('SELECT value FROM meta WHERE key = $1', ['jwtsecret'])).rows[0];
     }
     jwtSecret = open(row.value, 'meta:jwtsecret');
+  }
+
+  // Web Push signing keys: from the environment, else generated once and kept (encrypted) in the database.
+  if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) vapidKeys = { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY };
+  else {
+    let row = (await q('SELECT value FROM meta WHERE key = $1', ['vapid'])).rows[0];
+    if (!row) {
+      const k = require('web-push').generateVAPIDKeys();
+      await q('INSERT INTO meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', ['vapid', seal(JSON.stringify(k), 'meta:vapid')]);
+      row = (await q('SELECT value FROM meta WHERE key = $1', ['vapid'])).rows[0];
+    }
+    vapidKeys = JSON.parse(open(row.value, 'meta:vapid'));
   }
 
   await load();
@@ -362,6 +375,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => { close().finally
 module.exports = {
   get db() { return db; },
   get jwtSecret() { return jwtSecret; },
+  get vapid() { return vapidKeys; },
   init, close, save, flush, reload: load, id, inviteCode, query: q,
   putImage, getImage, deleteImage, pruneImages, putFile, fileMeta, getFileBytes, markAttached, deleteFiles, expireFiles, pruneFiles,
   get usingR2() { return !!r2; },
