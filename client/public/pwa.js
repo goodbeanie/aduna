@@ -1,5 +1,5 @@
 // Registers the service worker and powers the "Download Aduna" button.
-// Windows PCs download the installer (/download). Other devices install Aduna as a web app instead.
+// Windows PCs download the installer and Android phones the APK (both via /download). Other devices install Aduna as a web app instead.
 (function () {
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () { navigator.serviceWorker.register('/sw.js').catch(function () {}); });
@@ -25,7 +25,8 @@
   }
 
   var isWindowsPC = /Windows NT/.test(navigator.userAgent) && !/Mobile/.test(navigator.userAgent);
-  if (isWindowsPC) return; // the link itself downloads the installer
+  var isAndroid = /Android/.test(navigator.userAgent);
+  if (isWindowsPC || isAndroid) return; // the link goes to /download, which starts the installer or the APK
 
   btns.forEach(function (b) {
     b.removeAttribute('download');
