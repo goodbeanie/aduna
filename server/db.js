@@ -76,7 +76,8 @@ const open = (blob, aad) => openRaw(blob, aad).toString('utf8');
 let pool = null;
 const q = (text, params) => pool.query(text, params);
 
-const empty = () => Object.fromEntries(COLLECTIONS.map((t) => [t, {}]));
+// null-prototype objects: an id like "constructor" or "__proto__" from a request must not find Object.prototype members
+const empty = () => Object.fromEntries(COLLECTIONS.map((t) => [t, Object.create(null)]));
 let db = empty();
 const written = Object.fromEntries(COLLECTIONS.map((t) => [t, new Map()])); // id -> JSON last persisted
 let jwtSecret = null;
@@ -362,11 +363,24 @@ async function pruneFiles(keep, minAgeMs = 3600_000) {
 const id = () => crypto.randomBytes(8).toString('hex');
 const inviteCode = () => crypto.randomBytes(4).toString('hex');
 
+// Small sealed values kept in the meta table (the JWT secret and VAPID keys use the same table). The key is part of what is
+// authenticated, so a row cannot be swapped for another. Used for the rate-limit state, which has usernames and addresses in it.
+async function getMeta(key) {
+  const row = (await q('SELECT value FROM meta WHERE key = $1', [key])).rows[0];
+  if (!row) return null;
+  try { return open(row.value, 'meta:' + key); } catch { return null; } // unreadable (other key): treated as absent
+}
+async function setMeta(key, value) {
+  await q('INSERT INTO meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', [key, seal(String(value), 'meta:' + key)]);
+}
+
 // flush pending writes on shutdown (Render sends SIGTERM on every deploy)
 let closing = false;
+const closeHooks = new Set(); // async functions that run first when the server shuts down (the rate limits save themselves here)
 async function close() {
   if (closing || !pool) return;
   closing = true;
+  for (const h of closeHooks) { try { await h(); } catch (e) { console.error('Shutdown step failed:', e.message); } }
   try { await flush(); } catch (e) { console.error('Final save failed:', e.message); }
   try { await pool.end(); } catch {}
 }
@@ -376,7 +390,7 @@ module.exports = {
   get db() { return db; },
   get jwtSecret() { return jwtSecret; },
   get vapid() { return vapidKeys; },
-  init, close, save, flush, reload: load, id, inviteCode, query: q,
+  init, close, save, flush, reload: load, id, inviteCode, query: q, getMeta, setMeta, closeHooks,
   putImage, getImage, deleteImage, pruneImages, putFile, fileMeta, getFileBytes, markAttached, deleteFiles, expireFiles, pruneFiles,
   get usingR2() { return !!r2; },
   r2BytesUsed,

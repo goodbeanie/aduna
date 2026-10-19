@@ -15,13 +15,18 @@ function cleanPrefs(input, current = DEFAULT_PREFS) {
   return out;
 }
 
+// The push services browsers use (Chrome/Edge/Opera/Brave: FCM, Firefox: Mozilla, Safari: Apple, Windows: WNS). Our server POSTs to the stored endpoint,
+// so it must never be an address the user chose freely (blind SSRF + a status-code oracle through /api/push/test).
+const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^android\.googleapis\.com$/, /^([a-z0-9-]+\.)*push\.services\.mozilla\.com$/, /^([a-z0-9-]+\.)*push\.apple\.com$/, /^([a-z0-9-]+\.)*notify\.windows\.com$/];
+
 // A browser PushSubscription.toJSON(): an https endpoint plus two keys. Anything else is rejected.
 function cleanSub(s) {
   if (!s || typeof s !== 'object') return null;
   const { endpoint, keys } = s;
   if (typeof endpoint !== 'string' || endpoint.length > 1024) return null;
   let url; try { url = new URL(endpoint); } catch { return null; }
-  if (url.protocol !== 'https:') return null;
+  if (url.protocol !== 'https:' || url.port || url.username || url.password) return null;
+  if (!PUSH_HOSTS.some((re) => re.test(url.hostname))) return null; // only real push services: otherwise the server could be aimed at any host (SSRF)
   if (!keys || typeof keys.p256dh !== 'string' || typeof keys.auth !== 'string') return null;
   if (keys.p256dh.length > 200 || keys.auth.length > 100 || !/^[A-Za-z0-9_-]+=*$/.test(keys.p256dh) || !/^[A-Za-z0-9_-]+=*$/.test(keys.auth)) return null;
   return { endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } };

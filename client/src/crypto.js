@@ -54,6 +54,7 @@ export async function createIdentity(password) {
     publicKey: JSON.stringify({ kty: pub.kty, crv: pub.crv, x: pub.x, y: pub.y }),
     encPrivKey: { salt: toB64(salt), iv: toB64(iv), data: toB64(data) },
     privateKey: await importPrivate(priv),
+    recovery: await makeRecovery(priv), // { key (show once), blob, auth } for the recovery key; see below
   };
 }
 
@@ -61,6 +62,104 @@ export async function unlockIdentity(encPrivKey, password) {
   const wrap = await passKey(password, fromB64(encPrivKey.salt));
   const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(encPrivKey.iv) }, wrap, fromB64(encPrivKey.data));
   return importPrivate(JSON.parse(dec.decode(plain)));
+}
+
+// Changing the password: unwrap the identity key with the old password and wrap it again with the new one. The key itself does not
+// change, so every conversation keeps working. Throws if the old password is wrong. The result is opened once with the new password
+// before it is returned, so a broken blob is never uploaded.
+export async function rewrapIdentity(encPrivKey, oldPassword, newPassword) {
+  const plain = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: fromB64(encPrivKey.iv) },
+    await passKey(oldPassword, fromB64(encPrivKey.salt)),
+    fromB64(encPrivKey.data)
+  );
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await passKey(newPassword, salt), plain);
+  const blob = { salt: toB64(salt), iv: toB64(iv), data: toB64(data) };
+  await unlockIdentity(blob, newPassword);
+  return blob;
+}
+
+// ---- account recovery key ----
+// The password wraps the identity key, so a forgotten password used to lose the account. A recovery key is a second, independent
+// wrapping: 160 random bits shown to the person ONCE, never stored by us. HKDF turns it into two unrelated values:
+//   wrap: an AES-GCM key that wraps the identity key (the blob the server keeps, it cannot open it), and
+//   auth: a proof that the person holds the key; the server only stores a hash of it and compares on reset.
+// Resetting the password unwraps the identity key with the recovery key and wraps it with the new password, so the same key survives
+// and every conversation keeps working. The key is high-entropy, so no slow hash is needed (unlike a password).
+const RK_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 32 symbols, no I or O or 0 or 1: easy to read out loud and to type
+
+export function newRecoveryKey() {
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  let bits = 0, acc = 0, out = '';
+  for (const b of bytes) {
+    acc = (acc << 8) | b; bits += 8;
+    while (bits >= 5) { out += RK_ALPHABET[(acc >> (bits - 5)) & 31]; bits -= 5; }
+    acc &= (1 << bits) - 1;
+  }
+  return out.match(/.{4}/g).join('-'); // 32 symbols in 8 groups
+}
+
+// Accepts what a person might type or paste (any case, spaces, dashes). Returns the 20 raw bytes or null if it cannot be a key.
+function recoveryBytes(input) {
+  const s = String(input || '').toUpperCase().replace(/[\s-]/g, '');
+  if (s.length !== 32) return null;
+  const out = new Uint8Array(20);
+  let bits = 0, acc = 0, n = 0;
+  for (const ch of s) {
+    const v = RK_ALPHABET.indexOf(ch);
+    if (v < 0) return null;
+    acc = (acc << 5) | v; bits += 5;
+    if (bits >= 8) { out[n++] = (acc >> (bits - 8)) & 255; bits -= 8; }
+    acc &= (1 << bits) - 1;
+  }
+  return out;
+}
+export const isRecoveryKey = (s) => !!recoveryBytes(s);
+
+async function recoveryParts(keyText, salt) {
+  const raw = recoveryBytes(keyText);
+  if (!raw) throw new Error('That is not a recovery key. It has 32 letters and numbers.');
+  const base = await crypto.subtle.importKey('raw', raw, 'HKDF', false, ['deriveKey', 'deriveBits']);
+  const p = (info) => ({ name: 'HKDF', hash: 'SHA-256', salt, info: enc.encode(info) });
+  return {
+    wrap: await crypto.subtle.deriveKey(p('aduna recovery wrap v1'), base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']),
+    auth: toB64(await crypto.subtle.deriveBits(p('aduna recovery auth v1'), base, 256)),
+  };
+}
+
+const cleanJwk = (jwk) => ({ kty: jwk.kty, crv: jwk.crv, x: jwk.x, y: jwk.y, d: jwk.d }); // fixed shape, so every blob has the same size
+
+// A new recovery key for an identity (the private JWK). { key, blob, auth }: show `key` once; send blob + auth to the server.
+export async function makeRecovery(jwk) {
+  const key = newRecoveryKey();
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const { wrap, auth } = await recoveryParts(key, salt);
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, wrap, enc.encode(JSON.stringify(cleanJwk(jwk))));
+  return { key, blob: { salt: toB64(salt), iv: toB64(iv), data: toB64(data) }, auth };
+}
+
+// For an account that has an identity but no recovery key yet (or wants a new one): open the identity with the password first.
+export async function makeRecoveryFromPassword(encPrivKey, password) {
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(encPrivKey.iv) }, await passKey(password, fromB64(encPrivKey.salt)), fromB64(encPrivKey.data));
+  return makeRecovery(JSON.parse(dec.decode(plain)));
+}
+
+// Forgot the password: open the recovery blob with the key, wrap the identity with the NEW password. Returns what the server needs
+// (auth proof, new password blob) plus the usable private key. Throws if the key is wrong (nothing has been sent anywhere yet).
+export async function recoverIdentity(recoveryBlob, keyText, newPassword) {
+  const { wrap, auth } = await recoveryParts(keyText, fromB64(recoveryBlob.salt));
+  let jwk;
+  try {
+    jwk = JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(recoveryBlob.iv) }, wrap, fromB64(recoveryBlob.data))));
+  } catch { throw new Error('That recovery key is not right.'); }
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await passKey(newPassword, salt), enc.encode(JSON.stringify(jwk)));
+  const encPrivKey = { salt: toB64(salt), iv: toB64(iv), data: toB64(data) };
+  return { auth, encPrivKey, privateKey: await unlockIdentity(encPrivKey, newPassword) }; // opened once before upload, like rewrapIdentity
 }
 
 // ---- persist the (non-extractable) private key in IndexedDB so reloads keep working ----

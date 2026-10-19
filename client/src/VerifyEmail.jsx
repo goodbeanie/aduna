@@ -60,6 +60,7 @@ export default function VerifyEmail({ me, onUpdate, onLogout }) {
         ) : (
           <>
             <p className="muted center">We sent a 6-digit code to <b>{me.email}</b>. It expires in 15 minutes.</p>
+            <p className="hint center">No code? If this address already has an Aduna account, we emailed you about that instead: try logging in with it.</p>
             <label>VERIFICATION CODE</label>
             <input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} inputMode="numeric" autoComplete="one-time-code"
               placeholder="123456" autoFocus required pattern="\d{6}" style={{ letterSpacing: 6, fontSize: 20, textAlign: 'center' }} />

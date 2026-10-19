@@ -995,3 +995,17 @@ span.mention { cursor: default; }
 .notify-diag li > span:first-child { flex: none; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; background: var(--hover); color: var(--muted); }
 .notify-diag li.ok > span:first-child { background: var(--ok-bg); color: var(--ok-fg); }
 .notify-diag li.bad > span:first-child { background: var(--err-bg); color: var(--err-fg); }
+
+/* Settings > Security: change password, two-factor, log out everywhere */
+.security-settings { padding-bottom: 40px; }
+.sec-section { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--line); }
+.sec-section:first-child { margin-top: 12px; padding-top: 0; border-top: 0; }
+.sec-section h2 { color: var(--head); font-size: 18px; margin: 0 0 8px; }
+.sec-section > label { display: block; margin-top: 14px; }
+.sec-section > .notify-actions { margin-top: 16px; }
+.recovery-codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 12px 0; padding: 14px 16px; border-radius: 14px; background: var(--bg3); }
+.recovery-codes.one { grid-template-columns: 1fr; text-align: center; }
+.recovery-codes code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 15px; letter-spacing: .04em; color: var(--head); overflow-wrap: anywhere; user-select: all; }
+
+.seg { display: flex; gap: 8px; margin: 14px 0 4px; }
+.seg .btn { flex: 1; }

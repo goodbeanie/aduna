@@ -70,5 +70,56 @@ const step = (m) => console.log('✓', m);
   r = await call('/me', { method: 'PATCH', token: c2.token, body: { email: 'xena2@example.com' } });
   assert.strictEqual(r.status, 200); assert.ok(lastCode('xena2@example.com')); step('older account with no email adds one and is sent a code');
 
+  // sign-up and email change must not reveal which addresses are registered
+  {
+    const blob = { salt: 'a', iv: 'b', data: 'c' };
+    const signup = (username, email) => call('/register', { method: 'POST', body: { username, email, password: 'password123', publicKey: 'k', encPrivKey: blob } });
+    const owner = await reg('yara');                                  // yara@example.com, verified below
+    assert.strictEqual((await call('/me/verify-email', { method: 'POST', token: owner.token, body: { code: lastCode('yara@example.com') } })).status, 200);
+
+    const mark = mailer.outbox.length;
+    const dup = await signup('zed_dup', 'yara@example.com');          // an address that is already registered and verified
+    const fresh = await signup('zed_fresh', 'zed_fresh@example.com');  // one that is not
+    assert.ok(dup.status === 200 && fresh.status === 200, 'both sign-ups are accepted: ' + dup.status + '/' + fresh.status);
+    assert.deepStrictEqual(Object.keys(dup).sort(), Object.keys(fresh).sort(), 'same answer shape');
+    assert.deepStrictEqual(Object.keys(dup.user).sort(), Object.keys(fresh.user).sort());
+    assert.ok(dup.user.emailVerified === false && fresh.user.emailVerified === false, 'both unverified');
+    assert.ok(dup.user.codeSent === true && fresh.user.codeSent === true, 'both look as if a code was sent');
+    const notice = mailer.outbox.slice(mark).filter((m) => m.to === 'yara@example.com');
+    assert.strictEqual(notice.length, 1, 'the real owner is told');
+    assert.ok(/already have/i.test(notice[0].subject) && !/\d{6}/.test(notice[0].subject + notice[0].text + notice[0].html), 'a notice, not a code');
+    assert.ok(!/zed_dup/.test(notice[0].text + notice[0].html), 'nothing the visitor typed ends up in the notice');
+    assert.ok(lastCode('zed_fresh@example.com'), 'the new address gets a real code');
+    assert.strictEqual((await call('/me/verify-email', { method: 'POST', token: dup.token, body: { code: '123456' } })).status, 400, 'no code can be verified for the taken address');
+    assert.strictEqual((await call('/friends', { token: dup.token })).status, 403, 'and that account stays locked');
+    step('sign-up with an address that is already registered looks the same as any other, and only the owner is told');
+
+    // the notices are limited per address (3 an hour)
+    for (const n of ['zed_2', 'zed_3', 'zed_4', 'zed_5']) assert.strictEqual((await signup(n, 'yara@example.com')).status, 200);
+    assert.strictEqual(mailer.outbox.slice(mark).filter((m) => m.to === 'yara@example.com').length, 3, 'at most 3 notices to one address, the rest are silent');
+    step('"account exists" notices are limited per address');
+
+    // nobody can squat on an address by registering it first
+    const squat = await signup('sq_attacker', 'newbie@example.com');
+    const squatCode = lastCode('newbie@example.com'); // what the mailbox owner would have received; the attacker never sees it
+    const real = await reg('newbie');
+    assert.strictEqual(real.status, 200, 'the real owner can still sign up with their own address');
+    assert.strictEqual((await call('/me/verify-email', { method: 'POST', token: real.token, body: { code: lastCode('newbie@example.com') } })).status, 200, 'and verify it');
+    r = await call('/me/verify-email', { method: 'POST', token: squat.token, body: { code: squatCode } });
+    assert.strictEqual(r.status, 409, 'a late claim on a verified address is refused at verification');
+    assert.ok(/already uses/.test(r.error));
+    step('an unverified claim blocks nobody: uniqueness is decided when the address is verified');
+
+    // changing the email to a registered address behaves the same way
+    const zoe = await reg('zoe');
+    const mark2 = mailer.outbox.length;
+    r = await call('/me', { method: 'PATCH', token: zoe.token, body: { email: 'walt@example.com' } });
+    assert.ok(r.status === 200 && r.user.emailVerified === false && r.user.codeSent === true, 'accepted exactly like any other change: ' + JSON.stringify(r).slice(0, 120));
+    const n2 = mailer.outbox.slice(mark2).filter((m) => m.to === 'walt@example.com');
+    assert.ok(n2.length === 1 && /already have/i.test(n2[0].subject), 'walt is told, no code is sent');
+    assert.strictEqual((await call('/friends', { token: zoe.token })).status, 403);
+    step('changing the email to a registered address looks the same as any other change');
+  }
+
   console.log('\nemail-verify-test: all passed');
 })().catch((e) => { console.error('FAIL', e); process.exitCode = 1; }).finally(async () => { httpServer.close(); await cleanup(); process.exit(process.exitCode || 0); });

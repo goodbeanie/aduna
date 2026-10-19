@@ -11,7 +11,8 @@ process.env.DB_SCHEMA = 't_' + crypto.randomBytes(4).toString('hex');
 process.env.DB_ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
 delete process.env.JWT_SECRET;
 process.env.NODE_ENV = 'test';
-process.env.SIGNUPS_PER_HOUR = '100000'; // the tests create many accounts from one address
+process.env.SIGNUPS_PER_HOUR = '100000';
+process.env.AUTH_PER_MINUTE = '100000'; // same for the per-address login/register limiter // the tests create many accounts from one address
 
 const store = require('./db');
 // Every byte stored in every table, as one string: what someone with a copy of the database would see.
@@ -24,6 +25,7 @@ async function rawDb() {
   return out;
 }
 async function cleanup() {
+  store.closeHooks.clear(); // the schema is dropped below, so nothing may try to save into it afterwards
   try { await store.flush(); } catch {}
   try { await store.query(`DROP SCHEMA ${process.env.DB_SCHEMA} CASCADE`); } catch {}
   await store.close();

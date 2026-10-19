@@ -34,7 +34,7 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
         <div className="settings-content">
           {tab === 'profile' && <><h1>My profile</h1><ProfileEditor me={me} onClose={onClose} onSaved={onSaved} onLogout={onLogout} /></>}
           {tab === 'notifications' && <><h1>Notifications</h1><NotificationSettings me={me} onPrefs={onPrefs} /></>}
-          {tab === 'security' && <><h1>Security</h1><SecuritySettings getSocketId={getSocketId} /></>}
+          {tab === 'security' && <><h1>Security</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
           {tab === 'appearance' && <><h1>Appearance</h1><AppearancePicker /></>}
         </div>
       </main>

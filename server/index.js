@@ -10,6 +10,7 @@ const store = require('./db');
 const { sniffImage, cleanGif } = require('./images');
 const credits = require('./credits');
 const security = require('./security');
+const totp = require('./totp');
 const mailer = require('./mailer');
 const webpush = require('web-push');
 const { createPush, cleanPrefs } = require('./push');
@@ -143,7 +144,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
+const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -152,14 +153,34 @@ const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified:
 // on file are asked to add one. Only a hash of the code is stored.
 const CODE_TTL_MS = 15 * 60_000, CODE_COOLDOWN_MS = 60_000, CODE_MAX_TRIES = 5;
 const needsVerify = (u) => mailer.enabled() && u.emailVerified !== true;
+// Best-effort heads-up about a security change, only to an address that was verified. Never blocks or fails the request.
+function notifyByEmail(u, subject, text) {
+  if (!mailer.enabled() || u.emailVerified !== true || !u.email) return;
+  mailer.sendSecurityNotice(u.email, subject, text).catch((e) => console.error('security notice failed:', e.message));
+}
 const codeHash = (uid, code) => crypto.createHash('sha256').update(uid + ':' + code).digest('hex');
 const resends = new security.RateWindow(5, 3600_000); // emails per account per hour
 async function issueCode(u) {
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   u.verify = { hash: codeHash(u.id, code), expires: now() + CODE_TTL_MS, tries: 0, sentAt: now() };
   store.save();
+  // If a VERIFIED account already owns this address, the mailbox gets a "you already have an account" notice instead of a code (the code
+  // stored above is never sent, so nothing can be verified). Everything the caller sees is the same either way, which is what stops
+  // sign-up and email change from revealing which addresses are registered. Notices are limited per address so this cannot be used to spam someone.
+  if (emailClaimed(u.email, u.id)) {
+    if (notices.allow(security.emailKey(u.email))) await mailer.sendAccountExists(u.email);
+    return;
+  }
   await mailer.sendVerificationCode(u.email, code, u.username);
 }
+const notices = new security.RateWindow(3, 3600_000); // "account already exists" emails per address per hour
+const resetMails = new security.RateWindow(3, 3600_000); // password-reset codes per account per hour
+// Email addresses are unique among VERIFIED accounts (proved by receiving the code); an unverified claim blocks nobody, so nobody can squat on
+// someone else's address. Without an email provider nothing can be verified, so then uniqueness is checked immediately (see emailTaken).
+const emailClaimed = (email, exceptId) => {
+  const key = security.emailKey(email);
+  return Object.values(db().users).some((x) => x.id !== exceptId && x.emailVerified === true && x.email && security.emailKey(x.email) === key);
+};
 const emailTaken = (email, exceptId) => {
   const key = security.emailKey(email);
   return Object.values(db().users).some((x) => x.id !== exceptId && x.email && security.emailKey(x.email) === key);
@@ -216,6 +237,7 @@ app.disable('x-powered-by');
 app.use(security.securityHeaders()); // CSP, clickjacking, nosniff, referrer, permissions, HSTS over HTTPS (see security.js)
 app.use('/api', security.csrfGuard()); // a request from another site that carries the login cookie is refused (see security.js)
 app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
+app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled() })); // sign-up screen: can email recovery be offered (needs a mail provider)?
 // Stripe signs the exact bytes it sends, so the credits webhook keeps the raw body next to the parsed one.
 app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl === '/api/credits/webhook') req.rawBody = buf; } }));
 
@@ -224,14 +246,10 @@ app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.orig
 app.use('/api', (_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
 
 // naive per-IP rate limit for auth endpoints
-const hits = new Map();
+const AUTH_PER_MINUTE = posNum(process.env.AUTH_PER_MINUTE, 20); // the tests create many accounts from one address and raise this
+const authHits = new security.RateWindow(AUTH_PER_MINUTE, 60_000);
 function authLimiter(req, res, next) {
-  const k = req.ip;
-  const t = now();
-  const arr = (hits.get(k) || []).filter((x) => t - x < 60_000);
-  if (arr.length >= 20) return res.status(429).json({ error: 'Too many attempts, try again in a minute' });
-  arr.push(t);
-  hits.set(k, arr);
+  if (!authHits.allow(req.ip)) return res.status(429).json({ error: 'Too many attempts, try again in a minute' });
   next();
 }
 
@@ -249,6 +267,23 @@ function auth(req, res, next) {
   });
 }
 
+// ---------- account recovery key ----------
+// The browser makes a recovery key (client/src/crypto.js): the identity key wrapped by it (`blob`, opaque to us) and a 256-bit proof `auth` derived
+// from the same key. We keep the blob and only a SHA-256 of the proof, so nothing we store can open the blob or pass as the proof. The key
+// has 160 random bits, which is why a fast hash is enough here (a password would need a slow one).
+const sha256 = (s) => crypto.createHash('sha256').update(String(s)).digest('hex');
+const RECOVERY_AUTH = /^[A-Za-z0-9+/]{43}=?$/; // 32 bytes in base64
+function recoveryRecord(r) {
+  if (!r || typeof r !== 'object' || !validKeyBlob(r.blob) || typeof r.auth !== 'string' || !RECOVERY_AUTH.test(r.auth)) return null;
+  return { blob: { salt: r.blob.salt, iv: r.blob.iv, data: r.blob.data }, verifier: sha256(r.auth), createdAt: now() };
+}
+// Asking to reset must not reveal whether a name has a recovery key (or exists): unknown names and accounts without a key get a decoy blob
+// of the same shape, derived from the server secret so the same name always gets the same one. Opening it fails on the device, like a wrong key.
+function decoyRecoveryBlob(username) {
+  const mac = (i) => crypto.createHmac('sha256', String(SECRET)).update(`recovery-decoy:${i}:${String(username).toLowerCase()}`).digest();
+  const bytes = Buffer.concat([mac(0), mac(1), mac(2), mac(3), mac(4), mac(5), mac(6), mac(7)]); // 256 bytes
+  return { salt: bytes.subarray(0, 16).toString('base64'), iv: bytes.subarray(16, 28).toString('base64'), data: bytes.subarray(28, 220).toString('base64') };
+}
 const validKeyBlob = (b) => b && typeof b === 'object' && ['salt', 'iv', 'data'].every((k) => typeof b[k] === 'string' && b[k].length < 4000);
 
 function defaultServer() {
@@ -260,6 +295,35 @@ function defaultServer() {
 
 const signups = new security.RateWindow(posNum(process.env.SIGNUPS_PER_HOUR, 10), 3600_000); // new accounts per address per hour
 const loginGuard = new security.LoginGuard();
+
+// ----- rate limits survive restarts -----
+// The limits and the login lockout used to live only in memory, so every restart or redeploy (Render does both on its own) wiped them. The
+// five that guard accounts are now saved, sealed, in the meta table: shortly after they change (at most one write every 5 s), and once more
+// when the server is told to shut down. At startup the saved state is loaded and anything past its window is dropped. One instance only: two
+// running at once would each keep their own counts and overwrite each other's saved copy. The upload/GIF limits stay in memory on purpose
+// (short per-user limits, not a security boundary).
+const LIMITERS = { authHits, signups, loginGuard, resends, notices, resetMails };
+let limitsSaved = '';
+async function saveLimits() {
+  const now = Date.now();
+  const json = JSON.stringify(Object.fromEntries(Object.entries(LIMITERS).map(([k, l]) => [k, l.dump(now)])));
+  if (json === limitsSaved) return;
+  await store.setMeta('ratelimits', json);
+  limitsSaved = json;
+}
+let limitsTimer = null;
+function saveLimitsSoon() {
+  if (limitsTimer) return;
+  limitsTimer = setTimeout(() => { limitsTimer = null; saveLimits().catch((e) => console.error('Could not save rate limits:', e.message)); }, 5000);
+  limitsTimer.unref();
+}
+async function loadLimits() {
+  try {
+    const raw = await store.getMeta('ratelimits');
+    if (raw) { const data = JSON.parse(raw); for (const [k, l] of Object.entries(LIMITERS)) l.restore(data[k]); }
+  } catch (e) { console.error('Could not load rate limits (starting empty):', e.message); }
+  for (const l of Object.values(LIMITERS)) l.onChange = saveLimitsSoon;
+}
 const DUMMY_HASH = bcrypt.hashSync('aduna-not-a-real-password', 10); // so a wrong username takes as long as a wrong password
 
 app.post('/api/register', authLimiter, async (req, res) => {
@@ -272,16 +336,20 @@ app.post('/api/register', authLimiter, async (req, res) => {
   if (weak) return res.status(400).json({ error: weak });
   if (typeof publicKey !== 'string' || publicKey.length > 2000) return res.status(400).json({ error: 'Missing public key' });
   if (!validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing key backup' });
+  const recovery = req.body?.recovery == null ? null : recoveryRecord(req.body.recovery);
+  if (req.body?.recovery != null && !recovery) return res.status(400).json({ error: 'Bad recovery key backup' });
   const taken = Object.values(db().users).some((u) => u.username.toLowerCase() === username.toLowerCase());
   if (taken) return res.status(409).json({ error: 'Username already taken' });
-  if (emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
+  // With email verification on, a taken address is NOT reported here (that would reveal who is registered): the account is created unverified
+  // and uniqueness is decided when the address is verified. With it off nothing can be verified, so the check has to happen now.
+  if (!mailer.enabled() && emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
   if (!signups.allow(req.ip)) return res.status(429).json({ error: 'Too many accounts were created from this connection. Try again later.' });
 
   const hues = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e'];
   const user = {
     id: store.id(),
     username,
-    passHash: bcrypt.hashSync(password, 10),
+    passHash: await bcrypt.hash(password, 10),
     displayName: username,
     email, // private: never part of publicUser(); stored encrypted like every other record
     bio: '',
@@ -292,6 +360,8 @@ app.post('/api/register', authLimiter, async (req, res) => {
     status: 'online',
     publicKey,
     encPrivKey,
+    ...(recovery ? { recovery } : {}),
+    ...(req.body?.emailRecovery === true && mailer.enabled() ? { emailRecovery: true } : {}), // chosen at sign-up; only takes effect once the address is verified (emailRecoveryPossible)
     createdAt: now(),
   };
   db().users[user.id] = user;
@@ -326,6 +396,10 @@ app.post('/api/me/verify-email', authLimiter, authAny, (req, res) => {
     v.tries += 1; store.save();
     return res.status(400).json({ error: 'That code is not right.' });
   }
+  if (emailClaimed(u.email, u.id)) { // someone else verified this address first: only a person who can read this mailbox ever gets here
+    delete u.verify; store.save();
+    return res.status(409).json({ error: 'Another account already uses this email address. Choose “Wrong email?” and use a different one.' });
+  }
   u.emailVerified = true;
   delete u.verify;
   joinDefaultServer(u);
@@ -344,7 +418,62 @@ app.post('/api/me/resend-verification', authLimiter, authAny, async (req, res) =
   res.json({ ok: true, retryAfter: CODE_COOLDOWN_MS / 1000 });
 });
 
-app.post('/api/login', authLimiter, (req, res) => {
+// ----- two-factor helpers -----
+// u.totp = { secret, enabled, lastStep, recovery: [sha256 of each unused recovery code] }; u.totpPending = a secret not yet confirmed.
+// True if `raw` is a valid authenticator code (each time step usable once) or an unused recovery code (burned on use). No 2FA: true.
+function secondFactorOk(u, raw) {
+  const t = u.totp;
+  if (!t || !t.enabled) return true;
+  const code = totp.normRecovery(raw);
+  if (/^\d{6}$/.test(code)) {
+    const stepHit = totp.verify(t.secret, code, { lastStep: Number.isInteger(t.lastStep) ? t.lastStep : -1 });
+    if (stepHit === null) return false;
+    t.lastStep = stepHit;
+    store.save();
+    return true;
+  }
+  const i = Array.isArray(t.recovery) ? t.recovery.indexOf(totp.hashRecovery(code)) : -1;
+  if (i < 0) return false;
+  t.recovery.splice(i, 1);
+  store.save();
+  return true;
+}
+// Re-checks the password for a sensitive action. Wrong guesses count toward the login lockout. Sends the error itself and returns false.
+async function passwordOk(req, res, u, password) {
+  const lock = loginGuard.check(u.username, req.ip);
+  if (lock.blocked) {
+    res.set('Retry-After', String(lock.retryAfterSec));
+    res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
+    return false;
+  }
+  if (!(await bcrypt.compare(String(password || ''), u.passHash))) {
+    loginGuard.fail(u.username, req.ip);
+    res.status(400).json({ error: 'That password is not right.' });
+    return false;
+  }
+  return true;
+}
+// Same, for a one-time code; the wrong ones feed the same lockout.
+function codeOk(req, res, u, code) {
+  if (secondFactorOk(u, code)) return true;
+  loginGuard.fail(u.username, req.ip);
+  res.status(400).json({ error: 'That code is not right.', code: '2fa_invalid' });
+  return false;
+}
+// Revokes every login token of the account, drops its push registrations, stores that, and closes every open connection
+// (the other devices are told to sign out). Used by "log out everywhere" and by changing the password.
+async function revokeAllSessions(u, keepSocketId = '') {
+  sessions.bump(u);
+  u.pushSubs = [];
+  store.save();
+  await store.flush(); // the revocation must be stored before the answer, or a restart could bring old tokens back
+  for (const s of userSockets(u.id)) {
+    if (s.id !== keepSocketId) s.emit('session:revoked');
+    s.disconnect(true);
+  }
+}
+
+app.post('/api/login', authLimiter, ah(async (req, res) => {
   const { username, password } = req.body || {};
   const name = String(username || '');
   const lock = loginGuard.check(name, req.ip);
@@ -353,11 +482,18 @@ app.post('/api/login', authLimiter, (req, res) => {
     return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
   }
   const user = Object.values(db().users).find((u) => u.username.toLowerCase() === name.toLowerCase());
-  const ok = bcrypt.compareSync(String(password || ''), user ? user.passHash : DUMMY_HASH); // always one comparison: no timing hint about which names exist
+  const ok = await bcrypt.compare(String(password || ''), user ? user.passHash : DUMMY_HASH); // always one comparison: no timing hint about which names exist
   if (!user || !ok) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'Invalid username or password' }); }
+  // Two-factor: the password was right, so say a code is needed (nothing is issued yet). Wrong codes feed the same lockout, and the
+  // lockout is only cleared after the code passes too, or a correct password would reset the counter on every guess.
+  if (user.totp && user.totp.enabled) {
+    const code = String(req.body?.code ?? '').trim();
+    if (!code) return res.status(401).json({ error: 'Enter the 6-digit code from your authenticator app.', code: '2fa_required' });
+    if (!secondFactorOk(user, code)) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'That code is not right.', code: '2fa_invalid' }); }
+  }
   loginGuard.success(name, req.ip);
   res.json({ token: startSession(req, res, user), user: ownUser(user), encPrivKey: user.encPrivKey });
-});
+}));
 
 // Ends the browser's session: the cookie is httpOnly, so only the server can remove it. Needs no login (clearing is always safe).
 app.post('/api/logout', (req, res) => {
@@ -377,26 +513,207 @@ app.post('/api/session', authAny, (req, res) => {
 // is why the general per-address auth limiter is not needed here. Returns a fresh token for this device.
 app.post('/api/me/logout-all', authAny, ah(async (req, res) => {
   const u = req.user;
-  const lock = loginGuard.check(u.username, req.ip);
+  if (!(await passwordOk(req, res, u, req.body?.password))) return;
+  loginGuard.success(u.username, req.ip);
+  await revokeAllSessions(u, typeof req.body?.socketId === 'string' ? req.body.socketId : '');
+  res.json({ token: startSession(req, res, u) });
+}));
+
+// Change the password. The password also wraps the end-to-end encryption key, so the browser unwraps the key with the old password,
+// wraps it again with the new one and sends the new blob along; the server only ever sees ciphertext. Asks for the current password
+// (and the 2FA code if it is on), then revokes every other session, because a leaked password is the usual reason to do this.
+app.post('/api/me/password', auth, ah(async (req, res) => {
+  const u = req.user;
+  const { currentPassword, newPassword, encPrivKey, code } = req.body || {};
+  if (typeof newPassword !== 'string' || newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  if (newPassword.length > 200) return res.status(400).json({ error: 'That password is too long' });
+  if (u.encPrivKey && !validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing key backup' });
+  // Everything that does not need the login checks goes first, so a rejected new password does not use up the person's 2FA code.
+  if (newPassword === currentPassword) return res.status(400).json({ error: 'Choose a different password from the current one.' });
+  const weak = process.env.NODE_ENV === 'test' ? null : security.weakPassword(newPassword, { username: u.username, email: u.email });
+  if (weak) return res.status(400).json({ error: weak });
+  if (!(await passwordOk(req, res, u, currentPassword))) return;
+  if (u.totp && u.totp.enabled && !codeOk(req, res, u, code)) return;
+  loginGuard.success(u.username, req.ip);
+  u.passHash = await bcrypt.hash(newPassword, 10);
+  if (u.encPrivKey) u.encPrivKey = encPrivKey;
+  await revokeAllSessions(u, typeof req.body?.socketId === 'string' ? req.body.socketId : '');
+  res.json({ ok: true, token: startSession(req, res, u) });
+}));
+
+// ----- recovery key (forgotten password) -----
+// Set or replace it: the password is asked again (and the 2FA code if it is on). Replacing it kills the old key, because only the new proof is kept.
+app.put('/api/me/recovery', auth, ah(async (req, res) => {
+  const u = req.user;
+  const rec = recoveryRecord(req.body?.recovery);
+  if (!rec) return res.status(400).json({ error: 'Bad recovery key backup' });
+  if (!(await passwordOk(req, res, u, req.body?.password))) return;
+  if (u.totp && u.totp.enabled && !codeOk(req, res, u, req.body?.code)) return;
+  loginGuard.success(u.username, req.ip);
+  u.recovery = rec;
+  store.save();
+  notifyByEmail(u, 'A new recovery key was created for your Aduna account', 'A recovery key was created or replaced on your Aduna account. Any earlier recovery key no longer works.');
+  res.json({ user: ownUser(u) });
+}));
+
+// Step 1 of a reset: the wrapped identity key for this name (or a decoy, see decoyRecoveryBlob). The device opens it with the recovery key.
+app.post('/api/recover/start', authLimiter, (req, res) => {
+  const name = String(req.body?.username || '').trim();
+  const u = name && Object.values(db().users).find((x) => x.username.toLowerCase() === name.toLowerCase());
+  res.json({ blob: u && u.recovery ? u.recovery.blob : decoyRecoveryBlob(name) });
+});
+
+// Step 2: proof of the key + the new password (already wrapped around the identity key by the device). Same lockout as logging in, because a
+// wrong proof is a wrong guess. With 2FA on a code is still needed: a recovery key alone does not skip the second factor. Success sets
+// the new password, signs every other device out, and logs this one in (like /api/login, minus the password check that just happened).
+app.post('/api/recover/finish', authLimiter, ah(async (req, res) => {
+  const { username, auth: proof, newPassword, encPrivKey, code } = req.body || {};
+  const name = String(username || '').trim();
+  const lock = loginGuard.check(name, req.ip);
   if (lock.blocked) {
     res.set('Retry-After', String(lock.retryAfterSec));
     return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
   }
-  if (!bcrypt.compareSync(String(req.body?.password || ''), u.passHash)) {
-    loginGuard.fail(u.username, req.ip);
-    return res.status(400).json({ error: 'That password is not right.' });
+  if (typeof newPassword !== 'string' || newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  if (newPassword.length > 200) return res.status(400).json({ error: 'That password is too long' });
+  if (!validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing key backup' });
+  const u = name && Object.values(db().users).find((x) => x.username.toLowerCase() === name.toLowerCase());
+  // Compare in constant time, and always do one comparison, whether or not the account (or its key) exists.
+  const have = Buffer.from(u && u.recovery ? u.recovery.verifier : sha256('no such recovery key'), 'hex');
+  const given = Buffer.from(typeof proof === 'string' && RECOVERY_AUTH.test(proof) ? sha256(proof) : sha256(''), 'hex');
+  const match = crypto.timingSafeEqual(have, given) && !!(u && u.recovery) && typeof proof === 'string' && RECOVERY_AUTH.test(proof);
+  if (!match) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'That recovery key is not right.', code: 'recovery_invalid' }); }
+  const weak = process.env.NODE_ENV === 'test' ? null : security.weakPassword(newPassword, { username: u.username, email: u.email });
+  if (weak) return res.status(400).json({ error: weak });
+  if (u.totp && u.totp.enabled) {
+    const c = String(code ?? '').trim();
+    if (!c) return res.status(401).json({ error: 'Enter the 6-digit code from your authenticator app.', code: '2fa_required' });
+    if (!secondFactorOk(u, c)) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'That code is not right.', code: '2fa_invalid' }); }
   }
+  loginGuard.success(name, req.ip);
+  u.passHash = await bcrypt.hash(newPassword, 10);
+  u.encPrivKey = encPrivKey;
+  await revokeAllSessions(u);
+  notifyByEmail(u, 'Your Aduna password was reset', 'The password on your Aduna account was just reset with your recovery key, and every device was signed out. If this was not you, your recovery key may be compromised: log in, create a new recovery key and change your password.');
+  res.json({ token: startSession(req, res, u), user: ownUser(u), encPrivKey: u.encPrivKey });
+}));
+
+
+// ----- email recovery (opt-in) -----
+// A second way back in for people who lost their recovery key (or never made one), for accounts that switched it on in Settings. A code goes to the
+// VERIFIED address. The catch is end-to-end encryption: the server never has the encryption key, so an email cannot bring it back. This path therefore
+// gives the account a NEW encryption key (made on the device) and a NEW recovery key; messages sent before can no longer be read by anyone. The person must
+// say they understand that (`newKey: true`). Everything else is as strict as the recovery key: the same lockout as login, two-factor still required,
+// every session revoked, the owner emailed, and the answer to "send a code" is identical whether or not the account exists or has this on.
+const emailRecoveryPossible = (u) => mailer.enabled() && u.emailVerified === true && !!u.email;
+const RESET_TTL_MS = 15 * 60_000, RESET_COOLDOWN_MS = 60_000, RESET_MAX_TRIES = 5;
+
+app.put('/api/me/email-recovery', auth, ah(async (req, res) => {
+  const u = req.user;
+  const on = req.body?.enabled === true;
+  if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ error: 'Say whether to turn it on or off.' });
+  if (on && !emailRecoveryPossible(u)) return res.status(409).json({ error: 'Verify your email address first (and email must be set up on this server).' });
+  if (!(await passwordOk(req, res, u, req.body?.password))) return;
+  if (u.totp && u.totp.enabled && !codeOk(req, res, u, req.body?.code)) return;
   loginGuard.success(u.username, req.ip);
-  sessions.bump(u);
-  u.pushSubs = [];
+  if (on) u.emailRecovery = true; else { delete u.emailRecovery; delete u.emailReset; }
   store.save();
-  await store.flush(); // the revocation must be stored before the answer, or a restart could bring old tokens back
-  const keep = typeof req.body?.socketId === 'string' ? req.body.socketId : '';
-  for (const s of userSockets(u.id)) { // the other devices are told to sign out; every old connection is closed
-    if (s.id !== keep) s.emit('session:revoked');
-    s.disconnect(true);
+  notifyByEmail(u, on ? 'Email recovery was turned on for your Aduna account' : 'Email recovery was turned off for your Aduna account',
+    on ? 'Email recovery was turned on. If you ever forget your password and have no recovery key, a code sent to this address can reset it, but the reset also replaces your encryption key, so older messages become unreadable. If this was not you, log in and turn it off.'
+       : 'Email recovery was turned off. A forgotten password can now only be reset with your recovery key.');
+  res.json({ user: ownUser(u) });
+}));
+
+// Always the same answer. The code is sent after the answer, so timing does not tell either.
+app.post('/api/recover/email/start', authLimiter, (req, res) => {
+  res.json({ ok: true });
+  const name = String(req.body?.username || '').trim();
+  const u = name && Object.values(db().users).find((x) => x.username.toLowerCase() === name.toLowerCase());
+  if (!u || !u.emailRecovery || !emailRecoveryPossible(u)) return;
+  if (u.emailReset && now() - u.emailReset.sentAt < RESET_COOLDOWN_MS) return;
+  if (!resetMails.allow(u.id)) return;
+  const code = String(crypto.randomInt(0, 100_000_000)).padStart(8, '0');
+  u.emailReset = { hash: codeHash(u.id, code), expires: now() + RESET_TTL_MS, tries: 0, sentAt: now() };
+  store.save();
+  mailer.sendResetCode(u.email, code, u.username).catch((e) => console.error('reset email failed:', e.message));
+});
+
+app.post('/api/recover/email/finish', authLimiter, ah(async (req, res) => {
+  const { username, code, newPassword, publicKey, encPrivKey, newKey } = req.body || {};
+  const name = String(username || '').trim();
+  const lock = loginGuard.check(name, req.ip);
+  if (lock.blocked) {
+    res.set('Retry-After', String(lock.retryAfterSec));
+    return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
   }
-  res.json({ token: startSession(req, res, u) });
+  if (newKey !== true) return res.status(400).json({ error: 'Confirm that you understand your older messages will become unreadable.' });
+  if (typeof newPassword !== 'string' || newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  if (newPassword.length > 200) return res.status(400).json({ error: 'That password is too long' });
+  if (typeof publicKey !== 'string' || publicKey.length > 2000 || !validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing encryption key' });
+  const recovery = recoveryRecord(req.body?.recovery);
+  if (!recovery) return res.status(400).json({ error: 'Bad recovery key backup' });
+  const u = name && Object.values(db().users).find((x) => x.username.toLowerCase() === name.toLowerCase());
+  const r = u && u.emailRecovery && emailRecoveryPossible(u) ? u.emailReset : null;
+  const fail = () => { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'That code is not right or has expired. Ask for a new one.', code: 'reset_code_invalid' }); };
+  if (!r || r.expires < now() || r.tries >= RESET_MAX_TRIES) return fail();
+  const have = Buffer.from(r.hash, 'hex');
+  const given = Buffer.from(codeHash(u.id, String(code ?? '').replace(/\s/g, '')), 'hex');
+  if (!crypto.timingSafeEqual(have, given)) { r.tries += 1; store.save(); return fail(); }
+  const weak = process.env.NODE_ENV === 'test' ? null : security.weakPassword(newPassword, { username: u.username, email: u.email });
+  if (weak) return res.status(400).json({ error: weak });
+  if (u.totp && u.totp.enabled) {
+    const c = String(req.body?.twoFactorCode ?? '').trim();
+    if (!c) return res.status(401).json({ error: 'Enter the 6-digit code from your authenticator app.', code: '2fa_required' });
+    if (!secondFactorOk(u, c)) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'That code is not right.', code: '2fa_invalid' }); }
+  }
+  loginGuard.success(name, req.ip);
+  delete u.emailReset; // a code works once
+  u.passHash = await bcrypt.hash(newPassword, 10);
+  u.publicKey = publicKey;
+  u.encPrivKey = encPrivKey;
+  u.recovery = recovery; // the old recovery key opened the old identity: it is replaced along with it
+  await revokeAllSessions(u);
+  emitUserUpdate(u); // friends and server mates pick up the new public key (their copy of the old conversation key no longer fits)
+  notifyByEmail(u, 'Your Aduna password was reset by email', 'The password on your Aduna account was just reset with a code sent to this address, and a new encryption key was created, so older direct messages can no longer be read. Every device was signed out. If this was not you, someone has access to this mailbox: log in, change your password and turn email recovery off.');
+  res.json({ token: startSession(req, res, u), user: ownUser(u), encPrivKey: u.encPrivKey });
+}));
+
+// ----- two-factor (authenticator app) -----
+// setup: password -> a new secret (not active yet). enable: a code from the app proves it works -> turns on, returns recovery codes ONCE.
+// disable: password + a code. While it is on, login also needs a code; a recovery code works once in place of one.
+app.post('/api/me/2fa/setup', auth, ah(async (req, res) => {
+  const u = req.user;
+  if (u.totp && u.totp.enabled) return res.status(409).json({ error: 'Two-factor is already on.' });
+  if (!(await passwordOk(req, res, u, req.body?.password))) return;
+  loginGuard.success(u.username, req.ip);
+  u.totpPending = totp.newSecret();
+  store.save();
+  res.json({ secret: u.totpPending, uri: totp.otpauthUri({ secret: u.totpPending, account: u.username }) });
+}));
+app.post('/api/me/2fa/enable', auth, (req, res) => {
+  const u = req.user;
+  if (u.totp && u.totp.enabled) return res.status(409).json({ error: 'Two-factor is already on.' });
+  if (!u.totpPending) return res.status(400).json({ error: 'Start the setup first.' });
+  const lock = loginGuard.check(u.username, req.ip);
+  if (lock.blocked) { res.set('Retry-After', String(lock.retryAfterSec)); return res.status(429).json({ error: 'Too many wrong codes. Try again later.' }); }
+  const stepHit = totp.verify(u.totpPending, req.body?.code);
+  if (stepHit === null) { loginGuard.fail(u.username, req.ip); return res.status(400).json({ error: 'That code is not right. Check the time on your phone and try again.', code: '2fa_invalid' }); }
+  const codes = totp.newRecoveryCodes();
+  u.totp = { secret: u.totpPending, enabled: true, lastStep: stepHit, recovery: codes.map(totp.hashRecovery) };
+  delete u.totpPending;
+  store.save();
+  res.json({ recoveryCodes: codes });
+});
+app.post('/api/me/2fa/disable', auth, ah(async (req, res) => {
+  const u = req.user;
+  if (!u.totp || !u.totp.enabled) return res.status(409).json({ error: 'Two-factor is not on.' });
+  if (!(await passwordOk(req, res, u, req.body?.password))) return;
+  if (!codeOk(req, res, u, req.body?.code)) return;
+  loginGuard.success(u.username, req.ip);
+  delete u.totp;
+  delete u.totpPending;
+  store.save();
+  res.json({ ok: true });
 }));
 
 app.get('/api/me', authAny, (req, res) => res.json({ user: ownUser(req.user), encPrivKey: req.user.encPrivKey }));
@@ -461,9 +778,10 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (b.email !== undefined && String(b.email).trim().toLowerCase() !== (u.email || '')) {
     newEmail = security.cleanEmail(b.email); // an account that has an email cannot clear it
     if (!newEmail) return res.status(400).json({ error: 'Enter a valid email address' });
-    if (emailTaken(newEmail, u.id)) return res.status(409).json({ error: 'An account with this email already exists' });
+    if (!mailer.enabled() && emailTaken(newEmail, u.id)) return res.status(409).json({ error: 'An account with this email already exists' }); // see register: with verification on, the answer must not depend on who is registered
   }
 
+  if (newEmail && security.emailKey(newEmail) !== security.emailKey(u.email || '')) { delete u.emailRecovery; delete u.emailReset; } // a changed address must not inherit email recovery: turn it on again with the password
   if (newEmail) { u.email = newEmail; if (mailer.enabled()) u.emailVerified = false; } // a new address must be verified again
   if (newUsername !== undefined) {
     // Someone who never picked a display name keeps showing their username.
@@ -1235,7 +1553,7 @@ app.post('/api/servers/:id/leave', auth, (req, res) => {
     else { delete db().servers[s.id]; store.deleteImage(s.iconImage).catch(() => {}); store.deleteImage(s.bannerImage).catch(() => {}); }
   }
   store.save();
-  for (const sock of userSockets(req.user.id)) { sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id)); }
+  for (const sock of userSockets(req.user.id)) { voiceLeave(req.user.id, sock.id); sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id)); } // voiceLeave: someone who leaves must not stay in the server's voice call (kick already did this)
   if (db().servers[s.id]) io.to('server:' + s.id).emit('server:update', serverView(s));
   res.json({ ok: true });
 });
@@ -1282,7 +1600,8 @@ app.get('/api/servers/:id/invite-check', auth, (req, res) => {
 // Open to people who are not signed in: the page at /invite/<code> shows this box to a visitor before they have an account.
 // A signed-in token is still honoured so members and listed people of a private server get the card.
 app.get('/api/invites/:code', (req, res) => {
-  const me = userFromToken((req.headers.authorization || '').replace(/^Bearer /, ''));
+  const bearer = (req.headers.authorization || '').replace(/^Bearer /, '');
+  const me = userFromToken(bearer || security.readSessionCookie(req.headers, secureReq(req))); // the web app is signed in by cookie
   if (!me) return authLimiter(req, res, () => sendInvite(req, res, null));
   sendInvite(req, res, me);
 });
@@ -1641,6 +1960,17 @@ function voiceLeave(uid, sid) {
 }
 
 io.on('connection', (socket) => {
+  // A bug (or a hostile payload) in one event handler must never take the whole server down: Socket.IO does not catch exceptions
+  // thrown inside handlers, and an uncaught one ends the Node process for everybody. Wrap every handler registered below.
+  const rawOn = socket.on.bind(socket);
+  socket.on = (event, fn) => rawOn(event, (...args) => {
+    const fail = (e) => {
+      console.error('socket handler failed:', event, e && e.message);
+      const ack = args[args.length - 1];
+      if (typeof ack === 'function') { try { ack({ error: 'Server error' }); } catch {} }
+    };
+    try { const r = fn(...args); if (r && typeof r.catch === 'function') r.catch(fail); } catch (e) { fail(e); }
+  });
   const uid = socket.data.uid;
   online.set(uid, (online.get(uid) || 0) + 1);
   joinRooms(uid);
@@ -1777,7 +2107,7 @@ io.on('connection', (socket) => {
     if (!allowed()) return reply({ error: 'Slow down' });
     const custom = /^c:[0-9a-f]{16}$/.test(String(p?.emoji));
     const emoji = custom ? p.emoji : clip(p?.emoji, 8);
-    if (!emoji || (custom && !liveEmoji(emoji.slice(2)))) return reply({ error: 'Bad emoji' });
+    if (!emoji || (!custom && /^[\w$]+$/.test(emoji)) || (custom && !liveEmoji(emoji.slice(2)))) return reply({ error: 'Bad emoji' }); // plain ASCII words are never emoji (and would hit Object.prototype names)
     let msg, rooms;
     if (p.kind === 'channel') {
       msg = db().messages[p.messageId];
@@ -1790,7 +2120,7 @@ io.on('connection', (socket) => {
       rooms = ['user:' + msg.from, 'user:' + msg.to];
     } else return reply({ error: 'Bad kind' });
 
-    const list = msg.reactions[emoji] || (msg.reactions[emoji] = []);
+    const list = Object.prototype.hasOwnProperty.call(msg.reactions, emoji) ? msg.reactions[emoji] : (msg.reactions[emoji] = []);
     const i = list.indexOf(uid);
     if (i >= 0) list.splice(i, 1); else list.push(uid);
     const added = i < 0;
@@ -1982,6 +2312,8 @@ io.on('connection', (socket) => {
 async function start() {
   await store.init();
   SECRET = store.jwtSecret;
+  await loadLimits();
+  store.closeHooks.add(saveLimits);
   await store.pruneImages(referencedImages());   // drop images no profile or emoji points at (left over from a crash mid-upload)
   await store.pruneFiles(referencedFiles());
   await runCleanup(); // also clear out anything that expired while the server was off
@@ -1995,7 +2327,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, ready };
+module.exports = { httpServer, app, io, expireOldAttachments, ready, loginGuard }; // loginGuard: for the tests
 
 
 /* HANDOFF: see HANDOFF.md in the project root for what this server does, what is done, and what is left. */

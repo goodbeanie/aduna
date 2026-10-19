@@ -60,4 +60,42 @@ function sendVerificationCode(to, code, username) {
   });
 }
 
-module.exports = { enabled, sendVerificationCode, outbox };
+// Sent instead of a code when someone signs up (or changes their email) with an address that already belongs to a verified account.
+// It deliberately names no account, and nothing in it can be set by the person who triggered it.
+function sendAccountExists(to) {
+  return send({
+    to,
+    subject: 'You already have an Aduna account',
+    text: `Someone, possibly you, tried to use this email address for a new Aduna account.\n\nThis address already belongs to an Aduna account, so no new one was created and no code was sent. If it was you, just log in with your existing account.\n\nIf it wasn't you, you can ignore this email: nothing about your account has changed.`,
+    html: `<div style="font-family:system-ui,sans-serif;max-width:420px;margin:auto;padding:24px;color:#2a251e">
+<h2 style="margin:0 0 12px">You already have an Aduna account</h2>
+<p>Someone, possibly you, tried to use this email address for a new Aduna account.</p>
+<p>This address already belongs to an Aduna account, so no new one was created and no code was sent. If it was you, just log in with your existing account.</p>
+<p style="color:#6b6458">If it wasn't you, you can ignore this email: nothing about your account has changed.</p></div>`,
+  });
+}
+
+// A short note that something security-related changed. `text` is written by us (never by the visitor).
+function sendSecurityNotice(to, subject, text) {
+  return send({
+    to, subject, text,
+    html: `<div style="font-family:system-ui,sans-serif;max-width:420px;margin:auto;padding:24px;color:#2a251e"><h2 style="margin:0 0 12px">${esc(subject)}</h2><p>${esc(text)}</p></div>`,
+  });
+}
+
+// The code for resetting a forgotten password by email. 8 digits, 15 minutes, one use.
+function sendResetCode(to, code, username) {
+  return send({
+    to,
+    subject: `${code} is your Aduna password reset code`,
+    text: `Hi ${username},\n\nYour Aduna password reset code is ${code}. It expires in 15 minutes and works once.\n\nResetting by email creates a new encryption key, so older direct messages can no longer be read. If you have your recovery key, use that instead: it keeps your messages.\n\nIf you did not ask for this, ignore this email and your password stays as it is.`,
+    html: `<div style="font-family:system-ui,sans-serif;max-width:420px;margin:auto;padding:24px;color:#2a251e">
+<h2 style="margin:0 0 12px">Reset your password</h2>
+<p>Hi ${esc(username)}, enter this code in Aduna:</p>
+<p style="font-size:30px;font-weight:700;letter-spacing:6px;margin:16px 0">${esc(code)}</p>
+<p style="color:#6b6458">It expires in 15 minutes and works once. Resetting by email creates a new encryption key, so older direct messages can no longer be read. If you have your recovery key, use that instead: it keeps your messages.</p>
+<p style="color:#6b6458">If you did not ask for this, ignore this email and your password stays as it is.</p></div>`,
+  });
+}
+
+module.exports = { enabled, sendVerificationCode, sendAccountExists, sendSecurityNotice, sendResetCode, outbox };

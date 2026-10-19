@@ -2,13 +2,17 @@
 const assert = require('assert');
 const { createPush, cleanPrefs, cleanSub, DEFAULT_PREFS } = require('./push');
 
-const goodSub = (n = 1) => ({ endpoint: 'https://push.example.com/send/' + n, keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' } });
+const goodSub = (n = 1) => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/' + n, keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' } });
 
 // ---- validation ----
 assert.ok(cleanSub(goodSub()), 'a real subscription is accepted');
 assert.strictEqual(cleanSub({ ...goodSub(), endpoint: 'http://push.example.com/x' }), null, 'http endpoints are refused');
 assert.strictEqual(cleanSub({ ...goodSub(), endpoint: 'javascript:alert(1)' }), null);
 assert.strictEqual(cleanSub({ endpoint: 'https://x.example/a' }), null, 'keys are required');
+for (const bad of ['https://internal.example/hook', 'https://127.0.0.1/x', 'https://localhost/x', 'https://fcm.googleapis.com.evil.example/x', 'https://evilfcm.googleapis.com/x', 'https://fcm.googleapis.com:8443/x', 'https://user:pw@fcm.googleapis.com/x', 'http://fcm.googleapis.com/x'])
+  assert.strictEqual(cleanSub({ ...goodSub(), endpoint: bad }), null, 'endpoint must be a real push service: ' + bad);
+for (const ok of ['https://fcm.googleapis.com/fcm/send/a', 'https://updates.push.services.mozilla.com/wpush/v2/a', 'https://web.push.apple.com/a', 'https://wns2-par02p.notify.windows.com/w/?token=a'])
+  assert.ok(cleanSub({ ...goodSub(), endpoint: ok }), 'real push service accepted: ' + ok);
 assert.strictEqual(cleanSub({ ...goodSub(), keys: { p256dh: '<script>', auth: 'x' } }), null, 'keys must look like base64url');
 assert.strictEqual(cleanSub({ ...goodSub(), endpoint: 'https://x.example/' + 'a'.repeat(1100) }), null, 'very long endpoints are refused');
 assert.deepStrictEqual(cleanSub({ ...goodSub(), extra: 1 }).keys, goodSub().keys);

@@ -7,6 +7,7 @@ const step = (m) => console.log('✓', m);
 {
   const run = (env, req = {}) => { const h = {}; S.securityHeaders(env)({ secure: false, ...req }, { setHeader: (k, v) => { h[k] = v; }, removeHeader: () => {} }, () => {}); return h; };
   const h = run({});
+  assert.ok(/style-src 'self'(;|$)/.test(h['Content-Security-Policy']) && !h['Content-Security-Policy'].includes('unsafe-inline'), 'styles only from this site: no unsafe-inline anywhere');
   assert.ok(h['Content-Security-Policy'].includes("script-src 'self'") && !h['Content-Security-Policy'].includes("script-src 'self' 'unsafe"), 'scripts only from this site');
   assert.ok(h['Content-Security-Policy'].includes("frame-ancestors 'none'") && h['X-Frame-Options'] === 'DENY');
   assert.ok(h['Content-Security-Policy'].includes("object-src 'none'") && h['Content-Security-Policy'].includes("base-uri 'self'"));
@@ -183,4 +184,59 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual(run({ headers: { host: 'aduna.onrender.com', origin: 'https://evil.example', authorization: 'Bearer x' } }), 'ok', 'no cookie (Stripe webhook, scripts, header logins): nothing to forge');
   step('session cookie: httpOnly + SameSite=Strict + __Host- over https, ignores planted plain cookie; Origin/CSRF guard refuses cross-site writes');
 }
+// ---- rate limits survive a restart (dump / restore) ----
+{
+  const t0 = 1_700_000_000_000;
+  // a lockout that was in force is still in force after the state goes through JSON and into a new instance
+  const g = new S.LoginGuard();
+  for (let i = 0; i < 5; i++) g.fail('Mia', '1.2.3.4', t0 + i * 1000);
+  assert.strictEqual(g.check('mia', '1.2.3.4', t0 + 10_000).blocked, true);
+  const saved = JSON.parse(JSON.stringify(g.dump(t0 + 10_000)));
+  const g2 = new S.LoginGuard();
+  g2.restore(saved, t0 + 60_000); // "the server came back a minute later"
+  const c = g2.check('mia', '1.2.3.4', t0 + 60_000);
+  assert.ok(c.blocked && c.retryAfterSec > 0 && c.retryAfterSec <= 15 * 60, 'still locked, with the right time left: ' + JSON.stringify(c));
+  assert.strictEqual(g2.check('mia', '9.9.9.9', t0 + 60_000).blocked, false, 'other addresses are not affected (unless 25 overall)');
+  assert.strictEqual(new S.LoginGuard().check('mia', '1.2.3.4', t0 + 60_000).blocked, false, 'a fresh instance without restore forgets (what used to happen)');
+  const g3 = new S.LoginGuard(); g3.restore(saved, t0 + 16 * 60_000);
+  assert.strictEqual(g3.check('mia', '1.2.3.4', t0 + 16 * 60_000).blocked, false, 'a lockout that ran out while the server was off is gone');
+  assert.deepStrictEqual(g3.dump(t0 + 16 * 60_000), { pair: [], name: [] }, 'and expired entries are not kept');
+  // the per-username counter (spread-out guessing) survives too
+  const spread = new S.LoginGuard();
+  for (let i = 0; i < 25; i++) spread.fail('nia', '10.0.0.' + i, t0);
+  const sp2 = new S.LoginGuard(); sp2.restore(JSON.parse(JSON.stringify(spread.dump(t0))), t0 + 1000);
+  assert.strictEqual(sp2.check('nia', '10.9.9.9', t0 + 1000).blocked, true, 'the 25-from-anywhere lock survives');
+
+  // RateWindow
+  const w = new S.RateWindow(3, 60_000);
+  for (let i = 0; i < 3; i++) assert.ok(w.allow('ip', t0 + i));
+  assert.ok(!w.allow('ip', t0 + 10));
+  const w2 = new S.RateWindow(3, 60_000); w2.restore(JSON.parse(JSON.stringify(w.dump(t0 + 10))), t0 + 20_000);
+  assert.ok(!w2.allow('ip', t0 + 20_000), 'still over the limit after a restart');
+  assert.ok(w2.allow('ip', t0 + 61_000), 'and free again once the window has passed');
+  assert.ok(w2.allow('other', t0 + 20_000), 'other keys unaffected');
+
+  // saved data is untrusted: junk is skipped, the future is clamped, sizes are capped, nothing throws
+  const junk = new S.RateWindow(2, 60_000);
+  junk.restore([null, 5, ['k'], ['ok', 'nope'], [123, [t0]], ['x'.repeat(301), [t0]], ['future', [t0 + 10 ** 12, t0 + 10 ** 12]], ['nan', [NaN, 'a', null, t0]], ['big', Array(5000).fill(t0)]], t0);
+  junk.restore('not a list', t0); junk.restore(undefined, t0); junk.restore({}, t0);
+  assert.deepStrictEqual([...junk.hits.keys()].sort(), ['big', 'future', 'nan'], 'only well-formed rows are kept');
+  assert.ok(junk.hits.get('big').length <= 1000, 'per-key size capped');
+  assert.ok(junk.hits.get('future').every((t) => t <= t0), 'a time in the future is clamped to now, so a bad clock cannot lock anyone out for longer than the window');
+  const gj = new S.LoginGuard(); gj.restore('x', t0); gj.restore(null, t0); gj.restore({ pair: 5, name: [[1]] }, t0);
+  assert.deepStrictEqual(gj.dump(t0), { pair: [], name: [] });
+  const big = new S.RateWindow(1, 60_000); big.restore(Array.from({ length: 30000 }, (_, i) => ['k' + i, [t0]]), t0);
+  assert.ok(big.hits.size <= 20000, 'number of keys capped');
+
+  // onChange fires when something changes, and only then
+  let n = 0; const oc = new S.LoginGuard(); oc.onChange = () => n++;
+  oc.check('a', 'b'); assert.strictEqual(n, 0, 'checking changes nothing');
+  oc.fail('a', 'b'); assert.strictEqual(n, 1);
+  oc.success('a', 'b'); assert.strictEqual(n, 2);
+  oc.success('a', 'b'); assert.strictEqual(n, 2, 'clearing nothing is not a change');
+  const ow = new S.RateWindow(1, 1000); ow.onChange = () => n++;
+  ow.allow('k'); assert.strictEqual(n, 3); ow.allow('k'); assert.strictEqual(n, 3, 'a refused hit changes nothing');
+  step('rate limits: dump/restore keeps lockouts across a restart, drops expired ones, distrusts saved data, change hook');
+}
+
 console.log('\nAll security checks passed.');

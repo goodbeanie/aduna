@@ -4,6 +4,7 @@ services:
     name: aduna
     runtime: node
     plan: free
+    # Keep this at ONE instance (do not add numInstances / autoscaling): the data cache, the rate limits and the login lockout are per process. See HANDOFF.md.
     buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /healthz

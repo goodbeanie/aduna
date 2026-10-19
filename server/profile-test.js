@@ -10,7 +10,7 @@ async function call(p, { method = 'GET', body, token } = {}) {
   return { status: r.status, ...(await r.json()) };
 }
 const blob = { salt: 'a', iv: 'b', data: 'c' };
-const reg = (username) => call('/register', { method: 'POST', body: { username, email: username + '@example.com', password: 'password123', publicKey: 'pk' + username, encPrivKey: blob } });
+const reg = (username, email = username + '@example.com') => call('/register', { method: 'POST', body: { username, email, password: 'password123', publicKey: 'pk' + username, encPrivKey: blob } });
 ready.then(() => httpServer.listen(0, async () => {
   base = 'http://127.0.0.1:' + httpServer.address().port;
   try {
@@ -39,7 +39,7 @@ ready.then(() => httpServer.listen(0, async () => {
     r = await call('/login', { method: 'POST', body: { username: 'alice_new', password: 'password123' } }); assert.strictEqual(r.status, 200); console.log('✓ can log in with new username');
     r = await call('/login', { method: 'POST', body: { username: 'alice_x', password: 'password123' } }); assert.strictEqual(r.status, 401); console.log('✓ old username no longer logs in');
     // old name is free for others right away
-    r = await reg('alice_x'); assert.strictEqual(r.status, 200); console.log('✓ old username is free for others');
+    r = await reg('alice_x', 'alice_x_2@example.com'); assert.strictEqual(r.status, 200); console.log('✓ old username is free for others (a new account needs its own email since v19)');
     // cooldown expiry (rewind the stored timestamp by 8 days)
     const store = require('./db');
     store.db.users[a.user.id].usernameChangedAt -= 8 * 24 * 3600 * 1000;

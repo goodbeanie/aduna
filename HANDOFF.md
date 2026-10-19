@@ -65,7 +65,7 @@ Servers, channels, E2EE DMs, friends, profiles. See README.md for how to run (np
 
 - Credits (v18): server/credits.js (rules + Stripe, no Express/pg imports so it is unit-testable), routes GET /api/credits, POST /api/credits/quests/:id/claim, POST /api/credits/checkout, POST /api/credits/webhook (raw body kept by express.json `verify`, index.js), socket event `credits:update` {balance, delta, reason} to the user's own room. Balance + short ledger + counters live on `user.credits` (never in publicUser); purchases are recorded in the new `payments` collection (db.js COLLECTIONS, one row per Stripe session id = idempotency; also holds payment_intent for refunds/disputes). Earning by messages: rewardMessage() runs in message:send for text channels (rules in EARN: typed proof from client/src/typing.js, quality, similarity to last 20 + cross-account copy check, 45 s cooldown, 40/day cap, 3+ members, someone else spoke in the channel in the last 30 min, account >= 30 min old); reactions feed the daily react quest via noteReaction(). Quests are in QUESTS (progress is read from real db state). Client: Credits.jsx page (sidebar entry above Friends + coin chip in the user panel, view = { kind:'dm', userId:null, credits:true }), "+N credits" toast, return from Stripe lands on /app?credits=paid and polls for the webhook. Tests: server/credits-logic-test.js (no DB, 14 groups, all pass here) and server/credits-test.js (DB; NOT RUN: no Postgres/network in my sandbox). typing.js was run in real Chromium with a React shim (typing, paste, scripted events, even-rhythm robot typing, reset). NOT run: the full client build, the UI in a browser, anything against real Stripe (checkout creation is tested against a fake fetch; the signature code follows Stripe's documented v1 scheme). Nothing spends credits yet (spend() exists + is unit tested). Not done: partial refunds, spending/shop, gifting, per-IP signup limits, an admin tool to grant/revoke credits, receipts/invoices page, mobile layout check of the Credits page.
 
-- Security + email (v19): server/security.js (pure, tested in security-test.js): securityHeaders() (CSP etc, CSP_MODE=enforce|report-only|off), cleanEmail/emailKey, weakPassword, RateWindow, LoginGuard. index.js: headers middleware before everything, Cache-Control no-store on /api, register requires a valid unique email (users get `email`, never in publicUser(); ownUser() adds it for the person's own responses only, never use it for user:update or member lists), weak-password check (skipped when NODE_ENV=test), signup limit SIGNUPS_PER_HOUR per IP (default 10; test-env raises it), login lockout + constant-time wrong-username path, PATCH /api/me accepts `email` (cannot be cleared). The two inline scripts were moved to client/public/theme-init.js and landing.js because the CSP has no 'unsafe-inline' for scripts. Client: Auth.jsx email field, Modals.jsx ProfileEditor email field, App.jsx onSaved merges (so me.email survives image uploads). credits.js passes customer_email to Stripe. All tests that register users now send an email. Verified: security-test.js (no DB); the real landing page + theme-init.js + an injected inline script/handler under the exact CSP in Chromium (nothing legitimate blocked, injections blocked). NOT run: the full app under the CSP (no build here; source scanned: no inline scripts, innerHTML, external fetches, audio/video via blob:), the DB-backed tests (smoke-test etc. were edited to send emails but not run). Not done: email verification (needs a mail provider), password reset (impossible with E2EE key lock), httpOnly-cookie sessions, 2FA, CAPTCHA.
+- Security + email (v19): server/security.js (pure, tested in security-test.js): securityHeaders() (CSP etc, CSP_MODE=enforce|report-only|off), cleanEmail/emailKey, weakPassword, RateWindow, LoginGuard. index.js: headers middleware before everything, Cache-Control no-store on /api, register requires a valid unique email (users get `email`, never in publicUser(); ownUser() adds it for the person's own responses only, never use it for user:update or member lists), weak-password check (skipped when NODE_ENV=test), signup limit SIGNUPS_PER_HOUR per IP (default 10; test-env raises it), login lockout + constant-time wrong-username path, PATCH /api/me accepts `email` (cannot be cleared). The two inline scripts were moved to client/public/theme-init.js and landing.js because the CSP has no 'unsafe-inline' for scripts. Client: Auth.jsx email field, Modals.jsx ProfileEditor email field, App.jsx onSaved merges (so me.email survives image uploads). credits.js passes customer_email to Stripe. All tests that register users now send an email. Verified: security-test.js (no DB); the real landing page + theme-init.js + an injected inline script/handler under the exact CSP in Chromium (nothing legitimate blocked, injections blocked). NOT run: the full app under the CSP (no build here; source scanned: no inline scripts, innerHTML, external fetches, audio/video via blob:), the DB-backed tests (smoke-test etc. were edited to send emails but not run). Not done (as of v19; later versions added cookies, change-password and 2FA, see below): email verification, password reset, httpOnly-cookie sessions, 2FA, CAPTCHA.
 
 ## Not finished / to check
 0. Calls: screen share is untested (headless browser can't pick a screen). No TURN server is configured, so calls
@@ -109,7 +109,7 @@ npm test needs TEST_DATABASE_URL (any Postgres). Browser flows were checked with
   the server" (POST /api/push/test, 1 per 5 s, forced past the "app is open" check, reports per-device status codes). Failed pushes other than 404/410 are
   now logged on the server (`push send failed: <status>`). sw.js uses /notif-icon-192.png as the large icon and /icon-192.png (alpha mask) as the badge.
 - Tests: `node server/push-test.js`, `node server/push-flow-test.js` (real server, needs TEST_DATABASE_URL). Both run first in `npm test`.
-- Known: in the original upload, `smoke-test.js` (429 instead of 403 near the end) and `profile-test.js` (409 instead of 200) already fail on a clean checkout.
+- (Both of those pre-existing failures, smoke-test.js 429 and profile-test.js 409, were fixed in v40, see below.)
 
 ## Log out everywhere (token revocation)
 - Login tokens now carry the account's `tokenVersion` (`tv`). `security.createSessions()` (pure, tested in `security-test.js`) signs and checks them
@@ -119,8 +119,7 @@ npm test needs TEST_DATABASE_URL (any Postgres). Browser flows were checked with
   bumps `tokenVersion`, clears `pushSubs`, flushes to the database, tells every other socket `session:revoked` and disconnects all of the account's
   sockets, and returns a fresh `{ token }` for the device that asked. The client (`Security.jsx`, Settings > Security) stores it, re-registers push if
   permission is granted, and reloads; other devices get `session:revoked` and run the normal logout.
-- Not done: changing the password does not exist yet (the password also wraps the E2EE key, so it needs the key re-wrapped in the browser). When it is
-  added, call `sessions.bump(user)` there. Tests: security-test.js (runs without a database); a block in smoke-test.js (NOT RUN: needs Postgres).
+- Changing the password now exists (see "Change password + two-factor" below) and revokes sessions through the same `revokeAllSessions()` helper. Tests: security-test.js (runs without a database); a block in smoke-test.js (NOT RUN: needs Postgres).
 
 ## Cookie sessions (httpOnly login)
 - The web app no longer keeps its login in localStorage. `POST /api/login|register` (and `logout-all`) set an httpOnly, SameSite=Strict cookie
@@ -150,3 +149,117 @@ npm test needs TEST_DATABASE_URL (any Postgres). Browser flows were checked with
   client only fetches the presence snapshot once at start. Not done: nothing tells a client to forget someone's presence after an unfriend, kick or leave
   (the last known value stays until reload; they simply stop getting updates).
 - Tests: a block in smoke-test.js (NOT RUN: needs Postgres).
+
+## Change password + two-factor (v40)
+- Change password: `POST /api/me/password` `{ currentPassword, newPassword, encPrivKey, code?, socketId? }`. The password also wraps the E2EE private key, so the
+  BROWSER unwraps the key with the old password, wraps it with the new one and uploads only the new blob (`rewrapIdentity()` in client/src/crypto.js; it opens the
+  result once with the new password before returning it, so a broken blob is never sent). The key itself is unchanged, so every DM stays readable. Server: validates the
+  new password (min 8, differs from the old, `weakPassword` outside tests) BEFORE the login checks so a rejected password does not burn a 2FA code, then re-checks the
+  current password (wrong guesses feed `loginGuard`), the 2FA code if it is on, stores the new bcrypt hash + blob, and calls `revokeAllSessions()` (same helper as
+  log out everywhere: bump tokenVersion, clear pushSubs, flush, close every socket). Returns a fresh session for the device that asked.
+- Two-factor (authenticator app): server/totp.js (pure: RFC 6238 SHA-1/6 digits/30 s, base32, otpauth link, recovery codes; tested against the RFC vectors in
+  totp-test.js). State on the user record: `totp = { secret, enabled, lastStep, recovery: [sha256] }`, `totpPending` during setup (encrypted at rest like every record,
+  never in publicUser/ownUser; ownUser only says `twoFactor: true|false`). Routes: `POST /api/me/2fa/setup {password}` -> `{ secret, uri }`; `/2fa/enable {code}` ->
+  `{ recoveryCodes }` (8, shown once, stored as hashes, each usable once); `/2fa/disable {password, code}`. Login (`POST /api/login`): when 2FA is on and the password is
+  right, no `code` -> 401 `{ code: '2fa_required' }` and NOTHING is issued (no cookie, no encPrivKey); wrong code -> 401 `2fa_invalid`. A code can be used once (`lastStep`
+  replay protection; +-1 step of clock drift allowed); a recovery code works in place of one. IMPORTANT: `loginGuard.success()` runs only after the code passes, otherwise
+  a correct password would reset the lockout counter on every wrong code guess (test: "wrong codes lock the login out"). Client: Auth.jsx asks for the code when it gets
+  `2fa_required`; Settings > Security (Security.jsx) has Change password, Two-factor (setup, recovery codes, turn off) and Log out of all devices.
+- Not done: password RESET for a forgotten password is still impossible by design (the password wraps the E2EE key; an account recovery key would be the way to add it).
+  No QR code in the 2FA setup (shows the key and an otpauth:// link; add the `qrcode` package to draw one). Recovery codes cannot be regenerated without turning 2FA off and on.
+  2FA is optional (not enforced). Email is not sent on password change / 2FA changes (mailer.js has the plumbing). The 2FA/password UI was compiled (vite build) and the
+  crypto re-wrap tested in Node, but not clicked through in a real browser.
+- Fixed in v40: `GET /api/invites/:code` read only the Authorization header, so people signed in by COOKIE (the whole web app since the cookie change) were treated as signed
+  out and got 403 on private-server invite cards. It now reads the cookie too (regression test in smoke-test.js, "private" block).
+- Test changes: the per-IP login/register limiter is now `AUTH_PER_MINUTE` (default 20; test-env.js raises it) because smoke-test.js registers more than 20 accounts and
+  failed with 429 on a clean checkout; the mentions and roles blocks wait for the 8-events-per-5 s socket flood window (`calm()`). smoke-test.js now passes in full against
+  a local PostgreSQL 16. New: server/totp-test.js, client/scripts/rewrap-test.mjs (both in `npm test`). profile-test.js registered a second `alice_x` with the same email (email must be unique since v19): it now uses its own email. The whole of `npm test` passes against a local PostgreSQL 16 (not Neon).
+
+## Sign-up no longer reveals which emails are registered (v41)
+- With email verification on (a mail provider is configured): `POST /api/register` and the email change in `PATCH /api/me` no longer answer "An account with this email
+  already exists". The account is created (or the address changed) and left UNVERIFIED, exactly like any other, so the answer is identical whether the address is registered or not.
+  Uniqueness is decided when the address is VERIFIED: `emailClaimed()` counts only accounts with `emailVerified === true`, so an unverified claim blocks nobody (nobody can squat
+  on another person's address by registering it first), and the first person who can read the mailbox wins. `issueCode()`: if a verified account already owns the address, the
+  mailbox gets `mailer.sendAccountExists()` ("you already have an Aduna account", no account name, nothing the visitor typed) INSTEAD of a code; a code is still stored so the
+  caller's state (`codeSent`, cooldowns) looks the same, but it is never sent, so it cannot be verified. Those notices are limited to 3 per address per hour (`notices`), the rest are
+  silent. `POST /api/me/verify-email` has a last-line check: if the address got verified elsewhere meanwhile it answers 409 and drops the code (only a person who can read that mailbox gets there).
+- With NO mail provider configured nothing can be verified, so uniqueness is still checked immediately and the 409 is still returned. That mode still reveals registered addresses;
+  it cannot be avoided without verification. Production should have a provider set (BREVO_API_KEY, GMAIL_*, or RESEND_API_KEY).
+- Usernames are deliberately unchanged: "Username already taken" stays. Usernames are public (member lists, profiles, add-friend by name), so hiding it at sign-up would not hide anything and
+  would make registering confusing. Probing is limited by the per-address auth limiter (AUTH_PER_MINUTE, 20/min). Login already takes the same time for a wrong username and a wrong password.
+- Trade-offs: someone can now create unverified accounts with another person's address (each at most triggers one of the 3 hourly notices; signups are limited per address, SIGNUPS_PER_HOUR),
+  and such accounts sit locked until deleted (there is no cleanup job for never-verified accounts yet: worth adding). Legacy accounts with an address but no `emailVerified` flag do not
+  block anyone until they verify. VerifyEmail.jsx tells the person what happened if no code arrives.
+- Tests: email-verify-test.js (sign-up looks identical for a registered and a fresh address, only the owner is told and gets no code, notices limited, squatting blocked, late claim 409,
+  email change identical) and smoke-test.js (provider off: duplicate email still 409). Not done: cleaning up accounts that never verify.
+
+## Rate limits and lockouts survive restarts (v42)
+- Before: the per-address auth limiter, signup limit, login lockout, resend limit and "account exists" notice limit lived only in memory, so every restart/redeploy (Render does
+  both on its own, and free instances sleep) wiped them. Now `RateWindow` and `LoginGuard` (security.js) have `dump()` / `restore()` and an `onChange` hook; index.js keeps the five in
+  `LIMITERS` and saves them, sealed (AES-GCM, same master key as everything else), in the `meta` table under the key `ratelimits` (`store.getMeta/setMeta`, db.js). Saved at most
+  once every 5 s after a change (`saveLimitsSoon`), and once more at shutdown through `store.closeHooks` (db.js close(), run on SIGTERM/SIGINT before the pool closes). Loaded in
+  `start()` right after `store.init()`; entries past their window are dropped, saved data is treated as untrusted (junk rows skipped, future times clamped to now, sizes capped, bad data
+  = start empty with a log line, never a crash).
+- Bonus fix: the per-address auth limiter was a bare `Map` that was never pruned (it grew with every distinct IP); it is now a `RateWindow`, which caps its size.
+- A hard kill (SIGKILL, crash, power loss) can lose up to the last 5 s of changes; a normal deploy loses nothing. Not persisted on purpose: the upload / file / GIF limits (short per-user
+  limits, not a security boundary) and the per-socket flood control.
+- STILL single instance only. Two instances would each keep their own counts and overwrite each other's saved copy, and during a Render zero-downtime deploy the old and new instance
+  overlap briefly (the new one loads what the old one last saved; the old one saves again when it shuts down, which wins). If you ever scale out, move these counters to Redis or
+  to Postgres rows updated atomically per attempt.
+- Tests: security-test.js (dump/restore, expiry, hostile input, caps, onChange; no database) and restart-test.js (starts the real server as a child process, locks accounts out, restarts
+  it with SIGTERM and with SIGKILL, checks the lockouts survived and the saved state is unreadable in the database). Both are in `npm test`; restart-test.js was checked to FAIL when loading is
+  disabled.
+
+## Async password hashing, no 'unsafe-inline' for styles, recovery-key reset (v43)
+- bcrypt: every request path now uses the async `bcrypt.hash` / `bcrypt.compare` (register, login, `passwordOk()` and therefore logout-all / 2FA / change password, recover). A burst of logins no longer
+  freezes the event loop. Only `DUMMY_HASH` at startup stays synchronous. `passwordOk()` is now async: always `await` it.
+- CSP: `style-src 'self'` (no 'unsafe-inline'). React sets `style={{...}}` through the CSSOM, which the policy does not restrict, so the app needed nothing; the only blocked things were
+  `<style>` blocks and `style="..."` attributes in the two static pages. Those moved to `client/public/landing.css` and `download.css` (old attributes became `.isN` classes with !important at the
+  end of the file, so they keep beating the page rules like inline styles did). Do not add `style="..."` to static HTML or inject `<style>` from script; use a class. Checked in Chromium under the
+  exact header: landing, download, sign-up, app, Settings > Security, no violations. security-test.js asserts there is no 'unsafe-inline'.
+- Recovery key (forgotten password): client/src/crypto.js `makeRecovery / makeRecoveryFromPassword / recoverIdentity`. The browser makes a 160-bit key (8 groups of 4 from a 32-symbol alphabet
+  without I O 0 1), HKDF-SHA256 derives a wrap key and an auth proof from it, the identity key is wrapped a second time with the wrap key. User record: `recovery = { blob, verifier: sha256(auth), createdAt }`
+  (never in publicUser/ownUser; ownUser only says `recoveryKey: true|false`). The server cannot open the blob and cannot reconstruct the proof from the hash.
+  - Sign-up sends `recovery: { blob, auth }` and the app shows the key once (Recovery.jsx RecoveryKeyCard, copy / save as file, must tick "I saved it") before opening. Existing accounts make one in
+    Settings > Security > Recovery key (`PUT /api/me/recovery {password, code?, recovery}`: password again, 2FA code if on; replacing kills the old key).
+  - Reset: login screen > "Forgot your password?". `POST /api/recover/start {username}` returns the blob (a stable HMAC decoy of the same shape for unknown names and accounts without a key, so it
+    reveals nothing); the device opens it with the key (a wrong key fails locally), wraps the identity with the NEW password, then `POST /api/recover/finish {username, auth, newPassword, encPrivKey, code?}`:
+    constant-time proof check, same `loginGuard` lockout as login (shared counters), weak-password check, 2FA still required (code or backup code) when on, then new passHash + key blob,
+    `revokeAllSessions()`, session cookie for this device, and a security email to the verified address (`mailer.sendSecurityNotice`, also sent when a recovery key is created/replaced).
+    The same identity key survives, so every DM stays readable. The recovery key stays valid after a reset (it wraps the same identity).
+  - Tests: client/scripts/recovery-test.mjs (crypto, no DB) and server/recovery-test.js (HTTP: proof never stored, decoys, wrong proof, lockout shared with login, revocation, 2FA, replace). Both in `npm test`;
+    whole suite passes against a local PostgreSQL 16. The browser flow (sign-up key screen, forgot-password, Settings) was run in Chromium under the CSP.
+- Not done: Recovery keys cannot be shown again, only replaced. Existing accounts are not forced to make one (the Security page says they have none). No "download recovery key" reminder after sign-up.
+  Static pages and desktop/ windows were not changed beyond the CSS move.
+
+## Email recovery (v44, opt-in)
+- For someone with no (or a lost) recovery key. Off by default; Settings > Security > Email recovery turns it on/off (`PUT /api/me/email-recovery {enabled, password, code?}`: password again, 2FA code if on; on needs a
+  VERIFIED address and a mail provider; both directions email the owner). Changing the account's email address switches it off (`PATCH /api/me`), so a new address must be re-approved with the password.
+  ownUser says `emailRecovery` and `emailRecoveryAvailable`.
+- The catch, by design: the identity key never leaves the devices, so email cannot restore it. An email reset makes a NEW identity (new public key + key blob + recovery key, all generated in the browser) and older DMs
+  become unreadable to both sides ("Could not decrypt this message"). The server requires `newKey: true`, the UI makes the person tick that they understand, and the code email says so. The recovery key route keeps messages;
+  the forgot-password screen offers both (tabs "Recovery key" / "Email me a code").
+- Flow: `POST /api/recover/email/start {username}` always answers `{ok:true}` and answers first, then (only if the account has it on, a verified address, outside the 60 s cooldown and within 3 per hour `resetMails`) emails an
+  8-digit code (hash stored in `user.emailReset`, 15 min, 5 tries, one use). `POST /api/recover/email/finish {username, code, newPassword, publicKey, encPrivKey, recovery, newKey:true, twoFactorCode?}`: same `loginGuard`
+  lockout as login/recover (so five wrong codes lock that name for 15 min), constant-time compare, 2FA still required when on (code or backup code), then new passHash + publicKey + encPrivKey + recovery,
+  `revokeAllSessions()`, `emitUserUpdate()` (friends/server mates receive the new public key), security email, session for this device. `resetMails` is saved with the other limiters.
+- Mail goes through mailer.js, which already speaks Brevo: set BREVO_API_KEY and EMAIL_FROM (a sender verified in Brevo). `mailer.sendResetCode` / `sendSecurityNotice` are new. NOT tried against live Brevo here (no key, no network in
+  the sandbox): tests read NODE_ENV=test's `mailer.outbox`. Send yourself a real code once after deploying.
+- Tests: server/recovery-test.js grew an email block (opt-in/out, identical answers for unknown/off accounts, cooldown, hash-only storage, wrong tries burn the code, lockout, new key replaces old and old recovery key dies,
+  revocation, single use, 2FA, expiry, email change switches it off). `loginGuard` is now exported from index.js for the tests. Browser run (sign-up, verify, turn on, forgot > email > ack > new recovery key > in app) under the CSP: no violations.
+- Not done: a recovery-key reset does not email a "was this you?" link with a hold period (no delay before an email reset takes effect); peers are not shown a "their safety number changed" banner after an email reset
+  (they only see old messages fail to decrypt; the Safety numbers dialog shows the new value); an account whose mailbox is lost AND recovery key is lost is still unrecoverable.
+
+
+## Sign-up recovery choice (v45)
+- Sign-up asks how the person wants to get back in: Recovery key and/or Email recovery (at least one; both allowed). `GET /api/auth-options` says whether mail is set up (email option greyed out otherwise). `POST /api/register` takes `emailRecovery: true` (only honoured when mail is on; works once the address is verified) and `recovery` is now optional (email-only accounts skip the key screen). The "at least one" rule is enforced in the browser only.
+
+## Security audit fixes (v46)
+- CRASH BUG (fixed): `reaction:toggle` used the emoji text as an object key, so `toString` / `valueOf` (plain words under 8 chars) hit `Object.prototype`, `list.indexOf` threw inside a socket handler and ended the whole Node process. Any logged-in user could do it with one event. Now: plain ASCII words are refused as emoji, own-property check, db collections are null-prototype objects (db.js `empty()`), and every socket handler is wrapped in try/catch (index.js, top of `io.on('connection')`) so one bad payload can only fail its own call.
+- SSRF (fixed): push subscription endpoints could be any https URL, and the server POSTs to them (and /api/push/test reports the status code). push.js `cleanSub` now accepts only real push services (FCM, Mozilla, Apple, Windows WNS), default port, no credentials. If a browser vendor adds a new push host, add it to PUSH_HOSTS. Tests: push-test.js (run here, passes); the DB tests were not run (no Postgres in the sandbox).
+- Not done: no regression test for the reaction crash (needs the DB test harness), per-user upload quota, the in-memory fileHits/gifHits maps are never pruned (tiny).
+
+## Bug hunt (v47)
+- Ran the whole `npm test` against a local PostgreSQL 16 (all pass), built the client with Vite (clean), and fuzzed every socket event and odd path parameters (server/hostile-input-test.js, now in `npm test`; checked to fail on the old code).
+- Fixed: leaving a server did not remove you from its voice channel (kick did), so you stayed in the call until you disconnected (index.js `/leave` now calls voiceLeave). Fixed: a raw `>` in the sign-up hint made Vite print a JSX warning (Auth.jsx).
+- Still not checked: the UI in a real browser (no browser in the sandbox), real iOS/Android, Neon, Brevo, R2, Stripe.

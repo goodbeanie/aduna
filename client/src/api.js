@@ -35,6 +35,7 @@ export async function api(path, { method = 'GET', body } = {}) {
     if (res.status === 403 && data.code === 'email_unverified') window.dispatchEvent(new Event('aduna:unverified'));
     const err = new Error(data.error || 'Request failed');
     err.status = res.status;
+    err.code = data.code; // e.g. '2fa_required', '2fa_invalid'
     throw err;
   }
   return data;

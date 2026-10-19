@@ -156,7 +156,7 @@ In **Edit profile**, choose *Upload image* for the profile picture and/or the ba
 
 Email verification: set `BREVO_API_KEY` + `EMAIL_FROM` (free, 300 emails a day, works on Render's free plan), or `GMAIL_USER` + `GMAIL_APP_PASSWORD` (SMTP: blocked on Render's free plan), or `RESEND_API_KEY` + `EMAIL_FROM` (needs a verified domain) (an address on a domain verified in Resend) and new accounts, and accounts that change their email, must enter a 6-digit code (15 min expiry, 5 tries, 60s resend cooldown, 5 emails/hour) before they can use the app. With none of these set, verification is off. Accounts created before verification existed are asked to verify at their next sign-in (those with no email are asked to add one).
 
-Not covered: accounts still have no password reset (the encryption key depends on the password); the login token is still in localStorage rather than an httpOnly cookie; no two-factor sign-in; no audit by an outside party. Treat this as a solid base, not a guarantee.
+Login is an httpOnly cookie, sessions can be revoked (log out everywhere, change password), two-factor (authenticator app) is optional, a forgotten password can be reset with a recovery key (keeps messages) or, if switched on, with an emailed code (new encryption key: older DMs become unreadable). Not covered: an account with neither a recovery key nor email recovery cannot be recovered; 2FA is not enforced; rate limits assume a single instance; no audit by an outside party. Treat this as a solid base, not a guarantee.
 
 ## Credits
 

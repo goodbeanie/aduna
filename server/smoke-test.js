@@ -24,6 +24,7 @@ async function call(p, { method = 'GET', body, token } = {}) {
 const once = (s, ev) => new Promise((res) => s.once(ev, res));
 const ack = (s, ev, p) => new Promise((res) => s.emit(ev, p, res));
 const step = (m) => console.log('✓', m);
+const calm = () => new Promise((r) => setTimeout(r, 5200)); // the server allows 8 socket events per 5 s per connection; wait for that window to empty
 
 async function makeUser(name) {
   const pair = await crypto.subtle.generateKey(ECDH, true, ['deriveKey']);
@@ -75,6 +76,10 @@ async function putImg(kind, body, type, token) {
   assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'alice', password: 'wrongpass' } })).status, 401);
   assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'alice', password: 'password123' } })).status, 200);
   assert.strictEqual((await call('/me')).status, 401);
+  { // with no email provider nothing can be verified, so a taken address is still refused straight away
+    const r = await call('/register', { method: 'POST', body: { username: 'alice_dup', email: 'alice@example.com', password: 'password123', publicKey: 'x', encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } });
+    assert.strictEqual(r.status, 409, 'a registered email is refused when verification is off');
+  }
   step('duplicate names, bad password and missing token are rejected');
 
   const sa = connect(base, { auth: { token: alice.token } });
@@ -108,6 +113,99 @@ async function putImg(kind, body, type, token) {
     await once(fresh, 'connect'); fresh.close(); phone.close(); laptop.close();
     assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'eve_revoke', password: 'password123' } })).status, 200, 'logging in again still works');
     step('log out everywhere: password required, old tokens and sockets revoked, new token works');
+  }
+
+  // two-factor login + changing the password
+  {
+    const T = require('./totp');
+    const post = (path, token, body) => call(path, { method: 'POST', token, body });
+    const enroll = async (name) => {
+      const u = await makeUser(name);
+      assert.strictEqual((await post('/me/2fa/setup', u.token, { password: 'wrong-password' })).status, 400, 'setup needs the password');
+      assert.strictEqual((await post('/me/2fa/enable', u.token, { code: '123456' })).status, 400, 'enable before setup is refused');
+      const su = await post('/me/2fa/setup', u.token, { password: 'password123' });
+      assert.strictEqual(su.status, 200, JSON.stringify(su));
+      assert.ok(su.secret && su.uri.startsWith('otpauth://totp/Aduna:' + name), 'a secret and an authenticator link come back');
+      const key = T.b32decode(su.secret);
+      const valid = () => [-1, 0, 1].map((d) => T.hotp(key, T.stepAt() + d));
+      const wrong = ['111111', '222222', '333333', '444444', '555555'].find((c) => !valid().includes(c));
+      return { ...u, su, key, wrong };
+    };
+
+    const dan = await enroll('dan_2fa');
+    const phone = connect(base, { auth: { token: dan.token } });
+    await once(phone, 'connect');
+    assert.strictEqual((await post('/me/2fa/enable', dan.token, { code: dan.wrong })).status, 400, 'a wrong code does not turn it on');
+    assert.strictEqual((await call('/me', { token: dan.token })).user.twoFactor, false, 'still off');
+    const en = await post('/me/2fa/enable', dan.token, { code: T.hotp(dan.key, T.stepAt()) });
+    assert.strictEqual(en.status, 200, JSON.stringify(en));
+    assert.strictEqual(en.recoveryCodes.length, 8, 'eight recovery codes, shown once');
+    const rc = en.recoveryCodes;
+    const me = await call('/me', { token: dan.token });
+    assert.strictEqual(me.user.twoFactor, true);
+    assert.ok(!JSON.stringify(me).includes(dan.su.secret), 'the secret is never sent back');
+    assert.strictEqual((await post('/me/2fa/setup', dan.token, { password: 'password123' })).status, 409, 'cannot start setup while on');
+    assert.ok(!(await rawDb()).includes(dan.su.secret), 'the secret is encrypted at rest');
+
+    const login = (code) => call('/login', { method: 'POST', body: { username: 'dan_2fa', password: 'password123', ...(code === undefined ? {} : { code }) } });
+    let r = await login();
+    assert.ok(r.status === 401 && r.code === '2fa_required' && !r.token && !r.encPrivKey, 'password alone is not enough, and nothing is handed out');
+    assert.ok((await call('/login', { method: 'POST', body: { username: 'dan_2fa', password: 'nope-nope-1', code: rc[0] } })).status === 401, 'a good code does not rescue a wrong password');
+    r = await login(dan.wrong);
+    assert.ok(r.status === 401 && r.code === '2fa_invalid' && !r.token, 'a wrong code is refused');
+    const next = T.hotp(dan.key, T.stepAt() + 1); // the code used to turn it on cannot be reused; the next time step is fine
+    assert.strictEqual((await login(T.hotp(dan.key, T.stepAt()))).status, 401, 'the code that enabled it cannot be replayed');
+    r = await login(next);
+    assert.ok(r.status === 200 && r.token && r.encPrivKey, 'password + app code logs in');
+    assert.strictEqual((await login(next)).status, 401, 'that code cannot be used twice');
+    assert.strictEqual((await login(rc[0])).status, 200, 'a recovery code logs in');
+    assert.strictEqual((await login(rc[0])).status, 401, 'and only once');
+    assert.strictEqual((await login(rc[1].toUpperCase().replace('-', ' '))).status, 200, 'case, dash and spaces do not matter');
+    step('two-factor: setup needs the password, a code proves it, login needs password + code, no replay, recovery codes work once');
+
+    // change the password
+    const newKey = { salt: 'x', iv: 'y', data: 'z-rewrapped' };
+    const change = (token, body) => post('/me/password', token, { currentPassword: 'password123', newPassword: 'brand-new-pass-9', encPrivKey: newKey, ...body });
+    assert.strictEqual((await change(undefined, {})).status, 401, 'needs a login');
+    assert.strictEqual((await change(dan.token, { newPassword: 'short' })).status, 400, 'too short');
+    assert.strictEqual((await change(dan.token, { encPrivKey: undefined, code: rc[2] })).status, 400, 'the re-wrapped key is required');
+    assert.strictEqual((await change(dan.token, { newPassword: 'password123', code: rc[2] })).status, 400, 'must differ from the old one');
+    assert.strictEqual((await change(dan.token, { currentPassword: 'wrong-password', code: rc[2] })).status, 400, 'wrong current password');
+    r = await change(dan.token, {});
+    assert.ok(r.status === 400 && r.code === '2fa_invalid', 'with 2FA on, the code is required too');
+    assert.strictEqual((await call('/me', { token: dan.token })).status, 200, 'refused attempts change nothing');
+    assert.strictEqual((await login(rc[2])).status, 200, 'and did not use up the recovery code');
+    const revoked = once(phone, 'session:revoked');
+    const gone = once(phone, 'disconnect');
+    r = await change(dan.token, { code: rc[3] });
+    assert.strictEqual(r.status, 200, JSON.stringify(r));
+    assert.ok(r.token && r.token !== dan.token, 'a fresh token for this device');
+    await Promise.all([revoked, gone]);
+    assert.strictEqual((await call('/me', { token: dan.token })).status, 401, 'every older session is revoked');
+    const after = await call('/me', { token: r.token });
+    assert.ok(after.status === 200 && after.encPrivKey.data === 'z-rewrapped', 'the new token works and the re-wrapped key is stored');
+    assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'dan_2fa', password: 'password123', code: rc[4] } })).status, 401, 'the old password no longer works');
+    r = await call('/login', { method: 'POST', body: { username: 'dan_2fa', password: 'brand-new-pass-9', code: rc[4] } });
+    assert.ok(r.status === 200 && r.encPrivKey.data === 'z-rewrapped', 'the new password works and returns the new key blob');
+    const tok = r.token;
+    const dis = (body) => post('/me/2fa/disable', tok, body);
+    assert.strictEqual((await dis({ password: 'wrong-password', code: rc[5] })).status, 400, 'turning it off needs the password');
+    assert.strictEqual((await dis({ password: 'brand-new-pass-9', code: dan.wrong })).status, 400, 'and a code');
+    assert.strictEqual((await dis({ password: 'brand-new-pass-9', code: rc[5] })).status, 200);
+    assert.strictEqual((await call('/me', { token: tok })).user.twoFactor, false);
+    assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'dan_2fa', password: 'brand-new-pass-9' } })).status, 200, 'password alone works again');
+    assert.strictEqual((await post('/me/2fa/disable', tok, { password: 'brand-new-pass-9', code: rc[6] })).status, 409, 'cannot turn off what is off');
+    phone.close();
+    step('change password: needs password (+ code), re-wrapped key stored, every other session and socket revoked; 2FA can be turned off');
+
+    // a correct password must not reset the lockout while someone is guessing codes
+    const dee = await enroll('dee_lock');
+    assert.strictEqual((await post('/me/2fa/enable', dee.token, { code: T.hotp(dee.key, T.stepAt()) })).status, 200);
+    const tryLogin = (code) => call('/login', { method: 'POST', body: { username: 'dee_lock', password: 'password123', code } });
+    for (let i = 0; i < 5; i++) assert.strictEqual((await tryLogin(dee.wrong)).status, 401, 'wrong code ' + (i + 1));
+    r = await tryLogin(T.hotp(dee.key, T.stepAt() + 1));
+    assert.strictEqual(r.status, 429, 'locked out after 5 wrong codes, even with the right password and a right code');
+    step('two-factor: wrong codes lock the login out (a right password does not reset the count)');
   }
 
   // cookie sessions: httpOnly cookie, no token in the answer, other sites refused, sockets and the legacy move work
@@ -919,6 +1017,15 @@ async function putImg(kind, body, type, token) {
     assert.deepStrictEqual(info.allowed.map((u) => u.username), ['pubdave']);
     assert.strictEqual((await P('/allowed', 'POST', { username: 'pubdave' })).status, 400, 'no duplicates');
     assert.strictEqual((await call(`/invites/${pub.inviteCode}`, { token: dave.token })).status, 200);
+    { // the web app is signed in by cookie, not by header: the invite card must recognise that too
+      const cookieFor = async (name) => {
+        const lr = await fetch(base + '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Session': 'cookie' }, body: JSON.stringify({ username: name, password: 'password123' }) });
+        return lr.headers.getSetCookie().find((c) => c.startsWith('aduna_session=')).split(';')[0];
+      };
+      const viaCookie = async (name) => (await fetch(base + `/api/invites/${pub.inviteCode}`, { headers: { Cookie: await cookieFor(name) } })).status;
+      assert.strictEqual(await viaCookie('pubdave'), 200, 'a listed person signed in by cookie gets the private invite card');
+      assert.strictEqual(await viaCookie('pubcarol'), 200, 'so does an existing member signed in by cookie');
+    }
     assert.strictEqual((await call('/servers/join', { method: 'POST', token: dave.token, body: { code: pub.inviteCode } })).status, 200, 'listed person joins');
     info = (await P(`/allowed/${dave.user.id}`, 'DELETE')).publish;
     assert.strictEqual(info.allowed.length, 0);
@@ -1006,6 +1113,7 @@ async function putImg(kind, body, type, token) {
 
   // mentions: <@userId> tokens count only for members; @everyone only from the owner; edits refresh but never re-ping
   {
+    await calm();
     const cid = general.id;
     const at = once(sb, 'message:new');
     assert.ok((await ack(sa, 'message:send', { channelId: cid, content: `hey <@${bob.user.id}> <@${bob.user.id}> and <@${carol.user.id}>, @everyone look` })).ok);
@@ -1032,6 +1140,7 @@ async function putImg(kind, body, type, token) {
 
   // roles & permissions: hierarchy, grantable permissions, kick, message deletion, everyone perms
   {
+    await calm();
     const getSrv = async () => (await call('/servers', { token: alice.token })).servers.find((x) => x.channels.some((c) => c.id === general.id));
     let srv = await getSrv();
     const R = (path, method, body, tok = alice.token) => call(`/servers/${srv.id}${path}`, { method, body, token: tok });

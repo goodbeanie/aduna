@@ -30,7 +30,7 @@ async function makeUser(name) {
   assert.strictEqual(r.status, 200, JSON.stringify(r));
   return r;
 }
-const sub = (n) => ({ endpoint: 'https://push.example.com/send/secret-endpoint-' + n, keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' } });
+const sub = (n) => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/secret-endpoint-' + n, keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' } });
 
 (async () => {
   await ready;
