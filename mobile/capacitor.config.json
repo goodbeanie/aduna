@@ -1,0 +1,17 @@
+{
+  "appId": "com.aduna.app",
+  "appName": "Aduna",
+  "webDir": "www",
+  "backgroundColor": "#fffbef",
+  "server": {
+    "url": "https://aduna.onrender.com/app",
+    "androidScheme": "https",
+    "allowNavigation": ["aduna.onrender.com"],
+    "errorPath": "offline.html"
+  },
+  "android": {
+    "appendUserAgent": "AdunaAndroid",
+    "allowMixedContent": false,
+    "adjustMarginsForEdgeToEdge": "force"
+  }
+}

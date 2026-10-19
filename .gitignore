@@ -6,3 +6,12 @@ data
 .env.*
 
 desktop/dist
+
+mobile/node_modules
+mobile/android
+mobile/dist
+mobile/aduna.keystore
+mobile/google-services.json
+mobile/.versioncode
+*.keystore
+mobile/java-home.txt

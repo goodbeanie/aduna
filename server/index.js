@@ -1469,6 +1469,11 @@ if (fs.existsSync(dist)) {
     if (file && /^[\w.\-]+\.exe$/.test(file) && (DL_BASE || fs.existsSync(path.join(dist, 'updates', file)))) return res.redirect(302, (DL_BASE ? DL_BASE + '/' : '/updates/') + file);
     res.redirect(302, '/app');
   });
+  // Android app (Aduna.apk). Put the built APK in client/public/updates/ (or in the DOWNLOAD_BASE_URL bucket) under this exact name.
+  app.get('/download/android', (_req, res) => {
+    if (DL_BASE || fs.existsSync(path.join(dist, 'updates', 'Aduna.apk'))) return res.redirect(302, (DL_BASE ? DL_BASE + '/' : '/updates/') + 'Aduna.apk');
+    res.redirect(302, '/app');
+  });
   // The desktop app's update feed. With DOWNLOAD_BASE_URL set, the file addresses inside it are rewritten to point at R2.
   app.get('/updates/latest.yml', (_req, res) => {
     let yml = readFeed();

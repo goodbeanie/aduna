@@ -1,6 +1,14 @@
-// Download page: on a Windows PC the installer starts by itself; on other devices we show how to use Aduna there instead.
+// Download page: a Windows PC gets the installer, an Android phone gets the APK; other devices see how to use Aduna there instead.
 (function () {
-  var isWindowsPC = /Windows NT/.test(navigator.userAgent) && !/Mobile/.test(navigator.userAgent);
+  var ua = navigator.userAgent;
+  var isAndroid = /Android/.test(ua);
+  var isWindowsPC = /Windows NT/.test(ua) && !/Mobile/.test(ua);
+  if (isAndroid) {
+    document.getElementById('win').className = 'hide';
+    document.getElementById('android').className = '';
+    setTimeout(function () { window.location.href = '/download/android'; }, 900);
+    return;
+  }
   if (!isWindowsPC) {
     document.getElementById('win').className = 'hide';
     document.getElementById('other').style.display = 'block';

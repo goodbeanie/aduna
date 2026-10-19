@@ -6,7 +6,7 @@ title Build Aduna installer
 where node >nul 2>nul
 if errorlevel 1 (
   echo Node.js is not installed. Get the LTS version from https://nodejs.org, install it, then run this again.
-  pause
+  if not defined ZIPPUSH pause
   exit /b 1
 )
 
@@ -35,13 +35,13 @@ if exist "..\client\public" (
 echo.
 echo NOW: upload these two files from the dist folder to your R2 "downloads" bucket:
 dir /b dist\Aduna-Setup*.exe dist\Aduna-Setup*.exe.blockmap
-start "" "%~dp0dist"
-pause
+if not defined ZIPPUSH start "" "%~dp0dist"
+if not defined ZIPPUSH pause
 exit /b 0
 
 :fail
 echo.
 echo The build failed. Scroll up to see why.
 echo If you see "Cannot create symbolic link", turn on Developer Mode in Windows Settings (Privacy and security, For developers) or right-click this file and choose Run as administrator, then try again.
-pause
+if not defined ZIPPUSH pause
 exit /b 1
