@@ -386,9 +386,14 @@ function Main({ me, setMe, privKey, openServerId }) {
     history.replaceState(null, '', '/app');
     openTargetRef.current(t);
   }, [loaded]);
+  useEffect(() => { // Android app: a notification tapped while the app was closed (it fired before this page was ready)
+    if (!loaded) return;
+    const t = notify.takePendingOpen();
+    if (t) openTargetRef.current(t);
+  }, [loaded]);
   useEffect(() => { // ...or was already open: the service worker / desktop app / page tells it where to go
     const fromSw = (e) => { if (e.data?.type === 'aduna:open') openTargetRef.current(e.data.target); };
-    const fromPage = (e) => openTargetRef.current(e.detail);
+    const fromPage = (e) => { notify.takePendingOpen(); openTargetRef.current(e.detail); };
     navigator.serviceWorker?.addEventListener('message', fromSw);
     window.addEventListener('aduna:open', fromPage);
     const off = window.adunaDesktop?.onClick?.((t) => openTargetRef.current(t));

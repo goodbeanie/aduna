@@ -87,7 +87,7 @@ footer{text-align:center;color:var(--muted);font-size:15px;margin-top:30px}
   <div id="android" class="hide">
     <header>
       <h1>Your download is starting</h1>
-      <p class="lead">Aduna for Android. Android will ask you to approve a couple of things because Aduna is not from the Play Store yet. Here is what to tap.</p>
+      <p class="lead">Aduna for Android. Android and Google Play Protect will show a few warnings because Aduna is new and not from the Play Store yet. Here is exactly what to tap.</p>
     </header>
     <div class="again">
       <a class="btn" href="/download/android">Download again</a>
@@ -96,16 +96,24 @@ footer{text-align:center;color:var(--muted);font-size:15px;margin-top:30px}
     <div class="note">Only install this file if you got it from this page.</div>
     <ol class="steps">
       <li class="step">
-        <h2>If Chrome warns about the file, tap “Download anyway”</h2>
-        <p>Chrome says this type of file can harm your device. Tap <b>Download anyway</b> (or <b>Keep</b>).</p>
+        <h2>If Chrome says “File might be harmful”, tap “Download anyway”</h2>
+        <p>Chrome warns about every app that doesn’t come from the Play Store. Tap <b>Download anyway</b>.</p>
+        <img src="/guide/android-1-download-anyway.jpg" alt="Chrome's File might be harmful box with the Download anyway button" width="560" height="312">
       </li>
       <li class="step">
-        <h2>Open the file</h2>
-        <p>Tap <b>Open</b> when the download finishes, or open <b>Aduna.apk</b> from your Downloads.</p>
+        <h2>Open the file and tap “Install”</h2>
+        <p>When the download finishes, tap <b>Open</b> (or open <b>Aduna.apk</b> from your Downloads). Android asks “Do you want to install this app?”. Tap <b>Install</b>. If Android first says it can’t install apps from Chrome, tap <b>Settings</b>, switch on <b>Allow from this source</b>, then go back.</p>
+        <img src="/guide/android-2-install.jpg" alt="Android's Do you want to install this app box with the Install button" width="560" height="292">
       </li>
       <li class="step">
-        <h2>Allow installs from this source</h2>
-        <p>Android will say it can’t install unknown apps from Chrome. Tap <b>Settings</b>, switch on <b>Allow from this source</b>, go back and tap <b>Install</b>. If Play Protect warns you, choose <b>Install anyway</b>.</p>
+        <h2>If Play Protect blocks it, tap “More details”</h2>
+        <p>Google Play Protect says <b>App blocked to protect your device</b> because it hasn’t seen an app from this developer before. That’s normal for a new app. Don’t tap OK yet: tap <b>More details</b>.</p>
+        <img src="/guide/android-3-more-details.jpg" alt="Google Play Protect's App blocked box with the More details link" width="560" height="683">
+      </li>
+      <li class="step">
+        <h2>Tap “Install anyway”, not “OK”</h2>
+        <p><b>Install anyway</b> is the small text above the OK button. OK cancels the install.</p>
+        <img src="/guide/android-4-install-anyway.jpg" alt="Google Play Protect's App blocked box showing Install anyway above the OK button" width="560" height="784">
       </li>
       <li class="step done">
         <h2>You’re in</h2>

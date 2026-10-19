@@ -27,6 +27,9 @@ function cleanSub(s) {
   return { endpoint, keys: { p256dh: keys.p256dh, auth: keys.auth } };
 }
 
+// An Android app registration token (FCM). Stored as a device with the endpoint "fcm:<token>" so it sits next to the Web Push ones.
+const cleanFcm = (t) => (typeof t === 'string' && t.length >= 20 && t.length <= 4096 && /^[A-Za-z0-9:_-]+$/.test(t) ? t : null);
+
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 
 // d: { users() -> db().users, save(), sender(sub, body, opts) -> Promise, enabled, publicKey, now() }
@@ -43,6 +46,17 @@ function createPush(d) {
       if (other.pushSubs?.some((x) => x.endpoint === clean.endpoint)) other.pushSubs = other.pushSubs.filter((x) => x.endpoint !== clean.endpoint);
     }
     u.pushSubs = [...(u.pushSubs || []), { ...clean, ua: clip(ua, 120), createdAt: nowFn() }].slice(-MAX_SUBS);
+    d.save();
+    return true;
+  }
+  function addFcm(u, token, ua) {
+    const t = cleanFcm(token);
+    if (!t) return false;
+    const endpoint = 'fcm:' + t;
+    for (const other of Object.values(users())) {
+      if (other.pushSubs?.some((x) => x.endpoint === endpoint)) other.pushSubs = other.pushSubs.filter((x) => x.endpoint !== endpoint);
+    }
+    u.pushSubs = [...(u.pushSubs || []), { endpoint, fcm: t, ua: clip(ua, 120), createdAt: nowFn() }].slice(-MAX_SUBS);
     d.save();
     return true;
   }
@@ -101,7 +115,7 @@ function createPush(d) {
     return res;
   }
 
-  return { add, remove, send, test, prefsOf, get enabled() { return !!d.enabled; }, get publicKey() { return d.publicKey || null; } };
+  return { add, addFcm, remove, send, test, prefsOf, get enabled() { return !!d.enabled; }, get publicKey() { return d.publicKey || null; } };
 }
 
-module.exports = { createPush, cleanPrefs, cleanSub, DEFAULT_PREFS };
+module.exports = { createPush, cleanPrefs, cleanSub, cleanFcm, DEFAULT_PREFS };

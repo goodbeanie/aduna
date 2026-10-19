@@ -62,6 +62,9 @@ services:
         sync: false
       - key: VAPID_PRIVATE_KEY
         sync: false
+      # optional: notifications for the Android app (Firebase). Paste the whole service-account JSON (see mobile/README.md).
+      - key: FCM_SERVICE_ACCOUNT
+        sync: false
       # your site's public address, used for Stripe's return links (default: taken from the request)
       - key: PUBLIC_URL
         sync: false

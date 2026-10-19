@@ -77,6 +77,7 @@ Environment variables:
 | `DB_ENCRYPTION_KEY` | yes in production | 64 hex characters. Generate with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. |
 | `JWT_SECRET` | no | Session signing secret. If unset, a random one is created and stored (encrypted) in the database, so logins survive restarts. |
 | `DOWNLOAD_BASE_URL` | no | Public address of a separate public R2 bucket holding the Windows installer. The home page's Download button and the desktop app's updates use it. |
+| `FCM_SERVICE_ACCOUNT` | no | Firebase service-account JSON (or its base64): lets the server send push notifications to the Android app. See `mobile/README.md`. |
 | `R2_BUCKET`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | no | Keep images and attachments in a Cloudflare R2 bucket instead of Postgres (see below). Set all four or none. |
 | `STORAGE_LIMIT_GB` | no | With R2: refuse new uploads once this many GB are stored (default **9**, to stay inside R2's 10 GB free tier; `0` = no limit). |
 | `GIPHY_API_KEY` | no | GIF search. |
@@ -215,3 +216,6 @@ Aduna is an installable web app. In Chrome or Edge the "Download Aduna" button o
 address bar) installs it with its own window, shortcut and taskbar icon. This goes through the browser, so there is no .exe and
 no Windows SmartScreen warning. Files: `client/public/manifest.webmanifest`, `sw.js` (does not cache anything), `pwa.js`, icons.
 The separate Windows installer in `desktop/` still works but is unsigned, so Windows warns about it.
+
+## Android app
+`mobile/` builds an Android app (Capacitor shell around the live site) with native Firebase push notifications, because Web Push is unreliable on phones. Setup, publishing to Google Play and known limits are in `mobile/README.md`. Server side: `server/fcm.js` (tested by `server/fcm-test.js`), the `POST /api/push/fcm` route and `fcm` flag on `GET /api/push/key`; client side: the native branch of `client/src/notify.js`. After login the app asks for notification permission by itself (`client/src/NotifyPrompt.jsx`).

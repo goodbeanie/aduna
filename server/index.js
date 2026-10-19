@@ -13,6 +13,7 @@ const security = require('./security');
 const mailer = require('./mailer');
 const webpush = require('web-push');
 const { createPush, cleanPrefs } = require('./push');
+const { createFcm } = require('./fcm');
 
 const PORT = process.env.PORT || 3000;
 const MAX_MSG = 2000;
@@ -1402,6 +1403,7 @@ credits.register(app, {
 // ----- push notifications (installed mobile app / browsers while Aduna is closed) -----
 // Keys are generated once and kept in the database (see db.js). The service worker (client/public/sw.js) shows the notification.
 let vapidReady = false;
+const fcm = createFcm({ raw: process.env.FCM_SERVICE_ACCOUNT }); // Android app (Firebase). Off unless FCM_SERVICE_ACCOUNT is set.
 const push = createPush({
   users: () => db().users,
   onError: (e) => console.error('push send failed:', e && e.statusCode, String((e && (e.body || e.message)) || e).slice(0, 200)),
@@ -1409,6 +1411,7 @@ const push = createPush({
   get enabled() { return !!store.vapid && process.env.PUSH !== 'off'; },
   get publicKey() { return store.vapid?.publicKey; },
   sender: (sub, body, opts) => {
+    if (sub.fcm) return fcm.send(sub.fcm, body, opts); // an Android app device
     if (!vapidReady) {
       webpush.setVapidDetails(process.env.VAPID_SUBJECT || (/^https:/.test(process.env.PUBLIC_URL || '') ? process.env.PUBLIC_URL : 'https://aduna.onrender.com'), store.vapid.publicKey, store.vapid.privateKey);
       vapidReady = true;
@@ -1418,10 +1421,16 @@ const push = createPush({
 });
 const pushSafe = (uid, kind, payload) => { push.send(uid, kind, payload).catch((e) => console.error('push failed:', e.message)); };
 
-app.get('/api/push/key', auth, (_req, res) => res.json({ enabled: push.enabled, publicKey: push.publicKey }));
+app.get('/api/push/key', auth, (_req, res) => res.json({ enabled: push.enabled, publicKey: push.publicKey, fcm: fcm.enabled }));
 app.post('/api/push/subscribe', auth, (req, res) => {
   if (!push.enabled) return res.status(503).json({ error: 'Push notifications are off on this server' });
   if (!push.add(req.user, req.body?.subscription, req.headers['user-agent'])) return res.status(400).json({ error: 'Bad subscription' });
+  res.json({ ok: true });
+});
+// The Android app registers its Firebase token here (Web Push is not available inside an Android WebView).
+app.post('/api/push/fcm', auth, (req, res) => {
+  if (!push.enabled || !fcm.enabled) return res.status(503).json({ error: 'Android push is not set up on this server' });
+  if (!push.addFcm(req.user, req.body?.token, req.headers['user-agent'])) return res.status(400).json({ error: 'Bad token' });
   res.json({ ok: true });
 });
 const pushTestAt = new Map(); // user id -> last test time (a test is one request per 5 s)
