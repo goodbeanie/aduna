@@ -134,7 +134,7 @@ function publicUser(u) {
     avatarImage: u.avatarImage || null,
     bannerImage: u.bannerImage || null,
     accentColor: u.accentColor,
-    status: u.status,
+    status: u.status === 'invisible' ? 'offline' : u.status, // other people never learn that someone chose Invisible (ownUser / selfView carry the real value)
     publicKey: u.publicKey,
     createdAt: u.createdAt,
   };
@@ -142,7 +142,8 @@ function publicUser(u) {
 
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
-const ownUser = (u) => ({ ...publicUser(u), email: u.email || null, emailVerified: !needsVerify(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
+const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
+const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -165,13 +166,20 @@ const emailTaken = (email, exceptId) => {
 };
 
 const convoKey = (a, b) => [a, b].sort().join(':');
-const signToken = (u) => jwt.sign({ uid: u.id }, SECRET, { expiresIn: '30d' });
+// Tokens carry the account's tokenVersion, so "log out everywhere" (POST /api/me/logout-all) can revoke them all (see security.js).
+const sessions = security.createSessions({ jwt, getSecret: () => SECRET });
+const signToken = (u) => sessions.sign(u);
+const userFromToken = (token) => sessions.user(token, (uid) => db().users[uid]);
 
-function userFromToken(token) {
-  try {
-    const { uid } = jwt.verify(token, SECRET);
-    return db().users[uid] || null;
-  } catch { return null; }
+// The web app is logged in by an httpOnly cookie (see security.js). The token is still accepted in an Authorization header (older apps,
+// the tests, scripts), and still returned in the JSON unless the caller sends "X-Session: cookie", which the web app always does:
+// then no script ever sees it.
+const TRUST_PROXY = process.env.TRUST_PROXY !== '0';
+const secureReq = (req) => security.isSecure(req.headers, req.socket && req.socket.encrypted, TRUST_PROXY);
+function startSession(req, res, u) {
+  const token = signToken(u);
+  res.append('Set-Cookie', security.sessionCookie(token, { secure: secureReq(req) }));
+  return req.get('x-session') === 'cookie' ? undefined : token;
 }
 
 function serverView(s) {
@@ -203,9 +211,10 @@ const app = express();
 // Express 4 does not catch rejected promises from async handlers; this passes them to the error handler.
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 // Behind Render's (or any) reverse proxy, req.ip must be the visitor, not the proxy, or rate limits would be shared by everyone.
-if (process.env.TRUST_PROXY !== '0') app.set('trust proxy', 1);
+if (TRUST_PROXY) app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(security.securityHeaders()); // CSP, clickjacking, nosniff, referrer, permissions, HSTS over HTTPS (see security.js)
+app.use('/api', security.csrfGuard()); // a request from another site that carries the login cookie is refused (see security.js)
 app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
 // Stripe signs the exact bytes it sends, so the credits webhook keeps the raw body next to the parsed one.
 app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl === '/api/credits/webhook') req.rawBody = buf; } }));
@@ -227,8 +236,8 @@ function authLimiter(req, res, next) {
 }
 
 function authAny(req, res, next) { // signed in, verified or not: only for the email-verification routes
-  const h = req.headers.authorization || '';
-  const u = userFromToken(h.replace(/^Bearer /, ''));
+  const bearer = (req.headers.authorization || '').replace(/^Bearer /, '');
+  const u = userFromToken(bearer || security.readSessionCookie(req.headers, secureReq(req)));
   if (!u) return res.status(401).json({ error: 'Unauthorized' });
   req.user = u;
   next();
@@ -292,7 +301,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
   if (needsVerify(user)) {
     try { await issueCode(user); } catch (e) { console.error('verification email failed:', e.message); } // they can press "resend"
   }
-  res.json({ token: signToken(user), user: ownUser(user) });
+  res.json({ token: startSession(req, res, user), user: ownUser(user) });
 });
 
 // Everyone starts in the official Aduna server. It is found by invite code (DEFAULT_SERVER_INVITE, default "aduna"),
@@ -347,8 +356,48 @@ app.post('/api/login', authLimiter, (req, res) => {
   const ok = bcrypt.compareSync(String(password || ''), user ? user.passHash : DUMMY_HASH); // always one comparison: no timing hint about which names exist
   if (!user || !ok) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'Invalid username or password' }); }
   loginGuard.success(name, req.ip);
-  res.json({ token: signToken(user), user: ownUser(user), encPrivKey: user.encPrivKey });
+  res.json({ token: startSession(req, res, user), user: ownUser(user), encPrivKey: user.encPrivKey });
 });
+
+// Ends the browser's session: the cookie is httpOnly, so only the server can remove it. Needs no login (clearing is always safe).
+app.post('/api/logout', (req, res) => {
+  for (const c of security.clearedSessionCookies({ secure: secureReq(req) })) res.append('Set-Cookie', c);
+  res.json({ ok: true });
+});
+// One-time move for people who were logged in before cookies existed: the old app sends the token it kept in localStorage,
+// gets the cookie, and deletes its copy.
+app.post('/api/session', authAny, (req, res) => {
+  startSession(req, res, req.user);
+  res.json({ ok: true });
+});
+
+// "Log out everywhere": every other token and open connection of this account stops working, and its push registrations are
+// dropped (the device that asked registers itself again). The password is asked again so a stolen token alone cannot be used
+// to lock the owner out, and wrong guesses count toward the same lockout as logging in (5 per address, 25 overall, 15 minutes), which
+// is why the general per-address auth limiter is not needed here. Returns a fresh token for this device.
+app.post('/api/me/logout-all', authAny, ah(async (req, res) => {
+  const u = req.user;
+  const lock = loginGuard.check(u.username, req.ip);
+  if (lock.blocked) {
+    res.set('Retry-After', String(lock.retryAfterSec));
+    return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
+  }
+  if (!bcrypt.compareSync(String(req.body?.password || ''), u.passHash)) {
+    loginGuard.fail(u.username, req.ip);
+    return res.status(400).json({ error: 'That password is not right.' });
+  }
+  loginGuard.success(u.username, req.ip);
+  sessions.bump(u);
+  u.pushSubs = [];
+  store.save();
+  await store.flush(); // the revocation must be stored before the answer, or a restart could bring old tokens back
+  const keep = typeof req.body?.socketId === 'string' ? req.body.socketId : '';
+  for (const s of userSockets(u.id)) { // the other devices are told to sign out; every old connection is closed
+    if (s.id !== keep) s.emit('session:revoked');
+    s.disconnect(true);
+  }
+  res.json({ token: startSession(req, res, u) });
+}));
 
 app.get('/api/me', authAny, (req, res) => res.json({ user: ownUser(req.user), encPrivKey: req.user.encPrivKey }));
 
@@ -359,8 +408,7 @@ app.put('/api/me/keys', auth, (req, res) => {
   req.user.publicKey = publicKey;
   req.user.encPrivKey = encPrivKey;
   store.save();
-  const view = publicUser(req.user);
-  io.emit('user:update', view);
+  emitUserUpdate(req.user);
   res.json({ user: ownUser(req.user) });
 });
 
@@ -431,8 +479,7 @@ app.patch('/api/me', authAny, async (req, res) => {
   for (const k of ['avatarColor', 'bannerColor', 'accentColor']) if (b[k] !== undefined && hex.test(b[k])) u[k] = b[k];
   if (b.status !== undefined && ['online', 'idle', 'dnd', 'invisible'].includes(b.status)) u.status = b.status;
   store.save();
-  const view = publicUser(u);
-  io.emit('user:update', view);
+  emitUserUpdate(u);
   broadcastPresence(u.id);
   let mailFailed = false;
   if (newEmail && needsVerify(u)) { try { await issueCode(u); } catch (e) { mailFailed = true; console.error('verification email failed:', e.message); } }
@@ -463,9 +510,8 @@ async function setProfileImage(u, field, buf) {
   u[field] = buf ? await store.putImage(buf) : null;
   await store.flush(); // make sure the profile points at the new image before the old one is deleted
   await store.deleteImage(old);
-  const view = publicUser(u);
-  io.emit('user:update', view);
-  return view;
+  emitUserUpdate(u);
+  return selfView(u);
 }
 
 for (const [kind, rule] of Object.entries(IMAGE_RULES)) {
@@ -716,7 +762,7 @@ app.get('/api/gifs', auth, async (req, res) => {
 app.get('/api/users/:id', auth, (req, res) => {
   const u = db().users[req.params.id];
   if (!u) return res.status(404).json({ error: 'Not found' });
-  res.json({ user: publicUser(u) });
+  res.json({ user: u.id === req.user.id ? selfView(u) : publicUser(u) });
 });
 
 // ----- friends -----
@@ -758,6 +804,7 @@ app.post('/api/friends/request', auth, (req, res) => {
     f.status = 'friends';
     store.save();
     notifyFriends(me.id, target.id);
+    introduce(me.id, target.id);
     return res.json({ result: 'friends', user: publicUser(target) });
   }
   const pendingOut = Object.values(db().friendships).filter((x) => x.from === me.id && x.status === 'pending').length;
@@ -765,6 +812,7 @@ app.post('/api/friends/request', auth, (req, res) => {
   db().friendships[convoKey(me.id, target.id)] = { from: me.id, to: target.id, status: 'pending', createdAt: now() };
   store.save();
   notifyFriends(me.id, target.id);
+  introduce(me.id, target.id);
   pushSafe(target.id, 'friend', { title: me.displayName, body: 'sent you a friend request', url: '/app?n=f', tag: 'friend:' + me.id });
   res.json({ result: 'sent', user: publicUser(target) });
 });
@@ -835,6 +883,8 @@ app.post('/api/servers/join', auth, (req, res) => {
     store.save();
     joinRooms(req.user.id);
     io.to('server:' + s.id).emit('server:update', serverView(s));
+    for (const m of s.members) introduce(req.user.id, m);
+    broadcastPresence(req.user.id);
   }
   res.json({ server: serverView(s) });
 });
@@ -1387,9 +1437,11 @@ app.get('/api/dms/:userId/messages', auth, (req, res) => {
   res.json({ messages: list });
 });
 
+// Only the people the caller can see anyway: themselves, friends (and pending requests) and people who share a server.
+// (This used to list every account, which also handed out every user id.)
 app.get('/api/presence', auth, (req, res) => {
   const out = {};
-  for (const u of Object.values(db().users)) out[u.id] = isOnline(u.id) && u.status !== 'invisible' ? u.status : 'offline';
+  for (const id of [req.user.id, ...relatedUserIds(req.user.id)]) { const u = db().users[id]; if (u) out[id] = presenceOf(u); }
   res.json({ presence: out });
 });
 
@@ -1496,7 +1548,8 @@ if (fs.existsSync(dist)) {
 
 // ---------- sockets ----------
 const httpServer = http.createServer(app);
-const io = new Server(httpServer, { cors: { origin: false } });
+// A browser always sends Origin on a WebSocket handshake: another site cannot open a connection with the visitor's cookie.
+const io = new Server(httpServer, { cors: { origin: false }, allowRequest: (req, cb) => cb(null, security.originAllowed(req.headers.origin, String(req.headers.host || '').toLowerCase())) });
 
 const userSockets = (uid) => [...io.sockets.sockets.values()].filter((s) => s.data.uid === uid);
 
@@ -1510,14 +1563,43 @@ function joinRooms(uid) {
   }
 }
 
+// ----- who hears about whom -----
+// Presence and profile changes go to the person's audience only: themselves, their friends (pending requests count), and everyone who
+// shares a server with them. They used to go to every connected user.
+const presenceOf = (u) => (isOnline(u.id) && u.status !== 'invisible' ? u.status : 'offline');
+function relatedUserIds(uid) {
+  const out = new Set();
+  for (const f of Object.values(db().friendships)) { if (f.from === uid) out.add(f.to); else if (f.to === uid) out.add(f.from); }
+  for (const sv of myServers(uid)) for (const m of sv.members) out.add(m);
+  out.delete(uid);
+  return out;
+}
+function toAudience(uid) { // a socket.io broadcast operator for that audience (a socket in several of the rooms still gets one copy)
+  let b = io.to('user:' + uid);
+  for (const sv of myServers(uid)) b = b.to('server:' + sv.id);
+  for (const id of relatedUserIds(uid)) b = b.to('user:' + id);
+  return b;
+}
 function broadcastPresence(uid) {
   const u = db().users[uid];
   if (!u) return;
-  io.emit('presence', { userId: uid, status: isOnline(uid) && u.status !== 'invisible' ? u.status : 'offline' });
+  toAudience(uid).emit('presence', { userId: uid, status: presenceOf(u) });
+}
+// The audience sees the public profile (Invisible shows as offline); the person's own devices get the real status.
+function emitUserUpdate(u) {
+  toAudience(u.id).except('user:' + u.id).emit('user:update', publicUser(u));
+  io.to('user:' + u.id).emit('user:update', selfView(u));
+}
+// Two people just became able to see each other (friend request, joining a server): each learns the other's current presence.
+function introduce(a, b) {
+  const ua = db().users[a], ub = db().users[b];
+  if (!ua || !ub || a === b) return;
+  io.to('user:' + a).emit('presence', { userId: b, status: presenceOf(ub) });
+  io.to('user:' + b).emit('presence', { userId: a, status: presenceOf(ua) });
 }
 
 io.use((socket, next) => {
-  const u = userFromToken(socket.handshake.auth?.token);
+  const u = userFromToken(socket.handshake.auth?.token || security.readSessionCookie(socket.handshake.headers, security.isSecure(socket.handshake.headers, socket.handshake.secure, TRUST_PROXY)));
   if (!u) return next(new Error('unauthorized'));
   if (needsVerify(u)) return next(new Error('unverified'));
   socket.data.uid = u.id;

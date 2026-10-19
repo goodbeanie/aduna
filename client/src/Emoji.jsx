@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, Modal } from './ui.jsx';
-import { api, getToken } from './api.js';
+import { api } from './api.js';
 import { EveryoneMention, Mention } from './Mentions.jsx';
 
 // ---------- links + custom emoji inside message text ----------
@@ -181,7 +181,7 @@ function EmojiManager({ ctx, onClose }) {
   async function upload() {
     setBusy(true); setErr(''); setDup(null);
     try {
-      const res = await fetch('/api/emoji?name=' + encodeURIComponent(name), { method: 'PUT', headers: { 'Content-Type': prep.blob.type, Authorization: 'Bearer ' + getToken() }, body: prep.blob });
+      const res = await fetch('/api/emoji?name=' + encodeURIComponent(name), { method: 'PUT', headers: { 'Content-Type': prep.blob.type }, body: prep.blob });
       const d = await res.json().catch(() => ({}));
       if (res.status === 409 && d.existing) setDup(d);
       else if (!res.ok) throw new Error(d.error || 'Upload failed');

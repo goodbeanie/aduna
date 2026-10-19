@@ -1,5 +1,4 @@
 // Attachment helpers: upload (with progress), fetch + decrypt, and small formatting utilities.
-import { getToken } from './api.js';
 import { encryptBytesFor, decryptBytesFrom } from './crypto.js';
 
 export const MAX_FILE = 20 * 1024 * 1024;
@@ -38,7 +37,6 @@ export async function uploadFile(file, scope, onProgress) {
   const id = await new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open('POST', `/api/files?kind=${scope.kind}&target=${encodeURIComponent(scope.target)}`);
-    x.setRequestHeader('Authorization', 'Bearer ' + getToken());
     x.setRequestHeader('Content-Type', 'application/octet-stream');
     x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     x.onload = () => {
@@ -51,14 +49,14 @@ export async function uploadFile(file, scope, onProgress) {
   return { id, name: file.name || 'file', type: file.type || 'application/octet-stream', size: file.size, ...(await imageSize(file)) };
 }
 
-export const discardUpload = (id) => fetch('/api/files/' + id, { method: 'DELETE', headers: { Authorization: 'Bearer ' + getToken() } }).catch(() => {});
+export const discardUpload = (id) => fetch('/api/files/' + id, { method: 'DELETE' }).catch(() => {});
 
 // Fetch an attachment as a Blob (decrypting DM files). Cached per file id.
 const cache = new Map();
 export function loadBlob(att, dm) {
   if (!cache.has(att.id)) {
     cache.set(att.id, (async () => {
-      const res = await fetch('/api/files/' + att.id, { headers: { Authorization: 'Bearer ' + getToken() } });
+      const res = await fetch('/api/files/' + att.id);
       if (res.status === 404) throw Object.assign(new Error('This file has expired'), { expired: true }); // removed by the cleanup
       if (!res.ok) throw new Error('Could not load file');
       let buf = await res.arrayBuffer();

@@ -84,6 +84,121 @@ async function putImg(kind, body, type, token) {
   await once(bad, 'connect_error'); bad.close();
   step('sockets connect; bad token refused');
 
+  // log out everywhere: old tokens and connections die, the device that asked gets a new token
+  {
+    const eve = await makeUser('eve_revoke');
+    const phone = connect(base, { auth: { token: eve.token } });   // "another device"
+    const laptop = connect(base, { auth: { token: eve.token } });  // "this device"
+    await Promise.all([once(phone, 'connect'), once(laptop, 'connect')]);
+    assert.strictEqual((await call('/me/logout-all', { method: 'POST', token: eve.token, body: { password: 'wrong-password' } })).status, 400, 'wrong password is refused');
+    assert.strictEqual((await call('/me/logout-all', { method: 'POST', token: eve.token, body: {} })).status, 400, 'a missing password is refused');
+    assert.strictEqual((await call('/me/logout-all', { method: 'POST', body: { password: 'password123' } })).status, 401, 'needs a login');
+    assert.strictEqual((await call('/me', { token: eve.token })).status, 200, 'refused attempts revoke nothing');
+    const revoked = once(phone, 'session:revoked');
+    const gone = Promise.all([once(phone, 'disconnect'), once(laptop, 'disconnect')]);
+    const r = await call('/me/logout-all', { method: 'POST', token: eve.token, body: { password: 'password123', socketId: laptop.id } });
+    assert.strictEqual(r.status, 200, JSON.stringify(r));
+    assert.ok(r.token && r.token !== eve.token, 'a fresh token comes back');
+    await Promise.all([revoked, gone]);
+    assert.strictEqual((await call('/me', { token: eve.token })).status, 401, 'the old token is revoked');
+    assert.strictEqual((await call('/me', { token: r.token })).status, 200, 'the new token works');
+    const reuse = connect(base, { auth: { token: eve.token } });
+    assert.strictEqual((await once(reuse, 'connect_error')).message, 'unauthorized', 'an old token cannot open a connection'); reuse.close();
+    const fresh = connect(base, { auth: { token: r.token } });
+    await once(fresh, 'connect'); fresh.close(); phone.close(); laptop.close();
+    assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'eve_revoke', password: 'password123' } })).status, 200, 'logging in again still works');
+    step('log out everywhere: password required, old tokens and sockets revoked, new token works');
+  }
+
+  // cookie sessions: httpOnly cookie, no token in the answer, other sites refused, sockets and the legacy move work
+  {
+    const raw = (p, { method = 'GET', body, headers = {} } = {}) => fetch(base + '/api' + p, { method, headers: { 'Content-Type': 'application/json', ...headers }, body: body ? JSON.stringify(body) : undefined });
+    const cam = await makeUser('cam_cookie');
+    const login = (headers = {}) => raw('/login', { method: 'POST', headers: { 'X-Session': 'cookie', ...headers }, body: { username: 'cam_cookie', password: 'password123' } });
+    const r = await login();
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual((await r.json()).token, undefined, 'the web app never gets the token in an answer');
+    const sc = r.headers.getSetCookie().find((c) => c.startsWith('aduna_session='));
+    assert.ok(sc && /HttpOnly/.test(sc) && /SameSite=Strict/.test(sc) && !/Secure/.test(sc), 'httpOnly, SameSite=Strict (no Secure over plain http)');
+    const cookie = sc.split(';')[0];
+    assert.strictEqual((await raw('/me', { headers: { Cookie: cookie } })).status, 200, 'the cookie logs you in');
+    assert.strictEqual((await raw('/me/notifications', { method: 'PUT', headers: { Cookie: cookie, Origin: 'https://evil.example' }, body: { dm: false } })).status, 403, 'another site cannot write with your cookie');
+    assert.strictEqual((await raw('/me/notifications', { method: 'PUT', headers: { Cookie: cookie, Origin: base }, body: { dm: true } })).status, 200, 'your own site can');
+    // without X-Session the token still comes back (scripts, older apps)
+    assert.ok((await (await login()).json()).token === undefined && (await (await raw('/login', { method: 'POST', body: { username: 'cam_cookie', password: 'password123' } })).json()).token, 'only callers that ask for cookie-only lose the token');
+    // over https the cookie is __Host- and a plain cookie is ignored
+    const h = await login({ 'X-Forwarded-Proto': 'https' });
+    const hc = h.headers.getSetCookie().find((c) => c.startsWith('__Host-aduna_session='));
+    assert.ok(hc && /Secure/.test(hc) && /Path=\//.test(hc) && !/Domain/i.test(hc), '__Host- cookie: Secure, Path=/, no Domain');
+    assert.strictEqual((await raw('/me', { headers: { Cookie: hc.split(';')[0], 'X-Forwarded-Proto': 'https' } })).status, 200);
+    assert.strictEqual((await raw('/me', { headers: { Cookie: cookie, 'X-Forwarded-Proto': 'https' } })).status, 401, 'over https a plain aduna_session cookie does not count');
+    // sockets log in by cookie; another site cannot open one
+    const viaCookie = connect(base, { extraHeaders: { cookie } });
+    await once(viaCookie, 'connect'); viaCookie.close();
+    const foreign = connect(base, { extraHeaders: { cookie, origin: 'https://evil.example' }, transports: ['polling'], reconnection: false });
+    await once(foreign, 'connect_error'); foreign.close();
+    // logged in before cookies existed: the old token is traded for a cookie
+    const moved = await raw('/session', { method: 'POST', headers: { Authorization: 'Bearer ' + cam.token, 'X-Session': 'cookie' } });
+    assert.strictEqual(moved.status, 200);
+    assert.ok(moved.headers.getSetCookie().some((c) => c.startsWith('aduna_session=') && /HttpOnly/.test(c)), 'legacy token -> cookie');
+    assert.strictEqual((await raw('/session', { method: 'POST' })).status, 401, 'needs a valid token');
+    // logging out clears the cookie
+    const out = await raw('/logout', { method: 'POST', headers: { Cookie: cookie } });
+    assert.strictEqual(out.status, 200);
+    assert.ok(out.headers.getSetCookie().some((c) => /^aduna_session=;/.test(c) && /Max-Age=0/.test(c)), 'logout removes the cookie');
+    step('cookie sessions: httpOnly, no token in the answer, cross-site writes and sockets refused, __Host- over https, legacy token moves, logout clears');
+  }
+
+  // presence and profile updates reach friends and people who share a server, nobody else
+  {
+    const p1 = await makeUser('pres_one'), p2 = await makeUser('pres_two'), p3 = await makeUser('pres_three'), p4 = await makeUser('pres_four');
+    assert.strictEqual((await call('/friends/request', { method: 'POST', token: p1.token, body: { username: 'pres_two' } })).status, 200);
+    assert.strictEqual((await call(`/friends/${p1.user.id}/accept`, { method: 'POST', token: p2.token })).status, 200);
+    const { server: ps } = await call('/servers', { method: 'POST', token: p1.token, body: { name: 'PresHub' } });
+    assert.strictEqual((await call('/servers/join', { method: 'POST', token: p4.token, body: { code: ps.inviteCode } })).status, 200);
+    const socks = [p1, p2, p3, p4].map((u) => connect(base, { auth: { token: u.token } }));
+    await Promise.all(socks.map((x) => once(x, 'connect')));
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    await wait(300); // the presence announcements made by connecting settle
+    const heard = socks.map((x) => { const g = { presence: [], update: [] }; x.on('presence', (e) => g.presence.push(e)); x.on('user:update', (u) => g.update.push(u)); return g; });
+    const [g1, g2, g3, g4] = heard;
+
+    // p1 goes Invisible and edits the bio
+    assert.strictEqual((await call('/me', { method: 'PATCH', token: p1.token, body: { status: 'invisible', bio: 'hello' } })).status, 200);
+    await wait(300);
+    const upd = (g) => g.update.find((u) => u.id === p1.user.id);
+    assert.ok(upd(g2), 'a friend gets the profile update');
+    assert.ok(upd(g4), 'someone who shares a server gets it');
+    assert.ok(upd(g1), 'your own devices get it');
+    assert.strictEqual(upd(g3), undefined, 'a stranger does not');
+    assert.strictEqual(g3.presence.length, 0, 'a stranger hears no presence at all');
+    assert.strictEqual(upd(g2).status, 'offline', 'other people never see that you chose Invisible');
+    assert.strictEqual(upd(g1).status, 'invisible', 'your own devices keep the real status');
+    assert.ok(g2.presence.some((e) => e.userId === p1.user.id && e.status === 'offline'), 'Invisible reads as offline to a friend');
+    assert.ok(g4.presence.some((e) => e.userId === p1.user.id && e.status === 'offline'), 'and to a server mate');
+    assert.strictEqual((await call('/me', { token: p1.token })).user.status, 'invisible', 'your own account still says Invisible');
+    assert.strictEqual((await call('/users/' + p1.user.id, { token: p1.token })).user.status, 'invisible', 'your own profile keeps it');
+    assert.strictEqual((await call('/users/' + p1.user.id, { token: p2.token })).user.status, 'offline', 'a friend looking you up sees offline');
+    assert.strictEqual((await call('/friends', { token: p2.token })).friends.find((f) => f.id === p1.user.id).status, 'offline', 'the friends list hides it too');
+    assert.strictEqual((await call(`/servers`, { token: p4.token })).servers.find((x) => x.id === ps.id).members.find((m) => m.id === p1.user.id).status, 'offline', 'and so do member lists');
+
+    // the snapshot lists only people you can see
+    const ids = async (u) => Object.keys((await call('/presence', { token: u.token })).presence).sort();
+    assert.deepStrictEqual(await ids(p3), [p3.user.id], 'a stranger sees only themselves (and learns no other user id)');
+    assert.deepStrictEqual(await ids(p2), [p1.user.id, p2.user.id].sort(), 'a friend sees you and themselves');
+    assert.deepStrictEqual(await ids(p4), [p1.user.id, p4.user.id].sort(), 'a server mate sees you and themselves');
+
+    // joining a server introduces you: p3 joins and learns who is there, and they learn about p3
+    g3.presence.length = 0; g4.presence.length = 0;
+    assert.strictEqual((await call('/servers/join', { method: 'POST', token: p3.token, body: { code: ps.inviteCode } })).status, 200);
+    await wait(300);
+    assert.ok(g3.presence.some((e) => e.userId === p4.user.id && e.status === 'online'), 'the newcomer learns that a member is online');
+    assert.ok(g4.presence.some((e) => e.userId === p3.user.id && e.status === 'online'), 'and the member learns about the newcomer');
+    assert.deepStrictEqual(await ids(p3), [p1.user.id, p3.user.id, p4.user.id].sort(), 'the snapshot now includes the server');
+    socks.forEach((x) => x.close());
+    step('presence and profile updates: friends and server mates only, Invisible shown as offline to others, snapshot scoped, joiners introduced');
+  }
+
   // channel chat
   assert.strictEqual((await call('/servers', { token: alice.token })).servers.length, 0);
   assert.strictEqual((await call('/servers', { token: bob.token })).servers.length, 0);

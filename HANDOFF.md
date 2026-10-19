@@ -110,3 +110,43 @@ npm test needs TEST_DATABASE_URL (any Postgres). Browser flows were checked with
   now logged on the server (`push send failed: <status>`). sw.js uses /notif-icon-192.png as the large icon and /icon-192.png (alpha mask) as the badge.
 - Tests: `node server/push-test.js`, `node server/push-flow-test.js` (real server, needs TEST_DATABASE_URL). Both run first in `npm test`.
 - Known: in the original upload, `smoke-test.js` (429 instead of 403 near the end) and `profile-test.js` (409 instead of 200) already fail on a clean checkout.
+
+## Log out everywhere (token revocation)
+- Login tokens now carry the account's `tokenVersion` (`tv`). `security.createSessions()` (pure, tested in `security-test.js`) signs and checks them
+  (HS256 pinned); `index.js` uses it through `signToken` / `userFromToken`, so every route and the socket handshake honour it. Tokens made before
+  this existed have no `tv` and count as version 0, so the upgrade logs nobody out.
+- `POST /api/me/logout-all` (body `{ password, socketId? }`): re-checks the password (wrong guesses feed the same `loginGuard` lockout as login),
+  bumps `tokenVersion`, clears `pushSubs`, flushes to the database, tells every other socket `session:revoked` and disconnects all of the account's
+  sockets, and returns a fresh `{ token }` for the device that asked. The client (`Security.jsx`, Settings > Security) stores it, re-registers push if
+  permission is granted, and reloads; other devices get `session:revoked` and run the normal logout.
+- Not done: changing the password does not exist yet (the password also wraps the E2EE key, so it needs the key re-wrapped in the browser). When it is
+  added, call `sessions.bump(user)` there. Tests: security-test.js (runs without a database); a block in smoke-test.js (NOT RUN: needs Postgres).
+
+## Cookie sessions (httpOnly login)
+- The web app no longer keeps its login in localStorage. `POST /api/login|register` (and `logout-all`) set an httpOnly, SameSite=Strict cookie
+  (`security.sessionCookie`): `__Host-aduna_session` over https (Secure, Path=/, no Domain), `aduna_session` over plain http. https is detected from
+  `req.socket.encrypted` or `X-Forwarded-Proto` (only when TRUST_PROXY is not 0). Over https a plain `aduna_session` cookie is IGNORED (a sibling
+  subdomain could plant it).
+- The client (`api.js`) sends `X-Session: cookie` on every call, which makes the server leave the token out of its JSON; callers without that header
+  (scripts, older apps, the tests' `Authorization: Bearer`) still get it and can still use it. `authAny` takes the Bearer header first, else the cookie.
+  Sockets read the cookie from the handshake (`socket.handshake.auth.token` still works for non-browser clients).
+- CSRF: `security.csrfGuard()` (mounted on /api right after the headers) refuses an unsafe-method request that carries the session cookie and has a foreign
+  `Origin` or `Sec-Fetch-Site: cross-site`. No cookie = not guarded (Stripe webhook, header logins). Sockets: `allowRequest` rejects a foreign Origin.
+- `POST /api/logout` clears both cookie names (the page cannot touch an httpOnly cookie). `POST /api/session` (Bearer required) is the one-time move for
+  people who were logged in before this: `adoptLegacyToken()` in api.js runs at app start, trades the localStorage token for the cookie and deletes it.
+  `landing.js` shows "Open Aduna" from the harmless `aduna_in` flag (or the old token, until it has been moved).
+- Boot no longer checks for a token: it asks `/api/me`; 401 shows the login. `endSession()` = POST /api/logout + forget local flags.
+- Tests: security-test.js (cookie, origin and guard helpers, no database); a block in smoke-test.js (NOT RUN: needs Postgres).
+- NOT tested: Android WebView and the Windows app keeping the cookie across restarts (both load the live site, so they should), iOS home-screen app.
+
+## Who hears about whom (presence and profile updates)
+- `presence` and `user:update` used to go to every connected socket (`io.emit`), and `GET /api/presence` listed every account. Now they go to the person's
+  audience only: themselves, friends (pending requests count) and everyone who shares a server (`toAudience()` / `relatedUserIds()` in index.js).
+  DMs only work between friends, so DM partners need no extra rule. There are no `io.emit(` calls left in the server.
+- `publicUser()` shows Invisible as `offline`, so nobody learns that someone chose Invisible (member lists, friends list, profile lookups, `user:update`).
+  The person's own copy keeps the real value: `selfView()` / `ownUser()`, and `emitUserUpdate()` sends the masked version to the audience and the real one to
+  the person's own `user:<id>` room. Use `selfView` for anything returned to the person themselves.
+- `introduce(a, b)` sends each of two people the other's presence when they become related (friend request, auto-accept, joining a server by code), because the
+  client only fetches the presence snapshot once at start. Not done: nothing tells a client to forget someone's presence after an unfriend, kick or leave
+  (the last known value stays until reload; they simply stop getting updates).
+- Tests: a block in smoke-test.js (NOT RUN: needs Postgres).

@@ -110,4 +110,77 @@ class LoginGuard {
   success(name, ip) { this.pair.delete(String(name || '').toLowerCase() + '|' + ip); }
 }
 
-module.exports = { CSP, securityHeaders, cleanEmail, emailKey, weakPassword, RateWindow, LoginGuard };
+// ---------- sessions ----------
+// A login token carries the account's `tokenVersion` (tv). Bumping that number on the account makes every token issued
+// before it stop working on the next request and the next socket connection: "log out everywhere". Tokens issued before
+// this existed have no tv and count as version 0, so the upgrade logs nobody out. `jwt` is passed in (the jsonwebtoken
+// module) and `getSecret` is a function because the secret is only known once the server has started.
+function createSessions({ jwt, getSecret, ttl = '30d' }) {
+  const version = (u) => Number(u && u.tokenVersion) || 0;
+  return {
+    sign: (u) => jwt.sign({ uid: u.id, tv: version(u) }, getSecret(), { expiresIn: ttl, algorithm: 'HS256' }),
+    // the account a token belongs to, or null: bad signature, expired, revoked, or the account no longer exists
+    user(token, lookup) {
+      try {
+        const p = jwt.verify(String(token || ''), getSecret(), { algorithms: ['HS256'] });
+        const u = lookup(p.uid);
+        return u && (Number(p.tv) || 0) === version(u) ? u : null;
+      } catch { return null; }
+    },
+    // revoke every token this account has handed out so far
+    bump(u) { u.tokenVersion = version(u) + 1; return u.tokenVersion; },
+  };
+}
+
+// ---------- session cookie ----------
+// The browser app keeps its login in an httpOnly cookie, so no script on the page (an injected one included) can read or steal it.
+//   * Over https the cookie is named __Host-aduna_session: the browser then insists on Secure + Path=/ + no Domain, and a sibling
+//     subdomain cannot plant a cookie of that name. Over plain http (local development) it is aduna_session.
+//   * SameSite=Strict: other sites cannot make the browser send it. As a second wall csrfGuard() refuses unsafe requests whose
+//     Origin is another site.
+const COOKIE = 'aduna_session', COOKIE_HOST = '__Host-aduna_session';
+const cookieName = (secure) => (secure ? COOKIE_HOST : COOKIE);
+
+function parseCookies(header) {
+  const out = Object.create(null);
+  for (const part of String(header || '').split(';')) {
+    const i = part.indexOf('=');
+    if (i < 1) continue;
+    const k = part.slice(0, i).trim();
+    if (!(k in out)) out[k] = part.slice(i + 1).trim(); // the first one wins
+  }
+  return out;
+}
+// true if the request came in over https (directly, or through a proxy that says so)
+const isSecure = (headers, encrypted = false, trustProxy = true) =>
+  !!encrypted || (trustProxy && String((headers || {})['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase() === 'https');
+// the login token in the cookie for this kind of connection, or ''. Only the matching name counts: over https a plain
+// aduna_session cookie (which another site on the domain could have planted) is ignored.
+const readSessionCookie = (headers, secure) => parseCookies((headers || {}).cookie)[cookieName(secure)] || '';
+const hasSessionCookie = (headers) => { const c = parseCookies((headers || {}).cookie); return !!(c[COOKIE] || c[COOKIE_HOST]); };
+const sessionCookie = (token, { secure = false, maxAgeSec = 30 * 86400 } = {}) =>
+  `${cookieName(secure)}=${token}; Path=/; Max-Age=${maxAgeSec}; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`;
+// both names are cleared so logging out works whichever way the cookie was set
+const clearedSessionCookies = ({ secure = false } = {}) => [
+  `${COOKIE_HOST}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict; Secure`,
+  `${COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`,
+];
+
+// A browser sends Origin on cross-site requests and on every WebSocket handshake. No Origin: not a browser, or a plain same-origin GET.
+function originAllowed(origin, host) {
+  if (!origin) return true;
+  try { return !!host && new URL(origin).host === String(host).toLowerCase(); } catch { return false; } // "null" and junk are refused
+}
+// Refuses a request that changes something, carries the login cookie, and comes from another site.
+function csrfGuard() {
+  return (req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+    if (!hasSessionCookie(req.headers)) return next(); // not logged in by cookie: there is nothing to forge
+    const site = String(req.headers['sec-fetch-site'] || '');
+    if (site !== 'cross-site' && originAllowed(req.headers.origin, String(req.headers.host || '').toLowerCase())) return next();
+    res.status(403).json({ error: 'Request blocked: it came from another site.' });
+  };
+}
+
+module.exports = { CSP, securityHeaders, cleanEmail, emailKey, weakPassword, RateWindow, LoginGuard, createSessions,
+  parseCookies, isSecure, readSessionCookie, hasSessionCookie, sessionCookie, clearedSessionCookies, originAllowed, csrfGuard };

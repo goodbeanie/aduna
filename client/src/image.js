@@ -1,4 +1,3 @@
-import { getToken } from './api.js';
 
 export const imageUrl = (id) => (id ? `/api/images/${id}` : null);
 
@@ -57,7 +56,7 @@ export async function processImage(file, { w, h }) {
 export async function uploadImage(kind, blob, base = '/api/me') {
   const res = await fetch(`${base}/${kind}`, {
     method: 'PUT',
-    headers: { 'Content-Type': blob.type, Authorization: 'Bearer ' + getToken() },
+    headers: { 'Content-Type': blob.type },
     body: blob,
   });
   const data = await res.json().catch(() => ({}));

@@ -8,7 +8,7 @@ import { imageUrl } from './image.js';
 import { setServerTheme } from './themes.js';
 import { ServerSettings } from './ServerSettings.jsx';
 import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, UserCard, ProfileEditor, SafetyModal } from './Modals.jsx';
-import { api, connectSocket, emitAck, getToken, setToken } from './api.js';
+import { api, connectSocket, emitAck, markSignedIn, endSession, adoptLegacyToken } from './api.js';
 import { SettingsScreen } from './Settings.jsx';
 import { InviteContext, INVITE_CODE_RE, InvitePage } from './Invite.jsx';
 import { can, canManageAny, roleColorOf } from './perms.js';
@@ -53,13 +53,14 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      if (!getToken()) return setBoot('auth');
+      await adoptLegacyToken(); // logged in before cookies existed: trade the old token for the cookie
       try {
-        const { user } = await api('/me');
+        const { user } = await api('/me'); // the cookie says who we are (401 when nobody is signed in)
         const key = await loadKey(user.id);
-        if (!key) { setToken(''); return setBoot('auth'); } // key lives on another device: sign in again to unlock it
+        if (!key) { await endSession(); return setBoot('auth'); } // key lives on another device: sign in again to unlock it
+        markSignedIn(true);
         setMe(user); setPrivKey(key); setBoot('ready');
-      } catch { setToken(''); setBoot('auth'); }
+      } catch (e) { if (e.status === 401) markSignedIn(false); setBoot('auth'); }
     })();
   }, []);
 
@@ -85,7 +86,7 @@ export default function App() {
     }} />;
   }
   if (me?.emailVerified === false) {
-    return <VerifyEmail me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={() => { setToken(''); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
+    return <VerifyEmail me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
   }
   if (invite) return <InvitePage code={invite} signedIn onJoined={(sv) => { setOpenId(sv.id); leaveInvite(); }} onClose={leaveInvite} />;
   return <EmojiProvider><Main me={me} setMe={setMe} privKey={privKey} openServerId={openId} /></EmojiProvider>;
@@ -175,7 +176,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     socketRef.current?.disconnect();
     await Promise.race([notify.unsubscribe(), new Promise((r) => setTimeout(r, 2500))]); // stop pushes to this device before the token goes
     await clearKeys();
-    setToken('');
+    await endSession();
     location.reload();
   }, []);
 
@@ -228,6 +229,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     socketRef.current = s;
 
     s.on('connect_error', (e) => { if (e.message === 'unauthorized') logout(); });
+    s.on('session:revoked', () => logout()); // "log out everywhere" was used on another device
 
     s.on('message:new', (m) => {
       setChan((p) => ({ ...p, [m.channelId]: mergeById(p[m.channelId] || [], [m]) }));
@@ -772,7 +774,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onMessage={() => openDm(users[modal.id])} onEdit={() => setModal({ type: 'edit' })}
           onAddFriend={() => requestFriend(users[modal.id].username).catch((e) => alert(e.message))} onAccept={() => acceptFriend(modal.id)} />
       )}
-      {modal?.type === 'edit' && <SettingsScreen me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} />}
+      {modal?.type === 'edit' && <SettingsScreen me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} getSocketId={() => socketRef.current?.id} />}
     </div>
     </InviteContext.Provider>
   );

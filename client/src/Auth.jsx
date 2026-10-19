@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api, setToken } from './api.js';
+import { api, markSignedIn, endSession } from './api.js';
 import { createIdentity, unlockIdentity, saveKey, hasCrypto } from './crypto.js';
 
 export default function Auth({ onAuthed }) {
@@ -21,16 +21,16 @@ export default function Auth({ onAuthed }) {
     try {
       if (mode === 'register') {
         const ident = await createIdentity(password);
-        const { token, user } = await api('/register', {
+        const { user } = await api('/register', {
           method: 'POST',
           body: { username, email: email.trim(), password, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey },
         });
-        setToken(token);
+        markSignedIn(true);
         await saveKey(user.id, ident.privateKey);
         onAuthed(user, ident.privateKey);
       } else {
-        const { token, user: u0, encPrivKey } = await api('/login', { method: 'POST', body: { username, password } });
-        setToken(token);
+        const { user: u0, encPrivKey } = await api('/login', { method: 'POST', body: { username, password } });
+        markSignedIn(true);
         let user = u0, privateKey;
         if (encPrivKey) privateKey = await unlockIdentity(encPrivKey, password);
         else { // account without encryption keys: create them now
@@ -42,7 +42,7 @@ export default function Auth({ onAuthed }) {
         onAuthed(user, privateKey);
       }
     } catch (err) {
-      setToken('');
+      endSession(); // a login that did not finish must not leave a session behind
       setError(err.message || 'Something went wrong');
     } finally {
       setBusy(false);
