@@ -37,6 +37,27 @@ const cleanFcm = (t) => (typeof t === 'string' && t.length >= 20 && t.length <= 
 
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 
+
+// What a notification looks like and what its buttons do. Everything is checked here because it ends up in the service worker:
+//   icon     '/api/images/<id>' only (a profile picture or a server icon; images are public by id)
+//   sender   the name of the person, for the picture's letter when there is no image
+//   theme    { dark, bg, accent } of the server (the service worker uses the person's own theme for DMs)
+//   serverId / channelId / peerId / msgId   what the Mark as read and Reply buttons act on
+//   reply    'inline' (type the answer in the notification, sent through POST /api/channels/:id/quick-reply) | 'open' (opens the chat with the box focused)
+//   read     true: show a Mark as read button
+const ID = /^[A-Za-z0-9_-]{1,64}$/;
+const HEX = /^#[0-9a-fA-F]{6}$/;
+function cleanLook(p) {
+  const out = {};
+  if (typeof p.icon === 'string' && /^\/api\/images\/[A-Za-z0-9_-]{4,80}$/.test(p.icon)) out.icon = p.icon;
+  if (typeof p.sender === 'string' && p.sender) out.sender = clip(p.sender, 40);
+  if (p.theme && typeof p.theme.dark === 'boolean' && HEX.test(p.theme.bg) && HEX.test(p.theme.accent)) out.theme = { dark: p.theme.dark, bg: p.theme.bg, accent: p.theme.accent };
+  for (const k of ['serverId', 'channelId', 'peerId', 'msgId']) if (typeof p[k] === 'string' && ID.test(p[k])) out[k] = p[k];
+  if (p.reply === 'inline' || p.reply === 'open') out.reply = p.reply;
+  if (p.read === true) out.read = true;
+  return out;
+}
+
 // d: { users() -> db().users, save(), sender(sub, body, opts) -> Promise, enabled, publicKey, now() }
 function createPush(d) {
   const nowFn = d.now || Date.now;
@@ -83,9 +104,10 @@ function createPush(d) {
     const body = JSON.stringify({
       kind,
       title: clip(payload.title, 80),
-      body: clip(payload.body, 160),
+      body: clip(payload.body, 240),
       url: payload.url || '/app',
       tag: clip(payload.tag, 80) || undefined,
+      ...cleanLook(payload),
       ts: nowFn(),
     });
     const opts = { TTL: kind === 'call' ? 45 : 3600, urgency: kind === 'call' || kind === 'dm' || kind === 'mention' ? 'high' : 'normal' };
@@ -123,4 +145,4 @@ function createPush(d) {
   return { add, addFcm, remove, send, test, prefsOf, get enabled() { return !!d.enabled; }, get publicKey() { return d.publicKey || null; } };
 }
 
-module.exports = { createPush, cleanPrefs, cleanSub, cleanFcm, DEFAULT_PREFS };
+module.exports = { createPush, cleanLook, cleanPrefs, cleanSub, cleanFcm, DEFAULT_PREFS };

@@ -19,6 +19,10 @@ const np = require('./notifprefs');
 const listing = require('./listing');
 const botsLib = require('./bots');
 const botrun = require('./botrun');
+const botstate = require('./botstate');
+const botfetch = require('./botfetch');
+const { createBotHost } = require('./bothost');
+const { createIce } = require('./turn');
 const sandbox = require('./sandbox'); // starts its worker threads on first use, not at boot (each holds a WebAssembly runtime)
 
 const PORT = process.env.PORT || 3000;
@@ -36,6 +40,7 @@ const db = () => store.db;
 const referencedImages = () => new Set([
   ...Object.values(store.db.users).flatMap((u) => [u.avatarImage, u.bannerImage]),
   ...Object.values(store.db.servers).flatMap((sv) => [sv.iconImage, sv.bannerImage]), // server icon + banner
+  ...Object.values(store.db.bots || {}).map((b) => b.avatarImage), // bot pictures (the bot's account points at the same image)
   ...Object.values(store.db.emojis).map((e) => e.imageId), // custom emoji pictures live in the same table
 ].filter(Boolean));
 const now = () => Date.now();
@@ -1143,7 +1148,7 @@ app.post('/api/friends/request', auth, (req, res) => {
   store.save();
   notifyFriends(me.id, target.id);
   introduce(me.id, target.id);
-  pushSafe(target.id, 'friend', { title: me.displayName, body: 'sent you a friend request', url: '/app?n=f', tag: 'friend:' + me.id });
+  pushSafe(target.id, 'friend', { title: me.displayName, body: 'sent you a friend request', url: '/app?n=f', tag: 'friend:' + me.id, sender: me.displayName, icon: imgPath(me.avatarImage) });
   res.json({ result: 'sent', user: publicUser(target) });
 });
 
@@ -1567,6 +1572,7 @@ app.post('/api/servers/:id/members/:uid/kick', auth, (req, res) => {
     sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id));
   }
   pushServer(s, res);
+  if (db().users[uid]) dispatchBots(s, 'memberLeave', { user: db().users[uid], reason: 'kicked' });
 });
 
 // ----- onboarding (questions at join that hand out roles) -----
@@ -1736,6 +1742,7 @@ app.post('/api/servers/:id/leave', auth, (req, res) => {
   for (const sock of userSockets(req.user.id)) { voiceLeave(req.user.id, sock.id); sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id)); } // voiceLeave: someone who leaves must not stay in the server's voice call (kick already did this)
   io.to('server:' + s.id).emit('server:update', serverView(s));
   res.json({ ok: true });
+  dispatchBots(s, 'memberLeave', { user: req.user, reason: 'left' });
 });
 
 // Owner-only, irreversible actions: both re-check the password (and the 2FA code when it is on). Wrong guesses feed the login lockout.
@@ -1958,6 +1965,39 @@ app.delete('/api/bots/:id', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Bot picture: PNG, JPEG or WebP up to 500 px, checked like profile pictures. The bot's account shows the same image in member lists and next
+// to its messages. While a listing is under review or removed the developer cannot change it (same as the other public details).
+async function setBotAvatar(b, buf) {
+  const old = b.avatarImage || null;
+  b.avatarImage = buf ? await store.putImage(buf) : null;
+  const u = b.userId && db().users[b.userId];
+  if (u) { u.avatarImage = b.avatarImage; emitUserUpdate(u); }
+  await store.flush(); // everything points at the new image before the old one is deleted
+  if (old && old !== b.avatarImage) await store.deleteImage(old);
+  tellDeveloper(b);
+}
+const ownBotForImage = (req, res) => {
+  const b = botById(req.params.id);
+  if (!b || b.ownerId !== req.user.id) { res.status(404).json({ error: 'Bot not found' }); return null; }
+  if (b.listingHold) { res.status(400).json({ error: 'This bot\'s public listing is under review or was removed. Its picture cannot be changed now.' }); return null; }
+  return b;
+};
+app.put('/api/bots/:id/avatar', auth, developerOnly, uploadLimiter, rawImage, ah(async (req, res) => {
+  const b = ownBotForImage(req, res); if (!b) return;
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a PNG, JPEG or WebP image' });
+  const info = sniffImage(buf);
+  if (!info) return res.status(400).json({ error: 'That file is not a valid PNG, JPEG or WebP image' });
+  if (info.width > 500 || info.height > 500) return res.status(400).json({ error: 'Image is too large (max 500px per side)' });
+  await setBotAvatar(b, buf);
+  res.json({ bot: ownBotView(b, req.user.id) });
+}));
+app.delete('/api/bots/:id/avatar', auth, developerOnly, ah(async (req, res) => {
+  const b = ownBotForImage(req, res); if (!b) return;
+  await setBotAvatar(b, null);
+  res.json({ bot: ownBotView(b, req.user.id) });
+}));
+
 // Test run: the developer's own code (a saved bot's, or a draft sent as `code`) against a made-up event, so they can see what it would
 // do. Nothing is sent anywhere: the actions come back as a list. Same sandbox and limits as the real thing.
 // Event shape (part 3 will send the same): message = { id, channelId, serverId, text, mentions: [userId], author: { id, username, displayName, bot }, createdAt }
@@ -1977,15 +2017,28 @@ app.post('/api/developer/test', auth, developerOnly, ah(async (req, res) => {
   if (!botTests.allow(req.user.id)) return res.status(429).json({ error: 'Too many test runs. Wait a moment.' });
   const text = clip(b.text, 2000);
   const u = req.user;
-  const event = b.event === 'memberJoin' ? 'memberJoin' : 'message';
-  // the same shapes the real events have, against a made-up server with one text channel
-  const fake = { id: 'test-server', members: [u.id], channels: [{ id: 'test-channel', name: 'general' }] };
-  const payload = event === 'memberJoin'
-    ? botrun.joinPayload({ server: fake, user: u, install: {} })
-    : botrun.messagePayload({ msg: { id: 'test-message', channelId: 'test-channel', serverId: 'test-server', content: text, mentions: [], createdAt: now() }, author: u, botUserId: null });
-  const r = await sandbox.run({ code, event, payload });
+  const TEST_EVENTS = ['message', 'messageEdit', 'memberJoin', 'memberLeave', 'install', 'timer', 'fetch'];
+  const event = TEST_EVENTS.includes(b.event) ? b.event : 'message';
+  // the same shapes the real events have, against a made-up server with one text channel and nothing stored yet
+  const fake = { id: 'test-server', name: 'Test server', members: [u.id], channels: [{ id: 'test-channel', name: 'general' }] };
+  const fakeMsg = { id: 'test-message', channelId: 'test-channel', serverId: 'test-server', content: text, mentions: [], createdAt: now(), editedAt: event === 'messageEdit' ? now() : null };
+  const payload = event === 'memberJoin' ? botrun.joinPayload({ server: fake, user: u, install: {} })
+    : event === 'memberLeave' ? botrun.leavePayload({ server: fake, user: u, install: {}, reason: 'left' })
+    : event === 'install' ? botrun.installPayload({ server: fake, install: {}, by: u })
+    : event === 'timer' ? botrun.timerPayload({ server: fake, install: {}, timer: { name: clip(b.name, 32) || 'test', kind: 'after', data: null }, firedAt: now() })
+    : event === 'fetch' ? botrun.fetchPayload({ server: fake, install: {}, request: { name: clip(b.name, 32) || 'fetch', url: 'https://api.github.com/' }, result: { ok: true, status: 200, text: text || '{}', json: (() => { try { return JSON.parse(text); } catch { return null; } })() } }) // made up: a test never goes out to the network
+    : event === 'messageEdit' ? botrun.editPayload({ msg: fakeMsg, author: u, botUserId: null })
+    : botrun.messagePayload({ msg: fakeMsg, author: u, botUserId: null });
+  const r = await sandbox.run({ code, event, payload, state: { kv: {}, timers: [] } });
   const plan = botrun.planActions({ actions: r.actions, server: fake, install: {}, mentionUserId: u.id, maxText: MAX_MSG, replyOk: (cid, mid) => (mid === 'test-message' ? mid : null) });
   r.dropped = plan.dropped; // what a real server would refuse, e.g. a wrong channel id
+  // storage, timers, reactions and fetches go through the same checks as real ones, on throw-away copies
+  const scratch = { kv: {}, timers: [] };
+  r.dropped.push(...botstate.applyStoreOps(scratch.kv, r.store).dropped, ...botstate.applyTimers(scratch, r.timers, now()).dropped);
+  r.dropped.push(...botrun.planReactions({ actions: r.reactions, server: fake, install: {}, messageOf: (id) => (id === 'test-message' ? fakeMsg : null), emojiOk }).dropped);
+  r.dropped.push(...botrun.planFetches({ actions: r.fetches, check: fetcher.check }).dropped);
+  r.stored = Object.entries(scratch.kv).map(([key, value]) => ({ key, value })); // what the storage would hold afterwards
+  r.timersSet = scratch.timers.map((t) => ({ name: t.name, kind: t.kind, everySec: t.everySec, time: t.time, tz: t.tz, at: t.at }));
   res.json({ result: r });
 }));
 
@@ -2044,7 +2097,11 @@ app.post('/api/admin/bots/:id/listing', auth, adminOnly, (req, res) => {
 // caused by bots, so two bots cannot loop. The sandbox collects what the bot wants to say; botrun.planActions() decides what is allowed
 // and botrun.Guard keeps the limits (see botrun.js). Bot messages are marked `bot: true`, never earn credits, and never ping anyone
 // except the person they answer.
-const guard = new botrun.Guard();
+// bothost.js runs events (one at a time per bot per server) and applies what a bot asked for; everything it needs is passed in here.
+const fetcher = botfetch.createFetcher();
+const emojiOk = (e) => typeof e === 'string' && (/^c:[0-9a-f]{16}$/.test(e) ? !!liveEmoji(e.slice(2)) : e.length > 0 && e.length <= 8 && !/^[\w$]+$/.test(e)); // the same rule as people's reactions
+const botHost = createBotHost({ db, store, io: { to: (room) => io.to(room) }, sandbox, fetcher, postMessage: (s, channel, botUser, a) => postBotMessage(s, channel, botUser, a), emojiOk, maxMsg: MAX_MSG });
+const guard = botHost.guard;
 const installLimit = new security.RateWindow(30, 3600_000);
 const botById = (id) => (/^[0-9a-f]{16}$/.test(String(id)) && Object.prototype.hasOwnProperty.call(db().bots, id) ? db().bots[id] : null);
 const installOf = (s, botId) => (s.installedBots || []).find((i) => i.botId === botId);
@@ -2058,7 +2115,7 @@ function ensureBotUser(b) {
   const hues = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e'];
   const u = {
     id, username: 'bot-' + id.slice(0, 12), displayName: b.name, bio: clip(b.description, 200), avatarColor: hues[parseInt(id.slice(0, 2), 16) % hues.length],
-    avatarEmoji: '', bannerColor: '#e3dccb', accentColor: '#2a251e', status: 'online', publicKey: null, links: [], bot: true, botId: b.id, createdAt: now(),
+    avatarEmoji: '', avatarImage: b.avatarImage || null, bannerColor: '#e3dccb', accentColor: '#2a251e', status: 'online', publicKey: null, links: [], bot: true, botId: b.id, createdAt: now(),
   };
   db().users[id] = u; b.userId = id;
   return u;
@@ -2066,8 +2123,8 @@ function ensureBotUser(b) {
 // The bot's name and description show on its account; keep them in step with the bot record.
 function syncBotUser(b) {
   const u = b.userId && db().users[b.userId];
-  if (!u || (u.displayName === b.name && u.bio === clip(b.description, 200))) return;
-  u.displayName = b.name; u.bio = clip(b.description, 200);
+  if (!u || (u.displayName === b.name && u.bio === clip(b.description, 200) && (u.avatarImage || null) === (b.avatarImage || null))) return;
+  u.displayName = b.name; u.bio = clip(b.description, 200); u.avatarImage = b.avatarImage || null;
   emitUserUpdate(u);
 }
 // Takes the bot out of one server (the account stays on record so its old messages keep their name).
@@ -2122,6 +2179,7 @@ app.post('/api/servers/:id/bots', auth, (req, res) => {
   store.save();
   io.to('server:' + s.id).emit('server:update', serverView(s));
   res.json({ server: serverView(s) });
+  botHost.dispatchTo(s, installOf(s, b.id), 'install', { by: req.user }); // after the answer: the bot's first run never slows the install down
 });
 app.patch('/api/servers/:id/bots/:botId', auth, (req, res) => {
   const s = manageServerOf(req, res); if (!s) return;
@@ -2157,49 +2215,15 @@ function postBotMessage(s, channel, botUser, { text, replyTo, mentions }) {
   const preview = clip(text.replace(MENTION_TOKEN, '@someone'), 120);
   for (const id of mentions) {
     if (!np.decide(uidPrefs(id, s.id), channel.id, 'mention', now()).alert) continue;
-    pushSafe(id, 'mention', { title: `${botUser.displayName} mentioned you in ${s.name} \u00b7 #${channel.name}`, body: preview, url: `/app?n=c:${s.id}:${channel.id}`, tag: 'm:' + msg.id });
+    pushSafe(id, 'mention', { title: botUser.displayName, body: `${s.name} \u00b7 #${channel.name} \u00b7 mentioned you\n${preview}`, url: `/app?n=c:${s.id}:${channel.id}`, tag: 'm:' + msg.id,
+      sender: botUser.displayName, icon: imgPath(s.iconImage) || imgPath(botUser.avatarImage), theme: s.theme || undefined, serverId: s.id, channelId: channel.id, msgId: msg.id, read: true, reply: 'inline' });
   }
   return msg;
 }
-async function runBotEvent(s, inst, b, event, payload, triggerUserId) {
-  const r = await sandbox.run({ code: b.code, event, payload });
-  guard.record(b.id, r);
-  const entry = { serverId: s.id, server: s.name, event, ok: r.ok, ms: r.ms, error: r.error || null, timedOut: !!r.timedOut, logs: r.logs || [], sent: 0, dropped: [] };
-  // the server, the install or the bot may have changed while the code was running
-  const cur = db().servers[s.id], live = cur && installOf(cur, b.id);
-  if (live && runnable(db().bots[b.id])) {
-    const plan = botrun.planActions({
-      actions: r.actions, server: cur, install: live, mentionUserId: triggerUserId, maxText: MAX_MSG,
-      replyOk: (cid, mid) => { const m = Object.prototype.hasOwnProperty.call(db().messages, mid) ? db().messages[mid] : null; return m && m.channelId === cid ? mid : null; },
-    });
-    entry.dropped = plan.dropped;
-    const room = guard.takeMessages(b.id, cur.id, plan.send.length);
-    if (room < plan.send.length) entry.dropped.push(`${plan.send.length - room} message(s) over the limit of ${botrun.LIMITS.messagesPerMin} per minute`);
-    const botUser = db().users[live.userId];
-    for (const a of plan.send.slice(0, room)) { postBotMessage(cur, a.channel, botUser, a); entry.sent++; }
-  }
-  guard.log(b.id, entry);
-}
-// Hands an event to every bot in the server that may see it. Never blocks the caller; a failing bot only fills its own log.
-function dispatchBots(s, event, { channel, msg, author, user }) {
-  if (!(s.installedBots || []).length || !sandbox.available()) return;
-  for (const inst of s.installedBots.slice()) {
-    const b = db().bots[inst.botId];
-    if (!runnable(b)) continue;
-    let payload;
-    if (event === 'message') {
-      if (!author || author.bot || !botrun.channelAllowed(inst, channel)) continue; // bots never answer bots; channels the bot may not read stay unseen
-      payload = botrun.messagePayload({ msg, author, botUserId: inst.userId });
-    } else if (event === 'memberJoin') {
-      if (!user || user.bot) continue;
-      payload = botrun.joinPayload({ server: s, user, install: inst });
-    } else continue;
-    const admit = guard.admit(b.id, s.id);
-    if (!admit.ok) { guard.log(b.id, { serverId: s.id, server: s.name, event, ok: false, skipped: admit.reason, logs: [], dropped: [] }); continue; }
-    runBotEvent(s, inst, b, event, payload, event === 'message' ? author.id : user.id)
-      .catch((e) => { guard.log(b.id, { serverId: s.id, server: s.name, event, ok: false, error: clip(e && e.message, 200), logs: [], dropped: [] }); });
-  }
-}
+// Events from the rest of the server go to botHost.dispatch(server, event, details): 'message', 'messageEdit', 'memberJoin', 'memberLeave'
+// ({ user, reason: 'left' | 'kicked' }); botHost.dispatchTo(server, install, 'install', { by }) tells one new bot it was added. Timers and
+// fetch answers arrive on their own (botHost.startTimers() in start()).
+const dispatchBots = (s, event, a) => botHost.dispatch(s, event, a);
 
 app.get('/api/bots/:id/logs', auth, (req, res) => {
   const b = botById(req.params.id);
@@ -2402,6 +2426,34 @@ app.post('/api/channels/:id/read', auth, (req, res) => {
   res.json({ ok: true, at });
 });
 
+// Reply typed into a phone notification (client/public/sw.js): plain text only, in a text channel. Same rules as a normal send, minus things the
+// service worker cannot provide (attachments, the typing proof for credits, per-socket flood control: this has its own limit instead).
+const quickReplies = new security.RateWindow(10, 60_000);
+app.post('/api/channels/:id/quick-reply', auth, (req, res) => {
+  const f = findChannel(req.params.id);
+  if (!f || !f.server.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  if (typeOf(f.channel) !== 'text') return res.status(400).json({ error: 'You can only reply in a text channel' });
+  const content = clip(req.body?.content, MAX_MSG).trim();
+  if (!content) return res.status(400).json({ error: 'Nothing to send' });
+  if (!quickReplies.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const replyTo = typeof req.body?.replyTo === 'string' ? db().messages[req.body.replyTo] : null;
+  const ping = parseMentions(content, f.server, req.user.id);
+  const msg = {
+    id: store.id(), channelId: f.channel.id, serverId: f.server.id, authorId: req.user.id, content, attachments: [],
+    mentions: ping.mentions, everyone: ping.everyone,
+    replyTo: replyTo && replyTo.channelId === f.channel.id ? replyTo.id : null,
+    reactions: {}, createdAt: now(),
+  };
+  db().messages[msg.id] = msg;
+  setRead(req.user, f.channel.id, now()); // answering it means you have seen it
+  store.save();
+  io.to('channel:' + f.channel.id).emit('message:new', msg);
+  io.to('user:' + req.user.id).emit('notif:read', { channelIds: [f.channel.id], at: now() });
+  pushChannelMessage(f, msg, 'text', req.user.id);
+  res.json({ ok: true, id: msg.id });
+  dispatchBots(f.server, 'message', { channel: f.channel, msg, author: req.user });
+});
+
 app.post('/api/servers/:id/read', auth, (req, res) => { // "Mark all as read"
   const s = db().servers[req.params.id];
   if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
@@ -2448,7 +2500,13 @@ app.get('/api/presence', auth, (req, res) => {
 });
 
 // ICE (STUN/TURN) servers for calls. This must be registered before the /api 404 handler below.
-app.get('/api/call/config', auth, (_req, res) => res.json({ iceServers: iceServers() }));
+const ice = createIce({ warn: (m) => console.warn(m) });
+// `relay` tells the client whether a TURN server is set up, so it can explain a failed call instead of just hanging up.
+app.get('/api/call/config', auth, ah(async (req, res) => {
+  const { iceServers, relay } = await ice.forUser(req.user.id);
+  res.set('Cache-Control', 'no-store');
+  res.json({ iceServers, relay });
+}));
 // Credits (balance, quests, buying). Must be registered before the /api 404 handler below.
 credits.register(app, {
   auth, ah, db, save: () => store.save(),
@@ -2620,10 +2678,6 @@ function endCall(c, reason) {
   clearTimeout(c.timer);
   io.to('user:' + c.a).to('user:' + c.b).emit('call:ended', { callId: c.id, reason });
 }
-function iceServers() {
-  try { const v = JSON.parse(process.env.ICE_SERVERS || ''); if (Array.isArray(v)) return v; } catch {}
-  return [{ urls: 'stun:stun.l.google.com:19302' }];
-}
 
 // ----- voice channels -----
 // Everyone in the channel connects to everyone else (a mesh, fine for small groups). The server only keeps
@@ -2640,6 +2694,33 @@ function voiceLeave(uid, sid) {
     for (const peer of room.values()) io.to(peer).emit('voice:left', { channelId: cid, userId: uid });
     voiceBroadcast(cid);
   }
+}
+
+// Phone / closed-app notifications: only for things aimed at someone (a mention, @everyone, an announcement), never every chat line.
+// The notification shows who wrote (title), the server picture, where it was and what was said (body), and Reply / Mark as read buttons
+// (client/public/sw.js). `reply: 'inline'` lets the phone answer without opening the app (POST /api/channels/:id/quick-reply).
+const imgPath = (id) => (id ? `/api/images/${id}` : undefined);
+function pushChannelMessage(f, msg, kind, uid) {
+  const author = db().users[uid];
+  const preview = clip(msg.content.replace(MENTION_TOKEN, '@someone'), 120) || 'Sent an attachment';
+  const url = `/app?n=c:${f.server.id}:${f.channel.id}`;
+  const who = author?.displayName || 'Someone';
+  const where = `${f.server.name} \u00b7 #${f.channel.name}`;
+  const sent = new Set([uid]);
+  const look = {
+    sender: who, icon: imgPath(f.server.iconImage) || imgPath(author?.avatarImage), theme: f.server.theme || undefined,
+    serverId: f.server.id, channelId: f.channel.id, msgId: msg.id, read: true,
+    reply: typeOf(f.channel) === 'announcements' ? undefined : 'inline',
+  };
+  // Each person's own settings for this server decide whether it may alert them (mute, mentions only, @everyone off, ...).
+  const to = (id, k, how, what) => {
+    if (sent.has(id) || !f.server.members.includes(id)) return;
+    if (!np.decide(uidPrefs(id, f.server.id), f.channel.id, how, now()).alert) return;
+    sent.add(id); pushSafe(id, k, { title: who, body: `${where}${what}\n${preview}`, url, tag: 'm:' + msg.id, ...look });
+  };
+  for (const id of msg.mentions || []) to(id, 'mention', 'mention', ' \u00b7 mentioned you');
+  if (msg.everyone) for (const id of f.server.members) to(id, 'mention', 'everyone', ' \u00b7 @everyone');
+  if (kind === 'announcements') for (const id of f.server.members) to(id, 'announcement', 'announcement', ' \u00b7 announcement');
 }
 
 io.on('connection', (socket) => {
@@ -2701,25 +2782,6 @@ io.on('connection', (socket) => {
     return m && check(m) ? replyTo : null;
   };
 
-  // Phone / closed-app notifications: only for things aimed at someone (a mention, @everyone, an announcement), never every chat line.
-  const pushChannelMessage = (f, msg, kind) => {
-    const author = db().users[uid];
-    const preview = clip(msg.content.replace(MENTION_TOKEN, '@someone'), 120) || 'Sent an attachment';
-    const url = `/app?n=c:${f.server.id}:${f.channel.id}`;
-    const who = author?.displayName || 'Someone';
-    const where = `${f.server.name} \u00b7 #${f.channel.name}`;
-    const sent = new Set([uid]);
-    // Each person's own settings for this server decide whether it may alert them (mute, mentions only, @everyone off, ...).
-    const to = (id, k, how, title, body) => {
-      if (sent.has(id) || !f.server.members.includes(id)) return;
-      if (!np.decide(uidPrefs(id, f.server.id), f.channel.id, how, now()).alert) return;
-      sent.add(id); pushSafe(id, k, { title, body, url, tag: 'm:' + msg.id });
-    };
-    for (const id of msg.mentions || []) to(id, 'mention', 'mention', `${who} mentioned you in ${where}`, preview);
-    if (msg.everyone) for (const id of f.server.members) to(id, 'mention', 'everyone', `${who} pinged everyone in ${where}`, preview);
-    if (kind === 'announcements') for (const id of f.server.members) to(id, 'announcement', 'announcement', where, preview);
-  };
-
   socket.on('message:send', async (p, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!allowed()) return reply({ error: 'Slow down' });
@@ -2750,7 +2812,7 @@ io.on('connection', (socket) => {
     io.to('channel:' + f.channel.id).emit('message:new', msg);
     // Announcements notify everyone in the server, whichever channel they are looking at.
     if (kind === 'announcements') io.to('server:' + f.server.id).emit('announcement:new', { serverId: f.server.id, channelId: f.channel.id, messageId: msg.id, authorId: uid });
-    pushChannelMessage(f, msg, kind);
+    pushChannelMessage(f, msg, kind, uid);
     reply({ ok: true });
     if (kind === 'text') dispatchBots(f.server, 'message', { channel: f.channel, msg, author: db().users[uid] }); // after the ack: bots never slow a send down
   });
@@ -2787,7 +2849,8 @@ io.on('connection', (socket) => {
     store.save();
     io.to('user:' + uid).to('user:' + to.id).emit('dm:new', msg);
     // end-to-end encrypted: the server cannot read it, so the notification only says who wrote
-    pushSafe(to.id, 'dm', { title: db().users[uid]?.displayName || 'Someone', body: 'Sent you a message', url: `/app?n=d:${uid}`, tag: 'm:' + msg.id });
+    pushSafe(to.id, 'dm', { title: db().users[uid]?.displayName || 'Someone', body: 'Sent you a message', url: `/app?n=d:${uid}`, tag: 'm:' + msg.id,
+      sender: db().users[uid]?.displayName, icon: imgPath(db().users[uid]?.avatarImage), peerId: uid, msgId: msg.id, reply: 'open', read: true });
     reply({ ok: true });
   });
 
@@ -2838,7 +2901,9 @@ io.on('connection', (socket) => {
       msg.editedAt = now();
       store.save();
       io.to('channel:' + msg.channelId).emit('message:edited', { kind: 'channel', message: msg });
-      return reply({ ok: true });
+      reply({ ok: true });
+      if (typeOf(f.channel) === 'text') dispatchBots(f.server, 'messageEdit', { channel: f.channel, msg, author: db().users[uid] });
+      return;
     }
     if (p?.kind === 'dm') {
       const msg = db().dms[p.messageId];
@@ -2905,7 +2970,7 @@ io.on('connection', (socket) => {
     c.timer = setTimeout(() => { if (c.state === 'ringing') endCall(c, 'missed'); }, RING_MS);
     calls.set(c.id, c);
     io.to('user:' + to.id).emit('call:incoming', { callId: c.id, from: uid, video: c.video });
-    pushSafe(to.id, 'call', { title: `${db().users[uid]?.displayName || 'Someone'} is calling`, body: `Incoming ${c.video ? 'video' : 'voice'} call`, url: `/app?n=d:${uid}`, tag: 'call' });
+    pushSafe(to.id, 'call', { title: `${db().users[uid]?.displayName || 'Someone'} is calling`, body: `Incoming ${c.video ? 'video' : 'voice'} call`, url: `/app?n=d:${uid}`, tag: 'call', sender: db().users[uid]?.displayName, icon: imgPath(db().users[uid]?.avatarImage) });
     reply({ ok: true, callId: c.id });
   });
 
@@ -3007,6 +3072,7 @@ async function start() {
   await store.pruneFiles(referencedFiles());
   await runCleanup(); // also clear out anything that expired while the server was off
   setInterval(runCleanup, 3600_000).unref();
+  if (process.env.NODE_ENV !== 'test') botHost.startTimers(); // due bot timers are looked for every few seconds (tests call botHost.tick() themselves)
 }
 const ready = start();
 
@@ -3016,7 +3082,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, ready, loginGuard, store }; // loginGuard, store: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, ready, loginGuard, store, botHost, fetcher }; // loginGuard, store: for the tests
 
 
 /* HANDOFF: see HANDOFF.md in the project root for what this server does, what is done, and what is left. */

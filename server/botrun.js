@@ -6,13 +6,17 @@
 //  - only channels the server admin allowed for that bot (install.channels, null = every text channel);
 //  - a bot cannot ping anyone except the person whose message or join it is answering, and never @everyone;
 //  - replies only point at messages of the same channel.
-// And the Guard keeps the budget: events per minute per bot per server, messages per minute, CPU time per bot, and a pause after
+//  - reactions go only on messages of a channel the install may read, with an emoji that exists (the host's emojiOk);
+//  - outside requests (fetch) are only passed on if botfetch.js accepts the address; the answer comes back later as a 'fetch' event.
+// And the Guard keeps the budget: events per minute per bot per server, messages, reactions and fetches per minute, CPU time per bot, and a pause after
 // repeated timeouts (each timeout costs the host a worker restart, so a bot that keeps timing out is switched off for a while).
 
 const LIMITS = {
   perServer: 10,            // bots in one server
   eventsPerMin: 30,         // events delivered to one bot in one server per minute
   messagesPerMin: 20,       // messages one bot may post in one server per minute
+  reactionsPerMin: 30,      // reactions one bot may add in one server per minute
+  fetchesPerMin: 10,        // outside requests one bot may start in one server per minute
   cpuMsPerMin: 3000,        // sandbox time one bot may use per minute, across all servers
   timeoutStrikes: 3,        // timeouts / out-of-memory runs in a row before the bot is paused
   pauseMs: 5 * 60_000,      // how long the pause lasts (saving the code lifts it)
@@ -39,9 +43,34 @@ function messagePayload({ msg, author, botUserId }) {
 }
 // memberJoin = { serverId, user: { id, username, displayName, bot }, channels: [{ id, name }] }  (the text channels this bot may write in)
 function joinPayload({ server, user, install }) {
-  const channels = (server.channels || []).filter((c) => channelAllowed(install, c)).slice(0, LIMITS.channelsInPayload).map((c) => ({ id: c.id, name: c.name }));
-  return { serverId: server.id, user: person(user), channels };
+  return { serverId: server.id, user: person(user), channels: writableChannels(server, install) };
 }
+
+// messageEdit: the same shape as a message, plus when it was edited (an edit never pings and the bot may answer it like any message)
+function editPayload({ msg, author, botUserId }) { return { ...messagePayload({ msg, author, botUserId }), editedAt: msg.editedAt || null }; }
+// memberLeave: reason is 'left' or 'kicked'. The person is already out of the server; mention tokens for them no longer ping.
+function leavePayload({ server, user, install, reason }) {
+  return { serverId: server.id, user: person(user), reason: reason === 'kicked' ? 'kicked' : 'left', channels: writableChannels(server, install) };
+}
+// install: the bot was just added to this server (by: the person who added it)
+function installPayload({ server, install, by }) {
+  return { serverId: server.id, serverName: String(server.name || ''), by: by ? person(by) : null, channels: writableChannels(server, install) };
+}
+// timer: data is whatever JSON the bot attached when it asked for the timer
+function timerPayload({ server, install, timer, firedAt }) {
+  let data = null; if (typeof timer.data === 'string') { try { data = JSON.parse(timer.data); } catch { data = null; } }
+  return { serverId: server.id, name: timer.name, kind: timer.kind, data, firedAt, channels: writableChannels(server, install) };
+}
+// fetch: the answer to bot.fetch(url, name). result is what botfetch.js returned; json is null when the body was not JSON or was too big.
+function fetchPayload({ server, install, request, result }) {
+  const r = result || {};
+  return {
+    serverId: server.id, name: request.name || 'fetch', url: request.url, ok: !!r.ok, status: Number(r.status) || 0,
+    text: typeof r.text === 'string' ? r.text : '', json: r.json === undefined ? null : r.json, truncated: !!r.truncated, error: r.error || null,
+    channels: writableChannels(server, install),
+  };
+}
+const writableChannels = (server, install) => (server.channels || []).filter((c) => channelAllowed(install, c)).slice(0, LIMITS.channelsInPayload).map((c) => ({ id: c.id, name: c.name }));
 
 // ---------- what a bot's actions may do ----------
 // actions: what the sandbox collected. replyOk(channelId, messageId) -> messageId | null.
@@ -64,12 +93,49 @@ function planActions({ actions, server, install, mentionUserId, replyOk, maxText
   return { send, dropped };
 }
 
+// Reactions: [{ messageId, emoji }] -> { react: [{ msg, emoji }], dropped }. messageOf(id) -> message | null; emojiOk(emoji) -> bool.
+// A bot reacts only to messages in a text channel of THIS server that its install may read (so not to DMs, other servers or hidden channels).
+function planReactions({ actions, server, install, messageOf, emojiOk }) {
+  const react = [], dropped = [], seen = new Set();
+  for (const a of Array.isArray(actions) ? actions : []) {
+    if (!a || typeof a.messageId !== 'string' || typeof a.emoji !== 'string') { dropped.push('malformed reaction'); continue; }
+    const msg = messageOf(a.messageId);
+    const channel = msg && (server.channels || []).find((c) => c.id === msg.channelId);
+    if (!msg || !channel || msg.serverId !== server.id) { dropped.push('reaction: unknown message'); continue; }
+    if (!channelAllowed(install, channel)) { dropped.push(`reaction: not allowed in #${channel.name}`); continue; }
+    if (!emojiOk(a.emoji)) { dropped.push(`reaction: "${String(a.emoji).slice(0, 12)}" is not an emoji`); continue; }
+    const key = msg.id + '|' + a.emoji;
+    if (seen.has(key)) continue; seen.add(key);
+    react.push({ msg, emoji: a.emoji });
+  }
+  return { react, dropped };
+}
+
+// Fetches: [{ url, name }] -> { fetch: [{ url, name }], dropped }. check(url) is botfetch's checkUrl: { url } or { error }. The first
+// `perRun` are kept (botfetch.LIMITS.perRun), the name must look like a timer name so the answer can be told apart.
+const FETCH_NAME = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,31}$/;
+function planFetches({ actions, check, perRun = 3 }) {
+  const out = [], dropped = [];
+  for (const a of Array.isArray(actions) ? actions : []) {
+    if (!a || typeof a.url !== 'string') { dropped.push('malformed fetch'); continue; }
+    if (out.length >= perRun) { dropped.push(`fetch: more than ${perRun} in one event`); continue; }
+    const name = typeof a.name === 'string' && a.name ? a.name : 'fetch';
+    if (!FETCH_NAME.test(name)) { dropped.push('fetch: bad name (1 to 32 letters, numbers, _ . : -)'); continue; }
+    const c = check(a.url);
+    if (c.error) { dropped.push('fetch: ' + c.error); continue; }
+    out.push({ url: c.url, name });
+  }
+  return { fetch: out, dropped };
+}
+
 // ---------- limits ----------
 class Guard {
   constructor({ now = Date.now, limits = {} } = {}) {
     this.now = now; this.L = { ...LIMITS, ...limits };
     this.events = new Map();   // `${botId}:${serverId}` -> [timestamps]
     this.sent = new Map();     // `${botId}:${serverId}` -> [timestamps]
+    this.reacted = new Map();  // same, for reactions
+    this.fetched = new Map();  // same, for outside requests
     this.cpu = new Map();      // botId -> [{ t, ms }]
     this.strikes = new Map();  // botId -> consecutive timeouts
     this.paused = new Map();   // botId -> until
@@ -101,14 +167,17 @@ class Guard {
     } else this.strikes.delete(botId);
     return { paused: false };
   }
-  // How many of `n` messages may this bot post in this server right now? Counts what it takes.
-  takeMessages(botId, serverId, n) {
-    const key = botId + ':' + serverId, list = this.#recent(this.sent, key);
-    const room = Math.max(0, Math.min(n, this.L.messagesPerMin - list.length));
+  // How many of `n` things may this bot do in this server right now? Counts what it takes.
+  #take(map, cap, botId, serverId, n) {
+    const key = botId + ':' + serverId, list = this.#recent(map, key);
+    const room = Math.max(0, Math.min(n, cap - list.length));
     const t = this.now(); for (let i = 0; i < room; i++) list.push(t);
-    if (list.length) this.sent.set(key, list);
+    if (list.length) map.set(key, list);
     return room;
   }
+  takeMessages(botId, serverId, n) { return this.#take(this.sent, this.L.messagesPerMin, botId, serverId, n); }
+  takeReactions(botId, serverId, n) { return this.#take(this.reacted, this.L.reactionsPerMin, botId, serverId, n); }
+  takeFetches(botId, serverId, n) { return this.#take(this.fetched, this.L.fetchesPerMin, botId, serverId, n); }
   resume(botId) { this.paused.delete(botId); this.strikes.delete(botId); this.cpu.delete(botId); }
   // The developer's run history (memory only; a restart empties it).
   log(botId, entry) {
@@ -120,8 +189,8 @@ class Guard {
   logs(botId) { return (this.journal.get(botId) || []).slice().reverse(); }
   forget(botId) {
     for (const m of [this.cpu, this.strikes, this.paused, this.journal]) m.delete(botId);
-    for (const m of [this.events, this.sent]) for (const k of [...m.keys()]) if (k.startsWith(botId + ':')) m.delete(k);
+    for (const m of [this.events, this.sent, this.reacted, this.fetched]) for (const k of [...m.keys()]) if (k.startsWith(botId + ':')) m.delete(k);
   }
 }
 
-module.exports = { LIMITS, Guard, channelAllowed, messagePayload, joinPayload, planActions, MENTION_TOKEN };
+module.exports = { LIMITS, Guard, channelAllowed, messagePayload, editPayload, joinPayload, leavePayload, installPayload, timerPayload, fetchPayload, planActions, planReactions, planFetches, MENTION_TOKEN };

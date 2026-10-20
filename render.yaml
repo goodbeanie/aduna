@@ -67,5 +67,10 @@ services:
       - key: FCM_SERVICE_ACCOUNT
         sync: false
       # your site's public address, used for Stripe's return links (default: taken from the request)
+      # Calls and voice relay (TURN). Easiest: Cloudflare Realtime > TURN > create a key (see README > Calls).
+      - key: CF_TURN_KEY_ID
+        sync: false
+      - key: CF_TURN_API_TOKEN
+        sync: false
       - key: PUBLIC_URL
         sync: false

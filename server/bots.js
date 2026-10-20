@@ -1,7 +1,7 @@
 // Bot records: validation, code checks, views and search (no Express, no database: tested by bots-logic-test.js).
 //
 // A bot is a small JavaScript program a developer writes and Aduna runs in a sandbox (the runtime is NOT in this file; see HANDOFF.md).
-// bots[id] = { id, ownerId, name, description, tags, visibility: 'private'|'public', code, createdAt, updatedAt, installs: [serverId],
+// bots[id] = { id, ownerId, name, description, tags, avatarImage (image id or null), visibility: 'private'|'public', code, createdAt, updatedAt, installs: [serverId],
 //              reports: [...], listingHold }
 // "private" = only its developer can install it; "public" = listed on the Bots tab in the explorer and anyone can add it to a server
 // they manage.
@@ -67,7 +67,7 @@ function botView(b, viewerId, users = {}) {
   const view = {
     id: b.id, name: b.name, description: b.description || '', tags: b.tags || [], visibility: b.visibility,
     developer: o ? { id: o.id, username: o.username, displayName: o.displayName } : null,
-    installs: (b.installs || []).length, createdAt: b.createdAt, mine: b.ownerId === viewerId,
+    avatarImage: b.avatarImage || null, installs: (b.installs || []).length, createdAt: b.createdAt, mine: b.ownerId === viewerId,
   };
   if (b.ownerId === viewerId) { view.code = b.code; view.review = b.listingHold ? b.listingHold.state : null; }
   return view;

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Avatar, Icon } from './ui.jsx';
-import { api, emitAck } from './api.js';
+import { emitAck } from './api.js';
+import { getIce } from './rtc.js';
 
 // Voice channels. Everyone in a channel connects directly to everyone else (WebRTC mesh, audio only),
 // so it suits small groups (the server allows 8). The server keeps the list of who is in a channel and
@@ -13,12 +14,13 @@ export function useVoice({ socketRef, ready }) {
   const [members, setMembers] = useState({}); // channelId -> [userId], for the whole server list
   const [remote, setRemote] = useState({});   // userId -> MediaStream (rendered by <VoiceAudio>)
   const sRef = useRef(IDLE);
-  const rt = useRef({ local: null, peers: new Map(), ice: null });
+  const rt = useRef({ local: null, peers: new Map() });
   const set = (patch) => { sRef.current = { ...sRef.current, ...patch }; setState(sRef.current); };
 
   const closePeer = (id) => {
     const p = rt.current.peers.get(id);
     if (!p) return;
+    clearTimeout(p.timer);
     try { p.pc.close(); } catch { /* already closed */ }
     rt.current.peers.delete(id);
     setRemote((r) => { if (!(id in r)) return r; const n = { ...r }; delete n[id]; return n; });
@@ -34,18 +36,40 @@ export function useVoice({ socketRef, ready }) {
   async function makePeer(id, initiator) {
     const r = rt.current;
     if (r.peers.has(id)) closePeer(id);
-    if (!r.ice) {
-      r.ice = [{ urls: 'stun:stun.l.google.com:19302' }];
-      try { r.ice = (await api('/call/config')).iceServers; } catch { /* keep the fallback */ }
-    }
+    const { servers } = await getIce(); // STUN + TURN from the server (public STUN if it cannot be reached)
     const channelId = sRef.current.channelId;
-    const pc = new RTCPeerConnection({ iceServers: r.ice });
-    const peer = { pc, queued: [], haveRemote: false };
+    const pc = new RTCPeerConnection({ iceServers: servers });
+    const peer = { pc, queued: [], haveRemote: false, initiator, restarts: 0, timer: 0 };
     r.peers.set(id, peer);
     const send = (data) => socketRef.current?.emit('voice:signal', { channelId, to: id, data });
+    const alive = () => r.peers.get(id) === peer;
+    // The side that made the first offer looks for a new path (fresh credentials, ICE restart); the other side waits for it.
+    const restart = async () => {
+      if (!initiator || !alive() || peer.restarts >= 3) return false;
+      peer.restarts += 1;
+      const { servers: fresh } = await getIce({ fresh: true });
+      try { pc.setConfiguration({ ...pc.getConfiguration(), iceServers: fresh }); } catch { /* keep the old list */ }
+      await pc.setLocalDescription(await pc.createOffer({ iceRestart: true }));
+      send({ description: pc.localDescription, restart: true });
+      return true;
+    };
+    // Give up on this peer if it has not come back after a while (the other side's restart offer would replace the timer).
+    const giveUpSoon = (ms) => { clearTimeout(peer.timer); peer.timer = setTimeout(() => { if (alive() && pc.connectionState !== 'connected') closePeer(id); }, ms); };
+    const recover = () => {
+      if (!initiator) { giveUpSoon(20000); return; }       // wait for the other side's restart offer
+      restart().then((ok) => { if (ok) giveUpSoon(20000); else closePeer(id); }).catch(() => closePeer(id));
+    };
     pc.onicecandidate = (e) => { if (e.candidate) send({ candidate: e.candidate }); };
     pc.ontrack = (e) => setRemote((m) => ({ ...m, [id]: e.streams[0] || new MediaStream([e.track]) }));
-    pc.onconnectionstatechange = () => { if (pc.connectionState === 'failed') closePeer(id); };
+    pc.onconnectionstatechange = () => {
+      const st = pc.connectionState;
+      if (st === 'connected') { peer.restarts = 0; clearTimeout(peer.timer); }
+      else if (st === 'disconnected') {
+        // often heals on its own within a few seconds
+        clearTimeout(peer.timer);
+        peer.timer = setTimeout(() => { if (alive() && pc.connectionState === 'disconnected') recover(); }, 3000);
+      } else if (st === 'failed') { clearTimeout(peer.timer); recover(); }
+    };
     r.local?.getTracks().forEach((t) => pc.addTrack(t, r.local));
     if (initiator) {
       await pc.setLocalDescription(await pc.createOffer());
@@ -58,7 +82,12 @@ export function useVoice({ socketRef, ready }) {
     if (channelId !== sRef.current.channelId) return;
     try {
       let peer = rt.current.peers.get(from);
-      if (data.description?.type === 'offer') {
+      if (data.description?.type === 'offer' && data.restart && peer && peer.pc.signalingState === 'stable') {
+        // the other side is looking for a new network path: answer on the same connection (keeps the audio and its encryption keys)
+        await peer.pc.setRemoteDescription(data.description);
+        await peer.pc.setLocalDescription(await peer.pc.createAnswer());
+        socketRef.current?.emit('voice:signal', { channelId, to: from, data: { description: peer.pc.localDescription } });
+      } else if (data.description?.type === 'offer') {
         peer = await makePeer(from, false);
         await peer.pc.setRemoteDescription(data.description);
         peer.haveRemote = true;

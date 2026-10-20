@@ -105,7 +105,21 @@ Limits: the whole dataset is held in memory and written through on change, so **
 4. In the service's Environment tab set `DATABASE_URL` and `DB_ENCRYPTION_KEY` (and `NODE_ENV=production`, already in the blueprint).
 5. Deploy. Render's free tier sleeps after inactivity (first request takes about a minute to wake), which also drops live sockets; the data is safe in Neon. Neon's free compute also pauses when idle and wakes on the first query.
 
-Calls: add a TURN server via `ICE_SERVERS` if calls fail between some networks.
+Calls and voice: add a TURN relay, otherwise they fail between some networks. See **Calls: TURN relay** below.
+
+## Calls: TURN relay
+Set up ONE of these on the server (checked in this order). `GET /api/call/config` returns the result to signed-in users; the response has `relay: true` when a relay is configured.
+
+1. **Cloudflare Realtime TURN (easiest, and you already use Cloudflare for R2).** Cloudflare dashboard > Realtime > TURN Server > create a key. Set `CF_TURN_KEY_ID` and `CF_TURN_API_TOKEN` (the token is shown once). The server mints short-lived credentials from it and caches them; the token never reaches the browser.
+2. **Your own coturn.** Run coturn with `use-auth-secret` and `static-auth-secret=<secret>`, then set `TURN_URLS` (comma separated, e.g. `turn:turn.example.com:3478?transport=udp,turns:turn.example.com:443?transport=tcp`) and `TURN_SECRET`. Credentials are generated per user and expire.
+3. **A fixed login** (Metered, Twilio static, etc.): `TURN_URLS`, `TURN_USERNAME`, `TURN_CREDENTIAL`.
+4. **Raw JSON** (the old setting): `ICE_SERVERS='[{"urls":"turn:...","username":"..","credential":".."}]'`.
+
+`TURN_TTL_SECONDS` (default 86400) is how long credentials last; keep it longer than your longest call, because TURN rechecks the login while a call is running. In production the server logs a warning once if no relay is set up.
+
+How a dropped connection is handled: if the path breaks (Wi-Fi to mobile, a short outage) both calls and voice wait a few seconds, then ask for fresh credentials and look for a new route (an ICE restart), up to 3 times, before giving up. If a call cannot connect and no relay is configured, the message says so.
+
+To check it works: open a call between two devices on different networks (one on mobile data). In Chrome, `chrome://webrtc-internals` shows a `relay` candidate pair when TURN was needed.
 
 ## Cloudflare R2 for images and files (optional)
 
@@ -142,7 +156,7 @@ In **Edit profile**, choose *Upload image* for the profile picture and/or the ba
 
 - 1:1 only, between friends, who must both be online. One call at a time per person. Unanswered calls stop ringing after 45 s (`CALL_RING_MS`).
 - The server rings, tracks who is on a call and relays signalling. The offer, answer and ICE candidates are encrypted in the browser with the conversation key, so the server cannot read or tamper with them. Audio and video go directly between the two browsers, encrypted by WebRTC (DTLS-SRTP).
-- By default the browsers use Google's public STUN server to find each other. Set `ICE_SERVERS` to a JSON list (for example `[{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]`) to use your own STUN/TURN. **Without a TURN server, calls fail between some networks** (strict NATs, some mobile and corporate networks). Running coturn is the usual fix.
+- The browsers find each other with public STUN servers. **Without a TURN relay, calls and voice channels fail between some networks** (strict NATs, many mobile carriers, school and office firewalls). See **Calls: TURN relay** below.
 - The camera and microphone need https or localhost. Both people see each other's IP address, as in any peer-to-peer call.
 - Not built yet: group and voice-channel calls, call history messages in the DM, push notifications for calls when the tab is closed.
 

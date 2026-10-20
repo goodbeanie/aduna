@@ -117,4 +117,55 @@ const server = {
   step('guard: bounded log, forget');
 }
 
+// ----- reactions, fetches, new payloads, new budgets -----
+{
+  const msgs = { m1: { id: 'm1', channelId: 'gen', serverId: 's1' }, mt: { id: 'mt', channelId: 'txt', serverId: 's1' }, mv: { id: 'mv', channelId: 'vc', serverId: 's1' }, mo: { id: 'mo', channelId: 'gen', serverId: 's2' } };
+  const messageOf = (id) => (Object.prototype.hasOwnProperty.call(msgs, id) ? msgs[id] : null);
+  const emojiOk = (e) => e === '👍' || e === 'c:' + 'a'.repeat(16);
+  const run = (actions, install = {}) => b.planReactions({ actions, server, install, messageOf, emojiOk });
+  let r = run([{ messageId: 'm1', emoji: '👍' }, { messageId: 'mt', emoji: 'c:' + 'a'.repeat(16) }, { messageId: 'm1', emoji: '👍' }]);
+  assert.deepStrictEqual(r.react.map((x) => x.msg.id + x.emoji), ['m1👍', 'mtc:' + 'a'.repeat(16)], 'duplicates inside one run collapse');
+  r = run([{ messageId: 'mv', emoji: '👍' }, { messageId: 'mo', emoji: '👍' }, { messageId: 'nope', emoji: '👍' }, { messageId: '__proto__', emoji: '👍' }, { messageId: 'm1', emoji: 'word' }, { messageId: 'm1' }, null, 'x']);
+  assert.deepStrictEqual([r.react.length, r.dropped.length], [0, 8], JSON.stringify(r.dropped));
+  r = run([{ messageId: 'm1', emoji: '👍' }, { messageId: 'mt', emoji: '👍' }], { channels: ['txt'] });
+  assert.deepStrictEqual(r.react.map((x) => x.msg.id), ['mt'], 'the install allow-list applies to reactions');
+  step('planReactions: this server, text channels the bot may read, real emoji only');
+}
+{
+  const check = (u) => (/^https:\/\/api\.github\.com\//.test(u) ? { url: u } : { error: 'not on the list' });
+  let r = b.planFetches({ actions: [{ url: 'https://api.github.com/a', name: 'a' }, { url: 'https://evil.com/', name: 'e' }, { url: 'https://api.github.com/b' }, { url: 'https://api.github.com/c', name: 'bad name' }, { url: 'https://api.github.com/d', name: 'd' }, { url: 'https://api.github.com/e', name: 'e2' }], check });
+  assert.deepStrictEqual(r.fetch, [{ url: 'https://api.github.com/a', name: 'a' }, { url: 'https://api.github.com/b', name: 'fetch' }, { url: 'https://api.github.com/d', name: 'd' }], JSON.stringify(r));
+  assert.strictEqual(r.dropped.length, 3, JSON.stringify(r.dropped));
+  assert.strictEqual(b.planFetches({ actions: [{ nourl: 1 }, null], check }).fetch.length, 0);
+  step('planFetches: allow-list check, names, three per event');
+}
+{
+  const user = { id: U1, username: 'ann', displayName: 'Ann', bot: false };
+  const inst = { channels: ['txt'] };
+  const j = b.joinPayload({ server, user, install: inst }), l = b.leavePayload({ server, user, install: inst, reason: 'kicked' }), l2 = b.leavePayload({ server, user, install: inst, reason: 'whatever' });
+  assert.deepStrictEqual([j.channels, l.channels, l.reason, l2.reason], [[{ id: 'txt', name: 'chat' }], [{ id: 'txt', name: 'chat' }], 'kicked', 'left']);
+  const ip = b.installPayload({ server: { ...server, name: 'Home' }, install: {}, by: user });
+  assert.deepStrictEqual([ip.serverName, ip.by.username, ip.channels.map((c) => c.id)], ['Home', 'ann', ['gen', 'txt']]);
+  const tp = b.timerPayload({ server, install: {}, timer: { name: 'beat', kind: 'every', data: '{"n":1}' }, firedAt: 5 });
+  assert.deepStrictEqual([tp.name, tp.data, tp.firedAt], ['beat', { n: 1 }, 5]);
+  assert.strictEqual(b.timerPayload({ server, install: {}, timer: { name: 'x', kind: 'after', data: 'junk' }, firedAt: 1 }).data, null);
+  const fp = b.fetchPayload({ server, install: {}, request: { name: 'stars', url: 'https://api.github.com/x' }, result: { ok: true, status: 200, text: 'hi', json: { a: 1 }, truncated: false } });
+  assert.deepStrictEqual([fp.name, fp.ok, fp.json, fp.error], ['stars', true, { a: 1 }, null]);
+  const fe = b.fetchPayload({ server, install: {}, request: { url: 'u' }, result: { ok: false, status: 0, error: 'No answer' } });
+  assert.deepStrictEqual([fe.name, fe.ok, fe.text, fe.json, fe.error], ['fetch', false, '', null, 'No answer']);
+  const ep = b.editPayload({ msg: { id: 'm', channelId: 'gen', serverId: 's1', content: 'x', editedAt: 9, mentions: [] }, author: user, botUserId: null });
+  assert.deepStrictEqual([ep.text, ep.editedAt], ['x', 9]);
+  step('payload shapes: join, leave, install, timer, fetch, edit');
+}
+{
+  let t = 0; const g = new b.Guard({ now: () => t, limits: { reactionsPerMin: 3, fetchesPerMin: 2, messagesPerMin: 4 } });
+  assert.deepStrictEqual([g.takeReactions('b', 's1', 2), g.takeReactions('b', 's1', 5), g.takeReactions('b', 's1', 1)], [2, 1, 0]);
+  assert.deepStrictEqual([g.takeFetches('b', 's1', 5), g.takeFetches('b', 's1', 1)], [2, 0]);
+  assert.strictEqual(g.takeMessages('b', 's1', 9), 4, 'kinds do not share a budget');
+  assert.strictEqual(g.takeReactions('b', 's2', 1), 1, 'budgets are per server');
+  t += 61_000; assert.deepStrictEqual([g.takeReactions('b', 's1', 3), g.takeFetches('b', 's1', 2)], [3, 2], 'a minute later the budgets are back');
+  g.forget('b'); assert.strictEqual(g.takeFetches('b', 's1', 2), 2);
+  step('guard: separate per-minute budgets for messages, reactions and fetches');
+}
+
 console.log('\nAll bot runtime checks passed.');

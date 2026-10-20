@@ -76,7 +76,8 @@ export function registration() {
 // In the desktop app the window itself says whether it is visible and in front (it may be hidden in the tray, where the page is kept running).
 export const away = () => { const d = desktop(); return d?.isActive ? !d.isActive() : document.hidden || !document.hasFocus(); };
 
-// Show one notification. n: { title, body, tag, target ('c:<serverId>:<channelId>' | 'd:<userId>' | 'f'), kind ('dm' | 'mention' | 'announcement' | 'call' | 'friend'), sticky }
+// Show one notification. n: { title, body, tag, target ('c:<serverId>:<channelId>' | 'd:<userId>' | 'f'), kind ('dm' | 'mention' | 'announcement' | 'call' | 'friend'), sticky,
+//   and for the look: sender (name), icon ('/api/images/<id>'), theme ({ dark, bg, accent } of a server), serverId, channelId, peerId, msgId, reply ('inline' | 'open'), read (true) }
 // Safe to call whenever: does nothing unless notifications are allowed.
 export async function show(n) {
   try {
@@ -87,6 +88,12 @@ export async function show(n) {
     if (d) { d.notify({ title: n.title, body: n.body || '', tag: n.tag || '', target: n.target || '', kind: n.kind || '', sticky: !!n.sticky }); return; }
     const opts = { body: n.body || '', tag: n.tag, icon: '/notif-icon-192.png', badge: '/icon-192.png', data: { url }, requireInteraction: !!n.sticky };
     const reg = await registration();
+    // The service worker draws it (picture on a themed tile, Reply / Mark as read buttons), the same way as a pushed one. See sw.js present().
+    if (reg?.active) {
+      reg.active.postMessage({ type: 'aduna:show', d: { kind: n.kind || '', title: n.title, body: n.body || '', tag: n.tag, url, sticky: !!n.sticky,
+        sender: n.sender, icon: n.icon, theme: n.theme, serverId: n.serverId, channelId: n.channelId, peerId: n.peerId, msgId: n.msgId, reply: n.reply, read: n.read } });
+      return;
+    }
     if (reg) { await reg.showNotification(n.title, opts); return; }
     const x = new Notification(n.title, opts);
     x.onclick = () => { window.focus(); window.dispatchEvent(new CustomEvent('aduna:open', { detail: n.target || '' })); x.close(); };

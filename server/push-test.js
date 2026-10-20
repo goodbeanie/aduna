@@ -1,6 +1,6 @@
 // Tests for server/push.js (no database needed): node server/push-test.js
 const assert = require('assert');
-const { createPush, cleanPrefs, cleanSub, DEFAULT_PREFS } = require('./push');
+const { createPush, cleanLook, cleanPrefs, cleanSub, DEFAULT_PREFS } = require('./push');
 
 const goodSub = (n = 1) => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/' + n, keys: { p256dh: 'BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM', auth: 'tBHItJI5svbpez7KI4CCXg' } });
 
@@ -42,7 +42,7 @@ assert.deepStrictEqual(cleanPrefs({ calls: false }, { ...DEFAULT_PREFS, dm: fals
 
   calls = [];
   assert.strictEqual(await push.send('a', 'mention', { title: 'T'.repeat(300), body: 'B'.repeat(500), url: '/app?n=d:b', tag: 'm:1' }), 1);
-  assert.ok(calls[0].body.title.length <= 80 && calls[0].body.body.length <= 160, 'payload text is clipped');
+  assert.ok(calls[0].body.title.length <= 80 && calls[0].body.body.length <= 240, 'payload text is clipped');
   assert.strictEqual(calls[0].body.url, '/app?n=d:b');
   assert.strictEqual(calls[0].opts.urgency, 'high');
 
@@ -91,6 +91,25 @@ assert.deepStrictEqual(cleanPrefs({ calls: false }, { ...DEFAULT_PREFS, dm: fals
   // off switch
   const off = createPush({ users: () => users, save() {}, enabled: false, sender: async () => { throw new Error('should not send'); } });
   assert.strictEqual(await off.send('a', 'mention', { title: 'x', body: 'y' }), 0);
+
+
+  // look + buttons: only well-formed values reach the service worker
+  {
+    const good = cleanLook({ icon: '/api/images/abc123_-X', sender: 'Alice', theme: { dark: true, bg: '#101010', accent: '#ffcc00' }, serverId: 's1', channelId: 'c1', peerId: 'u2', msgId: 'm9', reply: 'inline', read: true });
+    assert.deepStrictEqual(good, { icon: '/api/images/abc123_-X', sender: 'Alice', theme: { dark: true, bg: '#101010', accent: '#ffcc00' }, serverId: 's1', channelId: 'c1', peerId: 'u2', msgId: 'm9', reply: 'inline', read: true });
+    const bad = cleanLook({ icon: 'https://evil.example/x.png', theme: { dark: 'yes', bg: 'red', accent: '#fff' }, serverId: '../x', channelId: 'a b', msgId: 5, reply: 'send-everything', read: 'yes' });
+    assert.deepStrictEqual(bad, {}, 'foreign icon, bad theme, bad ids, unknown reply mode and non-true read are all dropped');
+    assert.strictEqual(cleanLook({ icon: '/api/images/../../etc/passwd' }).icon, undefined);
+    assert.strictEqual(cleanLook({ sender: 'x'.repeat(100) }).sender.length, 40);
+    const seen = [];
+    const lp = createPush({ users: () => users, save() {}, enabled: true, sender: async (sub, body) => { seen.push(JSON.parse(body)); } });
+    users.a.status = 'online';
+    assert.ok(lp.add(users.a, goodSub(77), 'UA'));
+    users.a.notifPrefs = undefined;
+    await lp.send('a', 'mention', { title: 'Alice', body: 'Server \u00b7 #general\nhello', url: '/app?n=c:s1:c1', tag: 'm:1', icon: '/api/images/abc123', serverId: 's1', channelId: 'c1', reply: 'inline', read: true });
+    assert.ok(seen.length && seen[0].icon === '/api/images/abc123' && seen[0].reply === 'inline' && seen[0].read === true && seen[0].channelId === 'c1');
+    assert.ok(seen[0].body.includes('hello'), 'a two-line body is kept');
+  }
 
   // remove
   push.remove(users.a, goodSub(1).endpoint);

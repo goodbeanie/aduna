@@ -74,6 +74,7 @@ const sub = (n) => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/secret-endp
   assert.strictEqual(got[0].body, 'Sent you a message'); assert.ok(!JSON.stringify(got[0]).includes('SECRETCIPHERTEXT'));
   assert.strictEqual(got[0].url, '/app?n=d:' + alice.user.id); assert.ok(got[0].tag.startsWith('m:'));
   assert.strictEqual(got[0].opts.urgency, 'high');
+  assert.strictEqual(got[0].peerId, alice.user.id); assert.strictEqual(got[0].reply, 'open', 'a DM cannot be answered from the notification (encrypted): it opens the chat'); assert.strictEqual(got[0].read, true);
   step('DM pushes who wrote, never what');
 
   // ---- channel messages: only pings notify ----
@@ -90,7 +91,11 @@ const sub = (n) => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/secret-endp
   await wait(50);
   got = take();
   assert.strictEqual(got.length, 1); assert.strictEqual(got[0].endpoint, sub(1).endpoint); assert.strictEqual(got[0].kind, 'mention');
-  assert.ok(got[0].title.includes('mentioned you') && got[0].title.includes('Hangout'));
+  assert.strictEqual(got[0].title, 'alice', 'the title is who wrote it');
+  assert.ok(got[0].body.includes('Hangout') && got[0].body.includes('mentioned you') && got[0].body.includes('\n'), 'the body says where, then what was said');
+  assert.strictEqual(got[0].sender, 'alice'); assert.strictEqual(got[0].serverId, server.id); assert.strictEqual(got[0].channelId, chan.id);
+  assert.strictEqual(got[0].reply, 'inline'); assert.strictEqual(got[0].read, true);
+  assert.strictEqual(got[0].icon, undefined, 'no server icon and no profile picture yet: the phone draws a letter');
   assert.ok(got[0].body.includes('hey @someone look at this') && !got[0].body.includes(bob.user.id), 'mention markup is not shown raw');
   assert.strictEqual(got[0].url, `/app?n=c:${server.id}:${chan.id}`);
   await ack(sa, 'message:send', { channelId: chan.id, content: '@everyone meeting' }); // the owner may ping everyone
@@ -102,6 +107,39 @@ const sub = (n) => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/secret-endp
   got = take();
   assert.strictEqual(got.length, 1, 'alice (subscribed) is pinged by carol'); assert.strictEqual(got[0].endpoint, sub(2).endpoint);
   step('mentions and @everyone push; chatter and the sender themselves do not');
+
+  // ---- the picture: the server icon wins, else the author's picture; the server theme rides along ----
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  const up = await fetch(base + '/api/servers/' + server.id + '/icon', { method: 'PUT', headers: { Authorization: 'Bearer ' + alice.token, 'Content-Type': 'image/png' }, body: png });
+  if (up.status === 200) {
+    await call('/servers/' + server.id, { method: 'PATCH', token: alice.token, body: { theme: { dark: false, bg: '#f4e9c8', accent: '#2a7d4f' } } });
+    take();
+    const sa3 = connect(base, { auth: { token: alice.token } }); await new Promise((r) => sa3.on('connect', r)); // its own socket: the server limits each one to 8 events per 5 seconds
+    await ack(sa3, 'message:send', { channelId: chan.id, content: `<@${bob.user.id}> pic` }); await wait(50); sa3.disconnect();
+    got = take();
+    assert.strictEqual(got.length, 1); assert.match(got[0].icon, /^\/api\/images\/[A-Za-z0-9_-]+$/, 'a server notification wears the server icon');
+    assert.deepStrictEqual(got[0].theme, { dark: false, bg: '#f4e9c8', accent: '#2a7d4f' });
+    step('server notifications carry the server icon and theme');
+  } else console.log('(skipped the icon check: the test image was not accepted: ' + up.status + ')');
+
+  // ---- Reply typed into a notification: POST /api/channels/:id/quick-reply ----
+  let msgs = (await call(`/channels/${chan.id}/messages`, { token: alice.token })).messages;
+  const before = msgs.length;
+  const qr = await call(`/channels/${chan.id}/quick-reply`, { method: 'POST', token: bob.token, body: { content: '  on my way  ', replyTo: msgs[msgs.length - 1].id } });
+  assert.strictEqual(qr.status, 200, JSON.stringify(qr));
+  msgs = (await call(`/channels/${chan.id}/messages`, { token: alice.token })).messages;
+  assert.strictEqual(msgs.length, before + 1); assert.strictEqual(msgs[msgs.length - 1].content, 'on my way'); assert.strictEqual(msgs[msgs.length - 1].authorId, bob.user.id);
+  assert.strictEqual(msgs[msgs.length - 1].replyTo, msgs[msgs.length - 2].id, 'it is a reply to that message');
+  assert.strictEqual((await call(`/channels/${chan.id}/quick-reply`, { method: 'POST', token: bob.token, body: { content: '   ' } })).status, 400, 'empty is refused');
+  const dave2 = await makeUser('erin');
+  assert.strictEqual((await call(`/channels/${chan.id}/quick-reply`, { method: 'POST', token: dave2.token, body: { content: 'hi' } })).status, 404, 'a non-member cannot post');
+  assert.strictEqual((await call(`/channels/${chan.id}/quick-reply`, { method: 'POST', body: { content: 'hi' } })).status, 401, 'a login is needed');
+  const ping = await call(`/channels/${chan.id}/quick-reply`, { method: 'POST', token: bob.token, body: { content: `<@${alice.user.id}> thanks` } });
+  assert.strictEqual(ping.status, 200); await wait(50);
+  got = take(); assert.ok(got.some((x) => x.endpoint === sub(2).endpoint && x.kind === 'mention'), 'a reply that mentions someone pushes to them like any message');
+  let limited = 0; for (let i = 0; i < 12; i++) if ((await call(`/channels/${chan.id}/quick-reply`, { method: 'POST', token: bob.token, body: { content: 'spam ' + i } })).status === 429) limited++;
+  assert.ok(limited >= 1, 'quick replies are rate limited');
+  step('quick reply: posts as the person, replies to the message, members only, rate limited');
 
   // ---- preferences ----
   assert.deepStrictEqual((await call('/me/notifications', { method: 'PUT', token: bob.token, body: { mentions: false, nope: true, dm: 'x' } })).notifPrefs, { dm: true, mentions: false, announcements: true, calls: true, friends: true });

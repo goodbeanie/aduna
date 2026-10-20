@@ -46,6 +46,15 @@ const CHANNEL_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megapho
 
 const INVITE_PATH = /^\/invite\/([a-z0-9_-]{3,32})\/?$/i;
 
+function BootSplash() {
+  return (
+    <div className="boot" role="status" aria-label="Loading Aduna">
+      <div className="boot-wrap"><span className="boot-ring" /><span className="boot-ring b" /><span className="boot-mark" /></div>
+      <div className="boot-bar"><i /></div>
+    </div>
+  );
+}
+
 export default function App() {
   const [boot, setBoot] = useState('loading');
   const [me, setMe] = useState(null);
@@ -77,7 +86,7 @@ export default function App() {
 
   const leaveInvite = () => { history.replaceState(null, '', '/app'); setInvite(null); setSigningIn(false); };
 
-  if (boot === 'loading') return <div className="splash"><img src="/aduna-icon.png" alt="Aduna" /></div>;
+  if (boot === 'loading') return <BootSplash />;
   if (boot === 'auth' && invite && !signingIn) return <InvitePage code={invite} signedIn={false} onNeedAuth={() => setSigningIn(true)} />;
   if (boot === 'auth') {
     return <Auth onAuthed={async (u, k) => {
@@ -138,6 +147,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   notePrefsRef.current = notePrefs;
   const prefsOf = () => meRef.current.notifPrefs || {}; // which notifications you want (Settings > Notifications); undefined = on
   const pendingNav = useRef(new URLSearchParams(location.search).get('n')); // a tapped notification opened the app on a chat
+  const pendingFocus = useRef(new URLSearchParams(location.search).get('focus') === '1'); // ...from its Reply button: put the cursor in the message box
   const openTargetRef = useRef(() => {});
   const frIncoming = useRef(null);
   const usersRef = useRef(users);
@@ -166,7 +176,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     const ids = new Set(r.incoming.map((x) => x.user.id));
     if (frIncoming.current) { // not the first load: anything new is a fresh request
       for (const x of r.incoming) {
-        if (!frIncoming.current.has(x.user.id) && notify.away() && meRef.current.notifPrefs?.friends !== false) notify.show({ title: x.user.displayName, body: 'sent you a friend request', tag: 'friend:' + x.user.id, target: 'f', kind: 'friend' });
+        if (!frIncoming.current.has(x.user.id) && notify.away() && meRef.current.notifPrefs?.friends !== false) notify.show({ title: x.user.displayName, body: 'sent you a friend request', tag: 'friend:' + x.user.id, target: 'f', kind: 'friend', sender: x.user.displayName, icon: imageUrl(x.user.avatarImage) || undefined });
       }
     }
     frIncoming.current = ids;
@@ -300,9 +310,11 @@ function Main({ me, setMe, privKey, openServerId }) {
       if (d.alert && kind !== 'message' && notify.away() && prefsOf().mentions !== false) {
         const who = usersRef.current[m.authorId]?.displayName || 'Someone';
         notify.show({
-          title: `${who} ${kind === 'everyone' ? 'pinged everyone' : 'mentioned you'} in ${sv?.name || 'a server'}${ch ? ' \u00b7 #' + ch.name : ''}`,
-          body: mentionPreview(m.content, usersRef.current).slice(0, 140) || 'Sent an attachment',
+          title: who,
+          body: `${sv?.name || 'a server'}${ch ? ' \u00b7 #' + ch.name : ''} \u00b7 ${kind === 'everyone' ? '@everyone' : 'mentioned you'}\n${mentionPreview(m.content, usersRef.current).slice(0, 140) || 'Sent an attachment'}`,
           tag: 'm:' + m.id, target: `c:${m.serverId}:${m.channelId}`, kind: 'mention',
+          sender: who, icon: imageUrl(sv?.iconImage) || imageUrl(usersRef.current[m.authorId]?.avatarImage) || undefined, theme: sv?.theme || undefined,
+          serverId: m.serverId, channelId: m.channelId, msgId: m.id, read: true, reply: ch?.type === 'announcements' ? undefined : 'inline',
         });
       }
       if (!usersRef.current[m.authorId]) api('/users/' + m.authorId).then((r) => addUsers([r.user])).catch(() => {});
@@ -319,7 +331,8 @@ function Main({ me, setMe, privKey, openServerId }) {
         // DMs are encrypted: this device decrypts the text for the notification, the server never sees it
         (async () => {
           const [t, who] = await Promise.all([decryptMsg(m), usersRef.current[partner] || api('/users/' + partner).then((r) => r.user).catch(() => null)]);
-          notify.show({ title: who?.displayName || 'New message', body: t.invite ? 'Sent you a server invite' : t.text?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent you a message'), tag: 'm:' + m.id, target: 'd:' + partner, kind: 'dm' });
+          notify.show({ title: who?.displayName || 'New message', body: t.invite ? 'Sent you a server invite' : t.text?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent you a message'), tag: 'm:' + m.id, target: 'd:' + partner, kind: 'dm',
+            sender: who?.displayName, icon: imageUrl(who?.avatarImage) || undefined, peerId: partner, msgId: m.id, reply: 'open', read: true });
         })().catch(() => {});
       }
       if (!usersRef.current[partner]) api('/users/' + partner).then((r) => addUsers([r.user])).catch(() => {});
@@ -370,7 +383,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       let body = 'New announcement';
       try { const m = (await api(`/channels/${channelId}/messages`)).messages.find((x) => x.id === messageId); if (m?.content) body = m.content.slice(0, 140); } catch { /* keep the default */ }
       setToast({ key: messageId, serverId, channelId, title, body });
-      if (notify.away() && prefsOf().announcements !== false) notify.show({ title, body, tag: 'm:' + messageId, target: `c:${serverId}:${channelId}`, kind: 'announcement' });
+      if (notify.away() && prefsOf().announcements !== false) notify.show({ title: usersRef.current[authorId]?.displayName || sv.name, body: `${title} \u00b7 announcement\n${body}`, tag: 'm:' + messageId, target: `c:${serverId}:${channelId}`, kind: 'announcement', sender: usersRef.current[authorId]?.displayName || sv.name, icon: imageUrl(sv.iconImage) || undefined, theme: sv.theme || undefined, serverId, channelId, msgId: messageId, read: true });
     });
     s.on('credits:update', ({ balance: b, delta, reason }) => {
       setBalance(b); setCreditsRev((n) => n + 1);
@@ -442,7 +455,11 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   // ---------- notifications: tapping one opens that chat; the app icon shows a count ----------
   // targets: 'c:<serverId>:<channelId>' (a channel), 'd:<userId>' (a DM), 'f' (friend requests)
-  const openTarget = async (t) => {
+  const focusComposer = () => { // the Reply button of a notification: open the chat with the keyboard ready (the box is the last textarea on the page)
+    for (const ms of [250, 700]) setTimeout(() => { const all = document.querySelectorAll('textarea.composer'); all[all.length - 1]?.focus(); }, ms);
+  };
+  const openTarget = async (t, { focus = false } = {}) => {
+    if (focus) focusComposer();
     const [kind, a, b] = String(t || '').split(':');
     if (kind === 'c') {
       const sv = serversRef.current.find((x) => x.id === a);
@@ -459,8 +476,9 @@ function Main({ me, setMe, privKey, openServerId }) {
   useEffect(() => { // the app was opened by tapping a notification (/app?n=...)
     if (!loaded || !pendingNav.current) return;
     const t = pendingNav.current; pendingNav.current = null;
+    const focus = pendingFocus.current; pendingFocus.current = false;
     history.replaceState(null, '', '/app');
-    openTargetRef.current(t);
+    openTargetRef.current(t, { focus });
   }, [loaded]);
   useEffect(() => { // Android app: a notification tapped while the app was closed (it fired before this page was ready)
     if (!loaded) return;
@@ -468,7 +486,11 @@ function Main({ me, setMe, privKey, openServerId }) {
     if (t) openTargetRef.current(t);
   }, [loaded]);
   useEffect(() => { // ...or was already open: the service worker / desktop app / page tells it where to go
-    const fromSw = (e) => { if (e.data?.type === 'aduna:open') openTargetRef.current(e.data.target); };
+    const fromSw = (e) => {
+      if (e.data?.type === 'aduna:open') openTargetRef.current(e.data.target, { focus: !!e.data.focus });
+      // "Mark as read" on a notification: a DM's unread count lives only in this page (DMs are end-to-end encrypted), channels are told by the server (notif:read)
+      else if (e.data?.type === 'aduna:read' && /^d:[0-9a-f]{16}$/.test(e.data.target || '')) clearUnread(e.data.target);
+    };
     const fromPage = (e) => { notify.takePendingOpen(); openTargetRef.current(e.detail); };
     navigator.serviceWorker?.addEventListener('message', fromSw);
     window.addEventListener('aduna:open', fromPage);
@@ -666,7 +688,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   const membersToggle = <button className="icon-btn members-toggle" title="Members" aria-label="Show members" onClick={() => setMembersOpen((o) => !o)}><Icon name="users" size={18} /></button>;
 
-  if (!view) return <div className="splash"><img src="/aduna-icon.png" alt="Aduna" /></div>;
+  if (!view) return <BootSplash />;
 
   const roleColors = server ? Object.fromEntries(server.members.map((m) => [m.id, roleColorOf(server, m.id)]).filter(([, c]) => c)) : {};
   const memberRow = (u) => (

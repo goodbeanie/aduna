@@ -132,6 +132,50 @@ const go = (code, payload = msg, event = 'message', limits) => S.run({ code, eve
   assert.ok(mixed[0].timedOut && mixed[1].ok && mixed[2].ok, JSON.stringify(mixed.map((x) => [x.ok, x.timedOut])));
   step('parallel runs; a hostile bot does not break its neighbours');
 
+  // ----- storage, timers, reactions, fetches: the sandbox only COLLECTS requests -----
+  const go2 = (code, state, event = 'message', payload = msg) => S.run({ code, event, payload, state });
+  r = await go2("bot.on('message', (m) => { bot.store.set('a', { n: 1 }); bot.store.incr('c'); bot.store.incr('c', 4); bot.store.delete('gone'); });", { kv: { gone: '1' }, timers: [] });
+  assert.deepStrictEqual(r.store, [{ op: 'set', key: 'a', value: '{\"n\":1}' }, { op: 'incr', key: 'c', by: 1 }, { op: 'incr', key: 'c', by: 4 }, { op: 'delete', key: 'gone' }], JSON.stringify(r.store));
+  r = await go2("bot.on('message', (m) => { bot.log(bot.store.get('s'), bot.store.get('o').k, bot.store.get('n') + 1, bot.store.get('none'), bot.store.incr('n', 2), bot.store.keys().join()); });", { kv: { s: '\"text\"', o: '{\"k\":[1,2]}', n: '5' }, timers: [] });
+  assert.deepStrictEqual(r.logs, ['text [1,2] 6 undefined 7 s,o,n'], JSON.stringify(r));
+  r = await go2("bot.on('message', (m) => { try { bot.store.incr('s'); } catch (e) { bot.log(e.message); } try { bot.store.set('f', function () {}); } catch (e) { bot.log(e.message); } try { bot.store.set('u'); } catch (e) { bot.log('undef'); } const c = {}; c.c = c; try { bot.store.set('cyc', c); } catch (e) { bot.log('cycle'); } });", { kv: { s: '\"x\"' }, timers: [] });
+  assert.ok(r.ok && r.store.length === 0 && r.logs.length === 4, 'unsaveable values throw inside the bot and are never collected: ' + JSON.stringify(r));
+  r = await go2("bot.on('message', () => { for (let i = 0; i < 50; i++) bot.store.set('k' + i, i); });", { kv: {}, timers: [] });
+  assert.strictEqual(r.store.length, 30, 'at most 30 store operations are collected');
+  r = await go2("bot.on('message', (m) => bot.log(Object.keys(bot.store.get('o') || {}).length));", { kv: { o: '{bad json' }, timers: [] });
+  assert.deepStrictEqual([r.ok, r.logs], [true, ['0']], 'unreadable saved data reads as nothing, it does not crash the bot');
+  step('bot.store: collected, reads see the snapshot and earlier writes, unsaveable values throw, 30 operations');
+
+  r = await go2("bot.on('message', () => { bot.timer.after('a', 30, { x: 1 }); bot.timer.every('e', 120); bot.timer.daily('d', '09:00', 'America/Vancouver', [1]); bot.timer.cancel('old'); bot.log(JSON.stringify(bot.timer.list())); });", { kv: {}, timers: [{ name: 'old', kind: 'every', at: 5, everySec: 60, time: null, tz: null, junk: 'x' }] });
+  assert.deepStrictEqual(r.timers, [
+    { kind: 'after', name: 'a', seconds: 30, time: undefined, tz: undefined, data: '{\"x\":1}' }, { kind: 'every', name: 'e', seconds: 120, time: undefined, tz: undefined, data: null },
+    { kind: 'daily', name: 'd', seconds: NaN, time: '09:00', tz: 'America/Vancouver', data: '[1]' }, { kind: 'cancel', name: 'old', seconds: NaN, time: undefined, tz: undefined, data: null }].map((t) => ({ ...t })), JSON.stringify(r.timers));
+  assert.deepStrictEqual(JSON.parse(r.logs[0]), [{ name: 'old', kind: 'every', at: 5, everySec: 60, time: null, tz: null }], 'bot.timer.list() shows only the plain schedule fields');
+  step('bot.timer: after, every, daily, cancel, list');
+
+  r = await go2("bot.on('message', (m) => { bot.react(m, '👍'); bot.react({ id: 'x2' }, '🎉'); bot.react('x3', '😀'); bot.fetch('https://api.github.com/a', 'one'); bot.fetch('https://api.github.com/b'); });", { kv: {}, timers: [] });
+  assert.deepStrictEqual(r.reactions, [{ messageId: 'm1', emoji: '👍' }, { messageId: 'x2', emoji: '🎉' }, { messageId: 'x3', emoji: '😀' }]);
+  assert.deepStrictEqual(r.fetches, [{ url: 'https://api.github.com/a', name: 'one' }, { url: 'https://api.github.com/b', name: 'fetch' }]);
+  r = await go2("bot.on('message', (m) => { for (let i = 0; i < 10; i++) { bot.react(m, 'e' + i); bot.fetch('https://api.github.com/' + i); } });", { kv: {}, timers: [] });
+  assert.deepStrictEqual([r.reactions.length, r.fetches.length], [5, 3], 'at most 5 reactions and 3 fetches are collected');
+  step('bot.react and bot.fetch: collected (nothing leaves the sandbox), capped');
+
+  // the bot cannot reach the door or the host's globals; everything it was given is frozen
+  r = await go2("bot.on('message', (m) => { bot.log(typeof __emit, typeof __init, typeof __dispatch, typeof fetch, typeof XMLHttpRequest, typeof setTimeout, typeof process, typeof require); try { bot.store.get = () => 1; bot.store.set = () => 1; bot.timer.after = () => 1; bot.fetch = () => 1; } catch (e) {} bot.log(String(Object.isFrozen(bot.store)) + Object.isFrozen(bot.timer) + Object.isFrozen(bot)); });", { kv: {}, timers: [] });
+  assert.deepStrictEqual(r.logs, ['undefined undefined function undefined undefined undefined undefined undefined', 'truetruetrue'], JSON.stringify(r.logs));
+  step('no network, timers or host globals inside the sandbox');
+
+  // a huge saved state is refused before anything runs; bad events and bad state shapes do not crash it
+  r = await go2("bot.on('message', () => {});", { kv: { big: 'x'.repeat(200 * 1024) }, timers: [] });
+  assert.ok(!r.ok && /too large/.test(r.error), JSON.stringify(r));
+  r = await go2("bot.on('message', (m) => bot.log('ok', bot.store.keys().length));", { kv: { a: 5, b: null, c: { d: 1 }, e: '1' }, timers: 'nope' });
+  assert.deepStrictEqual(r.logs, ['ok 1'], 'only string values are accepted as saved data: ' + JSON.stringify(r));
+  r = await S.run({ code: "bot.on('message', (m) => bot.log('no state'));", event: 'message', payload: msg });
+  assert.deepStrictEqual([r.ok, r.logs, r.store, r.timers, r.reactions, r.fetches], [true, ['no state'], [], [], [], []], 'a run without state works and returns every list');
+  r = await S.run({ code: 'while (true) {}', event: 'message', payload: msg }, { ms: 20 });
+  assert.deepStrictEqual([r.store, r.timers, r.reactions, r.fetches], [[], [], [], []], 'a failed run still returns every list');
+  step('state shapes: oversize refused, odd shapes ignored, every list always present');
+
   console.log('\nAll sandbox checks passed.');
   await S.stop();
 })().catch((e) => { console.error('\n✗ FAILED:', e); S.stop().catch(() => {}).then(() => process.exit(1)); });

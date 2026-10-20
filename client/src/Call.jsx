@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Avatar, Icon } from './ui.jsx';
-import { api, emitAck } from './api.js';
+import { emitAck } from './api.js';
 import { encryptFor, decryptFrom } from './crypto.js';
 import * as notify from './notify.js';
+import { getIce, restartPath, failureText } from './rtc.js';
 
 // ---------- ringtones (generated, no audio files) ----------
 let audioCtx = null, ringTimer = null;
@@ -85,7 +86,8 @@ export function useCall({ socketRef, privKey, getUser }) {
     r.screen?.stop();
     r.cam?.stop();
     try { r.pc?.close(); } catch { /* already closed */ }
-    Object.assign(r, { pc: null, local: null, remote: null, cam: null, screen: null, vsender: null, cands: [], tracksAdded: false, makingOffer: false, ignoreOffer: false, chain: Promise.resolve() });
+    clearTimeout(r.dropTimer);
+    Object.assign(r, { pc: null, local: null, remote: null, cam: null, screen: null, vsender: null, cands: [], tracksAdded: false, makingOffer: false, ignoreOffer: false, chain: Promise.resolve(), restarts: 0, dropTimer: 0 });
   }
   const finish = (notice = '') => { teardown(); cRef.current = { ...IDLE, notice }; setCall(cRef.current); };
   const nameOf = (id) => getUser(id)?.displayName || 'Someone';
@@ -119,9 +121,9 @@ export function useCall({ socketRef, privKey, getUser }) {
 
   async function beginPeer() {
     const r = rt.current;
-    let ice = [{ urls: 'stun:stun.l.google.com:19302' }]; // without any STUN server, calls only work on the same network
-    try { ice = (await api('/call/config')).iceServers; } catch { /* keep the fallback above */ }
-    const pc = new RTCPeerConnection({ iceServers: ice });
+    const { servers, relay } = await getIce(); // STUN + TURN; falls back to public STUN if the server cannot be reached
+    r.relay = relay; r.restarts = 0; clearTimeout(r.dropTimer);
+    const pc = new RTCPeerConnection({ iceServers: servers });
     r.pc = pc; r.remote = new MediaStream();
     pc.onicecandidate = (e) => { if (e.candidate) send({ candidate: e.candidate }).catch(() => {}); };
     pc.ontrack = (e) => {
@@ -133,11 +135,33 @@ export function useCall({ socketRef, privKey, getUser }) {
       try { r.makingOffer = true; await pc.setLocalDescription(); await send({ description: pc.localDescription }); }
       catch (e) { console.warn('negotiation failed', e); } finally { r.makingOffer = false; }
     };
+    // A dropped path (Wi-Fi to mobile, a brief outage) is retried with fresh credentials before the call is given up on.
+    const retry = async () => {
+      const cur = rt.current;
+      if (cur.pc !== pc) return false;
+      if ((cur.restarts || 0) >= 3 || !(await restartPath(pc))) return false;
+      cur.restarts = (cur.restarts || 0) + 1;
+      return true;
+    };
     pc.oniceconnectionstatechange = () => {
-      const st = pc.iceConnectionState;
-      if (st === 'connected' || st === 'completed') { if (cRef.current.phase !== 'active') set({ phase: 'active', startedAt: Date.now() }); }
-      else if (st === 'failed') hangup('Connection failed. A firewall may be blocking the call.');
-      else if (st === 'disconnected') setTimeout(() => { if (rt.current.pc === pc && pc.iceConnectionState === 'disconnected') hangup('Connection lost'); }, 8000);
+      const st = pc.iceConnectionState, cur = rt.current;
+      if (st === 'connected' || st === 'completed') {
+        clearTimeout(cur.dropTimer);
+        if (cur.restarts) cur.restarts = 0;
+        if (cRef.current.phase !== 'active') set({ phase: 'active', startedAt: Date.now() });
+      } else if (st === 'failed') {
+        clearTimeout(cur.dropTimer);
+        retry().then((ok) => { if (!ok && cur.pc === pc) hangup(failureText(cur.relay)); });
+      } else if (st === 'disconnected') {
+        clearTimeout(cur.dropTimer);
+        // it often heals by itself within a few seconds; if not, look for a new path, and give up if that does not work either
+        cur.dropTimer = setTimeout(async () => {
+          if (rt.current.pc !== pc || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') return;
+          const ok = await retry();
+          if (!ok) { if (rt.current.pc === pc) hangup('Connection lost'); return; }
+          cur.dropTimer = setTimeout(() => { if (rt.current.pc === pc && !['connected', 'completed'].includes(pc.iceConnectionState)) hangup('Connection lost'); }, 10000);
+        }, 3000);
+      }
     };
     set({ remote: r.remote });
   }

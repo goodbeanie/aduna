@@ -92,8 +92,6 @@ label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px
 h1, h2, h3, h4, p { margin: 0; font-weight: 400; }
 .muted { color: var(--muted); } .small { font-size: 12px; } .center { text-align: center; } .pad { padding: 8px 12px; }
 .spacer { flex: 1; } .grow { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.splash { height: 100%; display: grid; place-items: center; }
-.splash img { height: 84px; width: auto; opacity: .9; }
 
 /* buttons */
 .btn { background: var(--bg3); padding: 8px 18px; border-radius: 999px; }
@@ -657,10 +655,10 @@ button { touch-action: manipulation; }
 
 /* themes / appearance */
 .theme-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
-.theme-card { display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--field); text-align: center; }
+.theme-card { display: flex; flex-direction: column; align-items: stretch; gap: 6px; min-width: 0; padding: 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--field); text-align: center; }
 .theme-card:hover { border-color: var(--line2); }
 .theme-card.on { outline: 2px solid var(--ink); border-color: transparent; }
-.theme-prev { position: relative; display: block; height: 46px; border-radius: 8px; border: 1px solid; overflow: hidden; }
+.theme-prev { position: relative; display: block; width: 100%; box-sizing: border-box; flex: none; height: 46px; border-radius: 8px; border: 1px solid; overflow: hidden; }
 .theme-prev i { position: absolute; left: 0; top: 0; bottom: 0; width: 34%; }
 .theme-prev b { position: absolute; right: 8px; bottom: 8px; width: 22px; height: 10px; border-radius: 999px; }
 .theme-name { font-size: 13px; color: var(--text); }

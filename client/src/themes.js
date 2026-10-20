@@ -1,3 +1,4 @@
+import { saveLook } from './swstate.js';
 // Aduna themes. A theme is a map of CSS variables applied to <html>.
 // Built-in themes are generated from a small seed (background + accent + light/dark),
 // so the "Custom" theme just lets people pick their own seed.
@@ -150,8 +151,20 @@ function paint(vars, id) {
 }
 
 let mq;
+
+// The service worker draws notification pictures in the person's own theme: hand it the colours (see swstate.js).
+function rememberLook(base, settings) {
+  try {
+    const hex = /^#[0-9a-fA-F]{6}$/;
+    const look = base.__clear ? { dark: false, bg: '#fbf8f1', accent: '#1c1812' }
+      : hex.test(base['--bg']) && hex.test(base['--ink']) ? { dark: base.__scheme === 'dark', bg: base['--bg'], accent: base['--ink'] } : null;
+    if (look) saveLook({ ...look, serverThemes: settings.serverThemes !== false });
+  } catch { /* the default look is fine */ }
+}
+
 export function applyTheme(settings, { save = false } = {}) {
   const base = resolveVars(settings);
+  rememberLook(base, settings);
   const showServer = overlay && (overlayForce || settings.serverThemes !== false);
   const metaColor = paint(showServer ? buildPalette(overlay) : base, showServer ? 'server' : settings.id);
   try {
