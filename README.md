@@ -233,3 +233,7 @@ The separate Windows installer in `desktop/` still works but is unsigned, so Win
 
 ## Android app
 `mobile/` builds an Android app (Capacitor shell around the live site) with native Firebase push notifications, because Web Push is unreliable on phones. Setup, publishing to Google Play and known limits are in `mobile/README.md`. Server side: `server/fcm.js` (tested by `server/fcm-test.js`), the `POST /api/push/fcm` route and `fcm` flag on `GET /api/push/key`; client side: the native branch of `client/src/notify.js`. After login the app asks for notification permission by itself (`client/src/NotifyPrompt.jsx`).
+
+---
+
+© 2026 Nathan VanCaeseele. All rights reserved. See [LICENSE](LICENSE).

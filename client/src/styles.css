@@ -1133,3 +1133,19 @@ span.mention { cursor: default; }
   .bot-inst-row { flex-wrap: wrap; }
   .bot-scope { padding-left: 4px; }
 }
+
+/* ---- typing on a phone: the message box rides above the keyboard, the rest of the screen blurs (v59) ---- */
+html.kb-open .app { height: var(--app-h); } /* browsers that only shrink the visual viewport (iOS Safari) */
+.kbd-scrim { display: none; }
+@media (max-width: 720px) {
+  .kbd-scrim { display: block; position: absolute; inset: 0; z-index: 5; background: color-mix(in srgb, var(--bg) 35%, transparent); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); animation: kbd-in .18s ease-out; touch-action: none; }
+  .chat.kbd .composer-wrap { position: relative; z-index: 6; background: var(--bg); padding-top: 6px; box-shadow: 0 -8px 24px color-mix(in srgb, var(--ink, #000) 10%, transparent); }
+  @keyframes kbd-in { from { opacity: 0; } to { opacity: 1; } }
+}
+@media (prefers-reduced-motion: reduce) { .kbd-scrim { animation: none; } }
+
+/* ---- Android app: update box (v59) ---- */
+.update-box { position: fixed; left: 50%; top: calc(12px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); z-index: 90; display: flex; align-items: center; gap: 10px; width: max-content; max-width: min(460px, calc(100vw - 24px)); padding: 12px 14px; border-radius: 18px; background: var(--raised); color: var(--text); box-shadow: 0 8px 28px rgba(0,0,0,.22), inset 0 0 0 1px var(--line); font-size: 14px; animation: kbd-in .2s ease-out; }
+.update-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.update-text span { color: var(--muted); font-size: 13px; }
+.update-box .btn { padding: 7px 14px; font-size: 14px; flex: none; }

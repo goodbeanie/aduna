@@ -27,6 +27,134 @@ for (const d of readdirSync(res).filter((n) => n.startsWith('mipmap-'))) {
   for (const f of readdirSync(join(res, d))) if (/^ic_launcher(_round|_foreground)?\.webp$/.test(f)) rmSync(join(res, d, f)); // would clash with our .png
 }
 
+// 2b. keyboard: Capacitor's edge-to-edge margins only account for the status/navigation bars, so on Android 15+ the keyboard
+// covered the message box. This MainActivity replaces that listener with one that also leaves room for the keyboard (IME).
+{
+  const javaDir = join(app, 'src', 'main', 'java', 'com', 'aduna', 'app');
+  mkdirSync(javaDir, { recursive: true });
+  writeFileSync(join(javaDir, 'MainActivity.java'), `package com.aduna.app;
+
+import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
+import com.getcapacitor.BridgeActivity;
+
+public class MainActivity extends BridgeActivity {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
+        registerPlugin(AdunaUpdater.class);
+        super.onCreate(savedInstanceState);
+        View web = getBridge().getWebView();
+        ViewCompat.setOnApplyWindowInsetsListener(web, (v, w) -> {
+            Insets bars = w.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets ime = w.getInsets(WindowInsetsCompat.Type.ime());
+            ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
+            mlp.leftMargin = bars.left;
+            mlp.topMargin = bars.top;
+            mlp.rightMargin = bars.right;
+            mlp.bottomMargin = Math.max(bars.bottom, ime.bottom);
+            v.setLayoutParams(mlp);
+            return WindowInsetsCompat.CONSUMED;
+        });
+    }
+}
+`);
+
+  writeFileSync(join(javaDir, 'AdunaUpdater.java'), `package com.aduna.app;
+
+import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.net.Uri;
+import android.os.Build;
+import android.provider.Settings;
+import androidx.core.content.FileProvider;
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+
+// In-app updates: reports the installed version, and downloads + hands a new APK to Android's installer.
+// Android only installs it over this app if it is signed with the same key, so a wrong file cannot replace the app.
+@CapacitorPlugin(name = "AdunaUpdater")
+public class AdunaUpdater extends Plugin {
+    private volatile boolean busy = false;
+
+    @PluginMethod
+    public void getVersion(PluginCall call) {
+        try {
+            PackageInfo pi = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
+            long code = Build.VERSION.SDK_INT >= 28 ? pi.getLongVersionCode() : pi.versionCode;
+            JSObject r = new JSObject();
+            r.put("versionCode", code);
+            r.put("versionName", pi.versionName);
+            call.resolve(r);
+        } catch (Exception e) {
+            call.reject("version");
+        }
+    }
+
+    @PluginMethod
+    public void install(PluginCall call) {
+        final String url = call.getString("url", "");
+        if (!url.startsWith("https://github.com/")) { call.reject("bad_url"); return; }
+        if (Build.VERSION.SDK_INT >= 26 && !getContext().getPackageManager().canRequestPackageInstalls()) {
+            Intent s = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getContext().getPackageName()));
+            s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            getContext().startActivity(s);
+            call.reject("permission");
+            return;
+        }
+        if (busy) { call.reject("busy"); return; }
+        busy = true;
+        new Thread(() -> {
+            try {
+                File dir = new File(getContext().getCacheDir(), "updates");
+                dir.mkdirs();
+                File apk = new File(dir, "aduna-update.apk");
+                HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+                c.setConnectTimeout(15000);
+                c.setReadTimeout(30000);
+                c.setInstanceFollowRedirects(true);
+                if (c.getResponseCode() != 200) throw new Exception("http " + c.getResponseCode());
+                long total = c.getContentLengthLong();
+                long done = 0;
+                int lastPct = -1;
+                try (InputStream in = c.getInputStream(); FileOutputStream out = new FileOutputStream(apk)) {
+                    byte[] buf = new byte[65536];
+                    int n;
+                    while ((n = in.read(buf)) > 0) {
+                        out.write(buf, 0, n);
+                        done += n;
+                        int pct = total > 0 ? (int) (done * 100 / total) : -1;
+                        if (pct != lastPct) { lastPct = pct; JSObject p = new JSObject(); p.put("percent", pct); notifyListeners("progress", p); }
+                    }
+                }
+                Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
+                Intent i = new Intent(Intent.ACTION_VIEW);
+                i.setDataAndType(uri, "application/vnd.android.package-archive");
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(i);
+                call.resolve();
+            } catch (Exception e) {
+                call.reject("download_failed");
+            } finally {
+                busy = false;
+            }
+        }).start();
+    }
+}
+`);
+}
+
 // 3. manifest: calls need camera + microphone, notifications need the Android 13+ permission, and the Firebase defaults
 const manifestPath = join(app, 'src', 'main', 'AndroidManifest.xml');
 let m = readFileSync(manifestPath, 'utf8');
@@ -47,6 +175,16 @@ if (!m.includes('<!-- aduna -->')) {
   m = m.replace(/(\s*)<application/, `\n${perms}$1<application`).replace('</application>', `${meta}    </application>`);
   m = m.replace('android:allowBackup="true"', 'android:allowBackup="false"'); // keep the chat session out of device backups
   writeFileSync(manifestPath, m);
+}
+
+
+// install permission for in-app updates (added separately so projects made by an earlier version get it too)
+{
+  let mm = readFileSync(manifestPath, 'utf8');
+  if (!mm.includes('REQUEST_INSTALL_PACKAGES')) {
+    mm = mm.replace(/(\s*)<application/, `\n    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />$1<application`);
+    writeFileSync(manifestPath, mm);
+  }
 }
 
 // 4. version + release signing, appended to the module's build.gradle (a second android {} block merges with the first)

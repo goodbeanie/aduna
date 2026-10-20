@@ -253,6 +253,32 @@ app.disable('x-powered-by');
 app.use(security.securityHeaders()); // CSP, clickjacking, nosniff, referrer, permissions, HSTS over HTTPS (see security.js)
 app.use('/api', security.csrfGuard()); // a request from another site that carries the login cookie is refused (see security.js)
 app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
+
+// Android app updates: the app asks which build is newest. Source: the latest GitHub Release of GITHUB_REPO (the Android workflow
+// publishes one per build, tag android-<versionCode>, with the .apk attached; the repo must be public), or set
+// APP_LATEST_VERSION_CODE + APP_APK_URL (+ APP_LATEST_VERSION_NAME) by hand. Cached for 10 minutes.
+let appVersionCache = { at: 0, data: null };
+app.get('/api/app-version', ah(async (_req, res) => {
+  res.set('Cache-Control', 'no-store');
+  if (process.env.APP_LATEST_VERSION_CODE && process.env.APP_APK_URL) {
+    return res.json({ versionCode: Number(process.env.APP_LATEST_VERSION_CODE) || 0, versionName: process.env.APP_LATEST_VERSION_NAME || '', url: process.env.APP_APK_URL });
+  }
+  const repo = String(process.env.GITHUB_REPO || '').trim();
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return res.json({ versionCode: 0 });
+  if (Date.now() - appVersionCache.at < 10 * 60 * 1000 && appVersionCache.data) return res.json(appVersionCache.data);
+  let data = { versionCode: 0 };
+  try {
+    const r = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'aduna-server' }, signal: AbortSignal.timeout(8000) });
+    if (r.ok) {
+      const rel = await r.json();
+      const code = Number(String(rel.tag_name || '').replace(/^\D+/, ''));
+      const apk = (rel.assets || []).find((a) => /\.apk$/i.test(a.name || ''));
+      if (code > 0 && apk?.browser_download_url) data = { versionCode: code, versionName: `1.0.${code}`, url: apk.browser_download_url };
+    }
+  } catch { /* GitHub unreachable: keep the empty answer, the app just shows nothing */ }
+  appVersionCache = { at: Date.now(), data };
+  res.json(data);
+}));
 app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled() })); // sign-up screen: can email recovery be offered (needs a mail provider)?
 // Stripe signs the exact bytes it sends, so the credits webhook keeps the raw body next to the parsed one.
 app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl === '/api/credits/webhook') req.rawBody = buf; } }));

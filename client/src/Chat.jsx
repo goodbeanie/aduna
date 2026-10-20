@@ -160,6 +160,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
   const stick = useRef(true);
   const lastTyping = useRef(0);
   const inputRef = useRef(null);
+  const [typingUi, setTypingUi] = useState(false); // phone: message box focused = keyboard up; the rest of the screen blurs
   const mc = useMentionComplete({ text, setText, inputRef, people, everyone: canEveryone });
   const typed = useTypingProof(inputRef, !!readOnly); // how this message was written, sent along so the server can decide if it earns credits
 
@@ -269,7 +270,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
   }
 
   return (
-    <section className="chat"
+    <section className={'chat' + (typingUi ? ' kbd' : '')}
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setDragging(true); } }}
       onDragLeave={(e) => e.currentTarget.contains(e.relatedTarget) || setDragging(false)}
       onDrop={(e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); } }}>
@@ -293,6 +294,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
             tapped={tapped === m.id} onTap={() => setTapped((t) => (t === m.id ? null : m.id))} />;
         })}
       </div>
+      {typingUi && <div className="kbd-scrim" onPointerDown={(e) => { e.preventDefault(); inputRef.current?.blur(); }} />}
       {readOnly ? <div className="composer-wrap readonly"><div className="readonly-note"><Icon name="lock" size={15} className="inline-icon" /> {readOnly}</div></div> : <div className="composer-wrap">
         {replyTo && (
           <div className="replying">
@@ -327,6 +329,8 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
           <button className="icon-btn" title="Attach files (max 20 MB each; removed after 14 days, or 5 days if over 10 MB)" disabled={!files?.scope} onClick={() => fileInput.current?.click()}><Icon name="clip" size={20} /></button>
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
           <textarea ref={inputRef} className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={2000} {...mc.bind}
+            onFocus={() => { if (!window.matchMedia('(max-width: 720px)').matches) return; setTypingUi(true); stick.current = true; [120, 320, 600].forEach((ms) => setTimeout(() => { const el = scroller.current; if (el && document.activeElement === inputRef.current) el.scrollTop = el.scrollHeight; }, ms)); }}
+            onBlur={() => setTypingUi(false)}
             onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }} />
           <div className="comp-tools">
             <button className="icon-btn" title="Emoji" onClick={() => setPop(pop === 'emoji' ? null : 'emoji')}><Icon name="smile" size={20} /></button>

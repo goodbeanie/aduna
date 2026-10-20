@@ -3,6 +3,8 @@
 #  - Without them: an installable debug APK for testing only.
 name: Build Android app
 on: workflow_dispatch
+permissions:
+  contents: write # publishes the APK as a GitHub Release so the app can offer it as an update
 jobs:
   android:
     runs-on: ubuntu-latest
@@ -47,3 +49,8 @@ jobs:
           path: |
             mobile/android/app/build/outputs/apk/**/*.apk
             mobile/android/app/build/outputs/bundle/**/*.aab
+      - name: Publish release (the app finds updates here)
+        if: env.ADUNA_SIGNED == '1'
+        working-directory: mobile/android/app/build/outputs/apk/release
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: gh release create "android-${{ github.run_number }}" app-release.apk --repo "${{ github.repository }}" --title "Aduna 1.0.${{ github.run_number }}" --notes "Android build ${{ github.run_number }}"
