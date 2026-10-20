@@ -2,7 +2,7 @@
 //  0. Exposes window.adunaDesktop so the page can show native notifications.
 //  1. Streams the page's theme colours to the title bar so the bar always matches the UI (including server themes).
 //  2. Shows the update status on the right side of the server bar (.rail): checking / no update / available + Install.
-const { ipcRenderer, contextBridge } = require('electron');
+const { ipcRenderer, contextBridge, webFrame } = require('electron');
 
 if (location.protocol === 'https:') {
   // ---------- 0. notifications: lets the page (client/src/notify.js) show cards in the corner of the screen ----------
@@ -59,11 +59,11 @@ if (location.protocol === 'https:') {
   @media (prefers-reduced-motion:reduce){#adn-upd{transition:none}#adn-upd .spin{animation-duration:2.5s}}
   `;
   const ICONS = {
-    spin: '<svg class="spin" viewBox="0 0 16 16"><path d="M13.2 8A5.2 5.2 0 1 1 11.7 4.3"/></svg>',
-    ok: '<svg class="ok" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M5.2 8.2l2 2 3.6-4"/></svg>',
-    warn: '<svg class="warn" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.6v4.2"/><circle cx="8" cy="11.1" r=".5" fill="currentColor"/></svg>',
-    down: '<svg class="warn" viewBox="0 0 16 16"><path d="M8 2.5v8M4.8 7.6L8 10.8l3.2-3.2M3 13.2h10"/></svg>',
-    bad: '<svg class="bad" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4"/></svg>',
+    spin: '<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="spin" viewBox="0 0 16 16"><path d="M13.2 8A5.2 5.2 0 1 1 11.7 4.3"/></svg>',
+    ok: '<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="ok" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M5.2 8.2l2 2 3.6-4"/></svg>',
+    warn: '<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="warn" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M8 4.6v4.2"/><circle cx="8" cy="11.1" r=".5" fill="currentColor"/></svg>',
+    down: '<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="warn" viewBox="0 0 16 16"><path d="M8 2.5v8M4.8 7.6L8 10.8l3.2-3.2M3 13.2h10"/></svg>',
+    bad: '<svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="bad" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.2"/><path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4"/></svg>',
   };
 
   let st = { phase: 'idle' };
@@ -71,9 +71,8 @@ if (location.protocol === 'https:') {
 
   const ensureChip = () => {
     if (chip) return chip;
-    const style = document.createElement('style');
-    style.textContent = CSS;
-    document.head.appendChild(style);
+    // The page's CSP (style-src 'self') blocks an injected <style>, so go through webFrame, which CSP doesn't apply to.
+    try { webFrame.insertCSS(CSS); } catch { /* keep going: the icons below still have fixed sizes */ }
     chip = document.createElement('div');
     chip.id = 'adn-upd';
     chip.hidden = true;
