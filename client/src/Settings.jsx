@@ -4,8 +4,9 @@ import { ProfileEditor } from './Modals.jsx';
 import { AppearancePicker } from './Appearance.jsx';
 import { NotificationSettings } from './Notifications.jsx';
 import { SecuritySettings } from './Security.jsx';
+import { DeveloperSettings } from './Bots.jsx';
 
-const TABS = [['profile', 'My profile', 'smile'], ['appearance', 'Appearance', 'palette'], ['notifications', 'Notifications', 'bell'], ['security', 'Security', 'lock']];
+const TABS = [['profile', 'My profile', 'smile'], ['appearance', 'Appearance', 'palette'], ['notifications', 'Notifications', 'bell'], ['security', 'Security', 'lock'], ['developer', 'Developer', 'code']];
 
 // Full-screen settings: a section list on the left (a tab bar on phones) and the chosen section on the right.
 export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, onPrefs, onLogout, getSocketId }) {
@@ -35,6 +36,7 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
           {tab === 'profile' && <><h1>My profile</h1><ProfileEditor me={me} onClose={onClose} onSaved={onSaved} onLogout={onLogout} /></>}
           {tab === 'notifications' && <><h1>Notifications</h1><NotificationSettings me={me} onPrefs={onPrefs} /></>}
           {tab === 'security' && <><h1>Security</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
+          {tab === 'developer' && <><h1>Developer</h1><DeveloperSettings me={me} onSaved={onSaved} /></>}
           {tab === 'appearance' && <><h1>Appearance</h1><AppearancePicker /></>}
         </div>
       </main>

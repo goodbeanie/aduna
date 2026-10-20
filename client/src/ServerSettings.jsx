@@ -7,14 +7,19 @@ import { THEMES, DEFAULT_CUSTOM, setServerTheme } from './themes.js';
 import { Swatch } from './Appearance.jsx';
 import { can } from './perms.js';
 import { RolesTab, MembersTab } from './Roles.jsx';
+import { OnboardingTab } from './Onboarding.jsx';
+import { BotsTab } from './Bots.jsx';
 
 // [id, label, icon, who may open it]
 const TABS = [
   ['overview', 'Overview', 'users', (sv, uid) => can(sv, uid, 'manageServer')],
   ['channels', 'Channels', 'hash', (sv, uid) => can(sv, uid, 'manageChannels')],
   ['roles', 'Roles', 'shield', (sv, uid) => can(sv, uid, 'manageRoles')],
+  ['onboarding', 'Onboarding', 'hand', (sv, uid) => can(sv, uid, 'manageServer')],
   ['members', 'Members', 'users', (sv, uid) => can(sv, uid, 'manageRoles') || can(sv, uid, 'kickMembers')],
+  ['bots', 'Bots', 'bot', (sv, uid) => can(sv, uid, 'manageServer')],
   ['publish', 'Publish', 'globe', (sv, uid) => sv.ownerId === uid],
+  ['ownership', 'Ownership', 'crown', (sv, uid) => sv.ownerId === uid],
   ['theme', 'Server theme', 'palette', (sv, uid) => can(sv, uid, 'manageServer')],
 ];
 const CH_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone' };
@@ -24,9 +29,9 @@ const sameSeed = (a, b) => a.dark === b.dark && a.bg.toLowerCase() === b.bg.toLo
 // Full-screen settings for a server (each tab needs its own permission; the owner has all): name, icon, banner and a theme the app fades to while you are on the server.
 // Picture changes are staged until Save (undefined = unchanged, null = remove, { blob, url } = new image).
 // While this screen is open the draft theme is previewed live on the whole app.
-export function ServerSettings({ server, me, onClose, onSaved }) {
+export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
   const tabs = TABS.filter((t) => t[3](server, me.id));
-  const [pickedTab, setTab] = useState('overview');
+  const [pickedTab, setTab] = useState(startTab || 'overview');
   const tab = tabs.some((t) => t[0] === pickedTab) ? pickedTab : tabs[0]?.[0]; // a tab you lose access to (role changed live) falls back to the first you still have
   const [name, setName] = useState(server.name);
   const [code, setCode] = useState(server.inviteCode);
@@ -210,7 +215,10 @@ export function ServerSettings({ server, me, onClose, onSaved }) {
 
           {tab === 'channels' && <ChannelsTab server={server} onChange={onSaved} />}
           {tab === 'roles' && <RolesTab server={server} me={me} onChange={onSaved} />}
+          {tab === 'onboarding' && <OnboardingTab key={server.id} server={server} onChange={onSaved} />}
+          {tab === 'bots' && <BotsTab key={server.id} server={server} me={me} onChange={onSaved} />}
           {tab === 'members' && <MembersTab server={server} me={me} onChange={onSaved} />}
+          {tab === 'ownership' && <OwnershipTab server={server} me={me} onChange={onSaved} onClose={onClose} />}
           {tab === 'publish' && <PublishTab server={server} onChange={onSaved} goChannels={() => setTab('channels')} />}
 
           {(tab === 'overview' || tab === 'theme') && err && <div className="error">{err}</div>}
@@ -354,6 +362,9 @@ function PublishTab({ server, onChange, goChannels }) {
   }, [server.id, chanKey]);
   if (!info) return <><h1>Publish</h1>{err ? <div className="error">{err}</div> : <p className="muted">Loading…</p>}</>;
 
+  const review = info.review === 'removed'
+    ? 'This server was removed from the public listing after reports. You can still use it as private or unlisted.'
+    : info.review === 'hidden' ? 'Your public listing is hidden while a moderator reviews reports about it. It cannot be changed until then.' : '';
   const rows = [['text', 'text channels', false], ['voice', 'voice channels', false], ['rules', 'rules channel', true], ['announcements', 'announcements channel', true]];
   const current = info.visibility;
   const dirty = pick && (pick !== current || (pick === 'public' && desc.trim() !== (info.description || '')));
@@ -372,6 +383,7 @@ function PublishTab({ server, onChange, goChannels }) {
     <>
       <h1>Publish</h1>
       <p className="muted">Choose who can find and join your server. A server needs enough channels first, so it is not empty when people arrive.</p>
+      {review && <div className="error">{review}</div>}
 
       <label>REQUIREMENTS</label>
       <div className="req-list">
@@ -392,7 +404,7 @@ function PublishTab({ server, onChange, goChannels }) {
       <label>VISIBILITY{current ? '' : ' (NOT PUBLISHED YET)'}</label>
       <div className={'vis-grid' + (info.met ? '' : ' locked')} role="radiogroup" aria-label="Visibility">
         {VIS.map((v) => (
-          <button type="button" key={v.id} role="radio" aria-checked={pick === v.id} disabled={!info.met || (v.id === 'public' && !info.metPublic) || busy} className={'vis' + (pick === v.id ? ' on' : '')} onClick={() => setPick(v.id)}>
+          <button type="button" key={v.id} role="radio" aria-checked={pick === v.id} disabled={!info.met || (v.id === 'public' && (!info.metPublic || !!info.review)) || busy} className={'vis' + (pick === v.id ? ' on' : '')} onClick={() => setPick(v.id)}>
             <span className="preset-icon"><Icon name={v.icon} size={22} /></span>
             <span className="preset-text"><b>{v.title}{current === v.id && <span className="live-tag">Live</span>}{v.id === 'public' && info.met && !info.metPublic && <span className="live-tag only">Needs rules + announcements</span>}</b><span className="muted small">{v.desc}</span></span>
           </button>
@@ -463,6 +475,82 @@ function TagInput({ tags, onChange }) {
         )}
       </div>
       {msg && <p className="code-hint invalid" role="status">{msg}</p>}
+    </>
+  );
+}
+
+
+// Hand the server to another member, or delete it. Both ask for your password (and your 2FA code when it is on).
+function OwnershipTab({ server, me, onChange, onClose }) {
+  const [mode, setMode] = useState(null); // 'transfer' | 'delete'
+  const [target, setTarget] = useState('');
+  const [typed, setTyped] = useState('');
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const others = server.members.filter((u) => u.id !== me.id);
+  const picked = others.find((u) => u.id === target);
+  const close = () => { setMode(null); setTarget(''); setTyped(''); setPassword(''); setCode(''); setErr(''); };
+  const ready = password && (!me.twoFactor || code) && (mode === 'transfer' ? !!picked : typed.trim() === server.name);
+  const run = async () => {
+    setErr(''); setBusy(true);
+    try {
+      if (mode === 'transfer') {
+        const r = await api(`/servers/${server.id}/transfer`, { method: 'POST', body: { userId: target, password, code: me.twoFactor ? code : undefined } });
+        onChange(r.server); close(); onClose(); // you are no longer the owner: the owner-only screens are gone
+      } else {
+        await api(`/servers/${server.id}`, { method: 'DELETE', body: { name: typed.trim(), password, code: me.twoFactor ? code : undefined } });
+        // the server:removed event takes the server out of the app and closes this screen
+      }
+    } catch (e) { setErr(e.message); setBusy(false); }
+  };
+  return (
+    <>
+      <h1>Ownership</h1>
+      <div className="own-card">
+        <h3>Transfer ownership</h3>
+        <p className="muted">Make another member the owner. They get every permission and the owner-only settings; you stay in the server as an ordinary member with no roles.</p>
+        <button className="btn" disabled={!others.length} onClick={() => setMode('transfer')}>Transfer ownership…</button>
+        {!others.length && <p className="muted small hint">You are the only member. Invite someone first, or delete the server.</p>}
+      </div>
+      <div className="own-card danger">
+        <h3>Delete server</h3>
+        <p className="muted">Permanently deletes {server.name} for everyone: all channels, messages, uploaded files, roles and the invite link. This cannot be undone.</p>
+        <button className="btn danger" onClick={() => setMode('delete')}>Delete server…</button>
+      </div>
+      {mode && (
+        <Modal title={mode === 'transfer' ? 'Transfer ownership' : 'Delete server'} onClose={busy ? () => {} : close}>
+          {mode === 'transfer' ? (
+            <>
+              <label className="field">New owner
+                <select value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy}>
+                  <option value="">Choose a member…</option>
+                  {others.map((u) => <option key={u.id} value={u.id}>{u.displayName} (@{u.username})</option>)}
+                </select>
+              </label>
+              {picked && <p className="muted small">After this, <b>{picked.displayName}</b> can change or delete everything here and you cannot take it back unless they give it to you.</p>}
+            </>
+          ) : (
+            <label className="field">Type <b>{server.name}</b> to confirm
+              <input value={typed} disabled={busy} autoFocus autoComplete="off" onChange={(e) => setTyped(e.target.value)} />
+            </label>
+          )}
+          <label className="field">Your password
+            <input type="password" value={password} autoComplete="current-password" disabled={busy} onChange={(e) => setPassword(e.target.value)} />
+          </label>
+          {me.twoFactor && (
+            <label className="field">Authenticator code
+              <input value={code} autoComplete="one-time-code" maxLength={20} disabled={busy} placeholder="123456" onChange={(e) => setCode(e.target.value)} />
+            </label>
+          )}
+          {err && <div className="error">{err}</div>}
+          <div className="modal-foot">
+            <button className="btn" disabled={busy} onClick={close}>Cancel</button>
+            <button className="btn primary danger-fill" disabled={busy || !ready} onClick={run}>{busy ? 'Working…' : mode === 'transfer' ? 'Transfer ownership' : 'Delete server'}</button>
+          </div>
+        </Modal>
+      )}
     </>
   );
 }

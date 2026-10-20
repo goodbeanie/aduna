@@ -4,7 +4,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/sync-notifprefs.mjs",
     "dev": "vite",
+    "prebuild": "node scripts/sync-notifprefs.mjs",
     "build": "vite build",
     "preview": "vite preview",
     "emoji-data": "node scripts/make-emoji-data.mjs"

@@ -10,7 +10,10 @@ import { ServerSettings } from './ServerSettings.jsx';
 import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, UserCard, ProfileEditor, SafetyModal } from './Modals.jsx';
 import { api, connectSocket, emitAck, markSignedIn, endSession, adoptLegacyToken } from './api.js';
 import { SettingsScreen } from './Settings.jsx';
+import { BotTag } from './Bots.jsx';
 import { InviteContext, INVITE_CODE_RE, InvitePage } from './Invite.jsx';
+import * as np from './notifprefs.js';
+import { ServerNotifications } from './ServerNotifications.jsx';
 import { can, canManageAny, roleColorOf } from './perms.js';
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, useCall } from './Call.jsx';
@@ -19,6 +22,7 @@ import RulesView from './Rules.jsx';
 import { mentionPreview } from './Mentions.jsx';
 import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
+import { OnboardingFlow } from './Onboarding.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 import * as notify from './notify.js';
@@ -105,6 +109,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [fr, setFr] = useState({ friends: [], incoming: [], outgoing: [] });
   const [unread, setUnread] = useState({});
   const [mentions, setMentions] = useState({}); // 'c:<channelId>' -> unread messages that mention you (kept in memory like unread)
+  const [notePrefs, setNotePrefs] = useState({}); // serverId -> your notification settings for it (mute, level, ...); saved on your account
   const [typing, setTyping] = useState({});
   const [modal, setModal] = useState(null);
   const [menu, setMenu] = useState(false);
@@ -129,6 +134,8 @@ function Main({ me, setMe, privKey, openServerId }) {
   const serversRef = useRef([]);
   const viewRef = useRef(view);
   const meRef = useRef(me);
+  const notePrefsRef = useRef(notePrefs);
+  notePrefsRef.current = notePrefs;
   const prefsOf = () => meRef.current.notifPrefs || {}; // which notifications you want (Settings > Notifications); undefined = on
   const pendingNav = useRef(new URLSearchParams(location.search).get('n')); // a tapped notification opened the app on a chat
   const openTargetRef = useRef(() => {});
@@ -171,6 +178,53 @@ function Main({ me, setMe, privKey, openServerId }) {
     setMentions((p) => { if (!p[key]) return p; const n = { ...p }; delete n[key]; return n; });
   };
   const bumpMention = (key) => setMentions((p) => ({ ...p, [key]: (p[key] || 0) + 1 }));
+
+  // ---------- server notification settings and saved unread / @ counts ----------
+  // The server remembers where you stopped reading each channel, so a reload keeps the numbers. The rules for what
+  // counts and what alerts are in notifprefs.js (the same file the server uses).
+  const readTimers = useRef({});
+  const markRead = (channelId) => { // told to the server a moment later; it uses its own clock, so no message you have seen is left unread
+    clearTimeout(readTimers.current[channelId]);
+    readTimers.current[channelId] = setTimeout(() => { api(`/channels/${channelId}/read`, { method: 'POST', body: {} }).catch(() => {}); }, 600);
+  };
+  const watchedKey = () => { const v = viewRef.current; return v?.kind === 'server' && !document.hidden ? 'c:' + v.channelId : null; };
+  // Replace the saved numbers: for every channel (keys === null) or only for the given channel keys.
+  const applyCounts = (counts, keys) => {
+    const watch = watchedKey();
+    const inScope = (k) => k.startsWith('c:') && (!keys || keys.has(k));
+    const pick = (field) => (p) => {
+      const n = {};
+      for (const [k, x] of Object.entries(p)) if (!inScope(k)) n[k] = x;
+      for (const [k, x] of Object.entries(counts)) if (inScope(k) && k !== watch && x[field]) n[k] = x[field];
+      return n;
+    };
+    setUnread(pick('unread'));
+    setMentions(pick('mentions'));
+  };
+  const loadNotes = useCallback(async () => {
+    const r = await api('/notif-state');
+    setNotePrefs(r.prefs || {});
+    applyCounts(r.counts || {}, null);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const saveNotes = async (serverId, next) => {
+    const sv = serversRef.current.find((x) => x.id === serverId);
+    const keep = new Set((sv?.channels || []).map((c) => c.id));
+    const body = { ...next };
+    if (body.channels) body.channels = Object.fromEntries(Object.entries(body.channels).filter(([id]) => keep.has(id)));
+    const before = notePrefsRef.current[serverId];
+    const put = (v) => setNotePrefs((p) => { const n = { ...p }; if (v && Object.keys(v).length) n[serverId] = v; else delete n[serverId]; return n; });
+    put(body); // show the change at once
+    try {
+      const r = await api(`/servers/${serverId}/notifprefs`, { method: 'PUT', body });
+      put(r.prefs);
+      applyCounts(r.counts || {}, new Set((sv?.channels || []).map((c) => 'c:' + c.id)));
+    } catch (e) { put(before); alert(e.message || 'Could not save that. Try again.'); }
+  };
+  const markServerRead = async (sv) => {
+    try { await api(`/servers/${sv.id}/read`, { method: 'POST', body: {} }); applyCounts({}, new Set(sv.channels.map((c) => 'c:' + c.id))); }
+    catch (e) { alert(e.message); }
+  };
+  useEffect(() => { if (loaded) loadNotes().catch(() => {}); }, [loaded, loadNotes]);
 
   const logout = useCallback(async () => {
     socketRef.current?.disconnect();
@@ -235,15 +289,18 @@ function Main({ me, setMe, privKey, openServerId }) {
       setChan((p) => ({ ...p, [m.channelId]: mergeById(p[m.channelId] || [], [m]) }));
       const v = viewRef.current;
       const watching = v?.kind === 'server' && v.channelId === m.channelId && !document.hidden;
-      if (!watching && m.authorId !== me.id) bump('c:' + m.channelId);
-      // The server decides who a message mentions (members only; @everyone only from the owner).
-      const pinged = m.authorId !== me.id && (m.everyone || m.mentions?.includes(me.id));
-      if (!watching && pinged) bumpMention('c:' + m.channelId);
-      if (pinged && notify.away() && prefsOf().mentions !== false) {
-        const sv = serversRef.current.find((x) => x.id === m.serverId), ch = sv?.channels.find((c) => c.id === m.channelId);
+      if (watching) markRead(m.channelId); // reading it now: the saved position follows
+      // The server decides who a message mentions (members only; @everyone only from the owner). Your own settings for the
+      // server decide whether it counts and whether it may alert you.
+      const sv = serversRef.current.find((x) => x.id === m.serverId), ch = sv?.channels.find((c) => c.id === m.channelId);
+      const sp = notePrefsRef.current[m.serverId];
+      const kind = np.kindOf(sp, m, me.id);
+      const d = m.authorId === me.id ? { count: false, alert: false } : np.decide(sp, m.channelId, kind === 'message' && ch?.type === 'announcements' ? 'announcement' : kind, Date.now());
+      if (!watching && d.count) (kind === 'message' ? bump : bumpMention)('c:' + m.channelId);
+      if (d.alert && kind !== 'message' && notify.away() && prefsOf().mentions !== false) {
         const who = usersRef.current[m.authorId]?.displayName || 'Someone';
         notify.show({
-          title: `${who} ${m.everyone ? 'pinged everyone' : 'mentioned you'} in ${sv?.name || 'a server'}${ch ? ' \u00b7 #' + ch.name : ''}`,
+          title: `${who} ${kind === 'everyone' ? 'pinged everyone' : 'mentioned you'} in ${sv?.name || 'a server'}${ch ? ' \u00b7 #' + ch.name : ''}`,
           body: mentionPreview(m.content, usersRef.current).slice(0, 140) || 'Sent an attachment',
           tag: 'm:' + m.id, target: `c:${m.serverId}:${m.channelId}`, kind: 'mention',
         });
@@ -306,6 +363,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       if (authorId === me.id) return;
       const sv = serversRef.current.find((x) => x.id === serverId), ch = sv?.channels.find((c) => c.id === channelId);
       if (!sv || !ch) return;
+      if (!np.decide(notePrefsRef.current[serverId], channelId, 'announcement', Date.now()).alert) return; // muted, "nothing", or announcements switched off for this server
       const v = viewRef.current;
       if (v?.kind === 'server' && v.channelId === channelId && !document.hidden) return; // already reading it
       const title = `${sv.name} · #${ch.name}`;
@@ -319,14 +377,30 @@ function Main({ me, setMe, privKey, openServerId }) {
       if (delta > 0 && (reason === 'message' || reason === 'purchase')) setGain({ key: Date.now(), delta });
     });
     s.on('friends:changed', () => loadFriends().catch(() => {}));
+    // your other devices: a change of settings, or a channel read there
+    s.on('notif:prefs', ({ serverId, prefs, counts }) => {
+      setNotePrefs((p) => { const n = { ...p }; if (prefs && Object.keys(prefs).length) n[serverId] = prefs; else delete n[serverId]; return n; });
+      const sv = serversRef.current.find((x) => x.id === serverId);
+      if (sv) applyCounts(counts || {}, new Set(sv.channels.map((c) => 'c:' + c.id)));
+    });
+    s.on('notif:read', ({ channelIds }) => {
+      const keys = new Set((channelIds || []).map((id) => 'c:' + id));
+      const drop = (p) => { const n = {}; let hit = false; for (const [k, x] of Object.entries(p)) { if (keys.has(k)) hit = true; else n[k] = x; } return hit ? n : p; };
+      setUnread(drop); setMentions(drop);
+    });
+    let connectedBefore = false; // after a dropped connection, messages that arrived meanwhile are counted again from the server
+    s.on('connect', () => { if (connectedBefore) loadNotes().catch(() => {}); connectedBefore = true; });
     s.on('presence', ({ userId, status }) => setPresence((p) => ({ ...p, [userId]: status })));
     s.on('user:update', (u) => { addUsers([u]); if (u.id === me.id) setMe((m) => ({ ...m, ...u })); });
     s.on('server:update', (sv) => {
       setServers((prev) => (prev.some((x) => x.id === sv.id) ? prev.map((x) => (x.id === sv.id ? sv : x)) : [...prev, sv]));
       addUsers(sv.members);
     });
-    s.on('server:removed', ({ serverId }) => { // you were kicked
+    s.on('bot:update', (b) => window.dispatchEvent(new CustomEvent('aduna:bot', { detail: b }))); // Settings > Developer listens
+    s.on('server:removed', ({ serverId, reason, name }) => { // you were kicked, or the owner deleted the server
       setServers((prev) => prev.filter((x) => x.id !== serverId));
+      setModal((m) => (m && ['serverSettings', 'invite', 'notes', 'onboarding', 'channel', 'category'].includes(m.type) ? null : m));
+      if (reason === 'deleted') setTimeout(() => alert(`${name || 'A server'} was deleted by its owner.`), 0);
       setView((v) => (v?.kind === 'server' && v.serverId === serverId ? { kind: 'dm', userId: null } : v));
       setShowList(true);
     });
@@ -337,7 +411,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
     const iv = setInterval(() => tick((n) => n + 1), 1000);
     return () => { clearInterval(iv); s.disconnect(); };
-  }, [me.id, setMe, addUsers, logout, loadFriends]);
+  }, [me.id, setMe, addUsers, logout, loadFriends, loadNotes]);
 
   const voice = useVoice({ socketRef, ready: me.id });
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
@@ -346,7 +420,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   useEffect(() => {
     if (!view) return;
     if (view.kind === 'server') {
-      clearUnread('c:' + view.channelId);
+      clearUnread('c:' + view.channelId); markRead(view.channelId);
       api(`/channels/${view.channelId}/messages`).then((r) => setChan((p) => ({ ...p, [view.channelId]: mergeById(p[view.channelId] || [], r.messages) }))).catch(() => {});
     } else if (view.userId) {
       clearUnread('d:' + view.userId);
@@ -359,7 +433,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     const seen = () => {
       if (document.hidden) return;
       const v = viewRef.current;
-      if (v?.kind === 'server') clearUnread('c:' + v.channelId);
+      if (v?.kind === 'server') { clearUnread('c:' + v.channelId); markRead(v.channelId); }
       else if (v?.kind === 'dm' && v.userId) clearUnread('d:' + v.userId);
     };
     document.addEventListener('visibilitychange', seen);
@@ -409,6 +483,24 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   // ---------- derived ----------
   const server = view?.kind === 'server' ? servers.find((s) => s.id === view.serverId) : null;
+  // Server onboarding: ask the questions when you open a server that has them on and you have not answered (once per visit if you may skip).
+  const onbAsked = useRef(new Set());
+  const onbOn = !!server?.onboarding?.enabled;
+  useEffect(() => {
+    if (!server || !onbOn) return undefined;
+    let live = true;
+    api(`/servers/${server.id}/onboarding`).then((st) => {
+      if (!live || st.done) return;
+      if (server.ownerId === me.id) return; // the owner wrote the questions; they can open them from the server menu
+      if (st.blocking || !onbAsked.current.has(server.id)) {
+        onbAsked.current.add(server.id);
+        // never replace a screen the person is already using (for example Server settings while an admin edits the questions)
+        setModal((m) => (m && !(st.blocking && m.type !== 'serverSettings') ? m : { type: 'onboarding', serverId: server.id, state: st }));
+      }
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [server?.id, onbOn]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openOnboarding = () => api(`/servers/${server.id}/onboarding`).then((st) => setModal({ type: 'onboarding', serverId: server.id, state: st })).catch((e) => alert(e.message));
   const channel = server?.channels.find((c) => c.id === view.channelId);
   const dmUser = view?.kind === 'dm' && view.userId ? users[view.userId] : null;
 
@@ -472,7 +564,13 @@ function Main({ me, setMe, privKey, openServerId }) {
     : fr.incoming.some((x) => x.user.id === id) ? 'incoming' : fr.outgoing.some((x) => x.user.id === id) ? 'outgoing' : 'none';
 
   const leaveServer = async () => {
-    if (!confirm(`Leave ${server.name}?`)) return;
+    const iOwn = server.ownerId === me.id;
+    if (iOwn && server.members.length > 1) { // the owner must hand the server over (or delete it) first
+      alert('You own this server. Transfer ownership to another member, or delete the server, before you leave.');
+      setModal({ type: 'serverSettings', tab: 'ownership' });
+      return;
+    }
+    if (!confirm(iOwn ? `You are the only member, so leaving deletes ${server.name}. Continue?` : `Leave ${server.name}?`)) return;
     try {
       await api(`/servers/${server.id}/leave`, { method: 'POST' });
       const rest = servers.filter((s) => s.id !== server.id);
@@ -489,6 +587,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const onInviteJoined = (sv) => { setServers((p) => (p.some((x) => x.id === sv.id) ? p : [...p, sv])); addUsers(sv.members); openServer(sv); };
   const inviteCtx = { servers, onJoined: onInviteJoined, onOpen: openServer };
 
+  const fmtN = (n) => (n >= np.MAX_COUNT ? np.MAX_COUNT + '+' : n); // badges stop at 99+
   const totalUnreadFor = (s) => s.channels.reduce((n, c) => n + (unread['c:' + c.id] || 0), 0);
   const totalMentionsFor = (s) => s.channels.reduce((n, c) => n + (mentions['c:' + c.id] || 0), 0);
   const dmUnread = Object.entries(unread).filter(([k]) => k.startsWith('d:')).reduce((n, [, v]) => n + v, 0);
@@ -574,6 +673,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     <button key={u.id} className={'member' + (statusOf(u.id) === 'offline' ? ' off' : '')} onClick={() => { setMembersOpen(false); showUser(u.id); }}>
       <Avatar user={users[u.id] || u} size={32} presence={statusOf(u.id)} />
       <span data-nc style={{ '--nc': (server && roleColorOf(server, u.id)) || (users[u.id] || u).accentColor }}>{(users[u.id] || u).displayName}</span>
+      {(users[u.id] || u).bot && <BotTag />}
       {server?.ownerId === u.id && <span className="owner" title="Server owner"><Icon name="crown" size={15} /></span>}
     </button>
   );
@@ -589,10 +689,10 @@ function Main({ me, setMe, privKey, openServerId }) {
         <div className="rail-sep" />
         <div className="rail-list">
           {servers.map((s) => (
-            <button key={s.id} className={'rail-btn' + (s.iconImage ? ' has-icon' : '') + (server?.id === s.id ? ' on' : '')} title={s.name} onClick={() => openServer(s)}>
+            <button key={s.id} className={'rail-btn' + (s.iconImage ? ' has-icon' : '') + (server?.id === s.id ? ' on' : '') + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' muted' : '')} title={s.name + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' (muted)' : '')} onClick={() => openServer(s)}>
               <ServerIcon server={s} fill />
-              {totalUnreadFor(s) > 0 && <span className="badge">{totalUnreadFor(s)}</span>}
-              {totalMentionsFor(s) > 0 && <span className="badge at" title={totalMentionsFor(s) + ' mention' + (totalMentionsFor(s) > 1 ? 's' : '')}>@{totalMentionsFor(s)}</span>}
+              {totalUnreadFor(s) > 0 && <span className="badge">{fmtN(totalUnreadFor(s))}</span>}
+              {totalMentionsFor(s) > 0 && <span className="badge at" title={totalMentionsFor(s) + ' mention' + (totalMentionsFor(s) > 1 ? 's' : '')}>@{fmtN(totalMentionsFor(s))}</span>}
             </button>
           ))}
           <button className="rail-btn add" title="Create or join a server" onClick={() => setModal({ type: 'server' })}><Icon name="plus" size={22} /></button>
@@ -612,6 +712,15 @@ function Main({ me, setMe, privKey, openServerId }) {
             {menu && (
               <div className="menu" onMouseLeave={() => setMenu(false)}>
                 <button onClick={() => { setMenu(false); setModal({ type: 'invite' }); }}>Invite people</button>
+                <div className="menu-sep" role="separator" />
+                <div className="menu-label">Notifications</div>
+                {np.muteActive(notePrefs[server.id]?.mute, Date.now())
+                  ? <button onClick={() => { setMenu(false); const { mute, ...rest } = notePrefs[server.id]; saveNotes(server.id, rest); }}>Unmute server</button>
+                  : <button onClick={() => { setMenu(false); setModal({ type: 'notes' }); }}>Mute server…</button>}
+                <button onClick={() => { setMenu(false); setModal({ type: 'notes' }); }}>Notification settings</button>
+                <button onClick={() => { setMenu(false); markServerRead(server); }}>Mark all as read</button>
+                <div className="menu-sep" role="separator" />
+                {onbOn && <button onClick={() => { setMenu(false); openOnboarding(); }}>Server questions</button>}
                 {canManageAny(server, me.id) && <button onClick={() => { setMenu(false); setModal({ type: 'serverSettings' }); }}>Server settings</button>}
                 <button className="danger-text" onClick={() => { setMenu(false); leaveServer(); }}>Leave server</button>
               </div>
@@ -624,8 +733,8 @@ function Main({ me, setMe, privKey, openServerId }) {
                 const loose = server.channels.filter((c) => !c.categoryId || !catIds.has(c.categoryId));
                 const row = (c) => (
                   <React.Fragment key={c.id}>
-                    <button className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] ? ' unread' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} {...chanDnd(c, isOwner)}>
-                      <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{mentions['c:' + c.id] > 0 && <span className="badge inline at" title="You were mentioned">@{mentions['c:' + c.id]}</span>}{unread['c:' + c.id] > 0 && <span className={'badge inline' + (mentions['c:' + c.id] ? ' after-at' : '')}>{unread['c:' + c.id]}</span>}
+                    <button className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] || mentions['c:' + c.id] ? ' unread' : '') + (np.effective(notePrefs[server.id], c.id, Date.now()).muted ? ' muted' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} onContextMenu={(e) => { e.preventDefault(); setModal({ type: 'notes', channelId: c.id }); }} title={np.effective(notePrefs[server.id], c.id, Date.now()).muted ? 'Muted \u00b7 right-click for notification settings' : undefined} {...chanDnd(c, isOwner)}>
+                      <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{mentions['c:' + c.id] > 0 && <span className="badge inline at" title="You were mentioned">@{fmtN(mentions['c:' + c.id])}</span>}{unread['c:' + c.id] > 0 && <span className={'badge inline' + (mentions['c:' + c.id] ? ' after-at' : '')}>{fmtN(unread['c:' + c.id])}</span>}
                     </button>
                     {c.type === 'voice' && (voice.members[c.id] || []).map((id) => users[id] && (
                       <div key={id} className="voice-member"><Avatar user={users[id]} size={20} /><span>{users[id].displayName}</span>{id === me.id && voice.state.channelId === c.id && voice.state.muted && <Icon name="micoff" size={13} />}</div>
@@ -729,9 +838,9 @@ function Main({ me, setMe, privKey, openServerId }) {
             <button className="icon-btn" title="Video call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle'} onClick={() => call.actions.startCall(dmUser.id, true)}><Icon name="video" size={18} /></button>
             <button className="btn small-btn" title="End-to-end encrypted" onClick={() => setModal({ type: 'safety' })}><Icon name="lock" size={14} className="inline-icon" /><span className="hide-sm"> End-to-end encrypted</span></button>
           </>}
-          notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && <><br />You aren\u2019t friends with {dmUser.displayName}, so you can\u2019t send new messages until you are.</>}</>} />
+          notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && <><br />You aren’t friends with {dmUser.displayName}, so you can’t send new messages until you are.</>}</>} />
       )}
-      {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} />}
+      {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
       {view.kind === 'dm' && !dmUser && view.credits && <Credits onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} />}
       {view.kind === 'dm' && !dmUser && !view.explore && !view.credits && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
@@ -764,8 +873,13 @@ function Main({ me, setMe, privKey, openServerId }) {
       {modal?.type === 'channel' && server && <ChannelModal server={server} category={(server.categories || []).find((c) => c.id === modal.categoryId)} onClose={() => setModal(null)} onDone={(s) => { setServers((p) => p.map((x) => (x.id === s.id ? s : x))); setModal(null); }} />}
       {modal?.type === 'category' && server && <CategoryModal server={server} onClose={() => setModal(null)} onDone={(s) => { setServers((p) => p.map((x) => (x.id === s.id ? s : x))); setModal(null); }} />}
       {modal?.type === 'serverSettings' && server && canManageAny(server, me.id) && (
-        <ServerSettings key={server.id} server={server} me={me} onClose={() => setModal(null)} onSaved={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
+        <ServerSettings key={server.id} server={server} me={me} startTab={modal.tab} onClose={() => setModal(null)} onSaved={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
       )}
+      {modal?.type === 'onboarding' && server && server.id === modal.serverId && server.onboarding?.enabled && (
+        <OnboardingFlow key={server.id} server={server} state={modal.state} onClose={() => setModal(null)}
+          onDone={(r) => { if (r.server) setServers((p) => p.map((x) => (x.id === r.server.id ? r.server : x))); setModal(null); }} />
+      )}
+      {modal?.type === 'notes' && server && <ServerNotifications server={server} prefs={notePrefs[server.id]} focusChannel={modal.channelId} onSave={(next) => saveNotes(server.id, next)} onMarkRead={() => markServerRead(server)} onClose={() => setModal(null)} />}
       {modal?.type === 'invite' && server && <InviteModal server={server} friends={fr.friends} isOwner={can(server, me.id, 'manageServer')} onSend={sendInvite} onClose={() => setModal(null)} />}
       {modal?.type === 'dm' && <NewDmModal friends={fr.friends} onClose={() => setModal(null)} onPick={openDm} />}
       {modal?.type === 'safety' && dmUser && <SafetyModal me={me} other={dmUser} onClose={() => setModal(null)} />}

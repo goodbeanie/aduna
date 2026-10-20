@@ -15,6 +15,11 @@ const mailer = require('./mailer');
 const webpush = require('web-push');
 const { createPush, cleanPrefs } = require('./push');
 const { createFcm } = require('./fcm');
+const np = require('./notifprefs');
+const listing = require('./listing');
+const botsLib = require('./bots');
+const botrun = require('./botrun');
+const sandbox = require('./sandbox'); // starts its worker threads on first use, not at boot (each holds a WebAssembly runtime)
 
 const PORT = process.env.PORT || 3000;
 const MAX_MSG = 2000;
@@ -101,6 +106,9 @@ function rankOf(s, uid) {
   const idx = heldRoleIds(s, uid).map((id) => s.roles.findIndex((r) => r.id === id));
   return idx.length ? Math.min(...idx) : Infinity;
 }
+// Bots sit in a server's member list, but they are not people: they do not count towards size, popularity, credits or "alone".
+const humansOf = (s) => s.members.filter((id) => !db().users[id]?.bot);
+const humanCount = (s) => humansOf(s).length;
 const roleIndex = (s, id) => (s.roles || []).findIndex((r) => r.id === id);
 
 // ---------- mentions ----------
@@ -138,13 +146,14 @@ function publicUser(u) {
     status: u.status === 'invisible' ? 'offline' : u.status, // other people never learn that someone chose Invisible (ownUser / selfView carry the real value)
     publicKey: u.publicKey,
     createdAt: u.createdAt,
+    bot: !!u.bot, // a bot account (see the bots runtime block): shown with a BOT tag
   };
 }
 
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
+const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer, recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -190,7 +199,7 @@ const convoKey = (a, b) => [a, b].sort().join(':');
 // Tokens carry the account's tokenVersion, so "log out everywhere" (POST /api/me/logout-all) can revoke them all (see security.js).
 const sessions = security.createSessions({ jwt, getSecret: () => SECRET });
 const signToken = (u) => sessions.sign(u);
-const userFromToken = (token) => sessions.user(token, (uid) => db().users[uid]);
+const userFromToken = (token) => sessions.user(token, (uid) => { const u = db().users[uid]; return u && !u.bot ? u : undefined; }); // a bot account has no password and no session, whatever token is presented
 
 // The web app is logged in by an httpOnly cookie (see security.js). The token is still accepted in an Authorization header (older apps,
 // the tests, scripts), and still returned in the JSON unless the caller sends "X-Session: cookie", which the web app always does:
@@ -219,6 +228,8 @@ function serverView(s) {
     roles: s.roles || [],
     everyone: s.everyone || [],
     memberRoles: s.memberRoles || {},
+    onboarding: s.onboarding || null,
+    bots: (s.installedBots || []).map((i) => ({ botId: i.botId, userId: i.userId, channels: Array.isArray(i.channels) ? i.channels : null })),
     channels: s.channels,
     members: s.members.map((m) => db().users[m]).filter(Boolean).map(publicUser),
   };
@@ -380,6 +391,7 @@ function joinDefaultServer(user) {
   const dflt = defaultServer();
   if (dflt && !dflt.members.includes(user.id)) {
     dflt.members.push(user.id);
+    (dflt.joinedAt = dflt.joinedAt || {})[user.id] = Date.now();
     io.to('server:' + dflt.id).emit('server:update', serverView(dflt));
   }
 }
@@ -481,7 +493,7 @@ app.post('/api/login', authLimiter, ah(async (req, res) => {
     res.set('Retry-After', String(lock.retryAfterSec));
     return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
   }
-  const user = Object.values(db().users).find((u) => u.username.toLowerCase() === name.toLowerCase());
+  const user = Object.values(db().users).find((u) => !u.bot && u.username.toLowerCase() === name.toLowerCase());
   const ok = await bcrypt.compare(String(password || ''), user ? user.passHash : DUMMY_HASH); // always one comparison: no timing hint about which names exist
   if (!user || !ok) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'Invalid username or password' }); }
   // Two-factor: the password was right, so say a code is needed (nothing is issued yet). Wrong codes feed the same lockout, and the
@@ -559,7 +571,7 @@ app.put('/api/me/recovery', auth, ah(async (req, res) => {
 // Step 1 of a reset: the wrapped identity key for this name (or a decoy, see decoyRecoveryBlob). The device opens it with the recovery key.
 app.post('/api/recover/start', authLimiter, (req, res) => {
   const name = String(req.body?.username || '').trim();
-  const u = name && Object.values(db().users).find((x) => x.username.toLowerCase() === name.toLowerCase());
+  const u = name && Object.values(db().users).find((x) => !x.bot && x.username.toLowerCase() === name.toLowerCase());
   res.json({ blob: u && u.recovery ? u.recovery.blob : decoyRecoveryBlob(name) });
 });
 
@@ -577,7 +589,7 @@ app.post('/api/recover/finish', authLimiter, ah(async (req, res) => {
   if (typeof newPassword !== 'string' || newPassword.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   if (newPassword.length > 200) return res.status(400).json({ error: 'That password is too long' });
   if (!validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing key backup' });
-  const u = name && Object.values(db().users).find((x) => x.username.toLowerCase() === name.toLowerCase());
+  const u = name && Object.values(db().users).find((x) => !x.bot && x.username.toLowerCase() === name.toLowerCase());
   // Compare in constant time, and always do one comparison, whether or not the account (or its key) exists.
   const have = Buffer.from(u && u.recovery ? u.recovery.verifier : sha256('no such recovery key'), 'hex');
   const given = Buffer.from(typeof proof === 'string' && RECOVERY_AUTH.test(proof) ? sha256(proof) : sha256(''), 'hex');
@@ -628,7 +640,7 @@ app.put('/api/me/email-recovery', auth, ah(async (req, res) => {
 app.post('/api/recover/email/start', authLimiter, (req, res) => {
   res.json({ ok: true });
   const name = String(req.body?.username || '').trim();
-  const u = name && Object.values(db().users).find((x) => x.username.toLowerCase() === name.toLowerCase());
+  const u = name && Object.values(db().users).find((x) => !x.bot && x.username.toLowerCase() === name.toLowerCase());
   if (!u || !u.emailRecovery || !emailRecoveryPossible(u)) return;
   if (u.emailReset && now() - u.emailReset.sentAt < RESET_COOLDOWN_MS) return;
   if (!resetMails.allow(u.id)) return;
@@ -652,7 +664,7 @@ app.post('/api/recover/email/finish', authLimiter, ah(async (req, res) => {
   if (typeof publicKey !== 'string' || publicKey.length > 2000 || !validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing encryption key' });
   const recovery = recoveryRecord(req.body?.recovery);
   if (!recovery) return res.status(400).json({ error: 'Bad recovery key backup' });
-  const u = name && Object.values(db().users).find((x) => x.username.toLowerCase() === name.toLowerCase());
+  const u = name && Object.values(db().users).find((x) => !x.bot && x.username.toLowerCase() === name.toLowerCase());
   const r = u && u.emailRecovery && emailRecoveryPossible(u) ? u.emailReset : null;
   const fail = () => { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'That code is not right or has expired. Ask for a new one.', code: 'reset_code_invalid' }); };
   if (!r || r.expires < now() || r.tries >= RESET_MAX_TRIES) return fail();
@@ -1111,7 +1123,7 @@ app.post('/api/friends/request', auth, (req, res) => {
   const me = req.user;
   const name = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
   if (!name) return res.status(400).json({ error: 'Enter a username' });
-  const target = Object.values(db().users).find((u) => u.username.toLowerCase() === name);
+  const target = Object.values(db().users).find((u) => !u.bot && u.username.toLowerCase() === name);
   if (!target) return res.status(404).json({ error: "We couldn't find anyone with that username" });
   if (target.id === me.id) return res.status(400).json({ error: "You can't add yourself" });
 
@@ -1198,11 +1210,14 @@ app.post('/api/servers/join', auth, (req, res) => {
   if (!s.members.includes(req.user.id) && !canJoin(s, req.user.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
   if (!s.members.includes(req.user.id)) {
     s.members.push(req.user.id);
+    (s.joinedAt = s.joinedAt || {})[req.user.id] = Date.now();
+    if (s.onboarded) delete s.onboarded[req.user.id]; // coming back means answering again
     store.save();
     joinRooms(req.user.id);
     io.to('server:' + s.id).emit('server:update', serverView(s));
     for (const m of s.members) introduce(req.user.id, m);
     broadcastPresence(req.user.id);
+    dispatchBots(s, 'memberJoin', { user: req.user });
   }
   res.json({ server: serverView(s) });
 });
@@ -1379,6 +1394,7 @@ function publishView(s) {
     requirements: PUBLISH_REQ, publicRequirements: PUBLIC_REQ, counts: publishCounts(s),
     met: publishMissing(s).length === 0, metPublic: publishMissing(s, 'public').length === 0,
     visibility: s.visibility || null, description: s.description || '',
+    review: s.listingHold ? s.listingHold.state : null, // 'hidden' (under review after reports) | 'removed' (taken down): only the owner sees this
     allowed: (s.allowed || []).map((id) => db().users[id]).filter(Boolean).map(publicUser),
   };
 }
@@ -1396,6 +1412,11 @@ app.put('/api/servers/:id/publish', auth, (req, res) => {
     if (missing.length) return res.status(400).json({ error: `Add ${missing.join(' and ')} before publishing` });
     const desc = req.body?.description === undefined ? (s.description || '') : clip(req.body.description, MAX_DESC).trim();
     if (v === 'public' && !desc) return res.status(400).json({ error: 'Write a short description so people know what your public server is about' });
+    if (v === 'public') {
+      if (s.listingHold) return res.status(400).json({ error: s.listingHold.state === 'removed' ? 'This server was removed from the public listing after reports. You can still use it as private or unlisted.' : 'This server\'s public listing is under review after reports. It cannot be changed until the review is done.' });
+      const problem = listing.listingProblem({ name: s.name, description: desc, tags: s.tags }, BLOCKED_WORDS);
+      if (problem) return res.status(400).json({ error: problem });
+    }
     s.description = desc;
     s.visibility = v;
     s.publishedAt = s.publishedAt || now();
@@ -1407,7 +1428,7 @@ app.put('/api/servers/:id/publish', auth, (req, res) => {
 app.post('/api/servers/:id/publish/allowed', auth, (req, res) => {
   const s = ownerOf(req, res); if (!s) return;
   const name = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
-  const target = Object.values(db().users).find((u) => u.username.toLowerCase() === name);
+  const target = Object.values(db().users).find((u) => !u.bot && u.username.toLowerCase() === name);
   if (!name || !target) return res.status(404).json({ error: "We couldn't find anyone with that username" });
   if (target.id === s.ownerId) return res.status(400).json({ error: 'You own this server, so you can always join it' });
   s.allowed = s.allowed || [];
@@ -1474,6 +1495,7 @@ app.delete('/api/servers/:id/roles/:rid', auth, (req, res) => {
   if (!r) return res.status(404).json({ error: 'Role not found' });
   if (!belowMe(s, req.user.id, r.id)) return res.status(403).json({ error: 'That role is above your own' });
   s.roles = s.roles.filter((x) => x.id !== r.id);
+  for (const q of s.onboarding?.questions || []) for (const o of q.options) o.roles = o.roles.filter((id) => id !== r.id);
   for (const uid of Object.keys(s.memberRoles || {})) {
     s.memberRoles[uid] = s.memberRoles[uid].filter((id) => id !== r.id);
     if (!s.memberRoles[uid].length) delete s.memberRoles[uid];
@@ -1528,12 +1550,16 @@ app.post('/api/servers/:id/members/:uid/kick', auth, (req, res) => {
   if (!can(s, req.user.id, 'kickMembers')) return res.status(403).json({ error: 'You need the Kick members permission to do that' });
   const uid = req.params.uid;
   if (!s.members.includes(uid)) return res.status(404).json({ error: 'Not a member' });
+  if (db().users[uid]?.bot) return res.status(400).json({ error: 'That is a bot. Remove it from Server settings > Bots.' });
   if (uid === s.ownerId) return res.status(400).json({ error: 'The owner cannot be kicked' });
   if (uid === req.user.id) return res.status(400).json({ error: 'Use Leave server to leave' });
   if (req.user.id !== s.ownerId && rankOf(s, uid) <= rankOf(s, req.user.id)) return res.status(403).json({ error: 'That member is at or above your own role' });
   s.members = s.members.filter((m) => m !== uid);
   if (s.memberRoles) delete s.memberRoles[uid];
+  if (s.onboarded) delete s.onboarded[uid];
+  if (s.joinedAt) delete s.joinedAt[uid];
   s.allowed = (s.allowed || []).filter((id) => id !== uid); // a kicked member of a private server must be added again to return
+  forgetNotes(db().users[uid], s);
   store.save();
   for (const sock of userSockets(uid)) {
     voiceLeave(uid, sock.id);
@@ -1543,20 +1569,217 @@ app.post('/api/servers/:id/members/:uid/kick', auth, (req, res) => {
   pushServer(s, res);
 });
 
+// ----- onboarding (questions at join that hand out roles) -----
+// Config lives on the server record: s.onboarding = { enabled, required, welcome, startedAt, questions: [{ id, title, multi, required,
+// options: [{ id, label, emoji, roles: [roleId] }] }] }. What each member answered lives in s.onboarded[userId] = { at, skipped, answers, granted }
+// (granted = the roles the answers gave them, so a retake can take back exactly those and leave roles given by hand alone).
+// Anyone can pick any answer, so an answer may only hand out roles that carry no permissions (a look-and-channel-access role, never power).
+// "Required" only holds back people who joined after it was switched on (s.joinedAt); existing members are asked but may skip.
+// Nothing hides channels yet: until per-channel permissions exist the roles are for colour, grouping and later channel access.
+const ONB = { questions: 5, options: 8, roles: 5, title: 120, label: 60, welcome: 500 };
+const plainRole = (s, id) => { const r = roleById(s, id); return !!r && r.perms.length === 0; };
+const hexId = /^[0-9a-f]{16}$/;
+
+function cleanOnboarding(s, uid, b) {
+  if (!b || typeof b !== 'object') return { error: 'Invalid onboarding' };
+  const old = s.onboarding || { questions: [] };
+  const oldRoles = new Map(); // option id -> roles it already gave (an unchanged role above the editor is not their change)
+  for (const q of old.questions) for (const o of q.options) oldRoles.set(o.id, o.roles);
+  const qs = b.questions === undefined ? old.questions : b.questions;
+  if (!Array.isArray(qs) || qs.length > ONB.questions) return { error: `Use at most ${ONB.questions} questions` };
+  const seen = new Set();
+  const fresh = () => { let id; do id = store.id(); while (seen.has(id)); seen.add(id); return id; };
+  const idOf = (v) => (typeof v === 'string' && hexId.test(v) && !seen.has(v) ? (seen.add(v), v) : fresh());
+  const questions = [];
+  for (const q of qs) {
+    const title = clip(q?.title, ONB.title).trim();
+    if (!title) return { error: 'Every question needs some text' };
+    if (!Array.isArray(q.options) || q.options.length < 1 || q.options.length > ONB.options) return { error: `Every question needs 1 to ${ONB.options} answers` };
+    const options = [];
+    for (const o of q.options) {
+      const label = clip(o?.label, ONB.label).trim();
+      if (!label) return { error: 'Every answer needs some text' };
+      const rs = o.roles === undefined ? [] : o.roles;
+      if (!Array.isArray(rs) || rs.length > ONB.roles || new Set(rs).size !== rs.length) return { error: `An answer can give at most ${ONB.roles} roles` };
+      const before = oldRoles.get(o.id) || [];
+      for (const rid of rs) {
+        if (!roleById(s, rid)) return { error: 'Unknown role' };
+        if (!plainRole(s, rid)) return { error: `"${roleById(s, rid).name}" has permissions, so an answer cannot give it. Pick a role with no permissions.` };
+        if (!before.includes(rid) && !belowMe(s, uid, rid)) return { error: `"${roleById(s, rid).name}" is above your own role` };
+      }
+      options.push({ id: idOf(o.id), label, emoji: clip(o.emoji, 8).trim() || '', roles: [...rs] });
+    }
+    questions.push({ id: idOf(q.id), title, multi: !!q.multi, required: !!q.required, options });
+  }
+  const enabled = b.enabled === undefined ? !!old.enabled : !!b.enabled;
+  if (enabled && !questions.length) return { error: 'Add at least one question before turning onboarding on' };
+  return {
+    value: {
+      enabled,
+      required: b.required === undefined ? !!old.required : !!b.required,
+      welcome: b.welcome === undefined ? old.welcome || '' : clip(b.welcome, ONB.welcome).trim(),
+      startedAt: enabled && !old.enabled ? Date.now() : old.startedAt || 0, // "required" applies to people who join after this
+      questions,
+    },
+  };
+}
+
+const onbDone = (s, uid) => !!s.onboarded?.[uid];
+function onbBlocking(s, uid) {
+  const c = s.onboarding;
+  return !!(c?.enabled && c.required && !onbDone(s, uid) && uid !== s.ownerId && (s.joinedAt?.[uid] || 0) >= (c.startedAt || 0) && s.joinedAt?.[uid]);
+}
+function onbState(s, uid) {
+  const rec = s.onboarded?.[uid];
+  return { done: !!rec, skipped: !!rec?.skipped, answers: rec?.answers || {}, blocking: onbBlocking(s, uid) };
+}
+
+app.get('/api/servers/:id/onboarding', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  res.json(onbState(s, req.user.id));
+});
+
+app.put('/api/servers/:id/onboarding', auth, (req, res) => {
+  const s = ownedServer(req, res); if (!s) return;
+  const r = cleanOnboarding(s, req.user.id, req.body);
+  if (r.error) return res.status(400).json({ error: r.error });
+  s.onboarding = r.value;
+  pushServer(s, res);
+});
+
+// the member's answers: { answers: { questionId: [optionId] } } or { skip: true }
+app.post('/api/servers/:id/onboarding/answers', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  const cfg = s.onboarding;
+  if (!cfg?.enabled) return res.status(400).json({ error: 'This server has no onboarding' });
+  const uid = req.user.id;
+  s.onboarded = s.onboarded || {};
+  if (req.body?.skip) {
+    if (onbBlocking(s, uid)) return res.status(400).json({ error: 'The owner requires you to answer these first' });
+    s.onboarded[uid] = { at: Date.now(), skipped: true, answers: {}, granted: s.onboarded[uid]?.granted || [] };
+    store.save();
+    return res.json({ ...onbState(s, uid), server: serverView(s) });
+  }
+  const given = req.body?.answers;
+  if (!given || typeof given !== 'object' || Array.isArray(given)) return res.status(400).json({ error: 'Send your answers' });
+  const answers = {}, wanted = new Set();
+  for (const q of cfg.questions) {
+    const raw = given[q.id] === undefined ? [] : given[q.id];
+    if (!Array.isArray(raw) || new Set(raw).size !== raw.length || !raw.every((id) => q.options.some((o) => o.id === id))) return res.status(400).json({ error: 'Unknown answer' });
+    if (!q.multi && raw.length > 1) return res.status(400).json({ error: 'Pick one answer for each single-choice question' });
+    if (q.required && !raw.length) return res.status(400).json({ error: `Answer "${q.title}"` });
+    if (raw.length) answers[q.id] = raw;
+    for (const oid of raw) for (const rid of q.options.find((o) => o.id === oid).roles) if (plainRole(s, rid)) wanted.add(rid);
+  }
+  // swap the roles the previous answers gave for the new ones; roles given by hand stay as they are
+  const prev = new Set(s.onboarded[uid]?.granted || []);
+  const held = new Set(heldRoleIds(s, uid));
+  const heldBefore = new Set(held);
+  for (const id of prev) held.delete(id);
+  for (const id of wanted) held.add(id);
+  const granted = [...wanted].filter((id) => prev.has(id) || !heldBefore.has(id));
+  if (uid !== s.ownerId) { // the owner already has everything and holds no roles
+    s.memberRoles = s.memberRoles || {};
+    const next = s.roles.map((r) => r.id).filter((id) => held.has(id));
+    if (next.length) s.memberRoles[uid] = next; else delete s.memberRoles[uid];
+  }
+  s.onboarded[uid] = { at: Date.now(), skipped: false, answers, granted: uid === s.ownerId ? [] : granted };
+  store.save();
+  io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ ...onbState(s, uid), server: serverView(s) });
+});
+
+// Removes a server and everything that belongs to it: messages, uploaded files, icon + banner, voice rooms, every member's settings and
+// read positions. Members' open connections are told (`server:removed` with reason 'deleted') and leave the rooms.
+function destroyServer(s) {
+  const chanIds = new Set(s.channels.map((c) => c.id));
+  const gone = Object.values(db().messages).filter((m) => chanIds.has(m.channelId));
+  const fileIds = gone.flatMap((m) => (m.attachments || []).map((a) => a.id).filter(Boolean));
+  for (const m of gone) delete db().messages[m.id];
+  for (const cid of chanIds) {
+    const room = voice.get(cid);
+    if (room) { for (const sid of room.values()) io.to(sid).emit('voice:kicked', { channelId: cid }); voice.delete(cid); }
+  }
+  for (const uid of s.members) {
+    forgetNotes(db().users[uid], s);
+    for (const sock of userSockets(uid)) {
+      sock.emit('server:removed', { serverId: s.id, reason: 'deleted', name: s.name });
+      sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id));
+    }
+  }
+  for (const i of s.installedBots || []) { const bt = db().bots[i.botId]; if (bt) bt.installs = (bt.installs || []).filter((id) => id !== s.id); }
+  delete db().servers[s.id];
+  store.save();
+  store.deleteFiles(fileIds).catch((e) => console.error(e));
+  store.deleteImage(s.iconImage).catch(() => {});
+  store.deleteImage(s.bannerImage).catch(() => {});
+}
+
+// The owner cannot just walk away: ownership never passes to "whoever is first in the list". They hand it to a chosen member first
+// (POST .../transfer) or delete the server (DELETE /api/servers/:id). The one exception is an owner who is alone: leaving then deletes it.
 app.post('/api/servers/:id/leave', auth, (req, res) => {
   const s = db().servers[req.params.id];
   if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  if (s.ownerId === req.user.id) {
+    if (humanCount(s) > 1) return res.status(400).json({ error: 'You own this server. Transfer ownership to another member first, or delete the server.', code: 'owner_must_transfer' });
+    destroyServer(s);
+    return res.json({ ok: true, deleted: true });
+  }
   s.members = s.members.filter((m) => m !== req.user.id);
   if (s.memberRoles) delete s.memberRoles[req.user.id];
-  if (s.ownerId === req.user.id) {
-    if (s.members.length) s.ownerId = s.members[0];
-    else { delete db().servers[s.id]; store.deleteImage(s.iconImage).catch(() => {}); store.deleteImage(s.bannerImage).catch(() => {}); }
-  }
+  if (s.onboarded) delete s.onboarded[req.user.id];
+  if (s.joinedAt) delete s.joinedAt[req.user.id];
+  forgetNotes(req.user, s);
   store.save();
   for (const sock of userSockets(req.user.id)) { voiceLeave(req.user.id, sock.id); sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id)); } // voiceLeave: someone who leaves must not stay in the server's voice call (kick already did this)
-  if (db().servers[s.id]) io.to('server:' + s.id).emit('server:update', serverView(s));
+  io.to('server:' + s.id).emit('server:update', serverView(s));
   res.json({ ok: true });
 });
+
+// Owner-only, irreversible actions: both re-check the password (and the 2FA code when it is on). Wrong guesses feed the login lockout.
+async function ownerConfirmed(req, res) {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
+  if (s.ownerId !== req.user.id) { res.status(403).json({ error: 'Only the server owner can do that' }); return null; }
+  const u = req.user;
+  if (!(await passwordOk(req, res, u, req.body?.password))) return null;
+  if (u.totp && u.totp.enabled && !codeOk(req, res, u, req.body?.code)) return null;
+  loginGuard.success(u.username, req.ip);
+  return s;
+}
+
+app.post('/api/servers/:id/transfer', auth, ah(async (req, res) => {
+  const target = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  const peek = db().servers[req.params.id];
+  // cheap checks first so a typo in the target does not use up the person's 2FA code
+  if (peek && peek.ownerId === req.user.id) {
+    if (target === req.user.id) return res.status(400).json({ error: 'You already own this server' });
+    if (!peek.members.includes(target) || db().users[target]?.bot) return res.status(400).json({ error: 'Pick a current member of the server' });
+  }
+  const s = await ownerConfirmed(req, res); if (!s) return;
+  if (!s.members.includes(target) || target === s.ownerId || db().users[target]?.bot) return res.status(400).json({ error: 'Pick a current member of the server' }); // re-checked after the awaits
+  const old = s.ownerId;
+  s.ownerId = target;
+  // the owner holds no roles (they have every permission), and the previous owner becomes an ordinary member
+  if (s.memberRoles) delete s.memberRoles[target];
+  if (s.visibility === 'private') { // on a private server the old owner must stay allowed, or they could never rejoin
+    s.allowed = (s.allowed || []).filter((id) => id !== target);
+    if (!s.allowed.includes(old)) s.allowed.push(old);
+  }
+  store.save();
+  io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ server: serverView(s) });
+}));
+
+app.delete('/api/servers/:id', auth, ah(async (req, res) => {
+  const peek = db().servers[req.params.id];
+  if (peek && peek.ownerId === req.user.id && String(req.body?.name || '').trim() !== peek.name) return res.status(400).json({ error: 'Type the server name exactly to confirm' });
+  const s = await ownerConfirmed(req, res); if (!s) return;
+  destroyServer(s);
+  res.json({ ok: true });
+}));
 
 // ----- server settings (owner only): name, icon, banner, theme -----
 const SERVER_IMAGE_RULES = {
@@ -1609,7 +1832,7 @@ function sendInvite(req, res, me) {
   const s = Object.values(db().servers).find((x) => x.inviteCode === cleanInvite(req.params.code));
   if (!s) return res.status(404).json({ error: 'This invite is no longer valid' });
   if (!(me && s.members.includes(me.id)) && !canJoin(s, me?.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
-  res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, theme: s.theme || null, memberCount: s.members.length } });
+  res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, theme: s.theme || null, memberCount: humanCount(s) } });
 }
 
 // Tags help people find a public server. Up to 5, each 2-20 characters of a-z 0-9 and -, stored lowercase.
@@ -1625,6 +1848,364 @@ function cleanTags(v) {
   if (out.length > MAX_TAGS) return `You can use up to ${MAX_TAGS} tags`;
   return out;
 }
+
+// ----- reports on public listings -----
+// Anyone signed in can report a public server (reason + optional details). Each person has one report per server (a new one replaces
+// the old). When REPORTS_TO_HIDE different established accounts (older than a day) have reported it, the listing is hidden from the
+// explorer and the owner cannot republish it until a moderator has looked. Moderators are the usernames in ADMIN_USERNAMES.
+// The owner never sees who reported.
+const reportHits = new security.RateWindow(listing.LISTING.perHour, 3600_000);
+const REPORTS_TO_HIDE = posNum(process.env.LISTING_REPORTS_TO_HIDE, listing.LISTING.reportsToHide);
+const ADMINS = new Set(String(process.env.ADMIN_USERNAMES || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean));
+const isAdmin = (u) => !!u && ADMINS.has(String(u.username).toLowerCase());
+
+app.post('/api/servers/:id/report', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || s.visibility !== 'public') return res.status(404).json({ error: 'That server is not listed publicly' });
+  if (s.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot report your own server' });
+  const reason = String(req.body?.reason || '');
+  if (!listing.REASONS.includes(reason)) return res.status(400).json({ error: 'Pick a reason' });
+  const details = clip(req.body?.details, listing.LISTING.maxDetails).trim();
+  if (reason === 'other' && !details) return res.status(400).json({ error: 'Tell us what is wrong' });
+  if (!reportHits.allow(req.user.id)) return res.status(429).json({ error: 'You have sent a lot of reports. Try again later.' });
+  s.reports = (s.reports || []).filter((r) => r.by !== req.user.id);
+  s.reports.push({ by: req.user.id, reason, details, at: now(), name: s.name, description: s.description || '', tags: s.tags || [] }); // a copy of what was reported, in case it is edited after
+  if (s.reports.length > 200) s.reports = s.reports.slice(-200);
+  if (!s.listingHold && listing.countedReports(s.reports, db().users, now()) >= REPORTS_TO_HIDE) s.listingHold = { state: 'hidden', at: now() };
+  store.save();
+  res.json({ ok: true });
+});
+
+function adminOnly(req, res, next) { if (!isAdmin(req.user)) return res.status(404).json({ error: 'Not found' }); next(); }
+app.get('/api/admin/listing-reports', auth, adminOnly, (_req, res) => {
+  const rows = Object.values(db().servers).filter((s) => (s.reports || []).length || s.listingHold).map((s) => ({
+    serverId: s.id, name: s.name, description: s.description || '', tags: s.tags || [], visibility: s.visibility || null, members: humanCount(s),
+    owner: db().users[s.ownerId]?.username || null, hold: s.listingHold || null, counted: listing.countedReports(s.reports, db().users, now()),
+    reports: (s.reports || []).map((r) => ({ by: db().users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at })),
+  })).sort((a, b) => b.reports.length - a.reports.length);
+  res.json({ servers: rows, toHide: REPORTS_TO_HIDE });
+});
+// restore = put it back in the explorer and clear the reports; dismiss = clear the reports only; remove = take it off the public listing for good
+app.post('/api/admin/servers/:id/listing', auth, adminOnly, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  const action = req.body?.action;
+  if (action === 'restore' || action === 'dismiss') { delete s.listingHold; s.reports = []; }
+  else if (action === 'remove') { s.listingHold = { state: 'removed', at: now() }; if (s.visibility === 'public') delete s.visibility; }
+  else return res.status(400).json({ error: 'action must be restore, dismiss or remove' });
+  store.save();
+  io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ ok: true, hold: s.listingHold || null });
+});
+
+// ----- bots: developer accounts, bot records, the explorer's Bots tab -----
+// Anyone can turn on a developer account (Settings > Developer, POST /api/developer/join). A developer writes bots (JavaScript, see bots.js)
+// that are private (only they can install them) or public (listed in the explorer, anyone who manages a server can add them).
+// Public bots follow the same text rules and reporting as public servers. The sandbox, bot accounts, installing and events are in the
+// "bots, part 3" block below.
+const botSaves = new security.RateWindow(60, 3600_000);
+const myBots = (uid) => Object.values(db().bots).filter((b) => b.ownerId === uid);
+const developerOnly = (req, res, next) => (req.user.developer ? next() : res.status(403).json({ error: 'Turn on your developer account first', code: 'not_developer' }));
+const viewBot = (b, uid) => botsLib.botView(b, uid, db().users);
+
+app.get('/api/developer', auth, (req, res) => res.json({ developer: !!req.user.developer, bots: req.user.developer ? myBots(req.user.id).map((b) => ownBotView(b, req.user.id)) : [], limits: { ...botsLib.LIMITS, ...botrun.LIMITS } }));
+app.post('/api/developer/join', auth, (req, res) => {
+  if (req.body?.accept !== true) return res.status(400).json({ error: 'Please accept the developer terms' });
+  if (!req.user.developer) { req.user.developer = { at: now() }; store.save(); }
+  res.json({ developer: true, user: ownUser(req.user) });
+});
+
+app.post('/api/bots', auth, developerOnly, (req, res) => {
+  if (myBots(req.user.id).length >= botsLib.LIMITS.perDeveloper) return res.status(400).json({ error: `You can have up to ${botsLib.LIMITS.perDeveloper} bots` });
+  if (!botSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving bots too fast. Try again later.' });
+  const r = botsLib.checkBot(req.body, { words: BLOCKED_WORDS });
+  if (r.error) return res.status(400).json({ error: r.error });
+  const b = { id: store.id(), ownerId: req.user.id, tags: [], installs: [], reports: [], createdAt: now(), updatedAt: now(), ...r.value };
+  db().bots[b.id] = b;
+  store.save();
+  res.json({ bot: ownBotView(b, req.user.id) });
+});
+app.get('/api/bots/:id', auth, (req, res) => {
+  const b = db().bots[req.params.id];
+  if (!b || (b.ownerId !== req.user.id && (b.visibility !== 'public' || b.listingHold))) return res.status(404).json({ error: 'Bot not found' });
+  res.json({ bot: viewBot(b, req.user.id) });
+});
+app.patch('/api/bots/:id', auth, developerOnly, (req, res) => {
+  const b = db().bots[req.params.id];
+  if (!b || b.ownerId !== req.user.id) return res.status(404).json({ error: 'Bot not found' });
+  if (b.listingHold && (req.body?.visibility === 'public' || (b.visibility === 'public' && ['name', 'description', 'tags'].some((k) => req.body?.[k] !== undefined)))) {
+    return res.status(400).json({ error: b.listingHold.state === 'removed' ? 'This bot was removed from the public listing after reports.' : 'This bot\'s public listing is under review after reports. It cannot be changed until the review is done.' });
+  }
+  if (!botSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving bots too fast. Try again later.' });
+  const r = botsLib.checkBot(req.body, { current: b, words: BLOCKED_WORDS });
+  if (r.error) return res.status(400).json({ error: r.error });
+  const wasPublic = b.visibility === 'public';
+  Object.assign(b, r.value, { updatedAt: now() });
+  if (r.value.code !== undefined) guard.resume(b.id); // new code lifts a pause
+  syncBotUser(b);
+  // a bot that goes private only stays where its developer manages the server: strangers installed it while it was public
+  if (wasPublic && b.visibility === 'private') removeEverywhere(b, (sv) => can(sv, b.ownerId, 'manageServer'));
+  store.save();
+  res.json({ bot: ownBotView(b, req.user.id) });
+});
+app.delete('/api/bots/:id', auth, (req, res) => {
+  const b = db().bots[req.params.id];
+  if (!b || b.ownerId !== req.user.id) return res.status(404).json({ error: 'Bot not found' });
+  removeEverywhere(b); // a deleted bot leaves every server it was in (its account stays on record so old messages keep the name)
+  guard.forget(b.id);
+  delete db().bots[b.id];
+  store.save();
+  res.json({ ok: true });
+});
+
+// Test run: the developer's own code (a saved bot's, or a draft sent as `code`) against a made-up event, so they can see what it would
+// do. Nothing is sent anywhere: the actions come back as a list. Same sandbox and limits as the real thing.
+// Event shape (part 3 will send the same): message = { id, channelId, serverId, text, mentions: [userId], author: { id, username, displayName, bot }, createdAt }
+const botTests = new security.RateWindow(30, 60_000);
+app.post('/api/developer/test', auth, developerOnly, ah(async (req, res) => {
+  if (!sandbox.available()) return res.status(503).json({ error: 'The bot sandbox is not installed on this server', code: 'sandbox_missing' });
+  const b = req.body || {};
+  let code = typeof b.code === 'string' ? b.code : null;
+  if (code === null && typeof b.botId === 'string') {
+    const bot = db().bots[b.botId];
+    if (!bot || bot.ownerId !== req.user.id) return res.status(404).json({ error: 'Bot not found' });
+    code = bot.code;
+  }
+  if (code === null) return res.status(400).json({ error: 'Send the bot code or a botId' });
+  const bad = botsLib.checkBot({ name: 'test', code }, {});
+  if (bad.error) return res.status(400).json({ error: bad.error });
+  if (!botTests.allow(req.user.id)) return res.status(429).json({ error: 'Too many test runs. Wait a moment.' });
+  const text = clip(b.text, 2000);
+  const u = req.user;
+  const event = b.event === 'memberJoin' ? 'memberJoin' : 'message';
+  // the same shapes the real events have, against a made-up server with one text channel
+  const fake = { id: 'test-server', members: [u.id], channels: [{ id: 'test-channel', name: 'general' }] };
+  const payload = event === 'memberJoin'
+    ? botrun.joinPayload({ server: fake, user: u, install: {} })
+    : botrun.messagePayload({ msg: { id: 'test-message', channelId: 'test-channel', serverId: 'test-server', content: text, mentions: [], createdAt: now() }, author: u, botUserId: null });
+  const r = await sandbox.run({ code, event, payload });
+  const plan = botrun.planActions({ actions: r.actions, server: fake, install: {}, mentionUserId: u.id, maxText: MAX_MSG, replyOk: (cid, mid) => (mid === 'test-message' ? mid : null) });
+  r.dropped = plan.dropped; // what a real server would refuse, e.g. a wrong channel id
+  res.json({ result: r });
+}));
+
+app.get('/api/explore/bots', auth, (req, res) => {
+  const r = botsLib.exploreBots(Object.values(db().bots), {
+    q: clip(req.query.q, 60), sort: ['popular', 'az', 'za', 'new'].includes(req.query.sort) ? req.query.sort : 'popular',
+    offset: Math.max(0, parseInt(req.query.offset, 10) || 0), words: BLOCKED_WORDS,
+  });
+  res.json({ bots: r.page.map((b) => viewBot(b, req.user.id)), total: r.total, next: r.next });
+});
+
+// Reports work like server reports: one per person, only public bots, not your own; enough reports from established accounts hide it.
+app.post('/api/bots/:id/report', auth, (req, res) => {
+  const b = db().bots[req.params.id];
+  if (!b || b.visibility !== 'public') return res.status(404).json({ error: 'That bot is not listed publicly' });
+  if (b.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot report your own bot' });
+  const reason = String(req.body?.reason || '');
+  if (!listing.REASONS.includes(reason)) return res.status(400).json({ error: 'Pick a reason' });
+  const details = clip(req.body?.details, listing.LISTING.maxDetails).trim();
+  if (reason === 'other' && !details) return res.status(400).json({ error: 'Tell us what is wrong' });
+  if (!reportHits.allow(req.user.id)) return res.status(429).json({ error: 'You have sent a lot of reports. Try again later.' });
+  b.reports = (b.reports || []).filter((r) => r.by !== req.user.id);
+  b.reports.push({ by: req.user.id, reason, details, at: now(), name: b.name, description: b.description || '', tags: b.tags || [] });
+  if (b.reports.length > 200) b.reports = b.reports.slice(-200);
+  if (!b.listingHold && listing.countedReports(b.reports, db().users, now()) >= REPORTS_TO_HIDE) { b.listingHold = { state: 'hidden', at: now() }; tellDeveloper(b); }
+  store.save();
+  res.json({ ok: true });
+});
+app.get('/api/admin/bot-reports', auth, adminOnly, (_req, res) => {
+  const rows = Object.values(db().bots).filter((b) => (b.reports || []).length || b.listingHold).map((b) => ({
+    botId: b.id, name: b.name, description: b.description || '', tags: b.tags || [], visibility: b.visibility, installs: (b.installs || []).length,
+    developer: db().users[b.ownerId]?.username || null, hold: b.listingHold || null, counted: listing.countedReports(b.reports, db().users, now()),
+    reports: (b.reports || []).map((r) => ({ by: db().users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at })),
+  })).sort((a, b) => b.reports.length - a.reports.length);
+  res.json({ bots: rows, toHide: REPORTS_TO_HIDE });
+});
+app.post('/api/admin/bots/:id/listing', auth, adminOnly, (req, res) => {
+  const b = db().bots[req.params.id];
+  if (!b) return res.status(404).json({ error: 'Not found' });
+  const action = req.body?.action;
+  if (action === 'restore' || action === 'dismiss') { delete b.listingHold; b.reports = []; }
+  else if (action === 'remove') { b.listingHold = { state: 'removed', at: now() }; b.visibility = 'private'; removeEverywhere(b); } // removed for good: it stops running and leaves every server
+  else return res.status(400).json({ error: 'action must be restore, dismiss or remove' });
+  store.save();
+  tellDeveloper(b);
+  res.json({ ok: true, hold: b.listingHold || null });
+});
+
+// ----- bots, part 3: bot accounts, installing a bot in a server, running it on events -----
+// A bot gets ONE account (a user record with `bot: true`, username "bot-<hex>", which no person can register because of the dash). It has
+// no password and no session: tokens for it are refused (userFromToken), it cannot be found by username for friend requests, DMs or the
+// private-server list, and it is shown with a BOT tag. Installing puts that account in the server's member list and records
+// s.installedBots = [{ botId, userId, by, at, channels: null | [channelId] }]. People who manage the server (Manage server) install and
+// remove bots; a private bot can only be installed by its developer, a public one by anyone with that permission.
+// Events: 'message' (a person posted in a text channel the bot may read) and 'memberJoin' (someone joined). Bots never receive events
+// caused by bots, so two bots cannot loop. The sandbox collects what the bot wants to say; botrun.planActions() decides what is allowed
+// and botrun.Guard keeps the limits (see botrun.js). Bot messages are marked `bot: true`, never earn credits, and never ping anyone
+// except the person they answer.
+const guard = new botrun.Guard();
+const installLimit = new security.RateWindow(30, 3600_000);
+const botById = (id) => (/^[0-9a-f]{16}$/.test(String(id)) && Object.prototype.hasOwnProperty.call(db().bots, id) ? db().bots[id] : null);
+const installOf = (s, botId) => (s.installedBots || []).find((i) => i.botId === botId);
+const ownBotView = (b, uid) => ({ ...viewBot(b, uid), ...(b.ownerId === uid ? { pausedUntil: guard.pausedUntil(b.id) || null } : {}) });
+const tellDeveloper = (b) => io.to('user:' + b.ownerId).emit('bot:update', ownBotView(b, b.ownerId));
+
+function ensureBotUser(b) {
+  const have = b.userId && db().users[b.userId];
+  if (have) return have;
+  const id = store.id();
+  const hues = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e'];
+  const u = {
+    id, username: 'bot-' + id.slice(0, 12), displayName: b.name, bio: clip(b.description, 200), avatarColor: hues[parseInt(id.slice(0, 2), 16) % hues.length],
+    avatarEmoji: '', bannerColor: '#e3dccb', accentColor: '#2a251e', status: 'online', publicKey: null, links: [], bot: true, botId: b.id, createdAt: now(),
+  };
+  db().users[id] = u; b.userId = id;
+  return u;
+}
+// The bot's name and description show on its account; keep them in step with the bot record.
+function syncBotUser(b) {
+  const u = b.userId && db().users[b.userId];
+  if (!u || (u.displayName === b.name && u.bio === clip(b.description, 200))) return;
+  u.displayName = b.name; u.bio = clip(b.description, 200);
+  emitUserUpdate(u);
+}
+// Takes the bot out of one server (the account stays on record so its old messages keep their name).
+function removeInstall(s, inst) {
+  s.members = s.members.filter((m) => m !== inst.userId);
+  if (s.memberRoles) delete s.memberRoles[inst.userId];
+  s.installedBots = (s.installedBots || []).filter((i) => i !== inst);
+  const b = db().bots[inst.botId];
+  if (b) b.installs = (b.installs || []).filter((id) => id !== s.id);
+}
+function removeEverywhere(b, keep = () => false) {
+  for (const sid of [...(b.installs || [])]) {
+    const s = db().servers[sid], inst = s && installOf(s, b.id);
+    if (!inst) { b.installs = b.installs.filter((id) => id !== sid); continue; }
+    if (keep(s)) continue;
+    removeInstall(s, inst);
+    io.to('server:' + s.id).emit('server:update', serverView(s));
+  }
+}
+const runnable = (b) => !!b && !(b.listingHold && b.listingHold.state === 'removed');
+
+const manageServerOf = (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
+  if (!can(s, req.user.id, 'manageServer')) { res.status(403).json({ error: 'You need the Manage server permission to do that' }); return null; }
+  return s;
+};
+function cleanInstallChannels(s, v) {
+  if (v === undefined || v === null) return null;
+  if (!Array.isArray(v) || v.length > 30) return false;
+  const ok = new Set(s.channels.filter((c) => typeOf(c) === 'text').map((c) => c.id));
+  const out = [...new Set(v.map(String))];
+  return out.every((id) => ok.has(id)) ? out : false;
+}
+
+app.post('/api/servers/:id/bots', auth, (req, res) => {
+  const s = manageServerOf(req, res); if (!s) return;
+  const b = botById(req.body?.botId);
+  const mine = b && b.ownerId === req.user.id;
+  if (!b || (!mine && (b.visibility !== 'public' || b.listingHold))) return res.status(404).json({ error: 'Bot not found' });
+  if (!runnable(b)) return res.status(400).json({ error: 'This bot was removed by moderators and cannot be added' });
+  if (installOf(s, b.id)) return res.status(400).json({ error: 'That bot is already in this server' });
+  if ((s.installedBots || []).length >= botrun.LIMITS.perServer) return res.status(400).json({ error: `A server can have up to ${botrun.LIMITS.perServer} bots` });
+  const channels = cleanInstallChannels(s, req.body?.channels);
+  if (channels === false) return res.status(400).json({ error: 'Pick text channels of this server' });
+  if (!installLimit.allow(req.user.id)) return res.status(429).json({ error: 'You are adding bots too fast. Try again later.' });
+  const u = ensureBotUser(b);
+  syncBotUser(b);
+  s.members.push(u.id);
+  (s.installedBots = s.installedBots || []).push({ botId: b.id, userId: u.id, by: req.user.id, at: now(), channels });
+  b.installs = [...new Set([...(b.installs || []), s.id])];
+  store.save();
+  io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ server: serverView(s) });
+});
+app.patch('/api/servers/:id/bots/:botId', auth, (req, res) => {
+  const s = manageServerOf(req, res); if (!s) return;
+  const inst = installOf(s, String(req.params.botId));
+  if (!inst) return res.status(404).json({ error: 'That bot is not in this server' });
+  const channels = cleanInstallChannels(s, req.body?.channels);
+  if (channels === false) return res.status(400).json({ error: 'Pick text channels of this server' });
+  inst.channels = channels;
+  store.save();
+  io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ server: serverView(s) });
+});
+app.delete('/api/servers/:id/bots/:botId', auth, (req, res) => {
+  const s = manageServerOf(req, res); if (!s) return;
+  const inst = installOf(s, String(req.params.botId));
+  if (!inst) return res.status(404).json({ error: 'That bot is not in this server' });
+  removeInstall(s, inst);
+  store.save();
+  io.to('server:' + s.id).emit('server:update', serverView(s));
+  res.json({ server: serverView(s) });
+});
+
+// ---- running ----
+function postBotMessage(s, channel, botUser, { text, replyTo, mentions }) {
+  const msg = {
+    id: store.id(), channelId: channel.id, serverId: s.id, authorId: botUser.id, bot: true, content: text, attachments: [],
+    mentions, everyone: false, replyTo, reactions: {}, createdAt: now(),
+  };
+  db().messages[msg.id] = msg;
+  store.save();
+  io.to('channel:' + channel.id).emit('message:new', msg);
+  // a ping is a ping: the person's own settings for this server (mute, mentions only, ...) decide whether it alerts them
+  const preview = clip(text.replace(MENTION_TOKEN, '@someone'), 120);
+  for (const id of mentions) {
+    if (!np.decide(uidPrefs(id, s.id), channel.id, 'mention', now()).alert) continue;
+    pushSafe(id, 'mention', { title: `${botUser.displayName} mentioned you in ${s.name} \u00b7 #${channel.name}`, body: preview, url: `/app?n=c:${s.id}:${channel.id}`, tag: 'm:' + msg.id });
+  }
+  return msg;
+}
+async function runBotEvent(s, inst, b, event, payload, triggerUserId) {
+  const r = await sandbox.run({ code: b.code, event, payload });
+  guard.record(b.id, r);
+  const entry = { serverId: s.id, server: s.name, event, ok: r.ok, ms: r.ms, error: r.error || null, timedOut: !!r.timedOut, logs: r.logs || [], sent: 0, dropped: [] };
+  // the server, the install or the bot may have changed while the code was running
+  const cur = db().servers[s.id], live = cur && installOf(cur, b.id);
+  if (live && runnable(db().bots[b.id])) {
+    const plan = botrun.planActions({
+      actions: r.actions, server: cur, install: live, mentionUserId: triggerUserId, maxText: MAX_MSG,
+      replyOk: (cid, mid) => { const m = Object.prototype.hasOwnProperty.call(db().messages, mid) ? db().messages[mid] : null; return m && m.channelId === cid ? mid : null; },
+    });
+    entry.dropped = plan.dropped;
+    const room = guard.takeMessages(b.id, cur.id, plan.send.length);
+    if (room < plan.send.length) entry.dropped.push(`${plan.send.length - room} message(s) over the limit of ${botrun.LIMITS.messagesPerMin} per minute`);
+    const botUser = db().users[live.userId];
+    for (const a of plan.send.slice(0, room)) { postBotMessage(cur, a.channel, botUser, a); entry.sent++; }
+  }
+  guard.log(b.id, entry);
+}
+// Hands an event to every bot in the server that may see it. Never blocks the caller; a failing bot only fills its own log.
+function dispatchBots(s, event, { channel, msg, author, user }) {
+  if (!(s.installedBots || []).length || !sandbox.available()) return;
+  for (const inst of s.installedBots.slice()) {
+    const b = db().bots[inst.botId];
+    if (!runnable(b)) continue;
+    let payload;
+    if (event === 'message') {
+      if (!author || author.bot || !botrun.channelAllowed(inst, channel)) continue; // bots never answer bots; channels the bot may not read stay unseen
+      payload = botrun.messagePayload({ msg, author, botUserId: inst.userId });
+    } else if (event === 'memberJoin') {
+      if (!user || user.bot) continue;
+      payload = botrun.joinPayload({ server: s, user, install: inst });
+    } else continue;
+    const admit = guard.admit(b.id, s.id);
+    if (!admit.ok) { guard.log(b.id, { serverId: s.id, server: s.name, event, ok: false, skipped: admit.reason, logs: [], dropped: [] }); continue; }
+    runBotEvent(s, inst, b, event, payload, event === 'message' ? author.id : user.id)
+      .catch((e) => { guard.log(b.id, { serverId: s.id, server: s.name, event, ok: false, error: clip(e && e.message, 200), logs: [], dropped: [] }); });
+  }
+}
+
+app.get('/api/bots/:id/logs', auth, (req, res) => {
+  const b = botById(req.params.id);
+  if (!b || b.ownerId !== req.user.id) return res.status(404).json({ error: 'Bot not found' });
+  res.json({ logs: guard.logs(b.id), pausedUntil: guard.pausedUntil(b.id) || null, limits: { eventsPerMin: botrun.LIMITS.eventsPerMin, messagesPerMin: botrun.LIMITS.messagesPerMin, cpuMsPerMin: botrun.LIMITS.cpuMsPerMin } });
+});
 
 // ----- server explorer: public servers only -----
 // sort=popular (default): most members first; when searching, the best match comes first and members break ties.
@@ -1649,14 +2230,15 @@ app.get('/api/explore', auth, (req, res) => {
   const tokens = q.split(/\s+/).filter(Boolean).slice(0, 6).map((t) => t.replace(/^#/, ''));
   const sort = ['popular', 'az', 'za'].includes(req.query.sort) ? req.query.sort : 'popular';
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
-  let list = Object.values(db().servers).filter((s) => s.visibility === 'public').map((s) => ({ s, score: tokens.length ? matchScore(s, tokens) : 1 })).filter((x) => x.score > 0);
+  let list = Object.values(db().servers).filter((s) => s.visibility === 'public' && !s.listingHold && !listing.listingProblem(s, BLOCKED_WORDS)) // (content that predates the checks is kept out too)
+    .map((s) => ({ s, score: tokens.length ? matchScore(s, tokens) : 1 })).filter((x) => x.score > 0);
   const byName = (a, b) => a.s.name.localeCompare(b.s.name, undefined, { sensitivity: 'base' });
   if (sort === 'az') list.sort(byName);
   else if (sort === 'za') list.sort((a, b) => byName(b, a));
-  else list.sort((a, b) => b.score - a.score || b.s.members.length - a.s.members.length || byName(a, b));
+  else list.sort((a, b) => b.score - a.score || humanCount(b.s) - humanCount(a.s) || byName(a, b));
   const page = list.slice(offset, offset + EXPLORE_PAGE).map(({ s }) => ({
     code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null,
-    theme: s.theme || null, memberCount: s.members.length, description: s.description || '', tags: s.tags || [],
+    theme: s.theme || null, memberCount: humanCount(s), description: s.description || '', tags: s.tags || [], mine: s.ownerId === req.user.id,
   }));
   res.json({ servers: page, total: list.length, next: offset + EXPLORE_PAGE < list.length ? offset + EXPLORE_PAGE : null });
 });
@@ -1677,6 +2259,7 @@ app.patch('/api/servers/:id', auth, (req, res) => {
   if (b.name !== undefined) {
     const name = clip(b.name, 40).trim();
     if (!name) return res.status(400).json({ error: 'Name required' });
+    if (s.visibility === 'public') { const problem = listing.textProblem('name', name, BLOCKED_WORDS) || (listing.hasLink(name) ? 'A public server name cannot contain a link.' : null); if (problem) return res.status(400).json({ error: problem }); }
     s.name = name;
   }
   if (b.theme !== undefined) {
@@ -1687,6 +2270,8 @@ app.patch('/api/servers/:id', auth, (req, res) => {
   if (b.tags !== undefined) {
     const tags = cleanTags(b.tags);
     if (typeof tags === 'string') return res.status(400).json({ error: tags });
+    const bad = listing.textProblem('tags', tags, BLOCKED_WORDS);
+    if (bad) return res.status(400).json({ error: bad });
     s.tags = tags;
   }
   if (newCode) s.inviteCode = newCode;
@@ -1728,6 +2313,104 @@ function findChannel(channelId) {
   }
   return null;
 }
+
+// ---------- server notification settings, read positions, persisted unread / @ counts ----------
+// Rules live in notifprefs.js (and are tested there). Per person: user.serverPrefs[serverId] (mute, level, ...),
+// user.reads[channelId] (when they last read it) and user.readsFloor (accounts that existed before this feature start at "all read").
+const serverPrefsOf = (u, sid) => (u && u.serverPrefs && Object.prototype.hasOwnProperty.call(u.serverPrefs, sid) ? u.serverPrefs[sid] : undefined);
+const uidPrefs = (uid, sid) => serverPrefsOf(db().users[uid], sid);
+
+// { 'c:<channelId>': { unread, mentions } } for the given servers, non-zero entries only. One pass over the messages.
+function noteCounts(u, servers) {
+  const t = now(), info = new Map();
+  for (const s of servers) {
+    const sp = serverPrefsOf(u, s.id);
+    for (const c of s.channels) info.set(c.id, { sp, pos: np.readPosition(u, c.id, s.joinedAt?.[u.id]), msgs: [] });
+  }
+  for (const m of Object.values(db().messages)) {
+    const i = info.get(m.channelId);
+    if (i && m.createdAt > i.pos) i.msgs.push(m);
+  }
+  const out = {};
+  for (const [cid, i] of info) {
+    if (!i.msgs.length) continue;
+    const c = np.countChannel(i.sp, cid, i.msgs, i.pos, u.id, t);
+    if (c.unread || c.mentions) out['c:' + cid] = c;
+  }
+  return out;
+}
+
+// Leaving or being removed: drop your settings and read positions for that server.
+function forgetNotes(u, s) {
+  if (!u) return;
+  if (u.serverPrefs) delete u.serverPrefs[s.id];
+  if (u.reads) for (const c of s.channels) delete u.reads[c.id];
+}
+
+// Housekeeping on the way in: forget settings for servers you left, channels that are gone, and mutes that ended.
+function tidyNotes(u) {
+  const mine = new Map(myServers(u.id).map((s) => [s.id, s]));
+  const chans = new Set([...mine.values()].flatMap((s) => s.channels.map((c) => c.id)));
+  let changed = false;
+  if (!u.readsFloor) { u.readsFloor = now(); changed = true; }
+  if (u.serverPrefs) {
+    for (const sid of Object.keys(u.serverPrefs)) if (!mine.has(sid)) { delete u.serverPrefs[sid]; changed = true; }
+    for (const [sid, sp] of Object.entries(u.serverPrefs)) { // a deleted channel's setting
+      for (const cid of Object.keys(sp.channels || {})) if (!chans.has(cid)) { delete sp.channels[cid]; changed = true; }
+    }
+    if (np.prune(u.serverPrefs, now())) changed = true;
+  }
+  if (u.reads) for (const cid of Object.keys(u.reads)) if (!chans.has(cid)) { delete u.reads[cid]; changed = true; }
+  if (changed) store.save();
+  return mine;
+}
+
+app.get('/api/notif-state', auth, (req, res) => {
+  const u = req.user, mine = tidyNotes(u);
+  res.json({ prefs: u.serverPrefs || {}, counts: noteCounts(u, [...mine.values()]), now: now() });
+});
+
+app.put('/api/servers/:id/notifprefs', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  const clean = np.cleanServerPrefs(req.body, s.channels.map((c) => c.id), now());
+  if (!clean) return res.status(400).json({ error: 'Bad notification settings' });
+  const u = req.user;
+  if (!u.serverPrefs) u.serverPrefs = {};
+  if (Object.keys(clean).length) u.serverPrefs[s.id] = clean; else delete u.serverPrefs[s.id];
+  store.save();
+  const body = { serverId: s.id, prefs: clean, counts: noteCounts(u, [s]) };
+  io.to('user:' + u.id).emit('notif:prefs', body); // your other devices follow
+  res.json(body);
+});
+
+function setRead(u, channelId, at) {
+  if (!u.reads) u.reads = {};
+  const prev = Object.prototype.hasOwnProperty.call(u.reads, channelId) ? u.reads[channelId] : 0;
+  const to = Math.max(prev, Math.min(Number.isFinite(at) ? at : now(), now()));
+  if (to === prev && Object.prototype.hasOwnProperty.call(u.reads, channelId)) return prev;
+  u.reads[channelId] = to;
+  return to;
+}
+
+app.post('/api/channels/:id/read', auth, (req, res) => {
+  const f = findChannel(req.params.id);
+  if (!f || !f.server.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  const at = setRead(req.user, f.channel.id, Number(req.body?.at));
+  store.save();
+  io.to('user:' + req.user.id).emit('notif:read', { channelIds: [f.channel.id], at });
+  res.json({ ok: true, at });
+});
+
+app.post('/api/servers/:id/read', auth, (req, res) => { // "Mark all as read"
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  const at = now();
+  for (const c of s.channels) setRead(req.user, c.id, at);
+  store.save();
+  io.to('user:' + req.user.id).emit('notif:read', { channelIds: s.channels.map((c) => c.id), at });
+  res.json({ ok: true, at });
+});
 
 app.get('/api/channels/:id/messages', auth, (req, res) => {
   const f = findChannel(req.params.id);
@@ -1885,7 +2568,7 @@ function joinRooms(uid) {
 // ----- who hears about whom -----
 // Presence and profile changes go to the person's audience only: themselves, their friends (pending requests count), and everyone who
 // shares a server with them. They used to go to every connected user.
-const presenceOf = (u) => (isOnline(u.id) && u.status !== 'invisible' ? u.status : 'offline');
+const presenceOf = (u) => (u.bot ? 'online' : isOnline(u.id) && u.status !== 'invisible' ? u.status : 'offline'); // a bot is always there (while it is installed)
 function relatedUserIds(uid) {
   const out = new Set();
   for (const f of Object.values(db().friendships)) { if (f.from === uid) out.add(f.to); else if (f.to === uid) out.add(f.from); }
@@ -2026,10 +2709,15 @@ io.on('connection', (socket) => {
     const who = author?.displayName || 'Someone';
     const where = `${f.server.name} \u00b7 #${f.channel.name}`;
     const sent = new Set([uid]);
-    const to = (id, k, title, body) => { if (sent.has(id) || !f.server.members.includes(id)) return; sent.add(id); pushSafe(id, k, { title, body, url, tag: 'm:' + msg.id }); };
-    for (const id of msg.mentions || []) to(id, 'mention', `${who} mentioned you in ${where}`, preview);
-    if (msg.everyone) for (const id of f.server.members) to(id, 'mention', `${who} pinged everyone in ${where}`, preview);
-    if (kind === 'announcements') for (const id of f.server.members) to(id, 'announcement', where, preview);
+    // Each person's own settings for this server decide whether it may alert them (mute, mentions only, @everyone off, ...).
+    const to = (id, k, how, title, body) => {
+      if (sent.has(id) || !f.server.members.includes(id)) return;
+      if (!np.decide(uidPrefs(id, f.server.id), f.channel.id, how, now()).alert) return;
+      sent.add(id); pushSafe(id, k, { title, body, url, tag: 'm:' + msg.id });
+    };
+    for (const id of msg.mentions || []) to(id, 'mention', 'mention', `${who} mentioned you in ${where}`, preview);
+    if (msg.everyone) for (const id of f.server.members) to(id, 'mention', 'everyone', `${who} pinged everyone in ${where}`, preview);
+    if (kind === 'announcements') for (const id of f.server.members) to(id, 'announcement', 'announcement', where, preview);
   };
 
   socket.on('message:send', async (p, ack) => {
@@ -2055,7 +2743,7 @@ io.on('connection', (socket) => {
     };
     db().messages[msg.id] = msg;
     // Credits for real, typed, different messages (see credits.js). Checked before this message counts as "someone spoke".
-    const earned = credits.rewardMessage({ user: db().users[uid], content, proof: p.typing, server: f.server, channel: f.channel });
+    const earned = credits.rewardMessage({ user: db().users[uid], content, proof: p.typing, server: f.server, channel: f.channel, humans: humanCount(f.server) });
     credits.noteChannelMessage(f.channel.id, uid);
     store.save();
     if (earned.ok) io.to('user:' + uid).emit('credits:update', { balance: earned.balance, delta: earned.amount, reason: 'message' });
@@ -2064,6 +2752,7 @@ io.on('connection', (socket) => {
     if (kind === 'announcements') io.to('server:' + f.server.id).emit('announcement:new', { serverId: f.server.id, channelId: f.channel.id, messageId: msg.id, authorId: uid });
     pushChannelMessage(f, msg, kind);
     reply({ ok: true });
+    if (kind === 'text') dispatchBots(f.server, 'message', { channel: f.channel, msg, author: db().users[uid] }); // after the ack: bots never slow a send down
   });
 
   // DMs: server only ever sees ciphertext + iv
@@ -2126,7 +2815,7 @@ io.on('connection', (socket) => {
     const added = i < 0;
     if (!list.length) delete msg.reactions[emoji];
     if (Object.keys(msg.reactions).length > 20) { list.splice(list.indexOf(uid), 1); if (!list.length) delete msg.reactions[emoji]; return reply({ error: 'Too many reactions' }); }
-    if (added) credits.noteReaction(db().users[uid], msg.id, msg.authorId || msg.from); // counts towards the daily react quest
+    if (added && !db().users[msg.authorId]?.bot) credits.noteReaction(db().users[uid], msg.id, msg.authorId || msg.from); // counts towards the daily react quest
     store.save();
     let target = io;
     rooms.forEach((r) => { target = target.to(r); });
@@ -2327,7 +3016,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, ready, loginGuard }; // loginGuard: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, ready, loginGuard, store }; // loginGuard, store: for the tests
 
 
 /* HANDOFF: see HANDOFF.md in the project root for what this server does, what is done, and what is left. */

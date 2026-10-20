@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
+import { BotTag } from './Bots.jsx';
 import { PERMS, can, permsOf, rankOf, belowMe, heldRoles } from './perms.js';
 
 const COLORS = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#e91e63', '#95a5a6'];
@@ -169,7 +170,7 @@ export function MembersTab({ server, me, onChange }) {
       <div className="member-admin">
         {list.map((u) => {
           const held = heldRoles(server, u.id);
-          const editable = canRoles && below(u);
+          const editable = canRoles && below(u) && !u.bot; // a bot is managed in the Bots tab: no roles, no kick
           return (
             <div key={u.id} className="ma-item">
               <div className="ma-row">
@@ -177,11 +178,11 @@ export function MembersTab({ server, me, onChange }) {
                 <div className="ma-who">
                   <b data-nc style={{ '--nc': held.find((r) => r.color)?.color || u.accentColor }}>{u.displayName}</b>
                   <span className="muted small"> @{u.username}</span>
-                  {u.id === server.ownerId && <span className="owner" title="Server owner"><Icon name="crown" size={14} /></span>}
+                  {u.bot && <BotTag />}{u.id === server.ownerId && <span className="owner" title="Server owner"><Icon name="crown" size={14} /></span>}
                   <div className="ma-roles">{held.map((r) => <span key={r.id} className="role-chip"><span className="role-dot" style={{ background: r.color || 'var(--muted)' }} />{r.name}</span>)}</div>
                 </div>
-                {canRoles && <button className="btn small-btn" disabled={!editable || busy} title={editable ? '' : 'Their role is at or above yours'} onClick={() => setOpen(open === u.id ? null : u.id)}>Roles</button>}
-                {canKick && <button className="btn small-btn danger" disabled={busy || u.id === me.id || u.id === server.ownerId || (!isOwner && rankOf(server, u.id) <= myRank)} onClick={() => setKick(u)}>Kick</button>}
+                {canRoles && !u.bot && <button className="btn small-btn" disabled={!editable || busy} title={editable ? '' : 'Their role is at or above yours'} onClick={() => setOpen(open === u.id ? null : u.id)}>Roles</button>}
+                {canKick && !u.bot && <button className="btn small-btn danger" disabled={busy || u.id === me.id || u.id === server.ownerId || (!isOwner && rankOf(server, u.id) <= myRank)} onClick={() => setKick(u)}>Kick</button>}
               </div>
               {open === u.id && editable && (
                 <div className="ma-pick">

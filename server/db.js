@@ -26,7 +26,7 @@ const { Pool, types } = require('pg');
 types.setTypeParser(20, (v) => Number(v)); // BIGINT (timestamps) -> number
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments'];
+const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments', 'bots'];
 const SCHEMA = process.env.DB_SCHEMA;
 if (SCHEMA && !/^[a-z_][a-z0-9_]*$/i.test(SCHEMA)) throw new Error('DB_SCHEMA may only contain letters, digits and underscores');
 
@@ -303,7 +303,7 @@ async function deleteImages(ids) {
   const { rows } = await q('DELETE FROM images WHERE id = ANY($1::text[]) RETURNING id, octet_length(data) AS n', [v]);
   await dropBlobs(rows.filter((r) => r.n === 0).map((r) => `images/${r.id}`));
 }
-const deleteImage = (iid) => (iid ? deleteImages([iid]) : undefined);
+const deleteImage = (iid) => (iid ? deleteImages([iid]) : Promise.resolve());
 // remove images no user points at any more (e.g. left behind by a crash between write and save)
 async function pruneImages(keep) {
   const { rows } = await q('SELECT id FROM images');

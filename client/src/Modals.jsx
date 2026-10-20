@@ -4,6 +4,7 @@ import { Avatar, Banner, Icon, Modal, STATUS_LABEL } from './ui.jsx';
 import { processImage, uploadImage, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
+import { BotTag } from './Bots.jsx';
 
 export function ServerModal({ onClose, onDone }) {
   const [tab, setTab] = useState('create');
@@ -189,17 +190,17 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
         <Banner user={user} />
         <div className="card-avatar"><Avatar user={user} size={80} presence={presence} /></div>
         <div className="card-body">
-          <h3 data-nc style={{ '--nc': user.accentColor }}>{user.displayName}</h3>
-          <div className="muted">@{user.username} · {STATUS_LABEL[presence || 'offline']}</div>
+          <h3 data-nc style={{ '--nc': user.accentColor }}>{user.displayName}{user.bot && <> <BotTag /></>}</h3>
+          <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username} · ${STATUS_LABEL[presence || 'offline']}`}</div>
           {user.bio && (<><h4>ABOUT ME</h4><p className="bio">{user.bio}</p></>)}
           <ProfileLinks links={user.links} />
           <h4>MEMBER SINCE</h4>
           <p>{new Date(user.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</p>
           {relation === 'self' && <button className="btn primary full" onClick={onEdit}>Edit profile</button>}
-          {relation === 'friend' && <button className="btn primary full" onClick={onMessage}><Icon name="lock" size={16} className="inline-icon" /> Send encrypted message</button>}
-          {relation === 'none' && <button className="btn primary full" onClick={onAddFriend}>Add friend</button>}
-          {relation === 'outgoing' && <button className="btn full" disabled>Friend request sent</button>}
-          {relation === 'incoming' && <button className="btn primary full" onClick={onAccept}>Accept friend request</button>}
+          {!user.bot && relation === 'friend' && <button className="btn primary full" onClick={onMessage}><Icon name="lock" size={16} className="inline-icon" /> Send encrypted message</button>}
+          {!user.bot && relation === 'none' && <button className="btn primary full" onClick={onAddFriend}>Add friend</button>}
+          {!user.bot && relation === 'outgoing' && <button className="btn full" disabled>Friend request sent</button>}
+          {!user.bot && relation === 'incoming' && <button className="btn primary full" onClick={onAccept}>Accept friend request</button>}
         </div>
       </div>
     </Modal>

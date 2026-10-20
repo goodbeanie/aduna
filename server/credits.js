@@ -180,10 +180,10 @@ function remember(norm, userId, now) {
 
 // Called for every message sent in a server channel. Returns { ok: true, amount } when it paid, else { ok: false, reason }.
 // The reason is for tests and logs; it is not shown to people (it would only teach spammers what to avoid).
-function rewardMessage({ user: u, content, proof, server, channel, now = Date.now() }) {
+function rewardMessage({ user: u, content, proof, server, channel, humans, now = Date.now() }) {
   const no = (reason) => ({ ok: false, reason });
   if ((channel.type || 'text') !== 'text') return no('channel type');
-  if (server.members.length < EARN.minServerMembers) return no('small server');
+  if ((humans ?? server.members.length) < EARN.minServerMembers) return no('small server');
   if (now - (u.createdAt || 0) < EARN.minAccountAgeMs) return no('new account');
   const norm = normalize(content);
   const bad = quality(norm);

@@ -6,6 +6,7 @@ import { Rich, useEmoji } from './Emoji.jsx';
 import { InviteCard, inviteCodesIn } from './Invite.jsx';
 import { MentionMenu, fromMentionTokens, mentionPreview, toMentionTokens, useMentionComplete } from './Mentions.jsx';
 import { useTypingProof } from './typing.js';
+import { BotTag } from './Bots.jsx';
 import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
 
 function Picker({ onPick, onClose }) {
@@ -103,6 +104,7 @@ function Message({ m, users, roleColors, me, byId, presence, onReact, onReply, o
           {!grouped && (
             <div className="msg-head">
               <button className="name" data-nc style={{ '--nc': roleColors?.[m.authorId] || author?.accentColor }} onClick={() => onUser(m.authorId)}>{author?.displayName || 'Unknown'}</button>
+              {(author?.bot || m.bot) && <BotTag />}
               <span className="time">{timeLabel(m.createdAt)}</span>
             </div>
           )}

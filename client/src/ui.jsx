@@ -86,6 +86,8 @@ const PATHS = {
   send: <path d="M20.5 3.5L10 14M20.5 3.5l-6.5 17-3.5-6.5L3.5 10.5z" />,
   expand: <path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" />,
   shrink: <path d="M20 10h-6V4M4 14h6v6M14 10l7-7M10 14l-7 7" />,
+  code: <><path d="M9 7l-5 5 5 5" /><path d="M15 7l5 5-5 5" /><path d="M13.5 5l-3 14" /></>,
+  bot: <><rect x="5" y="8.5" width="14" height="10" rx="3" /><path d="M12 8.5V5M10 4.5h4" /><circle cx="9.3" cy="13.3" r=".9" /><circle cx="14.7" cy="13.3" r=".9" /><path d="M9.5 16h5" /></>,
   hand: <><path d="M8 12V6.5a1.5 1.5 0 013 0V11M11 10.5V5a1.5 1.5 0 013 0v5.5M14 10.5V6.5a1.5 1.5 0 013 0V13" /><path d="M8 12l-1.7-1.8a1.4 1.4 0 00-2 2L8 17c1.3 2.5 3 3.5 5 3.5 3.3 0 5-2.4 5-6" /></>,
 };
 export function Icon({ name, size = 18, className = '', ...rest }) {
