@@ -254,12 +254,27 @@ app.use(security.securityHeaders()); // CSP, clickjacking, nosniff, referrer, pe
 app.use('/api', security.csrfGuard()); // a request from another site that carries the login cookie is refused (see security.js)
 app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
 
-// Android app updates: the app asks which build is newest. Source: the latest GitHub Release of GITHUB_REPO (the Android workflow
+// Android app updates: the app asks which build is newest. Source, in order: android-latest.json in the DOWNLOAD_BASE_URL bucket (written by ZipPush), else the latest GitHub Release of GITHUB_REPO (the Android workflow
 // publishes one per build, tag android-<versionCode>, with the .apk attached; the repo must be public), or set
 // APP_LATEST_VERSION_CODE + APP_APK_URL (+ APP_LATEST_VERSION_NAME) by hand. Cached for 10 minutes.
 let appVersionCache = { at: 0, data: null };
 app.get('/api/app-version', ah(async (_req, res) => {
   res.set('Cache-Control', 'no-store');
+  const dl = String(process.env.DOWNLOAD_BASE_URL || '').trim().replace(/\/+$/, '');
+  if (dl) { // ZipPush uploads Aduna.apk and android-latest.json to the downloads bucket
+    if (Date.now() - appVersionCache.at < 5 * 60 * 1000 && appVersionCache.data) return res.json(appVersionCache.data);
+    let data = { versionCode: 0 };
+    try {
+      const r = await fetch(`${dl}/android-latest.json`, { signal: AbortSignal.timeout(8000) });
+      if (r.ok) {
+        const j = await r.json();
+        const code = Number(j.versionCode);
+        const file = String(j.file || 'Aduna.apk');
+        if (code > 0 && /^[\w.-]+\.apk$/i.test(file)) data = { versionCode: code, versionName: String(j.versionName || ''), url: `${dl}/${file}` };
+      }
+    } catch { /* bucket unreachable: no update offered */ }
+    if (data.versionCode > 0) { appVersionCache = { at: Date.now(), data }; return res.json(data); }
+  }
   if (process.env.APP_LATEST_VERSION_CODE && process.env.APP_APK_URL) {
     return res.json({ versionCode: Number(process.env.APP_LATEST_VERSION_CODE) || 0, versionName: process.env.APP_LATEST_VERSION_NAME || '', url: process.env.APP_APK_URL });
   }

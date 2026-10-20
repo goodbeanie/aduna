@@ -62,11 +62,11 @@ if exist "aduna.keystore" (
 )
 if not exist "google-services.json" echo No google-services.json here: the app will build but push notifications will not work.
 
-rem Version number: goes up by one on every release build (Google Play needs that)
+rem Version number: goes up by one on every build (Google Play and the in-app update box both need that)
 set /a VC=0
 if exist ".versioncode" set /p VC=<.versioncode
 set /a VC=VC+1
-if "%MODE%"=="release" echo !VC!>.versioncode
+echo !VC!>.versioncode
 set "ADUNA_VERSION_CODE=!VC!"
 set "ADUNA_VERSION_NAME=1.0.!VC!"
 

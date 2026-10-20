@@ -105,7 +105,7 @@ public class AdunaUpdater extends Plugin {
     @PluginMethod
     public void install(PluginCall call) {
         final String url = call.getString("url", "");
-        if (!url.startsWith("https://github.com/")) { call.reject("bad_url"); return; }
+        if (!url.startsWith("https://")) { call.reject("bad_url"); return; }
         if (Build.VERSION.SDK_INT >= 26 && !getContext().getPackageManager().canRequestPackageInstalls()) {
             Intent s = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getContext().getPackageName()));
             s.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
