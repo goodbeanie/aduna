@@ -52,7 +52,10 @@ public class MainActivity extends BridgeActivity {
     // If the app ever crashes, the error is saved and shown in a box the next time it opens (phone-only debugging: no cable, no log viewer needed).
     private void logCrash(Throwable t) {
         try {
+            Throwable root = t;
+            while (root.getCause() != null && root.getCause() != root) root = root.getCause();
             StringWriter sw = new StringWriter();
+            sw.write("ROOT CAUSE: " + root + " ---- ");
             t.printStackTrace(new PrintWriter(sw));
             try (FileOutputStream out = new FileOutputStream(new File(getFilesDir(), "last-crash.txt"))) { out.write(sw.toString().getBytes("UTF-8")); }
         } catch (Throwable ignored) { }
@@ -64,8 +67,8 @@ public class MainActivity extends BridgeActivity {
             if (!f.exists()) return;
             byte[] data = new byte[(int) Math.min(f.length(), 4000)];
             try (FileInputStream in = new FileInputStream(f)) { in.read(data); }
-            f.delete();
-            new AlertDialog.Builder(this).setTitle("Aduna crashed last time").setMessage(new String(data, "UTF-8")).setPositiveButton("OK", null).show();
+            // kept on disk until OK is tapped, so a second crash straight after opening cannot lose it
+            new AlertDialog.Builder(this).setTitle("Aduna crashed last time").setMessage(new String(data, "UTF-8")).setPositiveButton("OK", (d, which) -> f.delete()).show();
         } catch (Throwable ignored) { }
     }
 
@@ -134,6 +137,16 @@ public class AdunaUpdater extends Plugin {
         } catch (Exception e) {
             call.reject("version");
         }
+    }
+
+    // true when this build has Firebase's google-services.json inside. Without it PushNotifications.register() throws and Capacitor then crashes the whole app.
+    @PluginMethod
+    public void pushReady(PluginCall call) {
+        boolean ok = false;
+        try { ok = getContext().getResources().getIdentifier("google_app_id", "string", getContext().getPackageName()) != 0; } catch (Exception e) { ok = false; }
+        JSObject r = new JSObject();
+        r.put("ready", ok);
+        call.resolve(r);
     }
 
     @PluginMethod

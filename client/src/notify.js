@@ -141,6 +141,9 @@ export async function subscribe() {
     const k = await api('/push/key');
     if (!k.enabled || !k.fcm) { lastError = 'Android notifications are not set up on the server yet (FCM_SERVICE_ACCOUNT).'; return false; }
     await nativeInit();
+    // An APK built without google-services.json would crash the whole app inside register(); ask first (old APKs have no pushReady and behave as before)
+    const ready = await Promise.resolve(window.Capacitor?.Plugins?.AdunaUpdater?.pushReady?.()).catch(() => null);
+    if (ready && ready.ready === false) { lastError = 'This app was built without google-services.json, so Android notifications are off. Put the file in the mobile folder and rebuild.'; return false; }
     await PN().register(); // the token arrives in the 'registration' listener, which sends it to the server
     for (let i = 0; i < 40 && !fcmToken && !lastError; i++) await new Promise((r) => setTimeout(r, 250)); // wait up to 10 s for it
     return !!fcmToken;
