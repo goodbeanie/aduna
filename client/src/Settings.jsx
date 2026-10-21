@@ -5,6 +5,7 @@ import { AppearancePicker } from './Appearance.jsx';
 import { NotificationSettings } from './Notifications.jsx';
 import { SecuritySettings } from './Security.jsx';
 import { DeveloperSettings } from './Bots.jsx';
+import { BadgeSettings } from './Badges.jsx';
 
 const TABS = [['profile', 'My profile', 'smile'], ['appearance', 'Appearance', 'palette'], ['notifications', 'Notifications', 'bell'], ['security', 'Security', 'lock'], ['developer', 'Developer', 'code']];
 
@@ -22,7 +23,7 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
       <nav className="settings-nav">
         <button className="icon-btn settings-navclose" onClick={onClose} aria-label="Close settings"><Icon name="close" size={20} /></button>
         <h2>Settings</h2>
-        {TABS.map(([id, label, icon]) => (
+        {[...TABS, ...(me.creator ? [['badges', 'Badges', 'star']] : [])].map(([id, label, icon]) => (
           <button key={id} className={'settings-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>
             <Icon name={icon} size={18} /><span>{label}</span>
           </button>
@@ -37,6 +38,7 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
           {tab === 'notifications' && <><h1>Notifications</h1><NotificationSettings me={me} onPrefs={onPrefs} /></>}
           {tab === 'security' && <><h1>Security</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
           {tab === 'developer' && <><h1>Developer</h1><DeveloperSettings me={me} onSaved={onSaved} /></>}
+          {tab === 'badges' && me.creator && <><h1>Badges</h1><BadgeSettings /></>}
           {tab === 'appearance' && <><h1>Appearance</h1><AppearancePicker /></>}
         </div>
       </main>

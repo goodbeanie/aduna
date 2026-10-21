@@ -129,3 +129,21 @@ export const timeLabel = (ts) => {
   if (d.toDateString() === y.toDateString()) return 'Yesterday at ' + t;
   return d.toLocaleDateString() + ' ' + t;
 };
+
+// Small badges next to a name: the Creator badge, and any a creator gave the person. A badge is a picture or an emoji on a colour.
+export function BadgeIcons({ user, size = 16 }) {
+  const list = Array.isArray(user?.badges) ? user.badges : [];
+  if (!list.length) return null;
+  return (
+    <span className="ubadges">
+      {list.map((b) => {
+        const src = b.builtin ? '/badges/creator.png' : imageUrl(b.image);
+        return (
+          <span key={b.id} className="ubadge" title={b.name} style={{ width: size, height: size, fontSize: size * 0.7, background: src ? 'transparent' : b.color }}>
+            {src ? <img src={src} alt={b.name} draggable={false} /> : b.emoji || Array.from(b.name)[0]}
+          </span>
+        );
+      })}
+    </span>
+  );
+}

@@ -138,9 +138,28 @@ function parseMentions(content, server, authorId) {
   return { mentions: [...found], everyone: can(server, authorId, 'mentionEveryone') && EVERYONE.test(content) };
 }
 
+// ----- the creator account and badges -----
+// An account whose VERIFIED email is one of CREATOR_EMAILS (default adunachatapp@gmail.com and nathankennethvc2@mail.com) is a creator: it gets the Creator badge, a developer account and
+// the Badges settings tab. Any number of accounts can use that address (see emailClaimed / emailTaken); each one still has to prove it can read the mailbox
+// with the emailed code before it counts, so typing the address into a sign-up form gives nobody anything.
+const CREATOR_KEYS = new Set(String(process.env.CREATOR_EMAILS || 'adunachatapp@gmail.com,nathankennethvc2@mail.com').split(',').map((e) => security.cleanEmail(e)).filter(Boolean).map((e) => security.emailKey(e)));
+const isCreatorEmail = (email) => !!email && CREATOR_KEYS.has(security.emailKey(email));
+const isCreator = (u) => !!u && !u.bot && u.emailVerified === true && isCreatorEmail(u.email);
+const CREATOR_BADGE = { id: 'creator', name: 'Creator', builtin: true, image: null, emoji: '', color: '' };
+function badgeViews(u) {
+  const out = [];
+  if (isCreator(u)) out.push(CREATOR_BADGE);
+  for (const id of Array.isArray(u.badges) ? u.badges : []) {
+    const b = db().badges && db().badges[id];
+    if (b) out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' });
+  }
+  return out;
+}
 function publicUser(u) {
   return {
     id: u.id,
+    creator: isCreator(u),
+    badges: badgeViews(u),
     username: u.username,
     displayName: u.displayName,
     bio: u.bio,
@@ -163,7 +182,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer, recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
+const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -197,10 +216,12 @@ const resetMails = new security.RateWindow(3, 3600_000); // password-reset links
 // Email addresses are unique among VERIFIED accounts (proved by receiving the code); an unverified claim blocks nobody, so nobody can squat on
 // someone else's address. Without an email provider nothing can be verified, so then uniqueness is checked immediately (see emailTaken).
 const emailClaimed = (email, exceptId) => {
+  if (isCreatorEmail(email)) return false; // the creator address can back any number of accounts
   const key = security.emailKey(email);
   return Object.values(db().users).some((x) => x.id !== exceptId && x.emailVerified === true && x.email && security.emailKey(x.email) === key);
 };
 const emailTaken = (email, exceptId) => {
+  if (isCreatorEmail(email)) return false;
   const key = security.emailKey(email);
   return Object.values(db().users).some((x) => x.id !== exceptId && x.email && security.emailKey(x.email) === key);
 };
@@ -433,7 +454,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
   // With email verification on, a taken address is NOT reported here (that would reveal who is registered): the account is created unverified
   // and uniqueness is decided when the address is verified. With it off nothing can be verified, so the check has to happen now.
   if (!mailer.enabled() && emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
-  if (!signups.allow(req.ip)) return res.status(429).json({ error: 'Too many accounts were created from this connection. Try again later.' });
+  if (!isCreatorEmail(email) && !signups.allow(req.ip)) return res.status(429).json({ error: 'Too many accounts were created from this connection. Try again later.' });
 
   const hues = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e'];
   const user = {
@@ -492,6 +513,7 @@ app.post('/api/me/verify-email', authLimiter, authAny, (req, res) => {
     return res.status(409).json({ error: 'Another account already uses this email address. Choose “Wrong email?” and use a different one.' });
   }
   u.emailVerified = true;
+  if (isCreatorEmail(u.email) && !u.developer) u.developer = { at: now() }; // the creator is also a developer
   delete u.verify;
   joinDefaultServer(u);
   store.save();
@@ -2062,10 +2084,10 @@ app.post('/api/admin/servers/:id/listing', auth, adminOnly, (req, res) => {
 // "bots, part 3" block below.
 const botSaves = new security.RateWindow(60, 3600_000);
 const myBots = (uid) => Object.values(db().bots).filter((b) => b.ownerId === uid);
-const developerOnly = (req, res, next) => (req.user.developer ? next() : res.status(403).json({ error: 'Turn on your developer account first', code: 'not_developer' }));
+const developerOnly = (req, res, next) => (req.user.developer || isCreator(req.user) ? next() : res.status(403).json({ error: 'Turn on your developer account first', code: 'not_developer' }));
 const viewBot = (b, uid) => botsLib.botView(b, uid, db().users);
 
-app.get('/api/developer', auth, (req, res) => res.json({ developer: !!req.user.developer, bots: req.user.developer ? myBots(req.user.id).map((b) => ownBotView(b, req.user.id)) : [], limits: { ...botsLib.LIMITS, ...botrun.LIMITS, state: botstate.LIMITS, fetch: botfetch.LIMITS }, fetchHosts: fetcher.hosts }));
+app.get('/api/developer', auth, (req, res) => res.json({ developer: !!req.user.developer || isCreator(req.user), bots: req.user.developer || isCreator(req.user) ? myBots(req.user.id).map((b) => ownBotView(b, req.user.id)) : [], limits: { ...botsLib.LIMITS, ...botrun.LIMITS, state: botstate.LIMITS, fetch: botfetch.LIMITS }, fetchHosts: fetcher.hosts }));
 app.post('/api/developer/join', auth, (req, res) => {
   if (req.body?.accept !== true) return res.status(400).json({ error: 'Please accept the developer terms' });
   if (!req.user.developer) { req.user.developer = { at: now() }; store.save(); }
@@ -2147,6 +2169,101 @@ app.delete('/api/bots/:id/avatar', auth, developerOnly, ah(async (req, res) => {
   await setBotAvatar(b, null);
   res.json({ bot: ownBotView(b, req.user.id) });
 }));
+
+// ----- badges (creator accounts only) -----
+// A creator makes badges (a name plus a picture, or an emoji on a colour) and gives them to people by username. The Creator badge itself is automatic.
+const creatorOnly = (req, res, next) => (isCreator(req.user) ? next() : res.status(403).json({ error: 'Only the creator account can manage badges', code: 'not_creator' }));
+const BADGE_LIMITS = { name: 24, total: 200, perUser: 12 };
+const badgeOwnView = (b) => ({
+  id: b.id, name: b.name, emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null,
+  holders: Object.values(db().users).filter((u) => Array.isArray(u.badges) && u.badges.includes(b.id)).map((u) => ({ id: u.id, username: u.username, displayName: u.displayName })),
+});
+const badgeById = (id) => (db().badges && db().badges[id]) || null;
+function cleanBadgeFields(body, partial) {
+  const out = {};
+  if (!partial || body.name !== undefined) {
+    const name = String(body.name ?? '').trim().replace(/\s+/g, ' ');
+    if (!name || Array.from(name).length > BADGE_LIMITS.name) return { error: `A badge name is 1-${BADGE_LIMITS.name} characters` };
+    out.name = name;
+  }
+  if (body.emoji !== undefined) {
+    const emoji = String(body.emoji ?? '').trim();
+    if (Array.from(emoji).length > 4) return { error: 'Use a single emoji' };
+    out.emoji = emoji;
+  }
+  if (body.color !== undefined) {
+    if (!/^#[0-9a-f]{6}$/i.test(String(body.color))) return { error: 'Colour must look like #8c6b4f' };
+    out.color = String(body.color).toLowerCase();
+  }
+  return { out };
+}
+const badgeNameTaken = (name, exceptId) => name.toLowerCase() === 'creator' || Object.values(db().badges).some((b) => b.id !== exceptId && b.name.toLowerCase() === name.toLowerCase());
+const tellHolders = (id) => { for (const u of Object.values(db().users)) if (Array.isArray(u.badges) && u.badges.includes(id)) emitUserUpdate(u); };
+app.get('/api/badges', auth, creatorOnly, (_req, res) => res.json({ badges: Object.values(db().badges).map(badgeOwnView), limits: BADGE_LIMITS }));
+app.post('/api/badges', auth, creatorOnly, (req, res) => {
+  if (Object.keys(db().badges).length >= BADGE_LIMITS.total) return res.status(400).json({ error: `At most ${BADGE_LIMITS.total} badges` });
+  const { out, error } = cleanBadgeFields(req.body || {}, false);
+  if (error) return res.status(400).json({ error });
+  if (badgeNameTaken(out.name)) return res.status(409).json({ error: 'A badge with that name already exists' });
+  const b = { id: store.id(), name: out.name, emoji: out.emoji || '', color: out.color || '#8c6b4f', image: null, createdBy: req.user.id, createdAt: now() };
+  db().badges[b.id] = b; store.save();
+  res.json({ badge: badgeOwnView(b) });
+});
+app.patch('/api/badges/:id', auth, creatorOnly, (req, res) => {
+  const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
+  const { out, error } = cleanBadgeFields(req.body || {}, true);
+  if (error) return res.status(400).json({ error });
+  if (out.name && badgeNameTaken(out.name, b.id)) return res.status(409).json({ error: 'A badge with that name already exists' });
+  Object.assign(b, out); store.save(); tellHolders(b.id);
+  res.json({ badge: badgeOwnView(b) });
+});
+app.delete('/api/badges/:id', auth, creatorOnly, ah(async (req, res) => {
+  const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
+  const holders = Object.values(db().users).filter((u) => Array.isArray(u.badges) && u.badges.includes(b.id));
+  for (const u of holders) u.badges = u.badges.filter((x) => x !== b.id);
+  const img = b.image; delete db().badges[b.id];
+  for (const u of holders) emitUserUpdate(u);
+  await store.flush();
+  if (img) await store.deleteImage(img);
+  res.json({ ok: true });
+}));
+app.put('/api/badges/:id/image', auth, creatorOnly, uploadLimiter, rawImage, ah(async (req, res) => {
+  const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a PNG, JPEG or WebP image' });
+  const info = sniffImage(buf);
+  if (!info) return res.status(400).json({ error: 'That file is not a valid PNG, JPEG or WebP image' });
+  if (info.width > 512 || info.height > 512) return res.status(400).json({ error: 'Image is too large (max 512px per side)' });
+  const old = b.image || null;
+  b.image = await store.putImage(buf);
+  await store.flush(); tellHolders(b.id);
+  if (old && old !== b.image) await store.deleteImage(old);
+  res.json({ badge: badgeOwnView(b) });
+}));
+app.delete('/api/badges/:id/image', auth, creatorOnly, ah(async (req, res) => {
+  const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
+  const old = b.image || null; b.image = null;
+  await store.flush(); tellHolders(b.id);
+  if (old) await store.deleteImage(old);
+  res.json({ badge: badgeOwnView(b) });
+}));
+const userByName = (name) => { const n = String(name || '').trim().replace(/^@/, '').toLowerCase(); return n ? Object.values(db().users).find((x) => !x.bot && x.username.toLowerCase() === n) : null; };
+app.post('/api/badges/:id/give', auth, creatorOnly, (req, res) => {
+  const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
+  const u = userByName(req.body?.username); if (!u) return res.status(404).json({ error: 'No account with that username' });
+  u.badges = Array.isArray(u.badges) ? u.badges : [];
+  if (!u.badges.includes(b.id)) {
+    if (u.badges.length >= BADGE_LIMITS.perUser) return res.status(400).json({ error: `Nobody can hold more than ${BADGE_LIMITS.perUser} badges` });
+    u.badges.push(b.id); store.save(); emitUserUpdate(u);
+  }
+  res.json({ badge: badgeOwnView(b) });
+});
+app.delete('/api/badges/:id/give/:username', auth, creatorOnly, (req, res) => {
+  const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
+  const u = userByName(req.params.username); if (!u) return res.status(404).json({ error: 'No account with that username' });
+  if (Array.isArray(u.badges) && u.badges.includes(b.id)) { u.badges = u.badges.filter((x) => x !== b.id); store.save(); emitUserUpdate(u); }
+  res.json({ badge: badgeOwnView(b) });
+});
 
 // Test run: the developer's own code (a saved bot's, or a draft sent as `code`) against a made-up event, so they can see what it would
 // do. Nothing is sent anywhere: the actions come back as a list. Same sandbox and limits as the real thing.

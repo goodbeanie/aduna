@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
-import { Avatar, Banner, Icon, Modal, STATUS_LABEL } from './ui.jsx';
+import { Avatar, BadgeIcons, Banner, Icon, Modal, STATUS_LABEL } from './ui.jsx';
 import { processImage, uploadImage, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
@@ -190,7 +190,7 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
         <Banner user={user} />
         <div className="card-avatar"><Avatar user={user} size={80} presence={presence} /></div>
         <div className="card-body">
-          <h3 data-nc style={{ '--nc': user.accentColor }}>{user.displayName}{user.bot && <> <BotTag /></>}</h3>
+          <h3 data-nc style={{ '--nc': user.accentColor }}>{user.displayName}{user.bot && <> <BotTag /></>} <BadgeIcons user={user} size={20} /></h3>
           <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username} · ${STATUS_LABEL[presence || 'offline']}`}</div>
           {user.bio && (<><h4>ABOUT ME</h4><p className="bio">{user.bio}</p></>)}
           <ProfileLinks links={user.links} />

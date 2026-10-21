@@ -1,5 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Avatar, Icon, Modal, timeLabel } from './ui.jsx';
+import { Avatar, BadgeIcons, Icon, Modal, timeLabel } from './ui.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
 import { Rich, useEmoji } from './Emoji.jsx';
@@ -119,7 +119,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
         <div className="msg-body">
           {!grouped && (
             <div className="msg-head">
-              <button className="name" data-nc style={{ '--nc': roleColors?.[m.authorId] || author?.accentColor }} onClick={() => onUser(m.authorId)}>{author?.displayName || 'Unknown'}</button>
+              <button className="name" data-nc style={{ '--nc': roleColors?.[m.authorId] || author?.accentColor }} onClick={() => onUser(m.authorId)}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
               {(author?.bot || m.bot) && <BotTag />}
               <span className="time">{timeLabel(m.createdAt)}</span>
             </div>
