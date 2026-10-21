@@ -12,6 +12,7 @@ export function UpdatePrompt() {
   const [info, setInfo] = useState(null); // { versionCode, versionName, url, legacy }; legacy = this APK has no updater plugin (built before in-app updates)
   const [state, setState] = useState('idle'); // idle | downloading | permission | error
   const [pct, setPct] = useState(-1);
+  const [why, setWhy] = useState('');
   const current = useRef(0);
 
   useEffect(() => {
@@ -57,7 +58,7 @@ export function UpdatePrompt() {
     if (info.legacy) { window.location.assign(info.url); return; } // old APK: let Android download it in the browser, then tap the file to install
     setState('downloading'); setPct(-1);
     try { await plugin().install({ url: info.url }); setState('idle'); }
-    catch (e) { setState(String(e?.code || e?.message || e).includes('permission') ? 'permission' : 'error'); }
+    catch (e) { const m = String(e?.code || e?.message || e); setWhy(m.includes('not_apk') ? 'The server sent something that is not an app file. The new APK may not be uploaded yet.' : m.includes('incomplete') ? 'The download was cut off. Try again.' : ''); setState(m.includes('permission') ? 'permission' : 'error'); }
   }
   function later() { try { localStorage.setItem(skipKey, JSON.stringify({ code: Number(info.versionCode), until: Date.now() + SNOOZE_MS })); } catch { /* private mode */ } setInfo(null); }
 
@@ -67,7 +68,7 @@ export function UpdatePrompt() {
         <b>Update available</b>
         <span>{state === 'downloading' ? (pct >= 0 ? `Downloading… ${pct}%` : 'Downloading…')
           : state === 'permission' ? 'Allow Aduna to install apps in the settings that just opened, then come back and tap Update.'
-          : state === 'error' ? 'Could not download. Check your connection and try again.'
+          : state === 'error' ? (why || 'Could not download. Check your connection and try again.')
           : info.legacy ? `Aduna ${info.versionName || info.versionCode} is ready. Tap Update to download it, then open the file to install.`
           : `Aduna ${info.versionName || info.versionCode} is ready.`}</span>
       </div>

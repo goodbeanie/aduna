@@ -125,6 +125,8 @@ public class AdunaUpdater extends Plugin {
                 c.setReadTimeout(30000);
                 c.setInstanceFollowRedirects(true);
                 if (c.getResponseCode() != 200) throw new Exception("http " + c.getResponseCode());
+                String ct = c.getContentType();
+                if (ct != null && (ct.toLowerCase().startsWith("text/") || ct.toLowerCase().contains("json"))) throw new Exception("not_apk");
                 long total = c.getContentLengthLong();
                 long done = 0;
                 int lastPct = -1;
@@ -138,6 +140,11 @@ public class AdunaUpdater extends Plugin {
                         if (pct != lastPct) { lastPct = pct; JSObject p = new JSObject(); p.put("percent", pct); notifyListeners("progress", p); }
                     }
                 }
+                if (total > 0 && done != total) { apk.delete(); throw new Exception("incomplete"); }
+                try (java.io.FileInputStream head = new java.io.FileInputStream(apk)) {
+                    byte[] m = new byte[4];
+                    if (head.read(m) != 4 || m[0] != 0x50 || m[1] != 0x4B || m[2] != 3 || m[3] != 4) { apk.delete(); throw new Exception("not_apk"); }
+                }
                 Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
                 Intent i = new Intent(Intent.ACTION_VIEW);
                 i.setDataAndType(uri, "application/vnd.android.package-archive");
@@ -145,7 +152,8 @@ public class AdunaUpdater extends Plugin {
                 getContext().startActivity(i);
                 call.resolve();
             } catch (Exception e) {
-                call.reject("download_failed");
+                String why = String.valueOf(e.getMessage());
+                call.reject(why.equals("not_apk") || why.equals("incomplete") ? why : "download_failed");
             } finally {
                 busy = false;
             }

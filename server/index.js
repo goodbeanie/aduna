@@ -271,6 +271,8 @@ const apkFeedEntry = (j, req) => {
   if (!(code > 0) || !/^[\w.-]+\.apk$/i.test(file)) return null;
   const base = String(process.env.DOWNLOAD_BASE_URL || '').trim().replace(/\/+$/, '');
   const origin = `${req.protocol}://${req.get('host')}`;
+  // No bucket: the APK must really be on this site, or the phone would be sent the app's home page (the catch-all route) and fail with "problem parsing the package"
+  if (!base && !fs.existsSync(path.join(__dirname, '..', 'client', 'dist', 'updates', file))) return null;
   return { versionCode: code, versionName: String((j && j.versionName) || ''), url: base ? `${base}/${file}` : `${origin}/updates/${file}` };
 };
 const readApkFeed = (req) => {
@@ -2756,7 +2758,13 @@ if (fs.existsSync(dist)) {
     if (DL_BASE) yml = yml.replace(/^(\s*-\s*url:\s*)(?!https?:\/\/)(\S+)\s*$/gm, (_m, pre, f) => pre + DL_BASE + '/' + f);
     res.set('Cache-Control', 'no-cache').type('text/yaml').send(yml);
   });
+  app.get(/^\/updates\/[\w.-]+\.apk$/i, (req, res) => { // the APK, with its real type; a missing one is a 404, never the app's home page
+    const f = path.join(dist, 'updates', path.basename(req.path));
+    if (!fs.existsSync(f)) return res.status(404).type('text/plain').send('Not found');
+    res.set('Cache-Control', 'no-cache').type('application/vnd.android.package-archive').sendFile(f);
+  });
   app.use(express.static(dist, { index: false }));
+  app.use('/updates', (_req, res) => res.status(404).type('text/plain').send('Not found')); // anything else under /updates that is not a file
   app.get(/^\/(?!api|socket\.io).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
 }
 
