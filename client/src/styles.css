@@ -1224,3 +1224,18 @@ html.kb-open .app { height: var(--app-h); } /* browsers that only shrink the vis
 .badge-admin .holder { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; background: var(--hover); font-size: 13px; }
 .badge-admin .holder button { font-size: 14px; line-height: 1; opacity: .7; }
 .badge-admin .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px; }
+
+/* ---- update chip on the right of the server bar (phones + Android app; the desktop app injects the same look) ---- */
+.rail-upd { margin-left: auto; flex: none; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 5px 0 12px; border-radius: 999px; background: var(--bg); border: 1px solid var(--line); color: var(--muted); font: 13px/1 var(--font); white-space: nowrap; max-width: 62vw; animation: rail-upd-in .4s ease both; user-select: none; }
+.rail-upd.noinstall { padding-right: 12px; }
+.rail-upd span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rail-upd svg { flex: none; }
+.rail-upd .spin { animation: rail-upd-spin .9s linear infinite; }
+.rail-upd .ok { color: var(--green, currentColor); } .rail-upd .warn { color: var(--gold, currentColor); } .rail-upd .bad { color: var(--danger, currentColor); }
+.rail-upd b { font-weight: 400; color: var(--head); }
+.rail-upd button { flex: none; font: inherit; height: 26px; padding: 0 13px; border-radius: 999px; background: var(--ink); color: var(--on-ink); border: 0; cursor: pointer; }
+.rail-upd .pbar { flex: none; width: 54px; height: 4px; border-radius: 2px; background: var(--line); overflow: hidden; margin-right: 6px; }
+.rail-upd .pbar i { display: block; height: 100%; background: var(--ink); border-radius: 2px; transition: width .2s; }
+@keyframes rail-upd-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rail-upd-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rail-upd, .rail-upd .spin { animation-duration: 2.5s; } }

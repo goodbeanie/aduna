@@ -29,6 +29,7 @@ import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 import * as notify from './notify.js';
 import { NotifyPrompt } from './NotifyPrompt.jsx';
 import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
+import { RailUpdateChip } from './RailUpdate.jsx';
 import { withCalls, mergeRecords } from './callhistory.js';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
@@ -746,6 +747,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           ))}
           <button className="rail-btn add" title="Create or join a server" onClick={() => setModal({ type: 'server' })}><Icon name="plus" size={22} /></button>
         </div>
+        <RailUpdateChip />
       </nav>
 
       <div className={'body' + (call.call.phase !== 'idle' ? ' in-call' : '') + (showList ? ' list-open' : '')}>
