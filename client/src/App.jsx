@@ -28,7 +28,7 @@ import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './l
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 import * as notify from './notify.js';
 import { NotifyPrompt } from './NotifyPrompt.jsx';
-import { UpdatePrompt } from './UpdatePrompt.jsx';
+import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
 import { withCalls, mergeRecords } from './callhistory.js';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
@@ -916,6 +916,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {toast && <button className="toast" onClick={() => { const sv = servers.find((x) => x.id === toast.serverId); if (sv) { lastChan.current[sv.id] = toast.channelId; setView({ kind: 'server', serverId: sv.id, channelId: toast.channelId }); setShowList(false); } setToast(null); }}><Icon name="megaphone" size={18} /><span><b>{toast.title}</b><br />{toast.body}</span></button>}
       <NotifyPrompt />
       <UpdatePrompt />
+      <SiteUpdateNotice />
       {gain && <div className="credit-gain" key={gain.key} aria-live="polite"><Icon name="coin" size={16} />+{gain.delta} credits</div>}
       <CallUI call={call.call} actions={call.actions} users={users} me={me} />
       </div>

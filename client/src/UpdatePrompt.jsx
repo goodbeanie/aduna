@@ -39,7 +39,7 @@ export function UpdatePrompt() {
         }
         if (!v) { if (!dead) setInfo(null); return; }
         const newer = !!v.url && Number(v.versionCode) > current.current && !snoozed(Number(v.versionCode));
-        if (!dead) setInfo(newer ? { ...v, legacy: !p } : null);
+        if (!dead) { setInfo(newer ? { ...v, legacy: !p } : null); window.__adunaApkUpdate = newer; window.dispatchEvent(new Event('aduna:apk-update')); }
       } catch { /* offline: try again later */ }
     };
     const t0 = setTimeout(check, 4000);
@@ -74,6 +74,42 @@ export function UpdatePrompt() {
       </div>
       {state !== 'downloading' && <button className="btn" onClick={later}>Later</button>}
       <button className="btn primary" onClick={go} disabled={state === 'downloading'}>Update</button>
+    </div>
+  );
+}
+
+// Every platform (browser, home-screen app, Android app): the SITE was updated since this page loaded. Reloading gets the new version; the APK itself
+// does not change for site updates, which is why the box above never shows for them.
+export function SiteUpdateNotice() {
+  const [fresh, setFresh] = useState(false);
+  const [apk, setApk] = useState(!!window.__adunaApkUpdate); // a new app is offered too: that one box does both (the new app opens the newest site), so this one stays hidden
+  const first = useRef('');
+  useEffect(() => { const f = () => setApk(!!window.__adunaApkUpdate); window.addEventListener('aduna:apk-update', f); return () => window.removeEventListener('aduna:apk-update', f); }, []);
+  useEffect(() => {
+    let dead = false;
+    const check = async () => {
+      try {
+        const r = await fetch('/api/build', { cache: 'no-store' });
+        if (!r.ok) return;
+        const { build } = await r.json();
+        if (!build || build === 'dev' || dead) return;
+        if (!first.current) first.current = build;
+        else if (build !== first.current) setFresh(true);
+      } catch { /* offline: try again later */ }
+    };
+    const t0 = setTimeout(check, 2000);
+    const iv = setInterval(check, 5 * 60 * 1000);
+    const vis = () => { if (document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', vis);
+    window.addEventListener('online', check);
+    return () => { dead = true; clearTimeout(t0); clearInterval(iv); document.removeEventListener('visibilitychange', vis); window.removeEventListener('online', check); };
+  }, []);
+  if (!fresh || apk) return null;
+  return (
+    <div className="update-box web-update" role="alert">
+      <div className="update-text"><b>Aduna was updated</b><span>Reload to get the newest version.</span></div>
+      <button className="btn" onClick={() => setFresh(false)}>Later</button>
+      <button className="btn primary" onClick={() => window.location.reload()}>Reload</button>
     </div>
   );
 }

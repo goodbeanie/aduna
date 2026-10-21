@@ -271,9 +271,11 @@ const apkFeedEntry = (j, req) => {
   if (!(code > 0) || !/^[\w.-]+\.apk$/i.test(file)) return null;
   const base = String(process.env.DOWNLOAD_BASE_URL || '').trim().replace(/\/+$/, '');
   const origin = `${req.protocol}://${req.get('host')}`;
-  // No bucket: the APK must really be on this site, or the phone would be sent the app's home page (the catch-all route) and fail with "problem parsing the package"
-  if (!base && !fs.existsSync(path.join(__dirname, '..', 'client', 'dist', 'updates', file))) return null;
-  return { versionCode: code, versionName: String((j && j.versionName) || ''), url: base ? `${base}/${file}` : `${origin}/updates/${file}` };
+  // An APK that ships with the site (build-apk.bat copies it into client/public/updates) wins over the bucket, so ONE deploy updates the site and the app.
+  // With neither, offer nothing: the phone would be sent the app's home page (the catch-all route) and fail with "problem parsing the package".
+  const onSite = fs.existsSync(path.join(__dirname, '..', 'client', 'dist', 'updates', file));
+  if (!onSite && !base) return null;
+  return { versionCode: code, versionName: String((j && j.versionName) || ''), url: onSite ? `${origin}/updates/${file}` : `${base}/${file}` };
 };
 const readApkFeed = (req) => {
   try { return apkFeedEntry(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'client', 'dist', 'updates', 'latest.json'), 'utf8')), req); } catch { return null; }
@@ -283,6 +285,10 @@ app.get('/updates/latest.json', (req, res) => { // what the phone app reads; no 
   if (!e) return res.status(404).json({ error: 'No update available' });
   res.set('Cache-Control', 'no-cache').json(e);
 });
+// Which build of the SITE is running: a hash of the built index.html (its script names change with every code change). The page asks now and then and
+// offers a reload when the answer differs from the one it loaded with, so phones and open tabs notice a deploy without anyone sending a link.
+const BUILD_ID = (() => { try { return require('crypto').createHash('sha1').update(fs.readFileSync(path.join(__dirname, '..', 'client', 'dist', 'index.html'))).digest('hex').slice(0, 12); } catch { return 'dev'; } })();
+app.get('/api/build', (_req, res) => res.set('Cache-Control', 'no-store').json({ build: BUILD_ID }));
 app.get('/api/app-version', ah(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const local = readApkFeed(req); // updates/latest.json on this site wins over every other source

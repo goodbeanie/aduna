@@ -103,6 +103,13 @@ rem /b matters: a wildcard copied onto ONE file name is a text-mode join in cmd,
 for %%f in ("android\app\build\outputs\apk\%MODE%\*.apk") do copy /b /y "%%~f" "dist\Aduna.apk" >nul
 if exist "dist\Aduna.apk" for %%f in ("android\app\build\outputs\apk\%MODE%\*.apk") do fc /b "%%~f" "dist\Aduna.apk" >nul || (echo Aduna.apk does not match the built APK. & goto fail)
 >"dist\latest.json" echo {"versionCode":!VC!,"versionName":"1.0.!VC!","file":"Aduna.apk"}
+rem One deploy updates both: put the APK and its feed into the site folder, so publishing the site publishes the new app too
+if exist "%~dp0..\client\public" (
+  if not exist "%~dp0..\client\public\updates" mkdir "%~dp0..\client\public\updates"
+  copy /b /y "dist\Aduna.apk" "%~dp0..\client\public\updates\Aduna.apk" >nul
+  copy /y "dist\latest.json" "%~dp0..\client\public\updates\latest.json" >nul
+  echo Copied Aduna.apk and latest.json into client\public\updates: deploy the site to publish this app update.
+)
 echo.
 echo Done. Your files are in the dist folder:
 dir /b dist
