@@ -398,7 +398,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
               </button>
             </div>
             <div className="card-body">
-              <h3 data-nc style={{ '--nc': preview.accentColor }}>{preview.displayName || me.username}</h3>
+              <h3 data-nc style={{ '--nc': preview.accentColor }}>{preview.displayName || me.username} <BadgeIcons user={preview} size={20} /></h3>
               <div className="muted">@{renaming ? f.username.trim() || me.username : me.username}</div>
               {preview.bio && (<><h4>ABOUT ME</h4><p className="bio">{preview.bio}</p></>)}
               <ProfileLinks links={f.links.filter((l) => l.url.trim()).map((l) => ({ label: l.label.trim() || l.url.trim().replace(/^https?:\/\/(www\.)?/i, '').split('/')[0], url: /^[a-z][a-z0-9+.-]*:/i.test(l.url.trim()) ? l.url.trim() : 'https://' + l.url.trim() }))} />

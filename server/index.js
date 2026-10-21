@@ -139,10 +139,10 @@ function parseMentions(content, server, authorId) {
 }
 
 // ----- the creator account and badges -----
-// An account whose VERIFIED email is one of CREATOR_EMAILS (default adunachatapp@gmail.com and nathankennethvc2@mail.com) is a creator: it gets the Creator badge, a developer account and
+// An account whose VERIFIED email is one of CREATOR_EMAILS (default adunachatapp@gmail.com and nathankennethvc2@gmail.com) is a creator: it gets the Creator badge, a developer account and
 // the Badges settings tab. Any number of accounts can use that address (see emailClaimed / emailTaken); each one still has to prove it can read the mailbox
 // with the emailed code before it counts, so typing the address into a sign-up form gives nobody anything.
-const CREATOR_KEYS = new Set(String(process.env.CREATOR_EMAILS || 'adunachatapp@gmail.com,nathankennethvc2@mail.com').split(',').map((e) => security.cleanEmail(e)).filter(Boolean).map((e) => security.emailKey(e)));
+const CREATOR_KEYS = new Set(String(process.env.CREATOR_EMAILS || 'adunachatapp@gmail.com,nathankennethvc2@gmail.com').split(',').map((e) => security.cleanEmail(e)).filter(Boolean).map((e) => security.emailKey(e)));
 const isCreatorEmail = (email) => !!email && CREATOR_KEYS.has(security.emailKey(email));
 const isCreator = (u) => !!u && !u.bot && u.emailVerified === true && isCreatorEmail(u.email);
 const CREATOR_BADGE = { id: 'creator', name: 'Creator', builtin: true, image: null, emoji: '', color: '' };
