@@ -4,7 +4,7 @@ import VerifyEmail from './VerifyEmail.jsx';
 import ResetPassword, { resetTokenFromLocation } from './ResetPassword.jsx';
 import Chat from './Chat.jsx';
 import Friends from './Friends.jsx';
-import { Avatar, Icon, ServerIcon, STATUS_LABEL } from './ui.jsx';
+import { Avatar, BadgeIcons, Icon, ServerIcon, STATUS_LABEL } from './ui.jsx';
 import { imageUrl } from './image.js';
 import { setServerTheme } from './themes.js';
 import { ServerSettings } from './ServerSettings.jsx';
@@ -723,6 +723,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     <button key={u.id} className={'member' + (statusOf(u.id) === 'offline' ? ' off' : '')} onClick={() => { setMembersOpen(false); showUser(u.id); }}>
       <Avatar user={users[u.id] || u} size={32} presence={statusOf(u.id)} />
       <span data-nc style={{ '--nc': (server && roleColorOf(server, u.id)) || (users[u.id] || u).accentColor }}>{(users[u.id] || u).displayName}</span>
+      <BadgeIcons user={users[u.id] || u} size={16} />
       {(users[u.id] || u).bot && <BotTag />}
       {server?.ownerId === u.id && <span className="owner" title="Server owner"><Icon name="crown" size={15} /></span>}
     </button>
@@ -842,7 +843,7 @@ function Main({ me, setMe, privKey, openServerId }) {
               {convos.map((id) => users[id] && (
                 <button key={id} className={'chan dm' + (id === view.userId ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: id }); setShowList(false); }}>
                   <Avatar user={users[id]} size={32} presence={statusOf(id)} />
-                  <span className="grow">{users[id].displayName}</span>
+                  <span className="grow">{users[id].displayName}<BadgeIcons user={users[id]} size={16} /></span>
                   {unread['d:' + id] > 0 && <span className="badge inline">{unread['d:' + id]}</span>}
                 </button>
               ))}
@@ -852,7 +853,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         <div className="user-panel">
           <button className="me" onClick={() => setModal({ type: 'user', id: me.id })}>
             <Avatar user={me} size={34} presence={myPresence} />
-            <div><div className="me-name">{me.displayName}</div><div className="muted small">{STATUS_LABEL[myPresence]}</div></div>
+            <div><div className="me-name">{me.displayName}<BadgeIcons user={me} size={16} /></div><div className="muted small">{STATUS_LABEL[myPresence]}</div></div>
           </button>
           <button className="credit-chip" title="Credits" onClick={() => { setView({ kind: 'dm', userId: null, credits: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
           <button className="icon-btn" title="Custom emoji" onClick={openManager}><Icon name="smile" size={18} /></button>

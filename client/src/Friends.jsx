@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Avatar, Icon, STATUS_LABEL } from './ui.jsx';
+import { Avatar, BadgeIcons, Icon, STATUS_LABEL } from './ui.jsx';
 
 const TABS = [['all', 'All'], ['online', 'Online'], ['pending', 'Pending'], ['add', 'Add Friend']];
 
@@ -37,7 +37,7 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, on
       <button className="frow-main" onClick={onMain}>
         <Avatar user={u} size={36} presence={statusOf(u.id)} />
         <div className="frow-text">
-          <b data-nc style={{ '--nc': u.accentColor }}>{u.displayName}</b><span className="muted"> @{u.username}</span>
+          <b data-nc style={{ '--nc': u.accentColor }}>{u.displayName}</b><BadgeIcons user={u} size={16} /><span className="muted"> @{u.username}</span>
           <div className="muted small">{sub}</div>
         </div>
       </button>
