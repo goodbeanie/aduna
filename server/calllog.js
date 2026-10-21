@@ -27,6 +27,19 @@ function makeRecord(call, reason, convo, endedAt = Date.now()) {
   };
 }
 
+// A finished group call: one record for the whole call. `a` is who started it, `b` is null, `people` is how many different people were on it.
+// 'completed' if at least two people were on it together, otherwise 'missed' (nobody joined the one who started it).
+function makeGroupRecord(call, convo, endedAt = Date.now()) {
+  const answeredAt = call.answeredAt || null;
+  return {
+    id: call.id, convo, group: true, a: call.startedBy, b: null, video: !!call.video,
+    outcome: answeredAt ? 'completed' : 'missed',
+    startedAt: call.startedAt || endedAt, answeredAt, endedAt,
+    seconds: answeredAt ? Math.max(0, Math.round((endedAt - answeredAt) / 1000)) : 0,
+    people: call.everyone ? call.everyone.size : 1,
+  };
+}
+
 // Newest `limit` records of one conversation, oldest first.
 const forConvo = (log, convo, limit = 100) =>
   Object.values(log).filter((r) => r.convo === convo).sort((x, y) => x.endedAt - y.endedAt).slice(-limit);
@@ -37,4 +50,4 @@ function overflow(log, convo, keep = KEEP_PER_CONVO) {
   return all.slice(0, Math.max(0, all.length - keep)).map((r) => r.id);
 }
 
-module.exports = { OUTCOMES, KEEP_PER_CONVO, outcomeOf, makeRecord, forConvo, overflow };
+module.exports = { OUTCOMES, KEEP_PER_CONVO, outcomeOf, makeRecord, makeGroupRecord, forConvo, overflow };

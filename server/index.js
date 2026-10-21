@@ -19,6 +19,7 @@ const np = require('./notifprefs');
 const listing = require('./listing');
 const polls = require('./polls');
 const calllog = require('./calllog');
+const groupsLib = require('./groups');
 const gallery = require('./themegallery');
 const botsLib = require('./bots');
 const botrun = require('./botrun');
@@ -68,6 +69,7 @@ const dim = (n) => (Number.isInteger(n) && n > 0 && n <= 20000 ? n : undefined);
 const referencedFiles = () => new Set([
   ...Object.values(store.db.messages).flatMap((m) => (m.attachments || []).map((a) => a.id)),
   ...Object.values(store.db.dms).flatMap((m) => m.files || []),
+  ...groups.referencedFiles(),
 ].filter(Boolean));
 
 // Attachments are deleted after ATTACH_RULES (14 days, or 5 days for files over 10 MB) to keep storage small.
@@ -257,12 +259,32 @@ app.use(security.securityHeaders()); // CSP, clickjacking, nosniff, referrer, pe
 app.use('/api', security.csrfGuard()); // a request from another site that carries the login cookie is refused (see security.js)
 app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
 
-// Android app updates: the app asks which build is newest. Source, in order: android-latest.json in the DOWNLOAD_BASE_URL bucket (written by ZipPush), else the latest GitHub Release of GITHUB_REPO (the Android workflow
+// Android app updates: the app asks which build is newest. Source, in order: updates/latest.json on this site (like the desktop feed), else android-latest.json in the DOWNLOAD_BASE_URL bucket (written by ZipPush), else the latest GitHub Release of GITHUB_REPO (the Android workflow
 // publishes one per build, tag android-<versionCode>, with the .apk attached; the repo must be public), or set
 // APP_LATEST_VERSION_CODE + APP_APK_URL (+ APP_LATEST_VERSION_NAME) by hand. Cached for 10 minutes.
 let appVersionCache = { at: 0, data: null };
-app.get('/api/app-version', ah(async (_req, res) => {
+// The Android feed, same idea as the desktop's updates/latest.yml: client/public/updates/latest.json = { "versionCode": 12, "versionName": "1.0.12", "file": "Aduna.apk" }.
+// The file is looked up in DOWNLOAD_BASE_URL when that is set, else next to the feed in /updates/. Returns { versionCode, versionName, url } or null.
+const apkFeedEntry = (j, req) => {
+  const code = Number(j && j.versionCode);
+  const file = String((j && j.file) || 'Aduna.apk');
+  if (!(code > 0) || !/^[\w.-]+\.apk$/i.test(file)) return null;
+  const base = String(process.env.DOWNLOAD_BASE_URL || '').trim().replace(/\/+$/, '');
+  const origin = `${req.protocol}://${req.get('host')}`;
+  return { versionCode: code, versionName: String((j && j.versionName) || ''), url: base ? `${base}/${file}` : `${origin}/updates/${file}` };
+};
+const readApkFeed = (req) => {
+  try { return apkFeedEntry(JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'client', 'dist', 'updates', 'latest.json'), 'utf8')), req); } catch { return null; }
+};
+app.get('/updates/latest.json', (req, res) => { // what the phone app reads; no login, never cached
+  const e = readApkFeed(req);
+  if (!e) return res.status(404).json({ error: 'No update available' });
+  res.set('Cache-Control', 'no-cache').json(e);
+});
+app.get('/api/app-version', ah(async (req, res) => {
   res.set('Cache-Control', 'no-store');
+  const local = readApkFeed(req); // updates/latest.json on this site wins over every other source
+  if (local) return res.json(local);
   const dl = String(process.env.DOWNLOAD_BASE_URL || '').trim().replace(/\/+$/, '');
   if (dl) { // ZipPush uploads Aduna.apk and android-latest.json to the downloads bucket
     if (Date.now() - appVersionCache.at < 5 * 60 * 1000 && appVersionCache.data) return res.json(appVersionCache.data);
@@ -1147,12 +1169,14 @@ function fileScope(uid, kind, target) {
     return f && f.server.members.includes(uid) ? 'channel:' + f.channel.id : null;
   }
   if (kind === 'dm') return db().users[target] && target !== uid && areFriends(uid, target) ? 'dm:' + convoKey(uid, target) : null;
+  if (kind === 'group') { const g = groups.memberOf(target, uid); return g ? 'group:' + g.id : null; }
   return null;
 }
 function canReadScope(uid, scope) {
   const [kind, rest] = String(scope).split(/:(.*)/s);
   if (kind === 'channel') { const f = findChannel(rest); return !!f && f.server.members.includes(uid); }
   if (kind === 'dm') return rest.split(':').includes(uid);
+  if (kind === 'group') return !!groups.memberOf(rest, uid);
   return false;
 }
 app.post('/api/files', auth, fileLimiter, express.raw({ type: '*/*', limit: MAX_FILE + FILE_SLACK }), ah(async (req, res) => {
@@ -2686,6 +2710,12 @@ app.put('/api/me/notifications', auth, (req, res) => {
   store.save();
   res.json({ notifPrefs: req.user.notifPrefs });
 });
+// Encrypted group chats and group calls (server/groups.js). Must be registered before the /api 404 handler below.
+const groups = groupsLib.create({
+  get io() { return io; }, store, db, now, ah, auth, publicUser, areFriends, pushSafe, isOnline,
+  imgPath: (id) => imgPath(id),
+});
+groups.register(app);
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // JSON errors instead of Express's default HTML page (oversized uploads, malformed JSON, ...)
@@ -2755,6 +2785,7 @@ function relatedUserIds(uid) {
   const out = new Set();
   for (const f of Object.values(db().friendships)) { if (f.from === uid) out.add(f.to); else if (f.to === uid) out.add(f.from); }
   for (const sv of myServers(uid)) for (const m of sv.members) out.add(m);
+  for (const m of groups.memberIdsOf(uid)) out.add(m); // people in a group chat with you see your presence and profile changes
   out.delete(uid);
   return out;
 }
@@ -2920,6 +2951,8 @@ io.on('connection', (socket) => {
     return m && check(m) ? replyTo : null;
   };
 
+  groups.attachSocket(socket, { uid, allowed, validReply, busy: () => !!callOf(uid) }); // group:send, gcall:*, group:typing
+
   socket.on('message:send', async (p, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!allowed()) return reply({ error: 'Slow down' });
@@ -3011,6 +3044,10 @@ io.on('connection', (socket) => {
       const f = msg && findChannel(msg.channelId);
       if (!f || !f.server.members.includes(uid)) return reply({ error: 'Forbidden' });
       rooms = ['channel:' + msg.channelId];
+    } else if (p.kind === 'group') {
+      const t = groups.actions.reactionTarget(uid, p.messageId);
+      if (t.error) return reply({ error: t.error });
+      msg = t.msg; rooms = t.rooms;
     } else if (p.kind === 'dm') {
       msg = db().dms[p.messageId];
       if (!msg || (msg.from !== uid && msg.to !== uid)) return reply({ error: 'Forbidden' });
@@ -3050,6 +3087,7 @@ io.on('connection', (socket) => {
       if (typeOf(f.channel) === 'text') dispatchBots(f.server, 'messageEdit', { channel: f.channel, msg, author: db().users[uid] });
       return;
     }
+    if (p?.kind === 'group') return reply(groups.actions.edit(uid, p));
     if (p?.kind === 'dm') {
       const msg = db().dms[p.messageId];
       if (!msg || msg.from !== uid) return reply({ error: 'Forbidden' });
@@ -3110,6 +3148,7 @@ io.on('connection', (socket) => {
       io.to('channel:' + msg.channelId).emit('message:deleted', { kind: 'channel', messageId: msg.id, channelId: msg.channelId });
       return reply({ ok: true });
     }
+    if (p?.kind === 'group') return reply(groups.actions.delete(uid, p));
     if (p?.kind === 'dm') {
       const msg = db().dms[p.messageId];
       if (!msg || msg.from !== uid) return reply({ error: 'Forbidden' });
@@ -3138,10 +3177,10 @@ io.on('connection', (socket) => {
     if (!allowed()) return reply({ error: 'Slow down' });
     const to = db().users[p?.to];
     if (!to || to.id === uid || !areFriends(uid, to.id)) return reply({ error: 'You can only call friends' });
-    if (callOf(uid)) return reply({ error: 'You are already on a call' });
+    if (callOf(uid) || groups.callOfUser(uid)) return reply({ error: 'You are already on a call' });
     // someone with the app closed can still be rung through a push notification (the ring is shown when they open it)
     if (!isOnline(to.id) && !(push.enabled && to.pushSubs?.length && push.prefsOf(to).calls && to.status !== 'dnd')) return reply({ error: `${to.displayName} is offline` });
-    if (callOf(to.id)) return reply({ error: `${to.displayName} is on another call` });
+    if (callOf(to.id) || groups.callOfUser(to.id)) return reply({ error: `${to.displayName} is on another call` });
     const c = { id: store.id(), a: uid, b: to.id, video: !!p.video, state: 'ringing', startedAt: now(), answeredAt: null };
     c.timer = setTimeout(() => { if (c.state === 'ringing') endCall(c, 'missed'); }, RING_MS);
     calls.set(c.id, c);

@@ -98,6 +98,9 @@ if exist dist rmdir /s /q dist
 mkdir dist
 copy /y "android\app\build\outputs\apk\%MODE%\*.apk" dist\ >nul 2>nul
 copy /y "android\app\build\outputs\bundle\%MODE%\*.aab" dist\ >nul 2>nul
+rem The update feed for the phone app (same idea as the desktop latest.yml): put Aduna.apk where the site serves downloads and latest.json in client\public\updates
+copy /y "android\app\build\outputs\apk\%MODE%\*.apk" "dist\Aduna.apk" >nul 2>nul
+>"dist\latest.json" echo {"versionCode":!VC!,"versionName":"1.0.!VC!","file":"Aduna.apk"}
 echo.
 echo Done. Your files are in the dist folder:
 dir /b dist
