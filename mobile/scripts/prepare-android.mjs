@@ -34,6 +34,7 @@ for (const d of readdirSync(res).filter((n) => n.startsWith('mipmap-'))) {
   mkdirSync(javaDir, { recursive: true });
   writeFileSync(join(javaDir, 'MainActivity.java'), `package com.aduna.app;
 
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
@@ -41,24 +42,57 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import com.getcapacitor.BridgeActivity;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 public class MainActivity extends BridgeActivity {
+    // If the app ever crashes, the error is saved and shown in a box the next time it opens (phone-only debugging: no cable, no log viewer needed).
+    private void logCrash(Throwable t) {
+        try {
+            StringWriter sw = new StringWriter();
+            t.printStackTrace(new PrintWriter(sw));
+            try (FileOutputStream out = new FileOutputStream(new File(getFilesDir(), "last-crash.txt"))) { out.write(sw.toString().getBytes("UTF-8")); }
+        } catch (Throwable ignored) { }
+    }
+
+    private void showLastCrash() {
+        try {
+            File f = new File(getFilesDir(), "last-crash.txt");
+            if (!f.exists()) return;
+            byte[] data = new byte[(int) Math.min(f.length(), 4000)];
+            try (FileInputStream in = new FileInputStream(f)) { in.read(data); }
+            f.delete();
+            new AlertDialog.Builder(this).setTitle("Aduna crashed last time").setMessage(new String(data, "UTF-8")).setPositiveButton("OK", null).show();
+        } catch (Throwable ignored) { }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        registerPlugin(AdunaUpdater.class);
+        final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler((th, ex) -> { logCrash(ex); if (prev != null) prev.uncaughtException(th, ex); });
+        try { registerPlugin(AdunaUpdater.class); } catch (Throwable t) { logCrash(t); }
         super.onCreate(savedInstanceState);
-        View web = getBridge().getWebView();
-        ViewCompat.setOnApplyWindowInsetsListener(web, (v, w) -> {
-            Insets bars = w.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
-            Insets ime = w.getInsets(WindowInsetsCompat.Type.ime());
-            ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) v.getLayoutParams();
-            mlp.leftMargin = bars.left;
-            mlp.topMargin = bars.top;
-            mlp.rightMargin = bars.right;
-            mlp.bottomMargin = Math.max(bars.bottom, ime.bottom);
-            v.setLayoutParams(mlp);
-            return WindowInsetsCompat.CONSUMED;
-        });
+        try {
+            View web = getBridge().getWebView();
+            ViewCompat.setOnApplyWindowInsetsListener(web, (v, w) -> {
+                Insets bars = w.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                Insets ime = w.getInsets(WindowInsetsCompat.Type.ime());
+                ViewGroup.LayoutParams lp = v.getLayoutParams();
+                if (lp instanceof ViewGroup.MarginLayoutParams) {
+                    ViewGroup.MarginLayoutParams mlp = (ViewGroup.MarginLayoutParams) lp;
+                    mlp.leftMargin = bars.left;
+                    mlp.topMargin = bars.top;
+                    mlp.rightMargin = bars.right;
+                    mlp.bottomMargin = Math.max(bars.bottom, ime.bottom);
+                    v.setLayoutParams(mlp);
+                }
+                return WindowInsetsCompat.CONSUMED;
+            });
+        } catch (Throwable t) { logCrash(t); }
+        showLastCrash();
     }
 }
 `);
