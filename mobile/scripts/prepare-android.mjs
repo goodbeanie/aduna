@@ -145,6 +145,16 @@ public class AdunaUpdater extends Plugin {
                     byte[] m = new byte[4];
                     if (head.read(m) != 4 || m[0] != 0x50 || m[1] != 0x4B || m[2] != 3 || m[3] != 4) { apk.delete(); throw new Exception("not_apk"); }
                 }
+                try (java.io.RandomAccessFile raf = new java.io.RandomAccessFile(apk, "r")) { // an APK is a zip: its end record must be there, or the file is cut off
+                    long len = raf.length();
+                    int n = (int) Math.min(len, 65557);
+                    byte[] t = new byte[n];
+                    raf.seek(len - n);
+                    raf.readFully(t);
+                    boolean ok = false;
+                    for (int k = n - 22; k >= 0 && !ok; k--) ok = t[k] == 0x50 && t[k + 1] == 0x4B && t[k + 2] == 5 && t[k + 3] == 6;
+                    if (!ok) { apk.delete(); throw new Exception("not_apk"); }
+                }
                 Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName() + ".fileprovider", apk);
                 Intent i = new Intent(Intent.ACTION_VIEW);
                 i.setDataAndType(uri, "application/vnd.android.package-archive");

@@ -58,7 +58,7 @@ export function UpdatePrompt() {
     if (info.legacy) { window.location.assign(info.url); return; } // old APK: let Android download it in the browser, then tap the file to install
     setState('downloading'); setPct(-1);
     try { await plugin().install({ url: info.url }); setState('idle'); }
-    catch (e) { const m = String(e?.code || e?.message || e); setWhy(m.includes('not_apk') ? 'The server sent something that is not an app file. The new APK may not be uploaded yet.' : m.includes('incomplete') ? 'The download was cut off. Try again.' : ''); setState(m.includes('permission') ? 'permission' : 'error'); }
+    catch (e) { const m = String(e?.code || e?.message || e); setWhy(m.includes('not_apk') ? 'The downloaded file is not a complete app file. The new APK may be missing or damaged on the server.' : m.includes('incomplete') ? 'The download was cut off. Try again.' : ''); setState(m.includes('permission') ? 'permission' : 'error'); }
   }
   function later() { try { localStorage.setItem(skipKey, JSON.stringify({ code: Number(info.versionCode), until: Date.now() + SNOOZE_MS })); } catch { /* private mode */ } setInfo(null); }
 

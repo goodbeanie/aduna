@@ -99,7 +99,9 @@ mkdir dist
 copy /y "android\app\build\outputs\apk\%MODE%\*.apk" dist\ >nul 2>nul
 copy /y "android\app\build\outputs\bundle\%MODE%\*.aab" dist\ >nul 2>nul
 rem The update feed for the phone app (same idea as the desktop latest.yml): put Aduna.apk where the site serves downloads and latest.json in client\public\updates
-copy /y "android\app\build\outputs\apk\%MODE%\*.apk" "dist\Aduna.apk" >nul 2>nul
+rem /b matters: a wildcard copied onto ONE file name is a text-mode join in cmd, which stops at the first Ctrl-Z byte and wrecks the APK ("problem parsing the package")
+for %%f in ("android\app\build\outputs\apk\%MODE%\*.apk") do copy /b /y "%%~f" "dist\Aduna.apk" >nul
+if exist "dist\Aduna.apk" for %%f in ("android\app\build\outputs\apk\%MODE%\*.apk") do fc /b "%%~f" "dist\Aduna.apk" >nul || (echo Aduna.apk does not match the built APK. & goto fail)
 >"dist\latest.json" echo {"versionCode":!VC!,"versionName":"1.0.!VC!","file":"Aduna.apk"}
 echo.
 echo Done. Your files are in the dist folder:
