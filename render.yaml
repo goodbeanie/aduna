@@ -1,0 +1,85 @@
+# Render Blueprint: in Render choose New > Blueprint and pick your GitHub repo.
+services:
+  - type: web
+    name: aduna
+    runtime: node
+    plan: free
+    # Keep this at ONE instance (do not add numInstances / autoscaling): the data cache, the rate limits and the login lockout are per process. See HANDOFF.md.
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      # Neon connection string (Neon dashboard > Connect). Paste it in Render's dashboard.
+      - key: DATABASE_URL
+        sync: false
+      # 64 hex characters. Generate once and KEEP A COPY: without it the data in Neon cannot be read.
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      - key: DB_ENCRYPTION_KEY
+        sync: false
+      # optional: GIF search
+      - key: GIPHY_API_KEY
+        sync: false
+      # optional: Cloudflare R2 for images and files (set all four, or none)
+      - key: R2_ACCOUNT_ID
+        sync: false
+      - key: R2_ACCESS_KEY_ID
+        sync: false
+      - key: R2_SECRET_ACCESS_KEY
+        sync: false
+      - key: R2_BUCKET
+        sync: false
+      # optional: public address of a SEPARATE public R2 bucket that holds the Windows installer (e.g. https://pub-xxxx.r2.dev or
+      # https://downloads.yourdomain.com). Without it the installer is served from this site.
+      - key: DOWNLOAD_BASE_URL
+        sync: false
+      # optional: websites bots may read with bot.fetch (comma separated host names, no https://). Default: api.github.com only.
+      # Bots can only GET public JSON/text; private addresses are always refused.
+      - key: BOT_FETCH_HOSTS
+        sync: false
+      # optional: how many bot events run at the same time (default 2, max 8; each worker holds a WebAssembly runtime, mind the 512 MB on the free plan)
+      - key: SANDBOX_WORKERS
+        sync: false
+      # optional: buying credits with real money (Stripe). Both keys are needed; without them the Buy buttons are off.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      # email verification. Free option that works on Render's free plan: Brevo (HTTPS). Set BREVO_API_KEY and EMAIL_FROM
+      # (a sender you verified in Brevo). Render's free plan blocks SMTP, so the Gmail option below needs a paid plan.
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      # Gmail over SMTP (paid Render plans / other hosts):
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      # Or use Resend instead (needs a verified domain). With neither set, verification is off.
+      # EMAIL_FROM must be an address on a domain you verified in Resend, e.g. "Aduna <noreply@yourdomain.com>".
+      # (The default onboarding@resend.dev can only send to your own Resend account's email.)
+      - key: RESEND_API_KEY
+        sync: false
+      # optional: Web Push signing keys for notifications while the app is closed. Leave unset: they are generated once and kept
+      # (encrypted) in the database. Set both only if you want to supply your own.
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      # optional: notifications for the Android app (Firebase). Paste the whole service-account JSON (see mobile/README.md).
+      - key: FCM_SERVICE_ACCOUNT
+        sync: false
+      # your site's public address, used for Stripe's return links (default: taken from the request)
+      # Calls and voice relay (TURN). Easiest: Cloudflare Realtime > TURN > create a key (see README > Calls).
+      - key: CF_TURN_KEY_ID
+        sync: false
+      - key: CF_TURN_API_TOKEN
+        sync: false
+      # your site's address, e.g. https://aduna.onrender.com (no trailing slash): Stripe return links and the emailed password-reset link (<PUBLIC_URL>/reset#token).
+      # On Render, RENDER_EXTERNAL_URL is used when this is unset.
+      - key: PUBLIC_URL
+        sync: false
