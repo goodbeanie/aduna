@@ -79,9 +79,10 @@ ready.then(() => httpServer.listen(0, async () => {
       assert.ok((await bad(poll)).error, 'refused: ' + JSON.stringify(poll).slice(0, 60));
     }
     assert.strictEqual(Object.keys(store.db.messages).length, before, 'refused polls leave no message behind');
-    assert.ok((await ra0.ack('message:send', { channelId: annId, content: '', poll: { question: 'q', options: ['a', 'b'] } })).error, 'polls are for text channels, not announcements');
+    const annPoll = await ra0.ack('message:send', { channelId: annId, content: '', poll: { question: 'q', options: ['a', 'b'] } });
+    assert.ok(!annPoll.error, 'the owner can post a poll in an announcement channel');
     assert.ok((await ra0.ack('message:send', { channelId: chan, content: '' })).error, 'an empty message without a poll is still refused');
-    step('malformed polls are refused and leave nothing behind; announcements cannot hold a poll');
+    step('malformed polls are refused and leave nothing behind; announcements can hold a poll');
     ra0.close();
 
     // multiple choice + timed + ending

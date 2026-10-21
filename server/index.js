@@ -2973,9 +2973,9 @@ io.on('connection', (socket) => {
     let atts;
     try { atts = await buildAttachments(p.attachments, uid, 'channel:' + f.channel.id); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
     if (atts === null) return reply({ error: 'Bad attachment' });
-    let poll; // optional poll on this message (text channels only), see polls.js
+    let poll; // optional poll on this message (text and announcement channels), see polls.js
     if (p.poll !== undefined && p.poll !== null) {
-      if (kind !== 'text') return reply({ error: 'Polls can only be posted in text channels' });
+      if (kind !== 'text' && kind !== 'announcements') return reply({ error: 'Polls can only be posted in text and announcement channels' });
       const made = polls.cleanPoll(p.poll, now());
       if (made.error) return reply({ error: made.error });
       poll = made.poll;

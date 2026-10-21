@@ -167,6 +167,13 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
   const [dragging, setDragging] = useState(false);
   const [tapped, setTapped] = useState(null); // touch screens: tap a message to show its actions
   const [pollOpen, setPollOpen] = useState(false);
+  const attachWrap = useRef(null), camInput = useRef(null);
+  useEffect(() => { // the attach menu closes when you tap anywhere else
+    if (pop !== 'attach') return undefined;
+    const away = (e) => { if (attachWrap.current && !attachWrap.current.contains(e.target)) setPop(null); };
+    document.addEventListener('pointerdown', away);
+    return () => document.removeEventListener('pointerdown', away);
+  }, [pop]);
   const fileInput = useRef(null);
   const { lib, toTokens, fromTokens } = useEmoji();
   const people = mentionables || [];
@@ -343,15 +350,24 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
           </div>
         )}
         <div className="composer-row">
-          <button className="icon-btn" title="Attach files (max 20 MB each; removed after 14 days, or 5 days if over 10 MB)" disabled={!files?.scope} onClick={() => fileInput.current?.click()}><Icon name="clip" size={20} /></button>
+          <div className="attach-wrap" ref={attachWrap}>
+            <button className="icon-btn" title="Attach" aria-label="Attach" aria-haspopup="menu" aria-expanded={pop === 'attach'} disabled={!files?.scope && !onPoll} onClick={() => setPop(pop === 'attach' ? null : 'attach')}><Icon name="clip" size={20} /></button>
+            {pop === 'attach' && (
+              <div className="pop attach-pop" role="menu">
+                <button role="menuitem" disabled={!files?.scope} onClick={() => { setPop(null); camInput.current?.click(); }}><Icon name="camera" size={18} />Camera</button>
+                <button role="menuitem" disabled={!files?.scope} title={`Max 20 MB each; removed after ${FILE_DAYS} days (${LARGE_FILE_DAYS} if over 10 MB)`} onClick={() => { setPop(null); fileInput.current?.click(); }}><Icon name="file" size={18} />Files</button>
+                {onPoll && <button role="menuitem" onClick={() => { setPop(null); setPollOpen(true); }}><Icon name="poll" size={18} />Poll</button>}
+              </div>
+            )}
+          </div>
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
+          <input ref={camInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
           <textarea ref={inputRef} className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={2000} {...mc.bind}
             onFocus={() => { if (!window.matchMedia('(max-width: 720px)').matches) return; stick.current = true; [120, 320, 600].forEach((ms) => setTimeout(() => { const el = scroller.current; if (el && document.activeElement === inputRef.current) el.scrollTop = el.scrollHeight; }, ms)); }}
             onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }} />
           <div className="comp-tools">
             <button className="icon-btn" title="Emoji" onClick={() => setPop(pop === 'emoji' ? null : 'emoji')}><Icon name="smile" size={20} /></button>
             <button className="icon-btn gif-btn" title="GIF" onClick={() => setPop(pop === 'gif' ? null : 'gif')}>GIF</button>
-            {onPoll && <button className="icon-btn" title="Create a poll" aria-label="Create a poll" onClick={() => { setPop(null); setPollOpen(true); }}><Icon name="poll" size={20} /></button>}
           </div>
           <button className="icon-btn send-btn" title="Send" aria-label="Send" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={uploading || (!text.trim() && !pending.some((p) => p.att))}><Icon name="send" size={19} /></button>
           {pop === 'emoji' && <EmojiPop onClose={() => setPop(null)} onPick={(e) => { setText((t) => t + e); setPop(null); inputRef.current?.focus(); }} />}

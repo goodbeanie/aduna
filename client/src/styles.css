@@ -311,6 +311,11 @@ img.mark.big { height: 96px; width: auto; margin-bottom: 6px; }
 .composer-row .icon-btn { width: 34px; height: 34px; border-radius: 10px; flex: none; }
 .composer-row .icon-btn:disabled { opacity: .4; cursor: default; }
 .comp-tools { display: flex; flex: none; }
+.attach-wrap { flex: none; display: flex; }
+.pop.attach-pop { left: 0; right: auto; padding: 6px; display: flex; flex-direction: column; gap: 2px; min-width: 160px; }
+.attach-pop button { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; font-size: 15px; text-align: left; color: var(--text); }
+.attach-pop button:hover:not(:disabled) { background: var(--hover); }
+.attach-pop button:disabled { opacity: .4; cursor: default; }
 .gif-btn { font-size: 11px; letter-spacing: .04em; }
 .replying + .pending, .replying + .composer-row { border-radius: 0 0 14px 14px; }
 .pending { display: flex; gap: 8px; flex-wrap: wrap; background: var(--bg2); border-radius: 14px 14px 0 0; padding: 10px; margin-bottom: -2px; }

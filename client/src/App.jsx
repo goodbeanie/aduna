@@ -868,7 +868,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       )}
       {server && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
         <Chat title={channel.name} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
-          onSend={send} onPoll={!channel.type || channel.type === 'text' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
+          onSend={send} onPoll={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
           onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={can(server, me.id, 'manageMessages')} roleColors={roleColors} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
           mentionables={server.members} canEveryone={can(server, me.id, 'mentionEveryone') && channel.type !== 'announcements'}
