@@ -53,17 +53,17 @@ function loadPaypal(clientId) {
 const css = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
 // The card form and PayPal button inside Aduna's checkout. onPaid(result) runs after the server has captured the order.
-function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
+function PayForm({ pack, clientId, getBuyer, blocked, total, onPaid, onFallback, onError }) {
   const [ready, setReady] = useState(false);
   const [cardOk, setCardOk] = useState(true);
   const [noCard, setNoCard] = useState(false);
   const [paying, setPaying] = useState(false);
   const cf = useRef(null);
-  const total = money(pack.cents, pack.currency);
+  const blockedRef = useRef(blocked); blockedRef.current = blocked;
 
   useEffect(() => {
     let dead = false, buttons = null;
-    const makeOrder = (method) => () => api('/credits/paypal/order', { method: 'POST', body: { packId: pack.id, method } }).then((r) => r.orderId);
+    const makeOrder = (method) => () => api('/credits/paypal/order', { method: 'POST', body: { packId: pack.id, method, ...getBuyer() } }).then((r) => r.orderId);
     const approved = ({ orderID }) => api('/credits/paypal/capture', { method: 'POST', body: { orderId: orderID } }).then((r) => { if (!dead) onPaid(r); });
     const fail = (e) => { if (!dead) { setPaying(false); onError(e?.message && !/^\s*\{/.test(e.message) && e.message.length < 160 ? e.message : 'The payment did not go through. Check your details or try another way to pay.'); } };
     loadPaypal(clientId).then((paypal) => {
@@ -85,6 +85,7 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
       buttons = paypal.Buttons({
         fundingSource: paypal.FUNDING.PAYPAL,
         style: { layout: 'vertical', shape: 'rect', height: 44, label: 'paypal' },
+        onClick: (_d, actions) => { if (blockedRef.current) { onError('Choose where you are first so the right tax is added.'); return actions.reject(); } onError(''); return actions.resolve(); },
         createOrder: makeOrder('paypal'),
         onApprove: approved,
         onError: fail,
@@ -109,7 +110,7 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
         <div className="pp-field" id="pp-name" />
         <div className="pp-field" id="pp-number" />
         <div className="pp-row"><div className="pp-field" id="pp-expiry" /><div className="pp-field" id="pp-cvv" /></div>
-        <button type="button" className="btn primary pay-btn" disabled={!ready || paying} onClick={payByCard}>{paying ? 'Processing…' : `Pay ${total}`}</button>
+        <button type="button" className="btn primary pay-btn" disabled={!ready || paying || blocked} onClick={payByCard}>{paying ? 'Processing…' : `Pay ${total}`}</button>
       </div>
       <div className={'pay-or' + (ready ? '' : ' hidden')}><span>{cardOk ? 'or' : 'pay with'}</span></div>
       <div id="pp-button" className="pp-button" />
@@ -119,11 +120,25 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
 
 // Aduna's own full-screen checkout, laid out like Stripe's: the payment form on the left, the receipt on the right, an X to leave.
 // With PayPal set up it shows the card boxes and a PayPal button; otherwise (Stripe, or if PayPal's script cannot load) a plain hand-off button.
-function Checkout({ pack, provider, clientId, busy, error, onPay, onPaid, onError, onClose }) {
+const PROVINCES = { AB: 'Alberta', BC: 'British Columbia', MB: 'Manitoba', NB: 'New Brunswick', NL: 'Newfoundland and Labrador', NS: 'Nova Scotia', NT: 'Northwest Territories', NU: 'Nunavut', ON: 'Ontario', PE: 'Prince Edward Island', QC: 'Quebec', SK: 'Saskatchewan', YT: 'Yukon' };
+const STATES = { AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming' };
+const REGIONS = { CA: PROVINCES, US: STATES };
+const countryName = (c) => { try { return new Intl.DisplayNames(undefined, { type: 'region' }).of(c) || c; } catch { return c; } };
+
+function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, onError, onClose }) {
+  const [country, setCountry] = useState('');
+  const [region, setRegion] = useState('');
+  const buyerRef = useRef({}); buyerRef.current = { country, region: REGIONS[country] ? region : '' };
   const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
   const embedded = provider === 'paypal' && !!clientId && !fallback;
-  const price = money(pack.cents, pack.currency);
+  const needsRegion = !!tax && !!REGIONS[country] && Object.keys(tax.rates).some((k) => k.startsWith(country + '-'));
+  const code = needsRegion ? (region ? country + '-' + region : '') : country;
+  const picked = !tax || (!!country && !(needsRegion && !region));
+  const hit = tax && picked ? tax.rates[code] : null;
+  const parts = hit ? (hit.parts || [{ label: hit.label, rate: hit.rate }]).map((x) => ({ ...x, amount: Math.round((pack.cents * x.rate) / 100) })) : [];
+  const taxCents = parts.reduce((t, x) => t + x.amount, 0);
+  const price = money(pack.cents, pack.currency), total = money(pack.cents + taxCents, pack.currency);
   useEffect(() => {
     const h = (e) => e.key === 'Escape' && !busy && onClose();
     window.addEventListener('keydown', h);
@@ -138,24 +153,43 @@ function Checkout({ pack, provider, clientId, busy, error, onPay, onPaid, onErro
       <div className="co-grid">
         <main className="co-form">
           <h1 className="co-h">{embedded ? 'Pay with card' : `Pay with ${who}`}</h1>
-          {embedded && <PayForm pack={pack} clientId={clientId} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
+          {tax && (
+            <div className="co-where">
+              <label className="muted small" htmlFor="co-country">Where are you? (sets the tax)</label>
+              <select id="co-country" className="co-select" value={country} onChange={(e) => { setCountry(e.target.value); setRegion(''); }} disabled={busy}>
+                <option value="" disabled>Choose your country</option>
+                {tax.countries.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
+                <option value="ZZ">Somewhere else</option>
+              </select>
+              {needsRegion && (
+                <select className="co-select" aria-label={country === 'US' ? 'State' : 'Province'} value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}>
+                  <option value="" disabled>{country === 'US' ? 'Choose your state' : 'Choose your province'}</option>
+                  {Object.entries(REGIONS[country]).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+          {embedded && <PayForm pack={pack} clientId={clientId} getBuyer={() => buyerRef.current} blocked={!picked} total={total} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
           {provider === 'paypal' && !clientId && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
           {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
-          {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy} onClick={onPay}>{busy ? `Opening ${who}…` : `Pay ${price} with ${who}`}</button>}
+          {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? `Opening ${who}…` : `Pay ${total} with ${who}`}</button>}
           {error && <p className="error-text">{error}</p>}
           <BuyNotices />
         </main>
         <aside className="co-receipt">
           <div className="co-rcpt-in">
             <div className="muted small">Order summary</div>
-            <div className="co-total">{price}</div>
+            <div className="co-total">{total}</div>
             <div className="co-item">
               <span className="co-item-ic"><Icon name="coin" size={22} /></span>
               <div className="co-item-t"><b>Aduna credits</b><span className="muted small">{pack.credits.toLocaleString()} credits · Qty 1</span></div>
               <b>{price}</b>
             </div>
             <div className="co-line"><span>Subtotal</span><span>{price}</span></div>
-            <div className="co-line total"><span>Total due today</span><b>{price}</b></div>
+            {tax && !picked && <div className="co-line"><span>Tax</span><span className="muted small">Choose where you are</span></div>}
+            {tax && picked && !parts.length && <div className="co-line"><span>Tax</span><span>{money(0, pack.currency)}</span></div>}
+            {parts.map((x) => <div key={x.label} className="co-line"><span>{x.label} ({x.rate}%)</span><span>{money(x.amount, pack.currency)}</span></div>)}
+            <div className="co-line total"><span>Total due today</span><b>{total}</b></div>
           </div>
         </aside>
       </div>
@@ -195,10 +229,10 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
   }, [paypalOrder, load]);
 
   // The Buy buttons open the checkout; only its Continue button leaves for the payment provider.
-  async function pay() {
+  async function pay(buyer = {}) {
     const p = checkout;
     setBusy(p.id); setCoErr('');
-    try { const { url } = await api('/credits/checkout', { method: 'POST', body: { packId: p.id } }); window.location.assign(url); }
+    try { const { url } = await api('/credits/checkout', { method: 'POST', body: { packId: p.id, ...buyer } }); window.location.assign(url); }
     catch (e) { setCoErr(e.message); setBusy(''); }
   }
   // Paid inside Aduna's checkout: the server already captured the order, so close the window and show the result.
@@ -217,7 +251,7 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
   const mins = locked ? Math.max(1, Math.ceil((d.unlocksAt - Date.now()) / 60000)) : 0;
   const m = d?.messaging;
 
-  if (checkout && d) return <Checkout pack={checkout} provider={d.provider} clientId={d.paypalClientId} busy={!!busy} error={coErr} onPay={pay} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(null); setBusy(''); }} />;
+  if (checkout && d) return <Checkout pack={checkout} provider={d.provider} clientId={d.paypalClientId} tax={d.tax} busy={!!busy} error={coErr} onPay={pay} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(null); setBusy(''); }} />;
 
   return (
     <section className="chat">

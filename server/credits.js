@@ -279,6 +279,7 @@ function view(u, db, { purchases, now = Date.now() }) {
     balance: c.balance,
     purchases,
     provider: purchases ? (paypalEnabled() ? 'paypal' : 'stripe') : null,
+    tax: paypalEnabled() ? TAX.publicInfo() : null,
     paypalClientId: paypalEnabled() ? ppId() : null, // public by design: the browser needs it to load PayPal's card fields and button
     packs: PACKS.map((p) => ({ ...p, currency: CURRENCY })),
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
@@ -309,6 +310,7 @@ const ppHook = () => process.env.PAYPAL_WEBHOOK_ID || '';
 const paypalEnabled = () => !!(ppId() && ppSecret() && ppHook());
 const ppBase = () => (String(process.env.PAYPAL_ENV || '').toLowerCase() === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com');
 const purchasesEnabled = () => paypalEnabled() || stripeEnabled();
+const TAX = require('./tax');
 const ppMoney = (cents) => (cents / 100).toFixed(2);
 const ppOrderId = (v) => (typeof v === 'string' && /^[A-Za-z0-9-]{8,40}$/.test(v) ? v : null);
 
@@ -326,7 +328,10 @@ async function ppToken(fetchImpl = fetch) {
 // Creates the order (price comes from the pack on the server, never from the browser).
 // Without `embedded` it returns where to send the buyer (PayPal's own page). With embedded 'card' or 'paypal' the buyer pays inside
 // Aduna's checkout (PayPal's card fields or PayPal button) and only the order id is returned; the browser then hands it back to be captured.
-async function createPaypalOrder({ user, pack, origin, embedded = null, fetchImpl = fetch }) {
+async function createPaypalOrder({ user, pack, origin, embedded = null, buyer = {}, fetchImpl = fetch }) {
+  const q = TAX.quote(buyer, pack.cents);                      // tax only where Aduna is set up to collect it (server/tax.js)
+  if (!q.ok) throw Object.assign(new Error(q.error), { forBuyer: true });
+  const total = pack.cents + q.tax;
   const token = await ppToken(fetchImpl);
   const r = await fetchImpl(ppBase() + '/v2/checkout/orders', {
     method: 'POST',
@@ -335,9 +340,12 @@ async function createPaypalOrder({ user, pack, origin, embedded = null, fetchImp
       intent: 'CAPTURE',
       purchase_units: [{
         reference_id: pack.id,
-        custom_id: `${user.id}|${pack.id}`,
+        custom_id: q.tax ? `${user.id}|${pack.id}|${q.code}|${total}` : `${user.id}|${pack.id}`, // the total paid travels with the order so the capture can be checked
         description: `${pack.credits.toLocaleString('en-US')} Aduna credits`,
-        amount: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(pack.cents) },
+        amount: q.tax
+          ? { currency_code: CURRENCY.toUpperCase(), value: ppMoney(total), breakdown: { item_total: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(pack.cents) }, tax_total: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(q.tax) } } }
+          : { currency_code: CURRENCY.toUpperCase(), value: ppMoney(pack.cents) },
+        ...(q.tax ? { items: [{ name: `${pack.credits.toLocaleString('en-US')} Aduna credits`, quantity: '1', category: 'DIGITAL_GOODS', unit_amount: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(pack.cents) }, tax: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(q.tax) } }] } : {}),
       }],
       ...(embedded === 'card'
         ? { payment_source: { card: { attributes: { verification: { method: 'SCA_WHEN_REQUIRED' } } } } } // 3-D Secure when the bank asks for it
@@ -365,15 +373,16 @@ function applyPaypalCapture(cap, db, now = Date.now()) {
   if (!cap || cap.status !== 'COMPLETED' || typeof cap.id !== 'string') return null; // PENDING: wait for the webhook
   const key = 'pp_' + cap.id;
   if (db.payments[key]) return null;                                                // retries and the return trip + webhook: pay once
-  const [uid, packId] = String(cap.custom_id || '').split('|');
+  const [uid, packId, , totalStr] = String(cap.custom_id || '').split('|');
   const pack = PACKS.find((p) => p.id === packId), u = db.users[uid];
   if (!pack || !u) { console.error('Credits: PayPal capture', cap.id, 'has an unknown pack or user'); return null; }
   const cents = Math.round(Number(cap.amount?.value) * 100);
-  if (cents !== pack.cents || String(cap.amount?.currency_code).toUpperCase() !== CURRENCY.toUpperCase()) {
+  const expected = totalStr === undefined ? pack.cents : Number(totalStr);       // price + the tax the server added when it made the order
+  if (!Number.isInteger(expected) || expected < pack.cents || expected > Math.round(pack.cents * 1.5) || cents !== expected || String(cap.amount?.currency_code).toUpperCase() !== CURRENCY.toUpperCase()) {
     console.error('Credits: PayPal capture', cap.id, 'amount does not match the pack; not crediting');
     return null;
   }
-  db.payments[key] = { id: key, userId: u.id, packId: pack.id, credits: pack.credits, cents: pack.cents, intent: 'pp:' + cap.id, createdAt: now, reversed: false };
+  db.payments[key] = { id: key, userId: u.id, packId: pack.id, credits: pack.credits, cents: expected, intent: 'pp:' + cap.id, createdAt: now, reversed: false };
   grant(u, pack.credits, 'purchase', { note: `${pack.credits} credits`, kind: 'buy', now });
   return { uid: u.id, delta: pack.credits, reason: 'purchase' };
 }
@@ -530,10 +539,10 @@ function register(app, d) {
     if (!pack) return res.status(400).json({ error: 'Unknown credit pack' });
     const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     try {
-      if (paypalEnabled()) res.json({ url: (await createPaypalOrder({ user: req.user, pack, origin, fetchImpl: d.fetchImpl })).url });
+      if (paypalEnabled()) res.json({ url: (await createPaypalOrder({ user: req.user, pack, origin, buyer: req.body, fetchImpl: d.fetchImpl })).url });
       else res.json({ url: await createCheckout({ user: req.user, pack, origin, fetchImpl: d.fetchImpl }) });
     }
-    catch (e) { console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
+    catch (e) { if (e.forBuyer) return res.status(400).json({ error: e.message }); console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
   }));
 
   // Aduna's own checkout: the browser asks for an order (method 'card' for the card fields, 'paypal' for the PayPal button), pays inside
@@ -546,8 +555,8 @@ function register(app, d) {
     const pack = PACKS.find((p) => p.id === req.body?.packId);
     if (!pack) return res.status(400).json({ error: 'Unknown credit pack' });
     const method = req.body?.method === 'card' ? 'card' : 'paypal';
-    try { res.json({ orderId: (await createPaypalOrder({ user: req.user, pack, embedded: method, fetchImpl: d.fetchImpl })).orderId }); }
-    catch (e) { console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
+    try { res.json({ orderId: (await createPaypalOrder({ user: req.user, pack, embedded: method, buyer: req.body, fetchImpl: d.fetchImpl })).orderId }); }
+    catch (e) { if (e.forBuyer) return res.status(400).json({ error: e.message }); console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
   }));
 
   // The buyer comes back from PayPal to /app?credits=paypal&token=<order id>; the app posts the order id here and the SERVER captures it.

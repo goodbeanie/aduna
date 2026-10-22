@@ -148,6 +148,50 @@ function fakePaypal(opts = {}) {
   }
   step('events: payment completed once; full refunds, reversals and disputes take credits back once; partial refunds ignored');
 
+  // ---- tax: only where the seller says they collect it, charged by the server, checked on capture ----
+  {
+    const T = require('./tax');
+    assert.deepStrictEqual(T.quote({}, 499, {}), { ok: true, tax: 0, rate: 0, label: '', code: '' }, 'no tax anywhere by default');
+    const env = { TAX_COLLECT_IN: 'CA-BC=12, CA-ON, GB, nonsense' };
+    assert.strictEqual(T.quote({ country: 'ca', region: 'bc' }, 499, env).tax, 60, '12% of 4.99 = 0.60');
+    assert.strictEqual(T.quote({ country: 'CA', region: 'ON' }, 499, env).tax, 65, 'Ontario HST 13%');
+    const bc = T.quote({ country: 'CA', region: 'BC' }, 499, { TAX_COLLECT_IN: 'CA-BC' });
+    assert.deepStrictEqual(bc.parts.map((x) => [x.label, x.rate, x.amount]), [['GST', 5, 25], ['PST', 7, 35]], 'BC shows GST and PST as separate lines'); assert.strictEqual(bc.tax, 60);
+    assert.deepStrictEqual(T.quote({ country: 'US', region: 'WA' }, 1000, { TAX_COLLECT_IN: 'US' }).parts.map((x) => x.label), ['Sales tax']);
+    assert.strictEqual(T.quote({ country: 'CA', region: 'BC' }, 499, { TAX_COLLECT_IN: 'CA-BC=10' }).parts.length, 1, 'a different rate you set yourself is one line');
+    assert.strictEqual(T.quote({ country: 'CA', region: 'AB' }, 499, env).tax, 0, 'a province you did not list gets no tax');
+    assert.strictEqual(T.quote({ country: 'GB' }, 1000, env).tax, 200);
+    assert.strictEqual(T.quote({ country: 'US' }, 1000, env).tax, 0, 'the US is not collected unless listed');
+    const us = { TAX_COLLECT_IN: 'CA,US' };
+    assert.strictEqual(T.quote({ country: 'US', region: 'WA' }, 1000, us).tax, 65, 'Washington 6.5%');
+    assert.strictEqual(T.quote({ country: 'US', region: 'OR' }, 1000, us).tax, 0, 'Oregon has none');
+    assert.strictEqual(T.quote({ country: 'US' }, 1000, us).ok, false, 'US buyers must pick a state');
+    assert.strictEqual(T.quote({ country: 'CA', region: 'ON' }, 1000, us).tax, 130, 'Canada still works next to the US');
+    assert.strictEqual(T.quote({}, 499, env).ok, false, 'the buyer must say where they are'); assert.strictEqual(T.quote({ country: 'CA' }, 499, env).ok, false, 'and Canadians which province');
+    assert.strictEqual(T.collecting({ TAX_COLLECT_IN: 'CA' }).size, 13); assert.strictEqual(T.collecting({ TAX_COLLECT_IN: 'EU' }).size, 27);
+    assert.strictEqual(T.collecting({ TAX_COLLECT_IN: 'GB=999' }).get('GB').rate, 20, 'a silly override is ignored');
+    assert.strictEqual(T.publicInfo({}), null);
+
+    process.env.TAX_COLLECT_IN = 'CA-BC=12';
+    const u = user('ut'), f = fakePaypal(), pack = C.PACKS.find((p) => p.id === 'p500');
+    await assert.rejects(C.createPaypalOrder({ user: u, pack, origin: 'x', embedded: 'paypal', buyer: {}, fetchImpl: f.impl }), /country/);
+    const { orderId } = await C.createPaypalOrder({ user: u, pack, origin: 'x', embedded: 'paypal', buyer: { country: 'CA', region: 'BC' }, fetchImpl: f.impl });
+    const pu = f.orders[orderId].pu;
+    assert.strictEqual(pu.amount.value, '5.59'); assert.strictEqual(pu.amount.breakdown.tax_total.value, '0.60'); assert.strictEqual(pu.amount.breakdown.item_total.value, '4.99');
+    assert.strictEqual(pu.custom_id, 'ut|p500|CA-BC|559');
+    const db = { users: { ut: u }, payments: {}, servers: {}, emojis: {}, friendships: {} };
+    assert.strictEqual((await C.capturePaypalOrder({ orderId, db, fetchImpl: f.impl })).change.delta, 500, 'credits for the pack, not for the tax');
+    assert.strictEqual(db.payments['pp_CAP-' + orderId].cents, 559, 'the payment records what was really paid');
+    const refund = { event_type: 'PAYMENT.CAPTURE.REFUNDED', resource: { amount: { value: '5.59' }, links: [{ rel: 'up', href: 'https://api/v2/payments/captures/CAP-' + orderId }] } };
+    assert.strictEqual(C.handlePaypalEvent(refund, db, T0).delta, -500, 'a full refund (price + tax) takes the credits back');
+    // a capture that is not for price + tax pays nothing
+    const f2 = fakePaypal({ amount: { currency_code: 'USD', value: '4.99' } });
+    const o2 = (await C.createPaypalOrder({ user: u, pack, origin: 'x', embedded: 'paypal', buyer: { country: 'CA', region: 'BC' }, fetchImpl: f2.impl })).orderId;
+    assert.strictEqual((await C.capturePaypalOrder({ orderId: o2, db: { users: { ut: u }, payments: {} }, fetchImpl: f2.impl })).change, null, 'paying only the price when tax was due is not credited');
+    delete process.env.TAX_COLLECT_IN;
+  }
+  step('tax: nothing by default; only in regions you list; server-side maths; capture must equal price + tax; full refunds still work');
+
   // ---- routes, with a tiny fake app ----
   {
     const routes = {};
