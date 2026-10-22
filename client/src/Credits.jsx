@@ -68,7 +68,7 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
     const fail = (e) => { if (!dead) { setPaying(false); onError(e?.message && !/^\s*\{/.test(e.message) && e.message.length < 160 ? e.message : 'The payment did not go through. Check your details or try another way to pay.'); } };
     loadPaypal(clientId).then((paypal) => {
       if (dead) return;
-      const input = { 'font-size': '16px', 'font-family': 'inherit', color: css('--head', '#222'), padding: '0 12px' };
+      const input = { 'font-size': '16px', 'font-family': 'inherit', color: css('--head', '#222'), background: 'transparent', padding: '0 14px', outline: 'none' };
       const fields = paypal.CardFields({
         createOrder: makeOrder('card'),
         onApprove: approved,
@@ -117,35 +117,49 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
   );
 }
 
-// Aduna's own checkout: the order, the notice, then the card form and a PayPal button (when PayPal is set up with its card fields),
-// or a plain hand-off to the payment provider's page (Stripe, or if PayPal's script cannot load).
-function Checkout({ pack, provider, clientId, busy, error, onPay, onPaid, onError, onClose, onBack }) {
+// Aduna's own full-screen checkout, laid out like Stripe's: the payment form on the left, the receipt on the right, an X to leave.
+// With PayPal set up it shows the card boxes and a PayPal button; otherwise (Stripe, or if PayPal's script cannot load) a plain hand-off button.
+function Checkout({ pack, provider, clientId, busy, error, onPay, onPaid, onError, onClose }) {
   const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
   const embedded = provider === 'paypal' && !!clientId && !fallback;
+  const price = money(pack.cents, pack.currency);
+  useEffect(() => {
+    const h = (e) => e.key === 'Escape' && !busy && onClose();
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [busy, onClose]);
   return (
-    <section className="chat">
-      <header className="chat-head">
-        <button className="icon-btn back-btn show" title="Back" aria-label="Back to credits" onClick={onClose} disabled={busy}><Icon name="back" size={22} /></button>
-        <span className="hash"><Icon name="coin" size={20} /></span>
-        <h3>Checkout</h3>
-      </header>
-      <div className="credits-body">
-        <div className="checkout checkout-screen">
-          <div className="checkout-order">
-            <div className="checkout-line"><span className="pack-amt"><Icon name="coin" size={20} />{pack.credits.toLocaleString()} credits</span><b>{money(pack.cents, pack.currency)}</b></div>
-            <div className="checkout-line total"><span>Total today</span><b>{money(pack.cents, pack.currency)}</b></div>
-          </div>
-          <BuyNotices />
+    <div className="co" role="dialog" aria-label="Checkout">
+      <div className="co-top">
+        <span className="co-logo" role="img" aria-label="Aduna" />
+        <button type="button" className="icon-btn co-x" aria-label="Cancel checkout" title="Cancel" onClick={onClose} disabled={busy}><Icon name="close" size={22} /></button>
+      </div>
+      <div className="co-grid">
+        <main className="co-form">
+          <h1 className="co-h">{embedded ? 'Pay with card' : `Pay with ${who}`}</h1>
           {embedded && <PayForm pack={pack} clientId={clientId} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
           {provider === 'paypal' && !clientId && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
           {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
+          {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy} onClick={onPay}>{busy ? `Opening ${who}…` : `Pay ${price} with ${who}`}</button>}
           {error && <p className="error-text">{error}</p>}
-          {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy} onClick={onPay}>{busy ? `Opening ${who}…` : `Pay with ${who}`}</button>}
-          <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
-        </div>
+          <BuyNotices />
+        </main>
+        <aside className="co-receipt">
+          <div className="co-rcpt-in">
+            <div className="muted small">Order summary</div>
+            <div className="co-total">{price}</div>
+            <div className="co-item">
+              <span className="co-item-ic"><Icon name="coin" size={22} /></span>
+              <div className="co-item-t"><b>Aduna credits</b><span className="muted small">{pack.credits.toLocaleString()} credits · Qty 1</span></div>
+              <b>{price}</b>
+            </div>
+            <div className="co-line"><span>Subtotal</span><span>{price}</span></div>
+            <div className="co-line total"><span>Total due today</span><b>{price}</b></div>
+          </div>
+        </aside>
       </div>
-    </section>
+    </div>
   );
 }
 
