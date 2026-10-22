@@ -81,7 +81,6 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
         fields.NumberField({ placeholder: 'Card number' }).render('#pp-number');
         fields.ExpiryField({ placeholder: 'MM / YY' }).render('#pp-expiry');
         fields.CVVField({ placeholder: 'CVV' }).render('#pp-cvv');
-        fields.PostalCodeField({ placeholder: 'Postal / ZIP code' }).render('#pp-postal');
       } else { setCardOk(false); setNoCard(true); console.warn('PayPal card fields are not available for this account/browser'); }
       buttons = paypal.Buttons({
         fundingSource: paypal.FUNDING.PAYPAL,
@@ -110,7 +109,6 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
         <div className="pp-field" id="pp-name" />
         <div className="pp-field" id="pp-number" />
         <div className="pp-row"><div className="pp-field" id="pp-expiry" /><div className="pp-field" id="pp-cvv" /></div>
-        <div className="pp-field" id="pp-postal" />
         <button type="button" className="btn primary pay-btn" disabled={!ready || paying} onClick={payByCard}>{paying ? 'Processing…' : `Pay ${total}`}</button>
       </div>
       <div className={'pay-or' + (ready ? '' : ' hidden')}><span>{cardOk ? 'or' : 'pay with'}</span></div>
@@ -121,28 +119,33 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
 
 // Aduna's own checkout: the order, the notice, then the card form and a PayPal button (when PayPal is set up with its card fields),
 // or a plain hand-off to the payment provider's page (Stripe, or if PayPal's script cannot load).
-function Checkout({ pack, provider, clientId, busy, error, onPay, onPaid, onError, onClose }) {
+function Checkout({ pack, provider, clientId, busy, error, onPay, onPaid, onError, onClose, onBack }) {
   const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
   const embedded = provider === 'paypal' && !!clientId && !fallback;
   return (
-    <Modal title="Checkout" onClose={busy ? () => {} : onClose}>
-      <div className="checkout">
-        <div className="checkout-order">
-          <div className="checkout-line"><span className="pack-amt"><Icon name="coin" size={20} />{pack.credits.toLocaleString()} credits</span><b>{money(pack.cents, pack.currency)}</b></div>
-          <div className="checkout-line total"><span>Total today</span><b>{money(pack.cents, pack.currency)}</b></div>
-        </div>
-        <BuyNotices />
-        {embedded && <PayForm pack={pack} clientId={clientId} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
-        {provider === 'paypal' && !clientId && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
-        {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
-        {error && <p className="error-text">{error}</p>}
-        <div className="modal-foot">
+    <section className="chat">
+      <header className="chat-head">
+        <button className="icon-btn back-btn show" title="Back" aria-label="Back to credits" onClick={onClose} disabled={busy}><Icon name="back" size={22} /></button>
+        <span className="hash"><Icon name="coin" size={20} /></span>
+        <h3>Checkout</h3>
+      </header>
+      <div className="credits-body">
+        <div className="checkout checkout-screen">
+          <div className="checkout-order">
+            <div className="checkout-line"><span className="pack-amt"><Icon name="coin" size={20} />{pack.credits.toLocaleString()} credits</span><b>{money(pack.cents, pack.currency)}</b></div>
+            <div className="checkout-line total"><span>Total today</span><b>{money(pack.cents, pack.currency)}</b></div>
+          </div>
+          <BuyNotices />
+          {embedded && <PayForm pack={pack} clientId={clientId} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
+          {provider === 'paypal' && !clientId && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
+          {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
+          {error && <p className="error-text">{error}</p>}
+          {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy} onClick={onPay}>{busy ? `Opening ${who}…` : `Pay with ${who}`}</button>}
           <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
-          {!embedded && <button type="button" className="btn primary" disabled={busy} onClick={onPay}>{busy ? `Opening ${who}…` : `Pay with ${who}`}</button>}
         </div>
       </div>
-    </Modal>
+    </section>
   );
 }
 
@@ -199,6 +202,8 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
   const locked = d?.unlocksAt && d.unlocksAt > Date.now();
   const mins = locked ? Math.max(1, Math.ceil((d.unlocksAt - Date.now()) / 60000)) : 0;
   const m = d?.messaging;
+
+  if (checkout && d) return <Checkout pack={checkout} provider={d.provider} clientId={d.paypalClientId} busy={!!busy} error={coErr} onPay={pay} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(null); setBusy(''); }} />;
 
   return (
     <section className="chat">
@@ -267,7 +272,6 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
           </>
         )}
       </div>
-      {checkout && d && <Checkout pack={checkout} provider={d.provider} clientId={d.paypalClientId} busy={!!busy} error={coErr} onPay={pay} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(null); setBusy(''); }} />}
     </section>
   );
 }

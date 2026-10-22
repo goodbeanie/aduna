@@ -955,6 +955,7 @@ span.mention { cursor: default; }
 .checkout-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
 .checkout-line.total { padding-top: 8px; border-top: 1px solid var(--line); font-weight: 700; }
 .checkout .buy-notices { margin: 0; }
+.checkout-screen { max-width: 460px; margin: 0 auto; width: 100%; padding: 8px 0 32px; }
 .pay-form { display: flex; flex-direction: column; gap: 10px; }
 .pay-card { display: flex; flex-direction: column; gap: 10px; }
 .pay-card.hidden, .pay-or.hidden { display: none; }
@@ -1258,3 +1259,4 @@ html.kb-open .app { height: var(--app-h); } /* browsers that only shrink the vis
 @keyframes rail-upd-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes rail-upd-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .rail-upd, .rail-upd .spin { animation-duration: 2.5s; } }
+.back-btn.show { display: grid; color: var(--head); }
