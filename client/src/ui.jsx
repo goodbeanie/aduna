@@ -69,6 +69,7 @@ const PATHS = {
   reply: <><path d="M9.5 6L4 11.5 9.5 17" /><path d="M4 11.5h9a7 7 0 017 7" /></>,
   edit: <><path d="M4 20h4L19 9a2.1 2.1 0 00-3-3L5 17z" /><path d="M14.5 7.5l3 3" /></>,
   trash: <><path d="M4.5 7h15" /><path d="M9.5 7V4.5h5V7" /><path d="M6.5 7l.8 12.5h9.4L17.5 7" /><path d="M10 11v5M14 11v5" /></>,
+  alert: <><path d="M12 4.2l9 15.6H3z" /><path d="M12 10v4.2" /><path d="M12 17.2v.1" /></>,
   shield: <path d="M12 3.5l7 2.5v5.5c0 4.3-3 7.4-7 9-4-1.6-7-4.7-7-9V6z" />,
   crown: <path d="M4 17.5L3.5 8l5 4L12 6l3.5 6 5-4-.5 9.5z" />,
   flag: <><path d="M6 20.5V4" /><path d="M6 5h11l-2 3.5 2 3.5H6" /></>,

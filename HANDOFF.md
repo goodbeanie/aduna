@@ -5,6 +5,11 @@ Discord-style chat app: Node + Express + Socket.IO + Postgres on Neon (every rec
 Servers, channels, E2EE DMs, friends, profiles. See README.md for how to run (npm install, npm run build, npm start).
 
 ## Done and tested
+- Credits checkout (PayPal): the Buy buttons open Aduna's own checkout modal (client/src/Credits.jsx > Checkout) with the "nothing is saved"
+  and "all purchases are final" notices and a required tick box, then redirect to PayPal. Server: server/credits.js (createPaypalOrder,
+  capturePaypalOrder, verifyPaypalWebhook, handlePaypalEvent), routes POST /api/credits/paypal/capture and /api/credits/webhook/paypal.
+  Tested without the network in server/paypal-test.js (fake PayPal). NOT yet tried against the real PayPal sandbox: do one sandbox purchase
+  (README > Credits) before switching PAYPAL_ENV=live. Stripe code is kept and used only when PayPal is not configured.
 - Edit/delete messages (author; server owner can delete channel messages), replies, reactions, SVG icons, centered + button.
 - File/image/video/audio attachments (8 MB, 4 per message). DM files are encrypted in the browser.
 - GIF search via GIPHY (set GIPHY_API_KEY). Uploaded GIFs animate.

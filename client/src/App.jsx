@@ -143,7 +143,9 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [gain, setGain] = useState(null);         // the little "+2" after a rewarded message
   const [justPaid, setJustPaid] = useState(false); // we just came back from Stripe Checkout
   const [loaded, setLoaded] = useState(false); // servers, presence and DMs have been fetched
-  const payReturn = useRef(new URLSearchParams(location.search).get('credits')); // 'paid' | 'cancelled' | null
+  const payReturn = useRef(new URLSearchParams(location.search).get('credits')); // 'paid' | 'paypal' | 'cancelled' | null
+  const payToken = useRef(new URLSearchParams(location.search).get('token')); // PayPal's order id, sent back with ?credits=paypal
+  const [paypalOrder, setPaypalOrder] = useState(null); // an order to capture once the Credits page is open
   useEffect(() => { api('/credits').then((r) => setBalance(r.balance)).catch(() => {}); }, []);
   useEffect(() => { if (!gain) return undefined; const t = setTimeout(() => setGain(null), 2400); return () => clearTimeout(t); }, [gain]);
   useEffect(() => { api('/gifs/config').then((r) => setGifEnabled(r.enabled)).catch(() => {}); }, []);
@@ -266,11 +268,12 @@ function Main({ me, setMe, privKey, openServerId }) {
       const first = sv.find((x) => x.id === firstOpen.current) || sv[0];
       if (first) setView({ kind: 'server', serverId: first.id, channelId: first.channels[0].id });
       else setView({ kind: 'dm', userId: null });
-      if (payReturn.current) { // back from Stripe Checkout: show the Credits page
+      if (payReturn.current) { // back from Stripe or PayPal checkout: show the Credits page
         setView({ kind: 'dm', userId: null, credits: true }); setShowList(false);
         if (payReturn.current === 'paid') setJustPaid(true);
+        if (payReturn.current === 'paypal' && payToken.current) setPaypalOrder(payToken.current);
         history.replaceState(null, '', '/app');
-        payReturn.current = null;
+        payReturn.current = null; payToken.current = null;
       }
       setLoaded(true);
     })().catch((e) => { if (e.status === 401) logout(); });
@@ -894,7 +897,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && <><br />You aren’t friends with {dmUser.displayName}, so you can’t send new messages until you are.</>}</>} />
       )}
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
-      {view.kind === 'dm' && !dmUser && view.credits && <Credits onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} />}
+      {view.kind === 'dm' && !dmUser && view.credits && <Credits onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} />}
       {view.kind === 'dm' && !dmUser && !view.explore && !view.credits && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
       )}

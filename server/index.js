@@ -349,8 +349,8 @@ app.get('/api/app-version', ah(async (req, res) => {
   res.json(data);
 }));
 app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled() })); // sign-up screen: can email recovery be offered (needs a mail provider)?
-// Stripe signs the exact bytes it sends, so the credits webhook keeps the raw body next to the parsed one.
-app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl === '/api/credits/webhook') req.rawBody = buf; } }));
+// Stripe and PayPal sign the exact bytes they send, so the credits webhooks keep the raw body next to the parsed one.
+app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/credits/webhook')) req.rawBody = buf; } }));
 
 // API answers can hold private data (balances, email): browsers and proxies must not keep them.
 // Images and files set their own caching below, which overrides this.

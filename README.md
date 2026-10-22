@@ -46,7 +46,7 @@ Run the automated checks with `TEST_DATABASE_URL=postgres://... npm test` (use a
 - Friend requests (send by username, accept, decline, cancel) and a Friends page
 - Direct messages between friends, end-to-end encrypted
 - Profile customization: display name, bio, emoji avatar, avatar/banner/name colors, status (online, idle, do not disturb, invisible)
-- Credits: a currency you buy with real money (Stripe) or earn by chatting and finishing quests. See "Credits" below
+- Credits: a currency you buy with real money (PayPal or Stripe) or earn by chatting and finishing quests. See "Credits" below
 - Bots: small JavaScript programs written in Settings > Developer, added to servers by someone with Manage server, and listed in the Explorer. See "Bots" below
 
 New accounts automatically join the official Aduna server (see `DEFAULT_SERVER_INVITE`); if it doesn't exist they start in their DMs and can create a server or join one with an invite code.
@@ -84,8 +84,10 @@ Environment variables:
 | `GIPHY_API_KEY` | no | GIF search. |
 | `BOT_FETCH_HOSTS` | no | Websites bots may read with `bot.fetch`, comma separated host names without `https://` (default: `api.github.com` only). |
 | `SANDBOX_WORKERS` | no | How many bot events run at the same time (default 2, at most 8). Each worker holds a WebAssembly runtime, so mind the 512 MB of Render's free plan. |
+| `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID` | no | Buying credits through PayPal (see Credits). Set all three or none. When PayPal is set up it is used instead of Stripe. |
+| `PAYPAL_ENV` | no | `live` for real money. Anything else (or unset) uses PayPal's sandbox, which only moves fake money, so test there first. |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | no | Buying credits with real money (see Credits). Set both or neither; without them the Buy buttons are disabled. |
-| `PUBLIC_URL` | no | Your site's address (e.g. `https://aduna.onrender.com`), used for the links Stripe sends people back to. Defaults to the address of the request. |
+| `PUBLIC_URL` | no | Your site's address (e.g. `https://aduna.onrender.com`), used for the links Stripe and PayPal send people back to. Defaults to the address of the request. |
 | `CSP_MODE` | no | `enforce` (default), `report-only` (the browser only logs policy violations: use this if a page ever looks broken after an update) or `off`. |
 | `SIGNUPS_PER_HOUR` | no | New accounts allowed per IP address per hour (default 10). |
 | `STRIPE_MANAGED_PAYMENTS` | no | Set to `on` only if you want Stripe's Managed Payments (Stripe handles sales tax). Aduna opts out of it per checkout by default because Managed Payments needs a tax code on every product, which Aduna does not send. |
@@ -200,7 +202,16 @@ Credits are Aduna's currency. Everyone has a balance (private to them) shown in 
 - **Messages**: a message in a server text channel earns 2 credits, up to 40 a day (resets at 00:00 UTC). It only counts if it is typed (the browser reports key presses vs paste/drop; scripted events are ignored), is a real sentence (about 16+ letters and 4+ words; not repeated words, key mashing, emoji, links or mentions only), is different from your last 20 messages (similar wording counts as the same) and from text another account sent in the last hour, comes at least 45 seconds after your last rewarded message, is sent in a server with 3+ members, and someone else has spoken in that channel in the last 30 minutes. Accounts under 30 minutes old earn and claim nothing. Direct messages never earn (the server cannot read them). All of it is checked on the server; every number is in `EARN` at the top of `server/credits.js`.
 - **Quests**: daily (check-in with a streak bonus, have a conversation, react to 3 messages) and one-time (profile picture, bio, first friend, join a second server, create a server, upload an emoji, first rewarded message). Progress is read from real data on the server and each reward is claimed once.
 
-**Buying** uses [Stripe Checkout](https://stripe.com/payments/checkout); card details never touch Aduna. Packs are in `PACKS` in `server/credits.js` (price in cents, USD). To switch it on:
+**Buying with PayPal.** Pressing a pack opens Aduna's own checkout (order, the "nothing is saved" and "all purchases are final" notices, and a tick box to agree). Continue sends the buyer to PayPal's page to pay; Aduna never sees a card or PayPal login and stores no payment details, only the order id, the account and the pack (so each payment pays out once). Back on Aduna, the server captures the order (that is when the money moves to your PayPal Business account) and adds the credits. If the buyer approves but never comes back, PayPal's `CHECKOUT.ORDER.APPROVED` webhook captures it instead. Credits are only added from a PayPal capture that is `COMPLETED`, for the pack's exact price in USD, once per capture. A full refund, reversal or dispute takes the credits back; partial refunds are ignored. To switch it on:
+
+1. Use a **PayPal Business** account. At developer.paypal.com > Apps & Credentials, create an app. Start in **Sandbox** (toggle at the top) and copy its Client ID and Secret into `PAYPAL_CLIENT_ID` and `PAYPAL_CLIENT_SECRET`.
+2. In the same app, Add webhook: `https://<your site>/api/credits/webhook/paypal`, events `Payment capture completed`, `Payment capture refunded`, `Payment capture reversed`, `Checkout order approved` and `Customer dispute created`. Copy its Webhook ID into `PAYPAL_WEBHOOK_ID`.
+3. Optionally set `PUBLIC_URL`, redeploy, and buy a pack with a sandbox buyer account (developer.paypal.com > Testing Tools > Sandbox accounts). Check the credits arrive and that the payment shows in the sandbox business account.
+4. For real money, repeat steps 1 and 2 with the **Live** toggle (a separate Client ID, Secret and Webhook ID), put those in, and set `PAYPAL_ENV=live`.
+
+PayPal's fees are higher than Stripe's on small purchases, so check the prices in `PACKS`. The PayPal checks run without the network (`node server/paypal-test.js`, part of `npm test`); only the sandbox purchase in step 3 proves your own PayPal settings.
+
+**Buying with Stripe** (used only when PayPal is not set up) uses [Stripe Checkout](https://stripe.com/payments/checkout); card details never touch Aduna. Packs are in `PACKS` in `server/credits.js` (price in cents, USD). To switch it on:
 
 1. In Stripe, copy your secret key (use test mode first: `sk_test_...`) into `STRIPE_SECRET_KEY`.
 2. Developers > Webhooks > Add endpoint: `https://<your site>/api/credits/webhook`, events `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `charge.refunded` and `charge.dispute.created`. Copy its signing secret (`whsec_...`) into `STRIPE_WEBHOOK_SECRET`.
@@ -236,7 +247,7 @@ Code: `server/bots.js` (records and checks), `server/sandbox-core.js` and `serve
 server/index.js        REST API + Socket.IO
 server/db.js           encrypted Postgres/Neon persistence (records, images, files)
 server/security.js     browser headers, email rules, login lockout, password checks
-server/credits.js      credits: balances, earning rules, quests, Stripe checkout + webhook
+server/credits.js      credits: balances, earning rules, quests, PayPal and Stripe checkout + webhooks
 server/images.js       checks uploaded images (file signature + dimensions)
 server/r2-test.js      R2 storage test (uses a local S3 stand-in)
 server/smoke-test.js   end-to-end tests (npm test)

@@ -43,6 +43,16 @@ services:
       # optional: how many bot events run at the same time (default 2, max 8; each worker holds a WebAssembly runtime, mind the 512 MB on the free plan)
       - key: SANDBOX_WORKERS
         sync: false
+      # optional: buying credits with real money through PayPal (used instead of Stripe when set). All three are needed.
+      # PAYPAL_ENV: put "live" for real money; leave unset to use PayPal's sandbox (fake money) while testing.
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_ENV
+        sync: false
       # optional: buying credits with real money (Stripe). Both keys are needed; without them the Buy buttons are off.
       - key: STRIPE_SECRET_KEY
         sync: false

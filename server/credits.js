@@ -1,4 +1,4 @@
-// Credits: Aduna's currency. Bought with real money (Stripe Checkout) or earned by chatting and finishing quests.
+// Credits: Aduna's currency. Bought with real money (PayPal Checkout, or Stripe Checkout) or earned by chatting and finishing quests.
 //
 // This file has no Express / Postgres imports on purpose: the rules are plain functions that work on a user
 // record (`user.credits`) and the in-memory `db`, so they can be unit tested without a database
@@ -6,8 +6,9 @@
 //
 // Where the money-safety lives:
 //   * Balances are only ever changed by grant() / spend() / claw() below, on the server. The client never sends an amount.
-//   * Purchases are credited from Stripe's signed webhook (never from the browser's "success" redirect), once per
-//     checkout session id (the `payments` collection), and only when the amount paid matches the pack's price.
+//   * Purchases are credited from Stripe's signed webhook, or from a PayPal capture the server itself made / a PayPal-verified
+//     webhook (never from the browser's "success" redirect), once per checkout session or capture id (the `payments`
+//     collection), and only when the amount paid matches the pack's price.
 //   * Earning is rate limited per account and checked server side (see EARN). The typing "proof" sent by the browser
 //     is a speed bump against paste / auto-typing, NOT a guarantee: anything the browser sends can be forged by a
 //     determined script. The real limits are the daily cap, cooldown, account age, similarity and conversation checks.
@@ -277,6 +278,7 @@ function view(u, db, { purchases, now = Date.now() }) {
   return {
     balance: c.balance,
     purchases,
+    provider: purchases ? (paypalEnabled() ? 'paypal' : 'stripe') : null,
     packs: PACKS.map((p) => ({ ...p, currency: CURRENCY })),
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
@@ -293,7 +295,136 @@ function view(u, db, { purchases, now = Date.now() }) {
 // checkout.session.completed, checkout.session.async_payment_succeeded, charge.refunded and charge.dispute.created.
 const stripeKey = () => process.env.STRIPE_SECRET_KEY || '';
 const stripeHook = () => process.env.STRIPE_WEBHOOK_SECRET || '';
-const purchasesEnabled = () => !!(stripeKey() && stripeHook());
+const stripeEnabled = () => !!(stripeKey() && stripeHook());
+
+// ---------- buying: PayPal Checkout (used instead of Stripe when it is set up) ----------
+// Needs PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET and PAYPAL_WEBHOOK_ID (PAYPAL_ENV=live for real money; anything else is the sandbox).
+// Aduna never sees card or PayPal login details: the buyer is sent to PayPal, approves there, comes back, and the SERVER captures
+// the order. Credits are only granted from a COMPLETED capture that PayPal itself returned (or from a webhook whose signature PayPal
+// confirmed), once per capture id, and only when the amount and currency match the pack the server priced.
+const ppId = () => process.env.PAYPAL_CLIENT_ID || '';
+const ppSecret = () => process.env.PAYPAL_CLIENT_SECRET || '';
+const ppHook = () => process.env.PAYPAL_WEBHOOK_ID || '';
+const paypalEnabled = () => !!(ppId() && ppSecret() && ppHook());
+const ppBase = () => (String(process.env.PAYPAL_ENV || '').toLowerCase() === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com');
+const purchasesEnabled = () => paypalEnabled() || stripeEnabled();
+const ppMoney = (cents) => (cents / 100).toFixed(2);
+const ppOrderId = (v) => (typeof v === 'string' && /^[A-Za-z0-9-]{8,40}$/.test(v) ? v : null);
+
+async function ppToken(fetchImpl = fetch) {
+  const r = await fetchImpl(ppBase() + '/v1/oauth2/token', {
+    method: 'POST',
+    headers: { Authorization: 'Basic ' + Buffer.from(ppId() + ':' + ppSecret()).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=client_credentials',
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.access_token) throw new Error(`PayPal sign-in failed (${r.status})`);
+  return j.access_token;
+}
+
+// Creates the order (price comes from the pack on the server, never from the browser) and returns where to send the buyer.
+async function createPaypalOrder({ user, pack, origin, fetchImpl = fetch }) {
+  const token = await ppToken(fetchImpl);
+  const r = await fetchImpl(ppBase() + '/v2/checkout/orders', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', 'PayPal-Request-Id': crypto.randomUUID() },
+    body: JSON.stringify({
+      intent: 'CAPTURE',
+      purchase_units: [{
+        reference_id: pack.id,
+        custom_id: `${user.id}|${pack.id}`,
+        description: `${pack.credits.toLocaleString('en-US')} Aduna credits`,
+        amount: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(pack.cents) },
+      }],
+      payment_source: { paypal: { experience_context: {
+        brand_name: 'Aduna', user_action: 'PAY_NOW', shipping_preference: 'NO_SHIPPING',
+        return_url: `${origin}/app?credits=paypal`, cancel_url: `${origin}/app?credits=cancelled`,
+      } } },
+    }),
+  });
+  const j = await r.json().catch(() => ({}));
+  const link = (j.links || []).find((l) => l.rel === 'payer-action') || (j.links || []).find((l) => l.rel === 'approve');
+  if (!r.ok || !link?.href) throw new Error(`PayPal checkout failed (${r.status}): ${j.message || 'no approval link'}`);
+  let host = '';
+  try { host = new URL(link.href).hostname; } catch { /* handled below */ }
+  if (!/(^|\.)paypal\.com$/.test(host)) throw new Error('PayPal checkout failed: unexpected approval address');
+  return { url: link.href, orderId: j.id };
+}
+
+// Applies one PayPal capture object to `db` (the caller saves). Only a COMPLETED capture for the right amount pays out, once.
+function applyPaypalCapture(cap, db, now = Date.now()) {
+  if (!cap || cap.status !== 'COMPLETED' || typeof cap.id !== 'string') return null; // PENDING: wait for the webhook
+  const key = 'pp_' + cap.id;
+  if (db.payments[key]) return null;                                                // retries and the return trip + webhook: pay once
+  const [uid, packId] = String(cap.custom_id || '').split('|');
+  const pack = PACKS.find((p) => p.id === packId), u = db.users[uid];
+  if (!pack || !u) { console.error('Credits: PayPal capture', cap.id, 'has an unknown pack or user'); return null; }
+  const cents = Math.round(Number(cap.amount?.value) * 100);
+  if (cents !== pack.cents || String(cap.amount?.currency_code).toUpperCase() !== CURRENCY.toUpperCase()) {
+    console.error('Credits: PayPal capture', cap.id, 'amount does not match the pack; not crediting');
+    return null;
+  }
+  db.payments[key] = { id: key, userId: u.id, packId: pack.id, credits: pack.credits, cents: pack.cents, intent: 'pp:' + cap.id, createdAt: now, reversed: false };
+  grant(u, pack.credits, 'purchase', { note: `${pack.credits} credits`, kind: 'buy', now });
+  return { uid: u.id, delta: pack.credits, reason: 'purchase' };
+}
+
+// Captures an approved order (this is the moment the money moves) and applies it. Safe to call twice.
+// Returns { status: 'completed' | 'pending' | 'incomplete', change }.
+async function capturePaypalOrder({ orderId, db, fetchImpl = fetch, now = Date.now() }) {
+  const id = ppOrderId(orderId);
+  if (!id) throw new Error('Bad order');
+  const token = await ppToken(fetchImpl);
+  const auth = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
+  let r = await fetchImpl(`${ppBase()}/v2/checkout/orders/${id}/capture`, { method: 'POST', headers: { ...auth, 'PayPal-Request-Id': 'cap-' + id }, body: '{}' });
+  let j = await r.json().catch(() => ({}));
+  if (!r.ok && (j.details || []).some((x) => x.issue === 'ORDER_ALREADY_CAPTURED')) { // the webhook (or a second tab) got there first
+    r = await fetchImpl(`${ppBase()}/v2/checkout/orders/${id}`, { headers: auth });
+    j = await r.json().catch(() => ({}));
+  }
+  if (!r.ok) throw new Error(`PayPal capture failed (${r.status}): ${j.message || j.name || 'unknown'}`);
+  const cap = j.purchase_units?.[0]?.payments?.captures?.[0];
+  if (!cap) return { status: 'incomplete', change: null };
+  const withCustom = { ...cap, custom_id: cap.custom_id || j.purchase_units[0].custom_id };
+  const change = applyPaypalCapture(withCustom, db, now);
+  return { status: cap.status === 'COMPLETED' ? 'completed' : 'pending', change };
+}
+
+// PayPal's own check that a webhook is genuine. The event is passed on byte for byte (raw body), as PayPal signs it.
+async function verifyPaypalWebhook(raw, headers, fetchImpl = fetch) {
+  if (!Buffer.isBuffer(raw) || !ppHook()) return false;
+  const h = (k) => String(headers?.[k] || '');
+  const parts = { auth_algo: h('paypal-auth-algo'), cert_url: h('paypal-cert-url'), transmission_id: h('paypal-transmission-id'), transmission_sig: h('paypal-transmission-sig'), transmission_time: h('paypal-transmission-time') };
+  if (Object.values(parts).some((v) => !v)) return false;
+  let host = '';
+  try { host = new URL(parts.cert_url).hostname; } catch { return false; }
+  if (!/(^|\.)paypal\.com$/.test(host)) return false;
+  const token = await ppToken(fetchImpl);
+  const body = `{${Object.entries(parts).map(([k, v]) => `${JSON.stringify(k)}:${JSON.stringify(v)}`).join(',')},"webhook_id":${JSON.stringify(ppHook())},"webhook_event":${raw.toString('utf8')}}`;
+  const r = await fetchImpl(ppBase() + '/v1/notifications/verify-webhook-signature', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body });
+  const j = await r.json().catch(() => ({}));
+  return r.ok && j.verification_status === 'SUCCESS';
+}
+
+// Applies one verified PayPal event to `db` (the caller saves). CHECKOUT.ORDER.APPROVED is handled by the route (it needs to call PayPal).
+function handlePaypalEvent(event, db, now = Date.now()) {
+  const res = event?.resource || {};
+  if (event?.event_type === 'PAYMENT.CAPTURE.COMPLETED') return applyPaypalCapture(res, db, now);
+  let capId = null, refunded = null;
+  if (event?.event_type === 'PAYMENT.CAPTURE.REFUNDED') {                       // the resource is the refund; its "up" link is the capture
+    const up = (res.links || []).find((l) => l.rel === 'up')?.href || '';
+    capId = up.split('/').pop() || null;
+    refunded = Math.round(Number(res.amount?.value) * 100);
+  } else if (event?.event_type === 'PAYMENT.CAPTURE.REVERSED') capId = res.id || null;
+  else if (event?.event_type === 'CUSTOMER.DISPUTE.CREATED') capId = (res.disputed_transactions || []).map((t) => t.seller_transaction_id).find(Boolean) || null;
+  if (!capId) return null;
+  const pay = db.payments['pp_' + capId], u = pay && db.users[pay.userId];
+  if (!pay || !u || pay.reversed) return null;
+  if (refunded !== null && !(refunded >= pay.cents)) return null;               // partial refunds are ignored, like Stripe's
+  pay.reversed = true;
+  claw(u, pay.credits, event.event_type === 'CUSTOMER.DISPUTE.CREATED' || event.event_type === 'PAYMENT.CAPTURE.REVERSED' ? 'chargeback' : 'refund', { now });
+  return { uid: u.id, delta: -pay.credits, reason: 'refund' };
+}
 
 // header looks like: t=1700000000,v1=<hex hmac>[,v1=...]. The signed text is "<t>.<raw body>".
 function verifyStripeSignature(raw, header, secret, nowSec = Math.floor(Date.now() / 1000), toleranceSec = 300) {
@@ -389,8 +520,43 @@ function register(app, d) {
     const pack = PACKS.find((p) => p.id === req.body?.packId);
     if (!pack) return res.status(400).json({ error: 'Unknown credit pack' });
     const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-    try { res.json({ url: await createCheckout({ user: req.user, pack, origin, fetchImpl: d.fetchImpl }) }); }
+    try {
+      if (paypalEnabled()) res.json({ url: (await createPaypalOrder({ user: req.user, pack, origin, fetchImpl: d.fetchImpl })).url });
+      else res.json({ url: await createCheckout({ user: req.user, pack, origin, fetchImpl: d.fetchImpl }) });
+    }
     catch (e) { console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
+  }));
+
+  // The buyer comes back from PayPal to /app?credits=paypal&token=<order id>; the app posts the order id here and the SERVER captures it.
+  const capTries = new Map();
+  app.post('/api/credits/paypal/capture', d.auth, d.ah(async (req, res) => {
+    if (!paypalEnabled()) return res.status(503).json({ error: 'PayPal is not set up on this server' });
+    const t = Date.now(), arr = (capTries.get(req.user.id) || []).filter((x) => t - x < 60_000);
+    if (arr.length >= 10) return res.status(429).json({ error: 'Too many attempts, try again in a minute' });
+    arr.push(t); capTries.set(req.user.id, arr);
+    if (!ppOrderId(req.body?.orderId)) return res.status(400).json({ error: 'Bad order' });
+    try {
+      const r = await capturePaypalOrder({ orderId: req.body.orderId, db: d.db(), fetchImpl: d.fetchImpl });
+      if (r.change) { d.save(); const u = d.db().users[r.change.uid]; if (u) push(u, r.change.delta, r.change.reason); }
+      res.json({ status: r.status, balance: acct(req.user).balance });
+    } catch (e) { console.error(e.message); res.status(502).json({ error: 'We could not confirm your payment yet. If PayPal charged you, your credits will arrive shortly.' }); }
+  }));
+
+  // PayPal calls this. No login: PayPal confirming the signature is the proof. index.js keeps the raw body for it (req.rawBody).
+  app.post('/api/credits/webhook/paypal', d.ah(async (req, res) => {
+    if (!paypalEnabled()) return res.status(503).json({ error: 'PayPal is not set up on this server' });
+    let ok = false;
+    try { ok = await verifyPaypalWebhook(req.rawBody, req.headers, d.fetchImpl); } catch (e) { console.error('PayPal webhook check failed:', e.message); return res.status(500).json({ error: 'Failed' }); }
+    if (!ok) return res.status(400).json({ error: 'Bad signature' });
+    let change = null;
+    try {
+      const ev = req.body;
+      // The buyer approved but never came back to Aduna: capture it here so the payment still completes.
+      if (ev?.event_type === 'CHECKOUT.ORDER.APPROVED' && ppOrderId(ev.resource?.id)) change = (await capturePaypalOrder({ orderId: ev.resource.id, db: d.db(), fetchImpl: d.fetchImpl })).change;
+      else change = handlePaypalEvent(ev, d.db());
+    } catch (e) { console.error('PayPal webhook error:', e.message); return res.status(500).json({ error: 'Failed' }); } // PayPal retries
+    if (change) { d.save(); const u = d.db().users[change.uid]; if (u) push(u, change.delta, change.reason); }
+    res.json({ received: true });
   }));
 
   // Stripe calls this. No login: the signature is the proof. index.js keeps the raw body for it (req.rawBody).
@@ -408,5 +574,6 @@ module.exports = {
   EARN, PACKS, QUESTS, acct, grant, spend, claw, normalize, quality, similar, typingProblem,
   noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view,
   verifyStripeSignature, createCheckout, handleStripeEvent, purchasesEnabled, register,
+  paypalEnabled, createPaypalOrder, capturePaypalOrder, applyPaypalCapture, verifyPaypalWebhook, handlePaypalEvent,
   _reset: () => { spoke.clear(); seen.clear(); },
 };

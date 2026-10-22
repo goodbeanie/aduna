@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
-import { Icon } from './ui.jsx';
+import { Icon, Modal } from './ui.jsx';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
 const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed' };
@@ -23,13 +23,54 @@ function Quest({ q, locked, busy, onClaim }) {
   );
 }
 
+// The two things everyone should know before paying. Shown on the Credits page and again inside the checkout.
+function BuyNotices() {
+  return (
+    <div className="buy-notices">
+      <div className="buy-note"><Icon name="shield" size={16} /><span><b>Nothing is saved for later.</b> For your security, Aduna doesn’t keep any payment details, so you’ll check out fresh each time you buy.</span></div>
+      <div className="buy-note warn"><Icon name="alert" size={16} /><span><b>All purchases are final.</b> Credits are non-refundable once they’re added to your balance. Please check the pack and price before you pay.</span></div>
+    </div>
+  );
+}
+
+// Aduna's checkout step: the order, the notices, a required acknowledgement, then on to the payment provider's own page.
+// Card and login details are only ever typed on PayPal's (or Stripe's) page, never here.
+function Checkout({ pack, provider, busy, error, onPay, onClose }) {
+  const [agree, setAgree] = useState(false);
+  const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
+  return (
+    <Modal title="Checkout" onClose={busy ? () => {} : onClose}>
+      <div className="checkout">
+        <div className="checkout-order">
+          <div className="checkout-line"><span className="pack-amt"><Icon name="coin" size={20} />{pack.credits.toLocaleString()} credits</span><b>{money(pack.cents, pack.currency)}</b></div>
+          <div className="checkout-line total"><span>Total today</span><b>{money(pack.cents, pack.currency)}</b></div>
+        </div>
+        <BuyNotices />
+        <label className="check-row checkout-agree">
+          <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} disabled={busy} />
+          <span>I understand that all purchases are final and non-refundable.</span>
+        </label>
+        <p className="muted small checkout-how">You’ll finish paying on {who}’s secure page, then come straight back to Aduna. Aduna never sees your card or {who} login. Credits are added once {who} confirms the payment.</p>
+        {error && <p className="error-text">{error}</p>}
+        <div className="modal-foot">
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="btn primary" disabled={!agree || busy} onClick={onPay}>{busy ? `Opening ${who}…` : `Continue to ${who}`}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // Credits: balance, buying, the earning rules, quests and recent activity.
 // `rev` goes up whenever the server says the balance changed, so this page refreshes itself.
-export default function Credits({ onBack, rev, justPaid }) {
+export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState('');
+  const [checkout, setCheckout] = useState(null); // the pack being checked out, or null
+  const [coErr, setCoErr] = useState('');
+  const captured = useRef('');
 
   const load = useCallback(() => api('/credits').then((r) => { setD(r); setErr(''); }).catch((e) => setErr(e.message)), []);
   useEffect(() => { load(); }, [load, rev]);
@@ -41,10 +82,22 @@ export default function Credits({ onBack, rev, justPaid }) {
     return () => clearInterval(iv);
   }, [justPaid, load]);
 
-  async function buy(p) {
-    setBusy(p.id); setErr('');
+  // Back from PayPal with ?token=<order>: the server captures the order (that is when the money moves) and adds the credits.
+  useEffect(() => {
+    if (!paypalOrder || captured.current === paypalOrder) return;
+    captured.current = paypalOrder; // once per visit; the server also ignores repeats
+    setNote('Confirming your payment with PayPal…'); setErr('');
+    api('/credits/paypal/capture', { method: 'POST', body: { orderId: paypalOrder } })
+      .then((r) => { load(); setNote(r.status === 'completed' ? 'Payment received. Your credits have been added.' : 'PayPal is still processing your payment. Your credits are added as soon as it clears.'); })
+      .catch((e) => { setNote(''); setErr(e.message); });
+  }, [paypalOrder, load]);
+
+  // The Buy buttons open the checkout; only its Continue button leaves for the payment provider.
+  async function pay() {
+    const p = checkout;
+    setBusy(p.id); setCoErr('');
     try { const { url } = await api('/credits/checkout', { method: 'POST', body: { packId: p.id } }); window.location.assign(url); }
-    catch (e) { setErr(e.message); setBusy(''); }
+    catch (e) { setCoErr(e.message); setBusy(''); }
   }
   async function claim(q) {
     setBusy(q.id); setErr(''); setNote('');
@@ -86,11 +139,12 @@ export default function Credits({ onBack, rev, justPaid }) {
               {d.packs.map((p) => (
                 <div key={p.id} className="credit-pack">
                   <div className="pack-amt"><Icon name="coin" size={20} />{p.credits.toLocaleString()}</div>
-                  <button className="btn primary" disabled={!d.purchases || busy === p.id} onClick={() => buy(p)}>{busy === p.id ? 'Opening checkout…' : money(p.cents, p.currency)}</button>
+                  <button className="btn primary" disabled={!d.purchases} onClick={() => { setCoErr(''); setCheckout(p); }}>{money(p.cents, p.currency)}</button>
                 </div>
               ))}
             </div>
-            <p className="muted small">{d.purchases ? 'Paid securely through Stripe; Aduna never sees your card. Credits are added to your balance once the payment is confirmed.' : 'Buying credits is not set up on this server yet.'}</p>
+            {d.purchases && <BuyNotices />}
+            <p className="muted small">{d.purchases ? `Paid securely through ${d.provider === 'paypal' ? 'PayPal' : 'Stripe'}; Aduna never sees your card${d.provider === 'paypal' ? ' or PayPal login' : ''}. Credits are added to your balance once the payment is confirmed.` : 'Buying credits is not set up on this server yet.'}</p>
 
             <h4 className="credit-h">Earn by chatting</h4>
             <div className="earn-card">
@@ -123,6 +177,7 @@ export default function Credits({ onBack, rev, justPaid }) {
           </>
         )}
       </div>
+      {checkout && d && <Checkout pack={checkout} provider={d.provider} busy={!!busy} error={coErr} onPay={pay} onClose={() => { setCheckout(null); setBusy(''); }} />}
     </section>
   );
 }
