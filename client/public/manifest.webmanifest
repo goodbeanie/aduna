@@ -1,0 +1,16 @@
+{
+  "name": "Aduna",
+  "short_name": "Aduna",
+  "description": "A chat app for your people: servers, live chat, encrypted DMs, calls and themes.",
+  "id": "/app",
+  "start_url": "/app",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#fffbef",
+  "theme_color": "#fffbef",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
