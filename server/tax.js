@@ -27,6 +27,10 @@ for (const [st, rate] of Object.entries(US)) RATES['US-' + st] = { rate, label: 
 for (const [p, parts] of Object.entries(CA)) RATES['CA-' + p] = { rate: Math.round(parts.reduce((t, x) => t + x[1], 0) * 1000) / 1000, label: parts.map((x) => x[0]).join(' + '), parts: parts.map(([label, rate]) => ({ label, rate })) };
 for (const [c, rate] of Object.entries(EU)) RATES[c] = { rate, label: 'VAT', eu: true };
 Object.assign(RATES, { GB: { rate: 20, label: 'VAT' }, AU: { rate: 10, label: 'GST' }, NZ: { rate: 15, label: 'GST' } });
+// More countries with big English-speaking / gaming communities. Standard rates on digital services sold to consumers.
+// Brazil has no single national rate (federal PIS/COFINS plus a city service tax, and a tax reform is phasing in), so BR is a rough
+// all-in figure: set your own with e.g. TAX_COLLECT_IN="BR=14.25" once your accountant confirms it.
+Object.assign(RATES, { BR: { rate: 14.25, label: 'Tax' }, IN: { rate: 18, label: 'GST' }, PH: { rate: 12, label: 'VAT' }, ID: { rate: 11, label: 'VAT' }, MX: { rate: 16, label: 'IVA' } });
 
 // TAX_COLLECT_IN -> Map(code -> { rate, label }) of the places Aduna charges tax.
 function collecting(env = process.env) {

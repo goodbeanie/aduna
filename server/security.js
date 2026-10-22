@@ -25,7 +25,8 @@ const CSP = [
 // Aduna's own checkout loads PayPal's card fields and button, so when PayPal is set up its addresses are allowed too (and only then).
 function cspFor(env) {
   if (!env.PAYPAL_CLIENT_ID) return CSP;
-  const add = { 'script-src': "https://*.paypal.com https://*.paypalobjects.com", 'frame-src': 'https://*.paypal.com', 'connect-src': 'https://*.paypal.com https://*.paypalobjects.com', 'img-src': 'https://*.paypal.com https://*.paypalobjects.com' };
+  const geo = env.TAX_COLLECT_IN ? ' https://api.bigdatacloud.net' : ''; // checkout's "use my location" turns coordinates into a country/state
+  const add = { 'script-src': "https://*.paypal.com https://*.paypalobjects.com", 'frame-src': 'https://*.paypal.com', 'connect-src': 'https://*.paypal.com https://*.paypalobjects.com' + geo, 'img-src': 'https://*.paypal.com https://*.paypalobjects.com' };
   return CSP.split('; ').map((d) => { const k = d.split(' ')[0]; return add[k] ? (k === 'frame-src' ? `frame-src ${add[k]}` : `${d} ${add[k]}`) : d; }).join('; ');
 }
 
@@ -38,7 +39,7 @@ function securityHeaders(env = process.env) {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     // calls need the camera, microphone and screen share on this site only
-    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=(), payment=(), usb=()');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=(' + (env.TAX_COLLECT_IN ? 'self' : '') + '), payment=(), usb=()');
     res.setHeader('Cross-Origin-Opener-Policy', env.PAYPAL_CLIENT_ID ? 'same-origin-allow-popups' : 'same-origin');
     if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains'); // only over HTTPS
     next();

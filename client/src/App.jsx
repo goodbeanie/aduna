@@ -24,6 +24,8 @@ import { mentionPreview } from './Mentions.jsx';
 import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
 import { OnboardingFlow } from './Onboarding.jsx';
+import Setup from './Setup.jsx';
+import { setLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 import * as notify from './notify.js';
@@ -51,9 +53,11 @@ const CHANNEL_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megapho
 const INVITE_PATH = /^\/invite\/([a-z0-9_-]{3,32})\/?$/i;
 
 function BootSplash() {
+  // The page's own splash (index.html) has been animating since load; pick the animation up at the same point so it does not restart.
+  const d = { '--boot-d': `-${((typeof performance !== 'undefined' ? performance.now() : 0) / 1000 % 3.6).toFixed(2)}s` };
   return (
-    <div className="boot" role="status" aria-label="Loading Aduna">
-      <div className="boot-wrap"><span className="boot-ring" /><span className="boot-ring b" /><span className="boot-mark" /></div>
+    <div className="boot resume" role="status" aria-label="Loading Aduna" style={d}>
+      <div className="boot-wrap"><span className="boot-ring" /><span className="boot-ring b" /><span className="boot-mark" /><span className="boot-word" /></div>
       <div className="boot-bar"><i /></div>
     </div>
   );
@@ -69,6 +73,9 @@ export default function App() {
   const [openId, setOpenId] = useState(null); // server to open once the app loads
   // opened from an emailed reset link (/reset#<token>): that page stands alone, it never looks up or changes the current session until the reset is done
   const [resetToken] = useState(() => resetTokenFromLocation());
+
+  // the language saved on the account follows you to every device
+  useEffect(() => { if (me?.lang) setLang(me.lang); }, [me?.lang]);
 
   useEffect(() => {
     if (resetToken !== null) return undefined;
@@ -106,6 +113,9 @@ export default function App() {
       }
       setBoot('ready');
     }} />;
+  }
+  if (me?.needsSetup) { // first time in: language, and whether to join the Aduna server
+    return <Setup onDone={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
   }
   if (me?.emailVerified === false) {
     return <VerifyEmail me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;

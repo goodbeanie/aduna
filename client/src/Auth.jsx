@@ -2,8 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { api, markSignedIn, endSession } from './api.js';
 import { createIdentity, unlockIdentity, saveKey, hasCrypto, recoverIdentity, isRecoveryKey } from './crypto.js';
 import { RecoveryKeyCard } from './Recovery.jsx';
+import { LANGS, getLang, setLang, useLang } from './i18n.js';
 
 export default function Auth({ onAuthed }) {
+  const { lang, t } = useLang();
   const [mode, setMode] = useState(typeof location !== 'undefined' && location.hash === '#signup' ? 'register' : 'login');
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -37,7 +39,7 @@ export default function Auth({ onAuthed }) {
         const ident = await createIdentity(password);
         const { user } = await api('/register', {
           method: 'POST',
-          body: { username, email: email.trim(), password, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail && mailOk ? { emailRecovery: true } : {}) },
+          body: { username, email: email.trim(), password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail && mailOk ? { emailRecovery: true } : {}) },
         });
         markSignedIn(true);
         await saveKey(user.id, ident.privateKey);
@@ -95,81 +97,84 @@ export default function Auth({ onAuthed }) {
     <div className="auth-bg">
       <form className="auth-card" onSubmit={submit}>
         <img className="wordmark" src="/aduna-wordmark.png" alt="Aduna" width="190" />
-        <h1>{mode === 'login' ? 'Welcome back!' : mode === 'recover' ? 'Reset your password' : 'Create an account'}</h1>
-        <p className="muted center">{mode === 'login' ? "We're so excited to see you again!" : mode === 'recover' ? (method === 'key' ? 'Use the recovery key you saved. Your messages stay readable.' : 'We can email a reset link to the address on the account, if you turned email recovery on.') : 'Join the conversation. DMs are end-to-end encrypted.'}</p>
+        <h1>{mode === 'login' ? t('welcomeBack') : mode === 'recover' ? t('resetTitle') : t('createTitle')}</h1>
+        <p className="muted center">{mode === 'login' ? t('excited') : mode === 'recover' ? (method === 'key' ? t('resetKeyHelp') : t('resetMailHelp')) : t('joinConv')}</p>
 
-        <label>USERNAME</label>
+        <label>{t('username')}</label>
         <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required autoComplete="username" maxLength={20} />
 
         {mode === 'register' && (
           <>
-            <label>EMAIL</label>
+            <label>{t('email')}</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" maxLength={254} placeholder="you@example.com" />
-            <p className="hint">Never shown to other people. We'll email you a code to verify it, and use it for payment receipts and important account notices.</p>
+            <p className="hint">{t('emailHint')}</p>
           </>
         )}
 
         {mode === 'recover' && (
           <div className="seg">
-            <button type="button" className={'btn' + (method === 'key' ? ' primary' : '')} onClick={() => { setMethod('key'); setError(''); setInfo(''); }}>Recovery key</button>
-            <button type="button" className={'btn' + (method === 'email' ? ' primary' : '')} onClick={() => { setMethod('email'); setError(''); setInfo(''); }}>Email me a link</button>
+            <button type="button" className={'btn' + (method === 'key' ? ' primary' : '')} onClick={() => { setMethod('key'); setError(''); setInfo(''); }}>{t('recoveryKeyBtn')}</button>
+            <button type="button" className={'btn' + (method === 'email' ? ' primary' : '')} onClick={() => { setMethod('email'); setError(''); setInfo(''); }}>{t('emailLinkBtn')}</button>
           </div>
         )}
 
         {mode === 'recover' && method === 'key' && (
           <>
-            <label>RECOVERY KEY</label>
+            <label>{t('recoveryKeyLabel')}</label>
             <input value={rkey} onChange={(e) => setRkey(e.target.value)} required autoComplete="off" spellCheck={false} maxLength={60} placeholder="ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789" />
-            <p className="hint">Your password also locks your encryption key, so the recovery key is what keeps your messages readable. No key? Try “Email me a link” if you turned it on in Settings.</p>
+            <p className="hint">{t('recoveryHelp')}</p>
           </>
         )}
 
         {!(mode === 'recover' && method === 'email') && <>
-        <label>{mode === 'recover' ? 'NEW PASSWORD' : 'PASSWORD'}</label>
+        <label>{mode === 'recover' ? t('newPassword') : t('password')}</label>
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'login' ? 1 : 8}
           autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
         </>}
-        {mode === 'register' && <p className="hint">At least 8 characters. Your password also protects your encryption key. You can change the password in Settings &gt; Security.</p>}
+        {mode === 'register' && <p className="hint">{t('passwordHint')}</p>}
         {mode === 'register' && (
           <>
-            <label>IF YOU FORGET YOUR PASSWORD</label>
-            <p className="hint">Choose how you want to get back in. Pick one or both.</p>
+            <label>{t('ifForget')}</label>
+            <p className="hint">{t('chooseBack')}</p>
             <label className="check-row">
               <input type="checkbox" checked={useKey} onChange={(e) => { if (!e.target.checked && !(useMail && mailOk)) return; setUseKey(e.target.checked); }} />
-              <span><strong>Recovery key</strong>: a key you save yourself. Your messages stay readable.</span>
+              <span><strong>{t('keyOptionB')}</strong>{t('keyOptionT')}</span>
             </label>
             <label className="check-row">
               <input type="checkbox" checked={useMail && mailOk} disabled={!mailOk} onChange={(e) => { if (!e.target.checked && !useKey) return; setUseMail(e.target.checked); }} />
-              <span><strong>Email recovery</strong>: we email you a reset link. This makes a new encryption key, so older direct messages become unreadable.{!mailOk && ' (Not available on this server yet.)'}</span>
+              <span><strong>{t('mailOptionB')}</strong>{t('mailOptionT')}{!mailOk && t('mailUnavailable')}</span>
             </label>
           </>
         )}
         {mode === 'recover' && method === 'key' && (
           <>
-            <label>NEW PASSWORD AGAIN</label>
+            <label>{t('newPasswordAgain')}</label>
             <input type="password" value={again} onChange={(e) => setAgain(e.target.value)} required autoComplete="new-password" />
           </>
         )}
-        {mode === 'login' && <p className="muted small"><a href="#" onClick={(e) => { e.preventDefault(); switchMode('recover'); }}>Forgot your password?</a></p>}
+        {mode === 'login' && <p className="muted small"><a href="#" onClick={(e) => { e.preventDefault(); switchMode('recover'); }}>{t('forgot')}</a></p>}
 
         {(mode === 'login' || (mode === 'recover' && method === 'key')) && needCode && (
           <>
-            <label>AUTHENTICATOR CODE</label>
+            <label>{t('authCode')}</label>
             <input value={code} onChange={(e) => setCode(e.target.value)} autoFocus required autoComplete="one-time-code" inputMode="text" maxLength={20} placeholder="123456" />
-            <p className="hint">Open your authenticator app and enter the 6-digit code. Lost your phone? Enter one of your recovery codes instead (each works once).</p>
+            <p className="hint">{t('authCodeHint')}</p>
           </>
         )}
 
         {info && <p className="muted small">{info}</p>}
         {error && <div className="error">{error}</div>}
 
-        <button className="btn primary full" disabled={busy}>{busy ? 'Working…' : mode === 'login' ? 'Log In' : mode === 'recover' ? (method === 'email' ? (mailed ? 'Send the link again' : 'Send me a link') : 'Reset password') : 'Continue'}</button>
+        <button className="btn primary full" disabled={busy}>{busy ? t('working') : mode === 'login' ? t('logIn') : mode === 'recover' ? (method === 'email' ? (mailed ? t('sendAgain') : t('sendLink')) : t('resetBtn')) : t('continue')}</button>
         <p className="muted small">
-          {mode === 'login' ? 'Need an account? ' : mode === 'recover' ? 'Remembered it? ' : 'Already have an account? '}
+          {mode === 'login' ? t('needAccount') : mode === 'recover' ? t('remembered') : t('haveAccount')}
           <a href="#" onClick={(e) => { e.preventDefault(); switchMode(mode === 'login' ? 'register' : 'login'); }}>
-            {mode === 'login' ? 'Register' : 'Log in'}
+            {mode === 'login' ? t('register') : t('logInLink')}
           </a>
         </p>
+        <select className="auth-lang" aria-label="Language" value={lang} onChange={(e) => setLang(e.target.value)}>
+          {LANGS.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
+        </select>
       </form>
     </div>
   );

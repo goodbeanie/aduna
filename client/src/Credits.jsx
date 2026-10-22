@@ -58,6 +58,7 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, onPaid, onFallback,
   const [cardOk, setCardOk] = useState(true);
   const [noCard, setNoCard] = useState(false);
   const [paying, setPaying] = useState(false);
+  const [live, setLive] = useState(false); // card boxes fade in once PayPal has drawn them (no white flash)
   const cf = useRef(null);
   const blockedRef = useRef(blocked); blockedRef.current = blocked;
 
@@ -77,10 +78,15 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, onPaid, onFallback,
       });
       if (fields.isEligible()) {
         cf.current = fields;
-        fields.NameField({ placeholder: 'Name on card' }).render('#pp-name');
-        fields.NumberField({ placeholder: 'Card number' }).render('#pp-number');
-        fields.ExpiryField({ placeholder: 'MM / YY' }).render('#pp-expiry');
-        fields.CVVField({ placeholder: 'CVV' }).render('#pp-cvv');
+        const shown = [
+          fields.NameField({ placeholder: 'Name on card' }).render('#pp-name'),
+          fields.NumberField({ placeholder: 'Card number' }).render('#pp-number'),
+          fields.ExpiryField({ placeholder: 'MM / YY' }).render('#pp-expiry'),
+          fields.CVVField({ placeholder: 'CVV' }).render('#pp-cvv'),
+        ];
+        const reveal = () => { if (!dead) setTimeout(() => { if (!dead) setLive(true); }, 120); }; // a beat for the iframe to paint its own background
+        Promise.allSettled(shown).then(reveal);
+        setTimeout(() => { if (!dead) setLive(true); }, 3000); // never leave the boxes hidden
       } else { setCardOk(false); setNoCard(true); console.warn('PayPal card fields are not available for this account/browser'); }
       buttons = paypal.Buttons({
         fundingSource: paypal.FUNDING.PAYPAL,
@@ -106,7 +112,7 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, onPaid, onFallback,
     <div className="pay-form">
       {!ready && <p className="muted small">Loading secure checkout…</p>}
       {noCard && <p className="error-text">Card payments are not switched on for this PayPal account yet, so only the PayPal button is available. (PayPal Business account: Advanced Credit and Debit Card Payments.)</p>}
-      <div className={'pay-card' + (cardOk ? '' : ' hidden')}>
+      <div className={'pay-card' + (cardOk ? '' : ' hidden') + (live ? ' live' : '')}>
         <div className="pp-field" id="pp-name" />
         <div className="pp-field" id="pp-number" />
         <div className="pp-row"><div className="pp-field" id="pp-expiry" /><div className="pp-field" id="pp-cvv" /></div>
@@ -125,9 +131,29 @@ const STATES = { AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA:
 const REGIONS = { CA: PROVINCES, US: STATES };
 const countryName = (c) => { try { return new Intl.DisplayNames(undefined, { type: 'region' }).of(c) || c; } catch { return c; } };
 
+// Asks the browser where the buyer is, then turns the coordinates into a country and state/province (BigDataCloud, no key needed).
+// It only fills in the pickers; the buyer can change them, and the server still works out the tax from what they chose.
+function locate(tax) {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('This browser cannot share its location.'));
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      try {
+        const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&localityLanguage=en`);
+        const j = await r.json();
+        const country = String(j.countryCode || '').toUpperCase();
+        if (!country) throw new Error('no country');
+        const sub = String(j.principalSubdivisionCode || '').toUpperCase().split('-')[1] || '';
+        resolve({ country: tax.countries.includes(country) ? country : 'ZZ', region: sub });
+      } catch { reject(new Error('Could not work out where you are. Please choose below.')); }
+    }, (e) => reject(new Error(e.code === 1 ? 'Location is blocked for this site. Please choose below.' : 'Could not get your location. Please choose below.')), { timeout: 10000, maximumAge: 600000 });
+  });
+}
+
 function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, onError, onClose }) {
   const [country, setCountry] = useState('');
   const [region, setRegion] = useState('');
+  const [locBusy, setLocBusy] = useState(false);
+  const [locMsg, setLocMsg] = useState('');
   const buyerRef = useRef({}); buyerRef.current = { country, region: REGIONS[country] ? region : '' };
   const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
@@ -156,6 +182,13 @@ function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, o
           {tax && (
             <div className="co-where">
               <label className="muted small" htmlFor="co-country">Where are you? (sets the tax)</label>
+              <button type="button" className="btn co-loc" disabled={busy || locBusy} onClick={async () => {
+                setLocBusy(true); setLocMsg('');
+                try { const r = await locate(tax); setCountry(r.country); setRegion(REGIONS[r.country] && REGIONS[r.country][r.region] ? r.region : ''); setLocMsg('Filled in from your location. Change it below if it is wrong.'); }
+                catch (e) { setLocMsg(e.message); }
+                setLocBusy(false);
+              }}><Icon name="pin" size={16} /> {locBusy ? 'Finding you…' : 'Use my location'}</button>
+              {locMsg && <p className="muted small co-locmsg">{locMsg}</p>}
               <select id="co-country" className="co-select" value={country} onChange={(e) => { setCountry(e.target.value); setRegion(''); }} disabled={busy}>
                 <option value="" disabled>Choose your country</option>
                 {tax.countries.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}

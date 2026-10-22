@@ -182,7 +182,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs) });
+const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -348,7 +348,7 @@ app.get('/api/app-version', ah(async (req, res) => {
   appVersionCache = { at: Date.now(), data };
   res.json(data);
 }));
-app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled() })); // sign-up screen: can email recovery be offered (needs a mail provider)?
+app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled(), adunaServer: !!defaultServer() })); // sign-up screen: can email recovery be offered (needs a mail provider)?
 // Stripe and PayPal sign the exact bytes they send, so the credits webhooks keep the raw body next to the parsed one.
 app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/credits/webhook')) req.rawBody = buf; } }));
 
@@ -396,6 +396,9 @@ function decoyRecoveryBlob(username) {
   return { salt: bytes.subarray(0, 16).toString('base64'), iv: bytes.subarray(16, 28).toString('base64'), data: bytes.subarray(28, 220).toString('base64') };
 }
 const validKeyBlob = (b) => b && typeof b === 'object' && ['salt', 'iv', 'data'].every((k) => typeof b[k] === 'string' && b[k].length < 4000);
+
+const LANGS = ['en', 'fr', 'es']; // languages the app can be shown in (client/src/i18n.js has the words)
+const cleanLang = (v) => (LANGS.includes(v) ? v : 'en');
 
 function defaultServer() {
   const code = String(process.env.DEFAULT_SERVER_INVITE ?? 'aduna').trim().toLowerCase();
@@ -473,11 +476,15 @@ app.post('/api/register', authLimiter, async (req, res) => {
     encPrivKey,
     ...(recovery ? { recovery } : {}),
     ...(req.body?.emailRecovery === true && mailer.enabled() ? { emailRecovery: true } : {}), // chosen at sign-up; only takes effect once the address is verified (emailRecoveryPossible)
+    lang: cleanLang(req.body?.lang),
+    // The app's sign-up sends setup:true: the person then picks a language and whether to join the Aduna server on the setup screen
+    // (POST /api/me/setup). Other callers keep the old behaviour of joining it straight away.
+    ...(req.body?.setup === true ? { setupPending: true, joinAduna: false } : {}),
     createdAt: now(),
   };
   db().users[user.id] = user;
 
-  if (!needsVerify(user)) joinDefaultServer(user);
+  if (!needsVerify(user) && user.joinAduna !== false) joinDefaultServer(user);
   store.save();
   if (needsVerify(user)) {
     try { await issueCode(user); } catch (e) { console.error('verification email failed:', e.message); } // they can press "resend"
@@ -495,6 +502,20 @@ function joinDefaultServer(user) {
     io.to('server:' + dflt.id).emit('server:update', serverView(dflt));
   }
 }
+
+// The one-time setup screen after sign-up: language, and whether to join the official Aduna server.
+// Works before the email is verified; if it is not yet verified the join happens when it is (see verify-email).
+app.post('/api/me/setup', authAny, (req, res) => {
+  const u = req.user;
+  if (!u.setupPending) return res.json({ user: ownUser(u) });
+  const b = req.body || {};
+  if (b.lang !== undefined) u.lang = cleanLang(b.lang);
+  u.joinAduna = b.joinAduna === true;
+  delete u.setupPending;
+  if (u.joinAduna && !needsVerify(u)) joinDefaultServer(u);
+  store.save();
+  res.json({ user: ownUser(u) });
+});
 
 app.post('/api/me/verify-email', authLimiter, authAny, (req, res) => {
   const u = req.user;
@@ -515,7 +536,7 @@ app.post('/api/me/verify-email', authLimiter, authAny, (req, res) => {
   u.emailVerified = true;
   if (isCreatorEmail(u.email) && !u.developer) u.developer = { at: now() }; // the creator is also a developer
   delete u.verify;
-  joinDefaultServer(u);
+  if (u.joinAduna !== false) joinDefaultServer(u);
   store.save();
   res.json({ user: ownUser(u) });
 });
@@ -924,6 +945,7 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (newLinks !== undefined) u.links = newLinks;
   if (b.avatarLogo !== undefined) u.avatarLogo = !!b.avatarLogo;
   if (b.displayName !== undefined) u.displayName = clip(b.displayName, 32).trim() || u.username;
+  if (b.lang !== undefined && LANGS.includes(b.lang)) u.lang = b.lang;
   if (b.bio !== undefined) u.bio = clip(b.bio, 190);
   if (b.avatarEmoji !== undefined) u.avatarEmoji = clip(b.avatarEmoji, 8);
   for (const k of ['avatarColor', 'bannerColor', 'accentColor']) if (b[k] !== undefined && hex.test(b[k])) u[k] = b[k];

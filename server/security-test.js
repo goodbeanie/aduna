@@ -22,6 +22,9 @@ const step = (m) => console.log('✓', m);
   assert.ok(pp['Content-Security-Policy'].includes("script-src 'self' https://*.paypal.com") && pp['Content-Security-Policy'].includes('frame-src https://*.paypal.com'), 'PayPal is allowed only when it is set up');
   assert.ok(!h['Content-Security-Policy'].includes('paypal') && h['Content-Security-Policy'].includes("frame-src 'none'"), 'and not otherwise');
   assert.strictEqual(pp['Cross-Origin-Opener-Policy'], 'same-origin-allow-popups');
+  assert.ok(h['Permissions-Policy'].includes('geolocation=()'), 'location stays blocked by default');
+  const tx = run({ PAYPAL_CLIENT_ID: 'x', TAX_COLLECT_IN: 'CA' });
+  assert.ok(tx['Permissions-Policy'].includes('geolocation=(self)') && tx['Content-Security-Policy'].includes('https://api.bigdatacloud.net'), 'location is allowed only when tax is on');
   step('headers: strict CSP, no framing, nosniff, permissions for calls, HSTS only on https, CSP_MODE switch');
 }
 

@@ -92,13 +92,15 @@
 
   <div id="other">
     <header>
-      <h1>Aduna on this device</h1>
-      <p class="lead">The installer is for Windows computers and the app for Android phones. On this device you can use Aduna right in your browser, or add it to your home screen or apps.</p>
+      <h1 id="other-h">Aduna on this device</h1>
+      <p class="lead" id="other-p">The installer is for Windows computers and the app for Android phones. On this device you can use Aduna right in your browser, or add it to your home screen or apps.</p>
     </header>
     <p><a class="btn" href="/app">Open Aduna</a></p>
     <ol class="steps">
-      <li class="step"><h2>Chrome or Edge on a computer or Android</h2><p>Open Aduna, then click the install icon at the right of the address bar, or open the browser menu and choose <b>Install Aduna</b>.</p></li>
-      <li class="step"><h2>iPhone or iPad</h2><p>Open Aduna in Safari, tap the Share button, then <b>Add to Home Screen</b>.</p></li>
+      <li class="step" data-os="mac linux chromeos"><h2>Chrome or Edge</h2><p>Open Aduna, then click the install icon at the right of the address bar, or open the browser menu and choose <b>Install Aduna</b>.</p></li>
+      <li class="step" data-os="mac"><h2>Safari</h2><p>Open Aduna in Safari (macOS Sonoma or newer), then choose <b>File &gt; Add to Dock</b>.</p></li>
+      <li class="step" data-os="mac linux"><h2>Firefox</h2><p>Firefox on computers cannot install web apps. Use Aduna in a tab, or open it in Chrome or Edge to install it.</p></li>
+      <li class="step" data-os="ios"><h2>Add it to your home screen</h2><p>Open Aduna in Safari, tap the Share button, then <b>Add to Home Screen</b>.</p></li>
     </ol>
   </div>
 

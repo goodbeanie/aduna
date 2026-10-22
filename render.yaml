@@ -51,7 +51,7 @@ services:
         sync: false
       - key: PAYPAL_WEBHOOK_ID
         sync: false
-      # TAX_COLLECT_IN: optional, e.g. CA-BC=12,CA-ON,GB (only places you are registered to collect tax; empty = no tax)
+      # TAX_COLLECT_IN: optional, e.g. CA-BC=12,CA-ON,GB,IN,MX,BR=14.25 (only places you are registered to collect tax; empty = no tax)
       - key: PAYPAL_ENV
         sync: false
       # optional: buying credits with real money (Stripe). Both keys are needed; without them the Buy buttons are off.

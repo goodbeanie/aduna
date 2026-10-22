@@ -170,6 +170,14 @@ function fakePaypal(opts = {}) {
     assert.strictEqual(T.quote({}, 499, env).ok, false, 'the buyer must say where they are'); assert.strictEqual(T.quote({ country: 'CA' }, 499, env).ok, false, 'and Canadians which province');
     assert.strictEqual(T.collecting({ TAX_COLLECT_IN: 'CA' }).size, 13); assert.strictEqual(T.collecting({ TAX_COLLECT_IN: 'EU' }).size, 27);
     assert.strictEqual(T.collecting({ TAX_COLLECT_IN: 'GB=999' }).get('GB').rate, 20, 'a silly override is ignored');
+    const more = { TAX_COLLECT_IN: 'BR,IN,PH,ID,MX,DE,FR,NL,AU' };
+    assert.strictEqual(T.quote({ country: 'IN' }, 1000, more).tax, 180, 'India GST 18%');
+    assert.strictEqual(T.quote({ country: 'PH' }, 1000, more).tax, 120, 'Philippines VAT 12%');
+    assert.strictEqual(T.quote({ country: 'ID' }, 1000, more).tax, 110, 'Indonesia VAT 11%');
+    assert.strictEqual(T.quote({ country: 'MX' }, 1000, more).tax, 160, 'Mexico IVA 16%');
+    assert.strictEqual(T.quote({ country: 'BR' }, 1000, more).ok, true, 'Brazil is accepted');
+    assert.strictEqual(T.quote({ country: 'DE' }, 1000, more).tax, 190); assert.strictEqual(T.quote({ country: 'AU' }, 1000, more).tax, 100);
+    assert.deepStrictEqual(T.publicInfo(more).countries, ['AU', 'BR', 'DE', 'FR', 'ID', 'IN', 'MX', 'NL', 'PH'], 'each one shows in the checkout country picker');
     assert.strictEqual(T.publicInfo({}), null);
 
     process.env.TAX_COLLECT_IN = 'CA-BC=12';
