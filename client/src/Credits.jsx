@@ -56,6 +56,7 @@ const css = (name, fallback) => getComputedStyle(document.documentElement).getPr
 function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
   const [ready, setReady] = useState(false);
   const [cardOk, setCardOk] = useState(true);
+  const [noCard, setNoCard] = useState(false);
   const [paying, setPaying] = useState(false);
   const cf = useRef(null);
   const total = money(pack.cents, pack.currency);
@@ -81,7 +82,7 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
         fields.ExpiryField({ placeholder: 'MM / YY' }).render('#pp-expiry');
         fields.CVVField({ placeholder: 'CVV' }).render('#pp-cvv');
         fields.PostalCodeField({ placeholder: 'Postal / ZIP code' }).render('#pp-postal');
-      } else setCardOk(false);
+      } else { setCardOk(false); setNoCard(true); console.warn('PayPal card fields are not available for this account/browser'); }
       buttons = paypal.Buttons({
         fundingSource: paypal.FUNDING.PAYPAL,
         style: { layout: 'vertical', shape: 'rect', height: 44, label: 'paypal' },
@@ -91,7 +92,7 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
       });
       if (buttons.isEligible()) buttons.render('#pp-button');
       setReady(true);
-    }).catch(() => { if (!dead) onFallback(); });
+    }).catch((e) => { console.error('PayPal checkout setup failed:', e); if (!dead) onFallback(e?.message || 'PayPal could not be set up'); });
     return () => { dead = true; try { buttons?.close(); } catch { /* already gone */ } cf.current = null; };
   }, [pack.id, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -104,6 +105,7 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
   return (
     <div className="pay-form">
       {!ready && <p className="muted small">Loading secure checkout…</p>}
+      {noCard && <p className="error-text">Card payments are not switched on for this PayPal account yet, so only the PayPal button is available. (PayPal Business account: Advanced Credit and Debit Card Payments.)</p>}
       <div className={'pay-card' + (cardOk ? '' : ' hidden')}>
         <div className="pp-field" id="pp-name" />
         <div className="pp-field" id="pp-number" />
@@ -120,9 +122,9 @@ function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
 // Aduna's own checkout: the order, the notice, then the card form and a PayPal button (when PayPal is set up with its card fields),
 // or a plain hand-off to the payment provider's page (Stripe, or if PayPal's script cannot load).
 function Checkout({ pack, provider, clientId, busy, error, onPay, onPaid, onError, onClose }) {
-  const [fallback, setFallback] = useState(false);
+  const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
-  const embedded = provider === 'paypal' && clientId && !fallback;
+  const embedded = provider === 'paypal' && !!clientId && !fallback;
   return (
     <Modal title="Checkout" onClose={busy ? () => {} : onClose}>
       <div className="checkout">
@@ -131,7 +133,9 @@ function Checkout({ pack, provider, clientId, busy, error, onPay, onPaid, onErro
           <div className="checkout-line total"><span>Total today</span><b>{money(pack.cents, pack.currency)}</b></div>
         </div>
         <BuyNotices />
-        {embedded && <PayForm pack={pack} clientId={clientId} onPaid={onPaid} onError={onError} onFallback={() => setFallback(true)} />}
+        {embedded && <PayForm pack={pack} clientId={clientId} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
+        {provider === 'paypal' && !clientId && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
+        {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
         {error && <p className="error-text">{error}</p>}
         <div className="modal-foot">
           <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
