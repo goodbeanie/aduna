@@ -23,21 +23,106 @@ function Quest({ q, locked, busy, onClaim }) {
   );
 }
 
-// The two things everyone should know before paying. Shown on the Credits page and again inside the checkout.
+// The one notice shown before paying. Shown on the Credits page and again inside the checkout.
 function BuyNotices() {
   return (
     <div className="buy-notices">
-      <div className="buy-note"><Icon name="shield" size={16} /><span><b>Nothing is saved for later.</b> For your security, Aduna doesn’t keep any payment details, so you’ll check out fresh each time you buy.</span></div>
-      <div className="buy-note warn"><Icon name="alert" size={16} /><span><b>All purchases are final.</b> Credits are non-refundable once they’re added to your balance. Please check the pack and price before you pay.</span></div>
+      <div className="buy-note"><Icon name="shield" size={16} /><span>Aduna does not save your payment information, your security is our priority.</span></div>
     </div>
   );
 }
 
-// Aduna's checkout step: the order, the notices, a required acknowledgement, then on to the payment provider's own page.
-// Card and login details are only ever typed on PayPal's (or Stripe's) page, never here.
-function Checkout({ pack, provider, busy, error, onPay, onClose }) {
-  const [agree, setAgree] = useState(false);
+// Loads PayPal's script once. The card boxes and the PayPal button come from it; card details are typed into boxes that PayPal
+// serves inside Aduna's checkout, so they go straight to PayPal and never reach Aduna.
+let sdkPromise = null;
+function loadPaypal(clientId) {
+  if (window.paypal?.CardFields) return Promise.resolve(window.paypal);
+  if (!sdkPromise) {
+    sdkPromise = new Promise((resolve, reject) => {
+      const el = document.createElement('script');
+      el.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&components=buttons,card-fields&currency=USD&intent=capture&disable-funding=paylater,venmo`;
+      el.async = true;
+      el.onload = () => (window.paypal ? resolve(window.paypal) : reject(new Error('PayPal did not load')));
+      el.onerror = () => reject(new Error('PayPal did not load'));
+      document.head.appendChild(el);
+    }).catch((e) => { sdkPromise = null; throw e; });
+  }
+  return sdkPromise;
+}
+
+const css = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+
+// The card form and PayPal button inside Aduna's checkout. onPaid(result) runs after the server has captured the order.
+function PayForm({ pack, clientId, onPaid, onFallback, onError }) {
+  const [ready, setReady] = useState(false);
+  const [cardOk, setCardOk] = useState(true);
+  const [paying, setPaying] = useState(false);
+  const cf = useRef(null);
+  const total = money(pack.cents, pack.currency);
+
+  useEffect(() => {
+    let dead = false, buttons = null;
+    const makeOrder = (method) => () => api('/credits/paypal/order', { method: 'POST', body: { packId: pack.id, method } }).then((r) => r.orderId);
+    const approved = ({ orderID }) => api('/credits/paypal/capture', { method: 'POST', body: { orderId: orderID } }).then((r) => { if (!dead) onPaid(r); });
+    const fail = (e) => { if (!dead) { setPaying(false); onError(e?.message && !/^\s*\{/.test(e.message) && e.message.length < 160 ? e.message : 'The payment did not go through. Check your details or try another way to pay.'); } };
+    loadPaypal(clientId).then((paypal) => {
+      if (dead) return;
+      const input = { 'font-size': '16px', 'font-family': 'inherit', color: css('--head', '#222'), padding: '0 12px' };
+      const fields = paypal.CardFields({
+        createOrder: makeOrder('card'),
+        onApprove: approved,
+        onError: fail,
+        style: { input, '.invalid': { color: css('--err-fg', '#c00') }, ':focus': { color: css('--head', '#222') } },
+      });
+      if (fields.isEligible()) {
+        cf.current = fields;
+        fields.NameField({ placeholder: 'Name on card' }).render('#pp-name');
+        fields.NumberField({ placeholder: 'Card number' }).render('#pp-number');
+        fields.ExpiryField({ placeholder: 'MM / YY' }).render('#pp-expiry');
+        fields.CVVField({ placeholder: 'CVV' }).render('#pp-cvv');
+        fields.PostalCodeField({ placeholder: 'Postal / ZIP code' }).render('#pp-postal');
+      } else setCardOk(false);
+      buttons = paypal.Buttons({
+        fundingSource: paypal.FUNDING.PAYPAL,
+        style: { layout: 'vertical', shape: 'rect', height: 44, label: 'paypal' },
+        createOrder: makeOrder('paypal'),
+        onApprove: approved,
+        onError: fail,
+      });
+      if (buttons.isEligible()) buttons.render('#pp-button');
+      setReady(true);
+    }).catch(() => { if (!dead) onFallback(); });
+    return () => { dead = true; try { buttons?.close(); } catch { /* already gone */ } cf.current = null; };
+  }, [pack.id, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function payByCard() {
+    if (!cf.current) return;
+    onError(''); setPaying(true);
+    cf.current.submit().catch((e) => { setPaying(false); onError(e?.message && e.message.length < 160 ? e.message : 'Check your card details and try again.'); });
+  }
+
+  return (
+    <div className="pay-form">
+      {!ready && <p className="muted small">Loading secure checkout…</p>}
+      <div className={'pay-card' + (cardOk ? '' : ' hidden')}>
+        <div className="pp-field" id="pp-name" />
+        <div className="pp-field" id="pp-number" />
+        <div className="pp-row"><div className="pp-field" id="pp-expiry" /><div className="pp-field" id="pp-cvv" /></div>
+        <div className="pp-field" id="pp-postal" />
+        <button type="button" className="btn primary pay-btn" disabled={!ready || paying} onClick={payByCard}>{paying ? 'Processing…' : `Pay ${total}`}</button>
+      </div>
+      <div className={'pay-or' + (ready ? '' : ' hidden')}><span>{cardOk ? 'or' : 'pay with'}</span></div>
+      <div id="pp-button" className="pp-button" />
+    </div>
+  );
+}
+
+// Aduna's own checkout: the order, the notice, then the card form and a PayPal button (when PayPal is set up with its card fields),
+// or a plain hand-off to the payment provider's page (Stripe, or if PayPal's script cannot load).
+function Checkout({ pack, provider, clientId, busy, error, onPay, onPaid, onError, onClose }) {
+  const [fallback, setFallback] = useState(false);
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
+  const embedded = provider === 'paypal' && clientId && !fallback;
   return (
     <Modal title="Checkout" onClose={busy ? () => {} : onClose}>
       <div className="checkout">
@@ -46,15 +131,11 @@ function Checkout({ pack, provider, busy, error, onPay, onClose }) {
           <div className="checkout-line total"><span>Total today</span><b>{money(pack.cents, pack.currency)}</b></div>
         </div>
         <BuyNotices />
-        <label className="check-row checkout-agree">
-          <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} disabled={busy} />
-          <span>I understand that all purchases are final and non-refundable.</span>
-        </label>
-        <p className="muted small checkout-how">You’ll finish paying on {who}’s secure page, then come straight back to Aduna. Aduna never sees your card or {who} login. Credits are added once {who} confirms the payment.</p>
+        {embedded && <PayForm pack={pack} clientId={clientId} onPaid={onPaid} onError={onError} onFallback={() => setFallback(true)} />}
         {error && <p className="error-text">{error}</p>}
         <div className="modal-foot">
           <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancel</button>
-          <button type="button" className="btn primary" disabled={!agree || busy} onClick={onPay}>{busy ? `Opening ${who}…` : `Continue to ${who}`}</button>
+          {!embedded && <button type="button" className="btn primary" disabled={busy} onClick={onPay}>{busy ? `Opening ${who}…` : `Pay with ${who}`}</button>}
         </div>
       </div>
     </Modal>
@@ -98,6 +179,11 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
     setBusy(p.id); setCoErr('');
     try { const { url } = await api('/credits/checkout', { method: 'POST', body: { packId: p.id } }); window.location.assign(url); }
     catch (e) { setCoErr(e.message); setBusy(''); }
+  }
+  // Paid inside Aduna's checkout: the server already captured the order, so close the window and show the result.
+  function paid(r) {
+    setCheckout(null); setBusy(''); setCoErr(''); load();
+    setNote(r.status === 'completed' ? 'Payment received. Your credits have been added.' : 'PayPal is still processing your payment. Your credits are added as soon as it clears.');
   }
   async function claim(q) {
     setBusy(q.id); setErr(''); setNote('');
@@ -144,7 +230,7 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
               ))}
             </div>
             {d.purchases && <BuyNotices />}
-            <p className="muted small">{d.purchases ? `Paid securely through ${d.provider === 'paypal' ? 'PayPal' : 'Stripe'}; Aduna never sees your card${d.provider === 'paypal' ? ' or PayPal login' : ''}. Credits are added to your balance once the payment is confirmed.` : 'Buying credits is not set up on this server yet.'}</p>
+            {!d.purchases && <p className="muted small">Buying credits is not set up on this server yet.</p>}
 
             <h4 className="credit-h">Earn by chatting</h4>
             <div className="earn-card">
@@ -177,7 +263,7 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
           </>
         )}
       </div>
-      {checkout && d && <Checkout pack={checkout} provider={d.provider} busy={!!busy} error={coErr} onPay={pay} onClose={() => { setCheckout(null); setBusy(''); }} />}
+      {checkout && d && <Checkout pack={checkout} provider={d.provider} clientId={d.paypalClientId} busy={!!busy} error={coErr} onPay={pay} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(null); setBusy(''); }} />}
     </section>
   );
 }

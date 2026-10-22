@@ -1,8 +1,8 @@
-version: 1.4.0
+version: 1.4.1
 files:
   - url: Aduna-Setup.exe
-    sha512: gadu/wwp0wjohy1b/JvXktkhSDWDEP6dcRrAIoTQPwMUgwZjyGVQR+v0SGMDQgko8583EacyB31+k2bsMne0SQ==
-    size: 82004451
+    sha512: WE1kRCB9MGV0cKZQUDgj+8g6Fgx1YoSNSH3wZYtnblxDYxCFRH5XZk2BNDEawoLeqQBUnnboNlqKRYQPjLOc0Q==
+    size: 82004541
 path: Aduna-Setup.exe
-sha512: gadu/wwp0wjohy1b/JvXktkhSDWDEP6dcRrAIoTQPwMUgwZjyGVQR+v0SGMDQgko8583EacyB31+k2bsMne0SQ==
-releaseDate: '2026-10-22T00:55:37.930Z'
+sha512: WE1kRCB9MGV0cKZQUDgj+8g6Fgx1YoSNSH3wZYtnblxDYxCFRH5XZk2BNDEawoLeqQBUnnboNlqKRYQPjLOc0Q==
+releaseDate: '2026-10-22T01:41:24.707Z'

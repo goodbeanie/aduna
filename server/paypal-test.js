@@ -164,6 +164,17 @@ function fakePaypal(opts = {}) {
     assert.ok(co.body.url.includes('paypal.com'), 'checkout goes to PayPal');
     assert.strictEqual(JSON.parse(f.calls.filter((c) => c.url.endsWith('/v2/checkout/orders')).at(-1).body).purchase_units[0].amount.value, '4.99', 'the browser cannot set the price');
     assert.strictEqual((await run('POST /api/credits/checkout', { body: { packId: 'bogus' } })).status, 400);
+    // Aduna's own checkout: order for the card fields / PayPal button
+    assert.strictEqual(v.paypalClientId, 'cid', 'the app is told the (public) client id');
+    const eo = await run('POST /api/credits/paypal/order', { body: { packId: 'p500', method: 'card', cents: 1 } });
+    assert.ok(/^ORD/.test(eo.body.orderId));
+    const eb = JSON.parse(f.calls.filter((c) => c.url.endsWith('/v2/checkout/orders')).at(-1).body);
+    assert.strictEqual(eb.purchase_units[0].amount.value, '4.99', 'embedded orders are priced by the server too');
+    assert.strictEqual(eb.payment_source.card.attributes.verification.method, 'SCA_WHEN_REQUIRED', 'card orders ask for 3-D Secure when needed');
+    assert.strictEqual(eb.payment_source.paypal, undefined);
+    await run('POST /api/credits/paypal/order', { body: { packId: 'p500', method: 'paypal' } });
+    assert.strictEqual(JSON.parse(f.calls.filter((c) => c.url.endsWith('/v2/checkout/orders')).at(-1).body).payment_source, undefined, 'PayPal button orders carry no payment source');
+    assert.strictEqual((await run('POST /api/credits/paypal/order', { body: { packId: 'bogus' } })).status, 400);
     const orderId = Object.keys(f.orders)[0];
 
     assert.strictEqual((await run('POST /api/credits/paypal/capture', { body: { orderId: '../x' } })).status, 400);

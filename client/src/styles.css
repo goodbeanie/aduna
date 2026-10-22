@@ -950,15 +950,21 @@ span.mention { cursor: default; }
 .buy-notices { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 10px; }
 .buy-note { display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px; border-radius: 12px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); color: var(--head); font-size: 13.5px; line-height: 1.45; }
 .buy-note svg { flex: none; margin-top: 2px; }
-.buy-note.warn { background: var(--err-bg); color: var(--err-fg); box-shadow: inset 0 0 0 1px var(--err-fg); }
 .checkout { display: flex; flex-direction: column; gap: 12px; }
 .checkout-order { padding: 12px 14px; border-radius: 12px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); display: flex; flex-direction: column; gap: 8px; color: var(--head); }
 .checkout-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-variant-numeric: tabular-nums; }
 .checkout-line.total { padding-top: 8px; border-top: 1px solid var(--line); font-weight: 700; }
 .checkout .buy-notices { margin: 0; }
-.checkout-agree { margin: 2px 0 0; align-items: flex-start; }
-.checkout-agree input { margin-top: 2px; }
-.checkout-how { margin: 0; }
+.pay-form { display: flex; flex-direction: column; gap: 10px; }
+.pay-card { display: flex; flex-direction: column; gap: 10px; }
+.pay-card.hidden, .pay-or.hidden { display: none; }
+.pp-field { height: 44px; border-radius: 10px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.pp-field:focus-within { box-shadow: inset 0 0 0 2px var(--head); }
+.pp-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.pay-btn { width: 100%; height: 44px; }
+.pay-or { display: flex; align-items: center; gap: 10px; color: var(--muted, inherit); font-size: 13px; }
+.pay-or::before, .pay-or::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+.pp-button { min-height: 0; }
 .checkout .modal-foot { margin-top: 8px; }
 .earn-card { padding: 14px 16px; border-radius: 14px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); }
 .earn-card p { margin: 0 0 10px; }

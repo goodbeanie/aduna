@@ -279,6 +279,7 @@ function view(u, db, { purchases, now = Date.now() }) {
     balance: c.balance,
     purchases,
     provider: purchases ? (paypalEnabled() ? 'paypal' : 'stripe') : null,
+    paypalClientId: paypalEnabled() ? ppId() : null, // public by design: the browser needs it to load PayPal's card fields and button
     packs: PACKS.map((p) => ({ ...p, currency: CURRENCY })),
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
@@ -322,8 +323,10 @@ async function ppToken(fetchImpl = fetch) {
   return j.access_token;
 }
 
-// Creates the order (price comes from the pack on the server, never from the browser) and returns where to send the buyer.
-async function createPaypalOrder({ user, pack, origin, fetchImpl = fetch }) {
+// Creates the order (price comes from the pack on the server, never from the browser).
+// Without `embedded` it returns where to send the buyer (PayPal's own page). With embedded 'card' or 'paypal' the buyer pays inside
+// Aduna's checkout (PayPal's card fields or PayPal button) and only the order id is returned; the browser then hands it back to be captured.
+async function createPaypalOrder({ user, pack, origin, embedded = null, fetchImpl = fetch }) {
   const token = await ppToken(fetchImpl);
   const r = await fetchImpl(ppBase() + '/v2/checkout/orders', {
     method: 'POST',
@@ -336,13 +339,19 @@ async function createPaypalOrder({ user, pack, origin, fetchImpl = fetch }) {
         description: `${pack.credits.toLocaleString('en-US')} Aduna credits`,
         amount: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(pack.cents) },
       }],
-      payment_source: { paypal: { experience_context: {
-        brand_name: 'Aduna', user_action: 'PAY_NOW', shipping_preference: 'NO_SHIPPING',
-        return_url: `${origin}/app?credits=paypal`, cancel_url: `${origin}/app?credits=cancelled`,
-      } } },
+      ...(embedded === 'card'
+        ? { payment_source: { card: { attributes: { verification: { method: 'SCA_WHEN_REQUIRED' } } } } } // 3-D Secure when the bank asks for it
+        : embedded ? {} : { payment_source: { paypal: { experience_context: {
+          brand_name: 'Aduna', user_action: 'PAY_NOW', shipping_preference: 'NO_SHIPPING',
+          return_url: `${origin}/app?credits=paypal`, cancel_url: `${origin}/app?credits=cancelled`,
+        } } } }),
     }),
   });
   const j = await r.json().catch(() => ({}));
+  if (embedded) {
+    if (!r.ok || !ppOrderId(j.id)) throw new Error(`PayPal checkout failed (${r.status}): ${j.message || 'no order id'}`);
+    return { orderId: j.id };
+  }
   const link = (j.links || []).find((l) => l.rel === 'payer-action') || (j.links || []).find((l) => l.rel === 'approve');
   if (!r.ok || !link?.href) throw new Error(`PayPal checkout failed (${r.status}): ${j.message || 'no approval link'}`);
   let host = '';
@@ -524,6 +533,20 @@ function register(app, d) {
       if (paypalEnabled()) res.json({ url: (await createPaypalOrder({ user: req.user, pack, origin, fetchImpl: d.fetchImpl })).url });
       else res.json({ url: await createCheckout({ user: req.user, pack, origin, fetchImpl: d.fetchImpl }) });
     }
+    catch (e) { console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
+  }));
+
+  // Aduna's own checkout: the browser asks for an order (method 'card' for the card fields, 'paypal' for the PayPal button), pays inside
+  // Aduna's window, and then posts the order id to the capture route below. The price always comes from the pack, never from the browser.
+  app.post('/api/credits/paypal/order', d.auth, d.ah(async (req, res) => {
+    if (!paypalEnabled()) return res.status(503).json({ error: 'PayPal is not set up on this server' });
+    const t = Date.now(), arr = (tries.get(req.user.id) || []).filter((x) => t - x < 60_000);
+    if (arr.length >= 8) return res.status(429).json({ error: 'Too many attempts, try again in a minute' });
+    arr.push(t); tries.set(req.user.id, arr);
+    const pack = PACKS.find((p) => p.id === req.body?.packId);
+    if (!pack) return res.status(400).json({ error: 'Unknown credit pack' });
+    const method = req.body?.method === 'card' ? 'card' : 'paypal';
+    try { res.json({ orderId: (await createPaypalOrder({ user: req.user, pack, embedded: method, fetchImpl: d.fetchImpl })).orderId }); }
     catch (e) { console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
   }));
 

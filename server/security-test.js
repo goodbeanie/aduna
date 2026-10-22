@@ -18,6 +18,10 @@ const step = (m) => console.log('✓', m);
   assert.ok(run({}, { secure: true })['Strict-Transport-Security'].includes('max-age'), 'HSTS over https');
   assert.ok(run({ CSP_MODE: 'report-only' })['Content-Security-Policy-Report-Only'] && !run({ CSP_MODE: 'report-only' })['Content-Security-Policy']);
   assert.strictEqual(run({ CSP_MODE: 'off' })['Content-Security-Policy'], undefined);
+  const pp = run({ PAYPAL_CLIENT_ID: 'x' });
+  assert.ok(pp['Content-Security-Policy'].includes("script-src 'self' https://*.paypal.com") && pp['Content-Security-Policy'].includes('frame-src https://*.paypal.com'), 'PayPal is allowed only when it is set up');
+  assert.ok(!h['Content-Security-Policy'].includes('paypal') && h['Content-Security-Policy'].includes("frame-src 'none'"), 'and not otherwise');
+  assert.strictEqual(pp['Cross-Origin-Opener-Policy'], 'same-origin-allow-popups');
   step('headers: strict CSP, no framing, nosniff, permissions for calls, HSTS only on https, CSP_MODE switch');
 }
 

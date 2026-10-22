@@ -5,8 +5,8 @@ Discord-style chat app: Node + Express + Socket.IO + Postgres on Neon (every rec
 Servers, channels, E2EE DMs, friends, profiles. See README.md for how to run (npm install, npm run build, npm start).
 
 ## Done and tested
-- Credits checkout (PayPal): the Buy buttons open Aduna's own checkout modal (client/src/Credits.jsx > Checkout) with the "nothing is saved"
-  and "all purchases are final" notices and a required tick box, then redirect to PayPal. Server: server/credits.js (createPaypalOrder,
+- Credits checkout (PayPal): the Buy buttons open Aduna's own checkout modal (client/src/Credits.jsx > Checkout) with a single "Aduna does not save
+  your payment information" notice, then PayPal card fields + PayPal button inside the modal (PayPal JS SDK, loaded from the client; server route POST /api/credits/paypal/order). Falls back to a redirect to PayPal if the SDK cannot load. Server: server/credits.js (createPaypalOrder,
   capturePaypalOrder, verifyPaypalWebhook, handlePaypalEvent), routes POST /api/credits/paypal/capture and /api/credits/webhook/paypal.
   Tested without the network in server/paypal-test.js (fake PayPal). NOT yet tried against the real PayPal sandbox: do one sandbox purchase
   (README > Credits) before switching PAYPAL_ENV=live. Stripe code is kept and used only when PayPal is not configured.
