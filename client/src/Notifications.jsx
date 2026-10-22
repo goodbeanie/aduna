@@ -1,17 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { api } from './api.js';
 import * as notify from './notify.js';
+import { useLang } from './i18n.js';
 
-const KINDS = [
-  ['dm', 'Direct messages', 'Who wrote to you. On this device the text is shown too (decrypted here); when Aduna is closed it only says you have a message, because DMs are end-to-end encrypted.'],
-  ['mentions', 'Mentions and @everyone', 'When someone @mentions you or pings the whole server.'],
-  ['announcements', 'Announcements', 'New posts in a server’s announcements channel.'],
-  ['calls', 'Calls', 'When a friend rings you.'],
-  ['friends', 'Friend requests', 'When someone sends you a friend request.'],
-];
+const KINDS = [['dm', 'nDm', 'nDmHint'], ['mentions', 'nMentions', 'nMentionsHint'], ['announcements', 'nAnn', 'nAnnHint'], ['calls', 'nCalls', 'nCallsHint'], ['friends', 'nFriends', 'nFriendsHint']];
 
 // Settings > Notifications. Which kinds you get is saved on your account (every device); the permission is per device.
 export function NotificationSettings({ me, onPrefs }) {
+  const { t } = useLang();
   const [perm, setPerm] = useState(notify.permission());
   const [subbed, setSubbed] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -64,24 +60,24 @@ export function NotificationSettings({ me, onPrefs }) {
 
   return (
     <div className="notify-settings">
-      <p className="muted">Choose what Aduna tells you about when you are in another window, another app, or have it closed.</p>
+      <p className="muted">{t('nIntro')}</p>
 
-      <label>THIS DEVICE</label>
+      <label>{t('nThisDevice')}</label>
       <div className="notify-status">
-        {desktop && <p>Aduna keeps running in the tray when you close the window. DMs, mentions and calls show as a card in the bottom-right corner of your screen; clicking it opens that chat. Right-click the tray icon to turn off \u201cStart with Windows\u201d or to quit.</p>}
-        {!desktop && perm === 'granted' && <p><b>On.</b> {subbed ? 'You will also get them while Aduna is closed.' : notify.pushSupported() ? 'You get them while Aduna is open in the background.' : 'You get them while Aduna is open in the background.'}</p>}
-        {!desktop && perm === 'default' && <p>Off. Turn them on to hear about DMs, mentions and calls.</p>}
-        {!desktop && perm === 'denied' && <p><b>Blocked.</b> Allow notifications for Aduna in your browser or phone settings (the lock icon next to the address, or Settings &gt; Notifications on your phone; in the Android app: Settings &gt; Apps &gt; Aduna &gt; Notifications), then come back.</p>}
-        {!desktop && perm === 'needs-install' && <p>iPhone and iPad only allow notifications for apps on the home screen. Tap Share, then <b>Add to Home Screen</b>, open Aduna from there and come back to this page.</p>}
-        {!desktop && perm === 'unsupported' && <p>This browser does not support notifications. Chrome, Edge, Firefox and Safari do.</p>}
+        {desktop && <p>{t('nDesktop')}</p>}
+        {!desktop && perm === 'granted' && <p><b>{t('nOn')}</b> {subbed ? t('nOnClosed') : t('nOnOpen')}</p>}
+        {!desktop && perm === 'default' && <p>{t('nOff')}</p>}
+        {!desktop && perm === 'denied' && <p><b>{t('nBlockedB')}</b>{t('nBlocked')}</p>}
+        {!desktop && perm === 'needs-install' && <p>{t('nInstallA')}<b>{t('nInstallB')}</b>{t('nInstallC')}</p>}
+        {!desktop && perm === 'unsupported' && <p>{t('nUnsupported')}</p>}
         <div className="notify-actions">
-          {!desktop && perm === 'default' && <button className="btn primary" disabled={busy} onClick={turnOn}>Turn on notifications</button>}
-          {!desktop && !native && perm === 'granted' && <button className="btn" disabled={busy} onClick={() => notify.show({ title: 'Test notification', body: 'This is what Aduna notifications look like.', tag: 'aduna-test' })}>Send a test</button>}
-          {!desktop && perm === 'granted' && subbed === false && notify.pushSupported() && <button className="btn" disabled={busy} onClick={turnOn}>Enable while closed</button>}
-          {!desktop && perm === 'granted' && subbed && <button className="btn" disabled={busy} onClick={turnOff}>Stop while-closed notifications</button>}
-          {!desktop && perm === 'granted' && notify.pushSupported() && <button className="btn" disabled={busy} onClick={serverTest}>Send a test push from the server</button>}
-          {!desktop && <button className="btn" disabled={busy} onClick={check}>Check notifications</button>}
-          {desktop && <button className="btn" onClick={() => notify.show({ title: 'Test notification', body: 'This is what Aduna notifications look like.', tag: 'aduna-test' })}>Send a test</button>}
+          {!desktop && perm === 'default' && <button className="btn primary" disabled={busy} onClick={turnOn}>{t('nTurnOn')}</button>}
+          {!desktop && !native && perm === 'granted' && <button className="btn" disabled={busy} onClick={() => notify.show({ title: 'Test notification', body: 'This is what Aduna notifications look like.', tag: 'aduna-test' })}>{t('nSendTest')}</button>}
+          {!desktop && perm === 'granted' && subbed === false && notify.pushSupported() && <button className="btn" disabled={busy} onClick={turnOn}>{t('nEnableClosed')}</button>}
+          {!desktop && perm === 'granted' && subbed && <button className="btn" disabled={busy} onClick={turnOff}>{t('nStopClosed')}</button>}
+          {!desktop && perm === 'granted' && notify.pushSupported() && <button className="btn" disabled={busy} onClick={serverTest}>{t('nServerTest')}</button>}
+          {!desktop && <button className="btn" disabled={busy} onClick={check}>{t('nCheck')}</button>}
+          {desktop && <button className="btn" onClick={() => notify.show({ title: 'Test notification', body: 'This is what Aduna notifications look like.', tag: 'aduna-test' })}>{t('nSendTest')}</button>}
         </div>
         {msg && <p className="muted small hint">{msg}</p>}
         {diag && (
@@ -96,17 +92,17 @@ export function NotificationSettings({ me, onPrefs }) {
         )}
       </div>
 
-      <label>WHAT TO TELL ME ABOUT</label>
-      {KINDS.map(([key, name, hint]) => (
+      <label>{t('nWhat')}</label>
+      {KINDS.map(([key, nameKey, hintKey]) => (
         <React.Fragment key={key}>
           <label className="check-row">
             <input type="checkbox" checked={prefs[key] !== false} onChange={(e) => set(key, e.target.checked)} />
-            <span>{name}</span>
+            <span>{t(nameKey)}</span>
           </label>
-          <p className="muted small hint">{hint}</p>
+          <p className="muted small hint">{t(hintKey)}</p>
         </React.Fragment>
       ))}
-      <p className="muted small hint">With Do Not Disturb on, only calls come through. These choices are saved on your account and apply to all your devices.</p>
+      <p className="muted small hint">{t('nFooter')}</p>
     </div>
   );
 }

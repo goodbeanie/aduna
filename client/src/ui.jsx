@@ -1,7 +1,9 @@
 import React from 'react';
 import { imageUrl } from './image.js';
+import { t } from './i18n.js';
 
-export const STATUS_LABEL = { online: 'Online', idle: 'Idle', dnd: 'Do Not Disturb', invisible: 'Invisible', offline: 'Offline' };
+// STATUS_LABEL[status] gives the word in the current language (a screen redraws on a language change, so it is always read fresh)
+export const STATUS_LABEL = new Proxy({}, { get: (_, k) => (typeof k === 'string' ? t('st_' + k) : undefined) });
 
 // Shows the uploaded picture if there is one, otherwise the Aduna logo (avatarLogo) or the emoji / first letter on the avatar colour.
 // `avatarPreview` is a temporary object URL used by the profile editor before saving.

@@ -5,6 +5,7 @@ import { processImage, uploadImage, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
 import { BotTag } from './Bots.jsx';
+import { useLang } from './i18n.js';
 
 export function ServerModal({ onClose, onDone }) {
   const [tab, setTab] = useState('create');
@@ -227,6 +228,7 @@ function ColorRow({ label, value, onChange, colors = COLORS }) {
 }
 
 export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
+  const { t } = useLang();
   const [f, setF] = useState({
     displayName: me.displayName, username: me.username, email: me.email || '', bio: me.bio, avatarEmoji: me.avatarEmoji, avatarColor: me.avatarColor,
     bannerColor: me.bannerColor, accentColor: me.accentColor, status: me.status,
@@ -318,14 +320,14 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     <div className="settings-pane">
       <div className="editor">
         <div className="editor-form">
-          <label>DISPLAY NAME</label>
+          <label>{t('displayName')}</label>
           <input value={f.displayName} maxLength={32} onChange={(e) => set('displayName')(e.target.value)} />
 
-          <label>EMAIL</label>
+          <label>{t('email')}</label>
           <input type="email" value={f.email} maxLength={254} autoComplete="email" placeholder="you@example.com" onChange={(e) => set('email')(e.target.value)} />
-          <p className="muted small hint">Private: other people never see it. Used for payment receipts and important account notices.</p>
+          <p className="muted small hint">{t('emailPrivate')}</p>
 
-          <label>USERNAME</label>
+          <label>{t('username')}</label>
           <div className="at-input">
             <span>@</span>
             <input value={f.username} maxLength={20} disabled={locked} autoCapitalize="none" autoCorrect="off" spellCheck={false}
@@ -333,50 +335,50 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           </div>
           <p className="muted small hint">
             {locked
-              ? `You changed your username recently. You can change it again on ${fmtDate(unlockAt)}.`
+              ? t('usernameLocked', { date: fmtDate(unlockAt) })
               : renaming
-                ? 'Heads up: after saving you won’t be able to change your username again for 7 days. Friends will find you by the new name.'
-                : 'Letters, numbers and underscores. You can change it once every 7 days.'}
+                ? t('usernameHeadsUp')
+                : t('usernameRule')}
           </p>
 
-          <label>ABOUT ME</label>
+          <label>{t('aboutMe')}</label>
           <textarea rows={3} maxLength={190} value={f.bio} onChange={(e) => set('bio')(e.target.value)} />
 
-          <label>LINKS</label>
+          <label>{t('links')}</label>
           <div className="links-edit">
             {f.links.map((l, i) => (
               <div className="link-row" key={i}>
-                <input className="link-label" value={l.label} maxLength={24} placeholder="Label" aria-label="Link label" onChange={(e) => setLink(i, 'label', e.target.value)} />
-                <input className="link-url" value={l.url} maxLength={200} placeholder="instagram.com/you" aria-label="Link address" inputMode="url" autoCapitalize="none" onChange={(e) => setLink(i, 'url', e.target.value)} />
-                <button type="button" className="icon-btn" title="Remove link" aria-label="Remove link" onClick={() => removeLink(i)}><Icon name="close" size={16} /></button>
+                <input className="link-label" value={l.label} maxLength={24} placeholder={t('linkLabel')} aria-label={t('linkLabelAria')} onChange={(e) => setLink(i, 'label', e.target.value)} />
+                <input className="link-url" value={l.url} maxLength={200} placeholder="instagram.com/you" aria-label={t('linkAddr')} inputMode="url" autoCapitalize="none" onChange={(e) => setLink(i, 'url', e.target.value)} />
+                <button type="button" className="icon-btn" title={t('removeLink')} aria-label={t('removeLink')} onClick={() => removeLink(i)}><Icon name="close" size={16} /></button>
               </div>
             ))}
             {f.links.length < MAX_LINKS && (
               <div className="social-chips">
-                <button type="button" className="btn" onClick={() => addLink()}><Icon name="plus" size={14} className="inline-icon" /> Add link</button>
+                <button type="button" className="btn" onClick={() => addLink()}><Icon name="plus" size={14} className="inline-icon" /> {t('addLink')}</button>
                 {SOCIALS.map((n) => <button type="button" key={n} className="soc-chip" onClick={() => addLink(n)}>{n}</button>)}
               </div>
             )}
-            <p className="muted small hint">Up to {MAX_LINKS} links. They show on your profile and open in a new tab.</p>
+            <p className="muted small hint">{t('linksHint', { n: MAX_LINKS })}</p>
           </div>
 
-          <label>PROFILE PICTURE</label>
-          <div className="mode-pick" role="radiogroup" aria-label="Profile picture style">
-            {[['letter', 'Letter'], ['logo', 'Aduna logo'], ['image', 'Image']].map(([k, label]) => (
+          <label>{t('profilePicture')}</label>
+          <div className="mode-pick" role="radiogroup" aria-label={t('picStyle')}>
+            {[['letter', t('picLetter')], ['logo', t('picLogo')], ['image', t('picImage')]].map(([k, label]) => (
               <button type="button" role="radio" aria-checked={mode === k} key={k} className={mode === k ? 'on' : ''} onClick={() => chooseMode(k)}>{label}</button>
             ))}
           </div>
           <input ref={avatarInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('avatar', e)} />
-          {mode !== 'image' && <ColorRow label="AVATAR COLOR" value={f.avatarColor} onChange={set('avatarColor')} />}
-          <p className="muted small hint">Tip: hover your picture or banner in the preview and click it to upload an image.</p>
+          {mode !== 'image' && <ColorRow label={t('avatarColor')} value={f.avatarColor} onChange={set('avatarColor')} />}
+          <p className="muted small hint">{t('picTip')}</p>
 
-          <label>BANNER</label>
-          <ColorRow label="BANNER COLOR" value={f.bannerColor} onChange={set('bannerColor')} colors={BANNER_COLORS} />
-          {hasBanner && <div className="upload-row"><button type="button" className="btn" onClick={removeBanner}>Remove banner image</button></div>}
+          <label>{t('banner')}</label>
+          <ColorRow label={t('bannerColor')} value={f.bannerColor} onChange={set('bannerColor')} colors={BANNER_COLORS} />
+          {hasBanner && <div className="upload-row"><button type="button" className="btn" onClick={removeBanner}>{t('removeBanner')}</button></div>}
           <input ref={bannerInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('banner', e)} />
 
-          <ColorRow label="NAME COLOR" value={f.accentColor} onChange={set('accentColor')} />
-          <label>STATUS</label>
+          <ColorRow label={t('nameColor')} value={f.accentColor} onChange={set('accentColor')} />
+          <label>{t('statusLbl')}</label>
           <select value={f.status} onChange={(e) => set('status')(e.target.value)}>
             {['online', 'idle', 'dnd', 'invisible'].map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
@@ -387,27 +389,27 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           <div className="card">
             <div className="banner-edit">
               <Banner user={preview} />
-              <button type="button" className="img-overlay banner-ov" onClick={() => bannerInput.current.click()} aria-label="Change banner image">
-                <Icon name="camera" size={20} /><span>Change banner</span>
+              <button type="button" className="img-overlay banner-ov" onClick={() => bannerInput.current.click()} aria-label={t('changeBannerAria')}>
+                <Icon name="camera" size={20} /><span>{t('changeBanner')}</span>
               </button>
             </div>
             <div className="card-avatar avatar-edit">
               <Avatar user={preview} size={80} presence={f.status === 'invisible' ? 'offline' : f.status} />
-              <button type="button" className="img-overlay avatar-ov" onClick={() => avatarInput.current.click()} aria-label="Change profile picture">
+              <button type="button" className="img-overlay avatar-ov" onClick={() => avatarInput.current.click()} aria-label={t('changePicAria')}>
                 <Icon name="camera" size={22} />
               </button>
             </div>
             <div className="card-body">
               <h3 data-nc style={{ '--nc': preview.accentColor }}>{preview.displayName || me.username} <BadgeIcons user={preview} size={20} /></h3>
               <div className="muted">@{renaming ? f.username.trim() || me.username : me.username}</div>
-              {preview.bio && (<><h4>ABOUT ME</h4><p className="bio">{preview.bio}</p></>)}
+              {preview.bio && (<><h4>{t('aboutMe')}</h4><p className="bio">{preview.bio}</p></>)}
               <ProfileLinks links={f.links.filter((l) => l.url.trim()).map((l) => ({ label: l.label.trim() || l.url.trim().replace(/^https?:\/\/(www\.)?/i, '').split('/')[0], url: /^[a-z][a-z0-9+.-]*:/i.test(l.url.trim()) ? l.url.trim() : 'https://' + l.url.trim() }))} />
             </div>
           </div>
         </div>
       </div>
       <div className="settings-foot">
-        <button className="btn" onClick={onClose}>Cancel</button> <button className="btn primary" onClick={save} disabled={saving}>Save changes</button>
+        <button className="btn" onClick={onClose}>{t('cancel')}</button> <button className="btn primary" onClick={save} disabled={saving}>{t('saveChanges')}</button>
       </div>
     </div>
   );

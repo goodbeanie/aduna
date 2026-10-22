@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
 import { Avatar, BadgeIcons, Icon, STATUS_LABEL } from './ui.jsx';
+import { useLang } from './i18n.js';
 
-const TABS = [['all', 'All'], ['online', 'Online'], ['pending', 'Pending'], ['add', 'Add Friend']];
+const TABS = [['all', 'fAll'], ['online', 'fOnline'], ['pending', 'fPending'], ['add', 'fAdd']];
 
 // Friends list order: Online, then Idle, then Offline, then Do Not Disturb.
 const STATUS_ORDER = { online: 0, idle: 1, offline: 2, dnd: 3 };
 const rankOf = (st) => (st in STATUS_ORDER ? STATUS_ORDER[st] : STATUS_ORDER.offline);
 
 export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, onAccept, onRemove, onBack }) {
+  const { t } = useLang();
   const [tab, setTab] = useState('all');
   const [name, setName] = useState('');
   const [msg, setMsg] = useState(null); // { ok, text }
@@ -26,7 +28,7 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, on
     setBusy(true); setMsg(null);
     try {
       const r = await onRequest(name.trim());
-      setMsg({ ok: true, text: r.result === 'friends' ? `You and ${r.user.displayName} are now friends!` : `Friend request sent to ${r.user.displayName}.` });
+      setMsg({ ok: true, text: r.result === 'friends' ? t('nowFriends', { name: r.user.displayName }) : t('requestSent', { name: r.user.displayName }) });
       setName('');
     } catch (err) { setMsg({ ok: false, text: err.message }); }
     setBusy(false);
@@ -48,13 +50,13 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, on
   return (
     <section className="chat">
       <header className="chat-head">
-        {onBack && <button className="icon-btn back-btn" title="Back" aria-label="Back to list" onClick={onBack}><Icon name="back" size={22} /></button>}
+        {onBack && <button className="icon-btn back-btn" title={t('back')} aria-label={t('backToList')} onClick={onBack}><Icon name="back" size={22} /></button>}
         <span className="hash"><Icon name="users" size={20} /></span>
-        <h3 className="fh">Friends</h3>
+        <h3 className="fh">{t('friends')}</h3>
         <div className="ftabs">
           {TABS.map(([k, label]) => (
             <button key={k} className={'ftab' + (tab === k ? ' on' : '') + (k === 'add' ? ' add' : '')} onClick={() => { setTab(k); setMsg(null); }}>
-              {label}{k === 'pending' && fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
+              {t(label)}{k === 'pending' && fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
             </button>
           ))}
         </div>
@@ -63,11 +65,11 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, on
       <div className="friends-body">
         {tab === 'add' && (
           <form onSubmit={add} className="add-friend">
-            <h3>Add Friend</h3>
-            <p className="muted">You can add friends with their Aduna username.</p>
+            <h3>{t('fAdd')}</h3>
+            <p className="muted">{t('addFriendSub')}</p>
             <div className="add-row">
-              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Enter a username" maxLength={21} />
-              <button className="btn primary" disabled={busy || !name.trim()}>Send Friend Request</button>
+              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={t('enterUsername')} maxLength={21} />
+              <button className="btn primary" disabled={busy || !name.trim()}>{t('sendRequest')}</button>
             </div>
             {msg && <p className={msg.ok ? 'ok-text' : 'error-text'}>{msg.text}</p>}
           </form>
@@ -75,17 +77,17 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, on
 
         {(tab === 'online' || tab === 'all') && (
           <>
-            <div className="side-label">{tab === 'online' ? 'ONLINE' : 'ALL FRIENDS'} — {shown.length}</div>
+            <div className="side-label">{tab === 'online' ? t('lblOnline') : t('lblAllFriends')} — {shown.length}</div>
             {shown.map((u) => row(u, STATUS_LABEL[statusOf(u.id)],
               <>
-                <button className="icon-btn" title="Message" onClick={() => onMessage(u)}><Icon name="message" size={17} /></button>
-                <button className="icon-btn" title="Remove friend" onClick={() => confirm(`Remove ${u.displayName} from your friends?`) && onRemove(u.id)}><Icon name="close" size={16} /></button>
+                <button className="icon-btn" title={t('message')} onClick={() => onMessage(u)}><Icon name="message" size={17} /></button>
+                <button className="icon-btn" title={t('removeFriend')} onClick={() => confirm(t('confirmRemove', { name: u.displayName })) && onRemove(u.id)}><Icon name="close" size={16} /></button>
               </>,
               () => onMessage(u)))}
             {shown.length === 0 && (
               <div className="friends-empty">
-                <p className="muted">{fr.friends.length === 0 ? 'No friends yet. Add someone by their username to start chatting.' : 'No one is online right now.'}</p>
-                {fr.friends.length === 0 && <button className="btn primary" onClick={() => setTab('add')}>Add Friend</button>}
+                <p className="muted">{fr.friends.length === 0 ? t('noFriends') : t('noOneOnline')}</p>
+                {fr.friends.length === 0 && <button className="btn primary" onClick={() => setTab('add')}>{t('fAdd')}</button>}
               </div>
             )}
           </>
@@ -93,16 +95,16 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, on
 
         {tab === 'pending' && (
           <>
-            {pending === 0 && <div className="friends-empty"><p className="muted">There are no pending friend requests.</p></div>}
-            {fr.incoming.length > 0 && <div className="side-label">INCOMING — {fr.incoming.length}</div>}
-            {fr.incoming.map(({ user }) => row(user, 'Incoming friend request',
+            {pending === 0 && <div className="friends-empty"><p className="muted">{t('noPending')}</p></div>}
+            {fr.incoming.length > 0 && <div className="side-label">{t('lblIncoming')} — {fr.incoming.length}</div>}
+            {fr.incoming.map(({ user }) => row(user, t('incomingReq'),
               <>
-                <button className="icon-btn ok" title="Accept" onClick={() => onAccept(user.id)}><Icon name="check" size={17} /></button>
-                <button className="icon-btn" title="Decline" onClick={() => onRemove(user.id)}><Icon name="close" size={16} /></button>
+                <button className="icon-btn ok" title={t('accept')} onClick={() => onAccept(user.id)}><Icon name="check" size={17} /></button>
+                <button className="icon-btn" title={t('decline')} onClick={() => onRemove(user.id)}><Icon name="close" size={16} /></button>
               </>))}
-            {fr.outgoing.length > 0 && <div className="side-label">OUTGOING — {fr.outgoing.length}</div>}
-            {fr.outgoing.map(({ user }) => row(user, 'Outgoing friend request',
-              <button className="icon-btn" title="Cancel request" onClick={() => onRemove(user.id)}><Icon name="close" size={16} /></button>))}
+            {fr.outgoing.length > 0 && <div className="side-label">{t('lblOutgoing')} — {fr.outgoing.length}</div>}
+            {fr.outgoing.map(({ user }) => row(user, t('outgoingReq'),
+              <button className="icon-btn" title={t('cancelReq')} onClick={() => onRemove(user.id)}><Icon name="close" size={16} /></button>))}
           </>
         )}
       </div>

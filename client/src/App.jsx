@@ -25,7 +25,7 @@ import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
 import { OnboardingFlow } from './Onboarding.jsx';
 import Setup from './Setup.jsx';
-import { setLang } from './i18n.js';
+import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 import * as notify from './notify.js';
@@ -64,6 +64,7 @@ function BootSplash() {
 }
 
 export default function App() {
+  const { t: tr } = useLang(); // redraws the whole app when the language changes
   const [boot, setBoot] = useState('loading');
   const [me, setMe] = useState(null);
   const [privKey, setPrivKey] = useState(null);
@@ -747,7 +748,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     <div className="app">
       {/* server bar (top) */}
       <nav className="rail">
-        <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title="Direct Messages" onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, credits: view.kind === 'dm' && !!view.credits }); setShowList(true); setMembersOpen(false); }}>
+        <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, credits: view.kind === 'dm' && !!view.credits }); setShowList(true); setMembersOpen(false); }}>
           <img src="/aduna-icon.png" alt="" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
         <div className="rail-sep" />
@@ -838,21 +839,21 @@ function Main({ me, setMe, privKey, openServerId }) {
           </>
         ) : (
           <>
-            <div className="side-head static">Direct Messages
-              <button className="icon-btn" title="New message" onClick={() => setModal({ type: 'dm' })}><Icon name="plus" size={17} /></button>
+            <div className="side-head static">{tr('dms')}
+              <button className="icon-btn" title={tr('newMessage')} onClick={() => setModal({ type: 'dm' })}><Icon name="plus" size={17} /></button>
             </div>
             <div className="side-list">
               <button className={'chan' + (view.explore ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}>
-                <span className="hash"><Icon name="globe" size={20} /></span>Server explorer
+                <span className="hash"><Icon name="globe" size={20} /></span>{tr('serverExplorer')}
               </button>
               <button className={'chan' + (view.credits ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, credits: true }); setShowList(false); }}>
-                <span className="hash"><Icon name="coin" size={20} /></span>Credits{balance !== null && <span className="credit-count">{balance.toLocaleString()}</span>}
+                <span className="hash"><Icon name="coin" size={20} /></span>{tr('credits')}{balance !== null && <span className="credit-count">{balance.toLocaleString()}</span>}
               </button>
               <button className={'chan' + (!view.userId && !view.explore && !view.credits ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
-                <span className="hash"><Icon name="users" size={20} /></span>Friends{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
+                <span className="hash"><Icon name="users" size={20} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
-              <div className="side-label">DIRECT MESSAGES</div>
-              {convos.length === 0 && <p className="muted pad">No conversations yet. Message a friend from the Friends page.</p>}
+              <div className="side-label">{tr('lblDMs')}</div>
+              {convos.length === 0 && <p className="muted pad">{tr('noConvos')}</p>}
               {convos.map((id) => users[id] && (
                 <button key={id} className={'chan dm' + (id === view.userId ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: id }); setShowList(false); }}>
                   <Avatar user={users[id]} size={32} presence={statusOf(id)} />
@@ -868,9 +869,9 @@ function Main({ me, setMe, privKey, openServerId }) {
             <Avatar user={me} size={34} presence={myPresence} />
             <div><div className="me-name">{me.displayName}<BadgeIcons user={me} size={16} /></div><div className="muted small">{STATUS_LABEL[myPresence]}</div></div>
           </button>
-          <button className="credit-chip" title="Credits" onClick={() => { setView({ kind: 'dm', userId: null, credits: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
-          <button className="icon-btn" title="Custom emoji" onClick={openManager}><Icon name="smile" size={18} /></button>
-          <button className="icon-btn" title="Settings" onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
+          <button className="credit-chip" title={tr('credits')} onClick={() => { setView({ kind: 'dm', userId: null, credits: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
+          <button className="icon-btn" title={tr('customEmoji')} onClick={openManager}><Icon name="smile" size={18} /></button>
+          <button className="icon-btn" title={tr('settings')} onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
         </div>
       </aside>
 
