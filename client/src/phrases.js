@@ -30,7 +30,7 @@ const BOOK = [
   ['Light', 'Clair', 'Claro'], ['Dark', 'Sombre', 'Oscuro'], ['Live', 'En direct', 'En vivo'], ['Camera', 'Caméra', 'Cámara'], ['Call', 'Appeler', 'Llamar'],
   ['Hang up', 'Raccrocher', 'Colgar'], ['Leave', 'Quitter', 'Salir'], ['Kick', 'Expulser', 'Expulsar'], ['Report', 'Signaler', 'Denunciar'], ['Tab', 'Tab', 'Tab'],
   ['Move up', 'Monter', 'Subir'], ['Move down', 'Descendre', 'Bajar'], ['Required', 'Obligatoire', 'Obligatorio'], ['Unmute', 'Réactiver le son', 'Dejar de silenciar'],
-  ['Publish', 'Publier', 'Publicar'], ['Unpublish', 'Dépublier', 'Dejar de publicar'], ['Rename', 'Renommer', 'Renombrar']
+  ['Publish', 'Publier', 'Publicar'], ['Unpublish', 'Dépublier', 'Dejar de publicar'], ['Rename', 'Renommer', 'Renombrar'],
   // chat
   ['Add reaction', 'Ajouter une réaction', 'Añadir reacción'], ['Attach', 'Joindre', 'Adjuntar'], ['Cancel reply', 'Annuler la réponse', 'Cancelar respuesta'],
   ['Delete message', 'Supprimer le message', 'Eliminar mensaje'], ['Drop files to send', 'Déposez des fichiers pour les envoyer', 'Suelta archivos para enviarlos'],
