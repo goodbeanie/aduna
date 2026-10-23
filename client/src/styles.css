@@ -1374,7 +1374,7 @@ html[data-season=halloween] body::before { top: 0; right: 0; width: 170px; heigh
 html[data-season=halloween][data-theme=candycorn] body::before { background-image: url(/deco/cobweb-dark.png); opacity: .6; }
 html[data-season=halloween]::before { top: 0; right: 236px; width: 34px; height: 86px; background: url(/deco/spider.png) top center / contain no-repeat; filter: drop-shadow(0 0 1px rgba(255,255,255,.55)) drop-shadow(0 0 5px rgba(255,255,255,.25)); transform-origin: 50% 0; animation: deco-sway 5s ease-in-out infinite; }
 html[data-season=halloween][data-theme=candycorn]::before { filter: none; } /* on the light theme the black spider needs no glow */
-html[data-season=halloween] body::after { right: 26px; bottom: 0; width: 64px; height: 42px; background: url(/deco/skull.svg) bottom center / contain no-repeat; }
+html[data-season=halloween] body::after { right: 26px; bottom: 0; width: 68px; height: 70px; background: url(/deco/skull.png) bottom center / contain no-repeat; }
 html[data-season=halloween]::after { left: 14px; bottom: 74px; width: 66px; height: 50px; background: url(/deco/candy.png) bottom left / contain no-repeat; opacity: .95; }
 @keyframes deco-sway { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
 
