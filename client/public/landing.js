@@ -34,9 +34,10 @@ try{
       v = {
         '--cream': bg, '--fg': fg, '--muted': mix(bg, k, dark ? 0.55 : 0.52), '--line': mix(bg, k, dark ? 0.13 : 0.11),
         '--accent': ac, '--on-accent': readable(ac), '--band': band, '--band-fg': bandFg, '--band-muted': mix(band, bandFg, 0.65),
-        '--d-bg': bg, '--d-bg2': dark ? mix(bg, '#000000', 0.18) : mix(bg, k, 0.04), '--d-bg3': dark ? mix(bg, '#000000', 0.38) : mix(bg, k, 0.09),
-        '--d-field': mix(bg, k, dark ? 0.07 : 0.05), '--d-line': mix(bg, k, dark ? 0.13 : 0.11), '--d-text': mix(bg, k, dark ? 0.12 : 0.16),
-        '--d-muted': mix(bg, k, dark ? 0.55 : 0.52), '--d-sel': mix(bg, k, dark ? 0.12 : 0.11), '--d-head': fg
+        '--d-bg': dark ? mix(bg, '#000000', 0.1) : mix(bg, '#ffffff', 0.55),
+        '--d-bg2': dark ? mix(bg, '#000000', 0.26) : mix(bg, k, 0.04), '--d-bg3': dark ? mix(bg, '#000000', 0.42) : mix(bg, k, 0.09),
+        '--d-field': mix(bg, k, dark ? 0.07 : 0.05), '--d-line': mix(bg, k, dark ? 0.16 : 0.12), '--d-text': mix(bg, k, dark ? 0.88 : 0.84),
+        '--d-muted': mix(bg, k, dark ? 0.58 : 0.55), '--d-sel': mix(bg, k, dark ? 0.14 : 0.1), '--d-head': fg
       };
     }
     NAMES.forEach(function (n) { if (v[n]) root.style.setProperty(n, v[n]); else root.style.removeProperty(n); });

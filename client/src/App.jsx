@@ -126,6 +126,7 @@ export default function App() {
 }
 
 function Main({ me, setMe, privKey, openServerId }) {
+  const { t: tr } = useLang(); // the main screen is its own component, so it needs its own copy
   const firstOpen = useRef(openServerId); // an invite link just joined this server: start there
   const [servers, setServers] = useState([]);
   const [users, setUsers] = useState({ [me.id]: me });
