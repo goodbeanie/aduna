@@ -1359,3 +1359,51 @@ html.kb-open .app { height: var(--app-h); } /* browsers that only shrink the vis
 .setup-join > span { display: flex; flex-direction: column; gap: 2px; }
 .setup-hint { margin: 0; line-height: 1.4; }
 .auth-lang { display: block; margin: 18px auto 0; height: 34px; padding: 0 10px; border-radius: 8px; border: 0; background: var(--bg2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); font: inherit; font-size: 13px; width: auto; }
+
+
+/* ===== limited-time themes (see seasonal.js) =====
+   A few small pictures in the corners of the window, drawn on <html> and <body> pseudo-elements that never take clicks
+   (pointer-events: none) and sit under dialogs and menus. <html data-season="halloween|christmas"> is set only while the theme
+   is chosen AND its event window is open. Pictures live in public/deco. Everything is small and mostly at the edges. */
+html[data-season]::before, html[data-season]::after, html[data-season] body::before, html[data-season] body::after { content: ''; position: fixed; z-index: 35; pointer-events: none; background-repeat: no-repeat; }
+.theme-ico { position: absolute; top: 2px; right: 3px; font-size: 13px; line-height: 1; text-decoration: none; }
+.theme-card { position: relative; }
+
+/* Halloween: cobweb top right, a spider dangling on a thread, a skull peeking over the bottom edge, a few sweets bottom left */
+html[data-season=halloween] body::before { top: 0; right: 0; width: 170px; height: 170px; background: url(/deco/cobweb.svg) top right / contain; opacity: .8; }
+html[data-season=halloween][data-theme=candycorn] body::before { background-image: url(/deco/cobweb-dark.svg); opacity: .7; }
+html[data-season=halloween]::before { top: 0; right: 236px; width: 34px; height: 86px; background: url(/deco/spider.svg) top center / contain; transform-origin: 50% 0; animation: deco-sway 5s ease-in-out infinite; }
+html[data-season=halloween] body::after { right: 26px; bottom: 0; width: 64px; height: 42px; background: url(/deco/skull.svg) bottom center / contain; }
+html[data-season=halloween]::after { left: 14px; bottom: 74px; width: 96px; height: 38px; background: url(/deco/candy.svg) bottom left / contain; opacity: .95; }
+@keyframes deco-sway { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
+
+/* Christmas: a string of lights along the top with a stocking hanging from it, Santa's sleigh in the top right,
+   an elf peeking over the bottom edge, presents bottom left */
+html[data-season=christmas]::before { top: 0; left: 0; width: 100%; height: 24px; background: url(/deco/lights.svg) top left / 96px 24px repeat-x; animation: deco-twinkle 3.2s ease-in-out infinite; }
+html[data-season=christmas] body::before { top: 22px; right: 24px; width: 112px; height: 46px; background: url(/deco/sleigh.svg) top right / contain; opacity: .95; animation: deco-fly 6s ease-in-out infinite; }
+html[data-season=christmas] body::after { right: 26px; bottom: 0; width: 62px; height: 44px; background: url(/deco/elf.svg) bottom center / contain; }
+html[data-season=christmas]::after { left: 14px; bottom: 74px; width: 84px; height: 48px; background: url(/deco/presents.svg) bottom left / contain; }
+html[data-season=christmas] .rail::after { content: ''; position: absolute; left: 52%; top: 100%; width: 28px; height: 40px; margin-top: -2px; background: url(/deco/stocking.svg) top center / contain no-repeat; pointer-events: none; z-index: 3; }
+.rail { position: relative; }
+@keyframes deco-twinkle { 0%, 100% { opacity: 1; } 50% { opacity: .62; } }
+@keyframes deco-fly { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(-6px, -3px); } }
+
+/* phones and short windows: only the top pieces, smaller; nothing near the message box */
+@media (max-width: 720px), (max-height: 520px) {
+  html[data-season] body::after, html[data-season]::after { display: none; }
+  html[data-season=halloween] body::before { width: 110px; height: 110px; }
+  html[data-season=halloween]::before { right: 120px; height: 62px; width: 24px; }
+  html[data-season=christmas] body::before { width: 84px; height: 34px; }
+  html[data-season=christmas] .rail::after { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { html[data-season]::before, html[data-season] body::before { animation: none; } }
+
+
+/* Settings > Voice & Video */
+.dev-select { width: 100%; max-width: 460px; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line2); background: var(--field); color: var(--text); font: inherit; }
+.dev-row { display: flex; align-items: center; gap: 12px; margin: 10px 0 4px; flex-wrap: wrap; }
+.dev-row .btn { display: inline-flex; align-items: center; gap: 8px; }
+.dev-meter { flex: 1; min-width: 140px; max-width: 320px; height: 10px; border-radius: 999px; background: var(--field); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.dev-meter i { display: block; height: 100%; background: var(--green); border-radius: inherit; transition: width .07s linear; }
+.dev-preview { display: block; width: 100%; max-width: 460px; aspect-ratio: 16 / 9; object-fit: cover; background: #000; border-radius: 14px; margin: 8px 0; transform: scaleX(-1); }
+.link-btn { background: none; color: var(--link); text-decoration: underline; padding: 0; font: inherit; }

@@ -3,6 +3,7 @@ import { Modal } from './ui.jsx';
 import { THEMES, DEFAULT_CUSTOM, applyTheme, loadTheme, previewColors } from './themes.js';
 import { ThemeGallery, PublishTheme } from './ThemeGallery.jsx';
 import { useLang } from './i18n.js';
+import { seasonalNow } from './seasonal.js';
 
 export function Swatch({ theme, on, onPick }) {
   const c = previewColors(theme);
@@ -12,6 +13,7 @@ export function Swatch({ theme, on, onPick }) {
         <i style={{ background: c.bg2 }} />
         <b style={{ background: c.accent }} />
       </span>
+      {theme.icon && <span className="theme-ico" aria-hidden="true">{theme.icon}</span>}
       <span className="theme-name">{theme.name}</span>
     </button>
   );
@@ -27,6 +29,7 @@ export function AppearancePicker() {
   const c = s.custom;
   const light = THEMES.filter((t) => !t.dark);
   const dark = THEMES.filter((t) => t.dark);
+  const limited = seasonalNow();
 
   return (
     <div className="appearance">
@@ -40,6 +43,13 @@ export function AppearancePicker() {
 
       <label>{tr('darkLbl')}</label>
       <div className="theme-grid">{dark.map((t) => <Swatch key={t.id} theme={t} on={s.id === t.id} onPick={() => pick(t.id)} />)}</div>
+
+      {limited && (
+        <>
+          <label>{tr('limitedLbl')} &middot; {tr('limitedUntil', { date: limited.until.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) })}</label>
+          <div className="theme-grid">{limited.themes.map((t) => <Swatch key={t.id} theme={t} on={s.id === t.id} onPick={() => pick(t.id)} />)}</div>
+        </>
+      )}
 
       <label>{tr('customLbl')}</label>
       <div className={'custom-theme' + (s.id === 'custom' ? ' on' : '')}>

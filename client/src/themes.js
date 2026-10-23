@@ -1,4 +1,5 @@
 import { saveLook } from './swstate.js';
+import { SEASONAL_THEMES, seasonalTheme } from './seasonal.js';
 // Aduna themes. A theme is a map of CSS variables applied to <html>.
 // Built-in themes are generated from a small seed (background + accent + light/dark),
 // so the "Custom" theme just lets people pick their own seed.
@@ -123,7 +124,7 @@ export function resolveVars(settings) {
     const c = settings.custom;
     return buildPalette({ dark: !!c.dark, bg: c.bg, accent: c.accent });
   }
-  const t = THEMES.find((x) => x.id === id) || PARCHMENT;
+  const t = THEMES.find((x) => x.id === id) || seasonalTheme(id) || PARCHMENT; // a limited-time theme out of season falls back to Parchment
   if (t.id === 'parchment') return parchmentVars();
   return buildPalette(t);
 }
@@ -145,6 +146,8 @@ function paint(vars, id) {
   if (!vars.__clear) for (const [k, v] of Object.entries(vars)) if (!k.startsWith('__')) root.style.setProperty(k, v);
   root.style.colorScheme = vars.__scheme;
   root.dataset.theme = id;
+  const sea = SEASONAL_THEMES.find((x) => x.id === id);
+  if (sea && seasonalTheme(id)) root.dataset.season = sea.season; else delete root.dataset.season; // decorations (styles.css) key on this
   const metaColor = vars.__meta || vars['--bg3'];
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', metaColor);
   return metaColor;

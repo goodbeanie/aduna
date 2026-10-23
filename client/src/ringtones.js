@@ -27,17 +27,24 @@ export function windowOf(special, year) {
   };
 }
 
-// The ringtone to play on `now`: { id, label, url }.
-export function ringtoneFor(now = new Date()) {
-  if (!(now instanceof Date) || Number.isNaN(now.getTime())) return DEFAULT_RINGTONE;
+// The special event whose window contains `now`: { special, end } (end = last day of the window, a Date at local midnight), or null.
+// Ringtones and the limited-time themes (seasonal.js) both use this, so they always start and stop together.
+export function seasonOf(now = new Date()) {
+  if (!(now instanceof Date) || Number.isNaN(now.getTime())) return null;
   const year = now.getFullYear();
   const today = dayNumber(year, now.getMonth() + 1, now.getDate());
   for (const s of SEASONAL) {
     // last year's, this year's and next year's event, so a window that crosses New Year (Christmas, in early January) is found too
     for (let y = year - 1; y <= year + 1; y++) {
       const event = dayNumber(y, s.month, s.day);
-      if (today >= event - DAYS_BEFORE && today <= event + DAYS_AFTER) return { id: s.id, label: s.label, url: s.url };
+      if (today >= event - DAYS_BEFORE && today <= event + DAYS_AFTER) return { special: s, end: new Date(y, s.month - 1, s.day + DAYS_AFTER) };
     }
   }
-  return DEFAULT_RINGTONE;
+  return null;
+}
+
+// The ringtone to play on `now`: { id, label, url }.
+export function ringtoneFor(now = new Date()) {
+  const f = seasonOf(now);
+  return f ? { id: f.special.id, label: f.special.label, url: f.special.url } : DEFAULT_RINGTONE;
 }

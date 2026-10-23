@@ -42,6 +42,12 @@ export function useLang() {
 const D = {
   en: {
     // sign in / sign up
+    tabVoice: 'Voice & Video', vvMic: 'MICROPHONE', vvOut: 'SPEAKERS', vvCam: 'CAMERA', vvDefault: 'System default', vvStop: 'Stop',
+    vvTestMic: 'Test microphone', vvTestSpk: 'Test speakers', vvTestCam: 'Test camera',
+    vvMicHint: 'Press the button and talk: the bar moves with your voice. Nothing is recorded or sent.', vvMicOn: 'Listening. The bar should move when you talk.',
+    vvSpkHint: 'Plays today\'s ringtone once through the speakers you picked.', vvNoOut: 'This browser cannot choose speakers (Chrome, Edge and the Android app can). Aduna uses the system speakers.',
+    vvApply: 'Changes apply to your next call. Speakers also change in a call that is already running.',
+    limitedLbl: 'LIMITED TIME', limitedUntil: 'Until {date}',
     welcomeBack: 'Welcome back!', excited: "We're so excited to see you again!",
     resetTitle: 'Reset your password', createTitle: 'Create an account',
     resetKeyHelp: 'Use the recovery key you saved. Your messages stay readable.',

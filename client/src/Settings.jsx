@@ -3,13 +3,14 @@ import { Icon } from './ui.jsx';
 import { ProfileEditor } from './Modals.jsx';
 import { AppearancePicker } from './Appearance.jsx';
 import { NotificationSettings } from './Notifications.jsx';
+import { VoiceSettings } from './VoiceSettings.jsx';
 import { SecuritySettings } from './Security.jsx';
 import { DeveloperSettings } from './Bots.jsx';
 import { BadgeSettings } from './Badges.jsx';
 import { LanguageSettings } from './Setup.jsx';
 import { useLang } from './i18n.js';
 
-const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['security', 'tabSecurity', 'lock'], ['developer', 'tabDeveloper', 'code']];
+const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['developer', 'tabDeveloper', 'code']];
 
 // Full-screen settings: a section list on the left (a tab bar on phones) and the chosen section on the right.
 export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, onPrefs, onLogout, getSocketId }) {
@@ -39,6 +40,7 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
         <div className="settings-content">
           {tab === 'profile' && <><h1>{t('tabProfile')}</h1><ProfileEditor me={me} onClose={onClose} onSaved={onSaved} onLogout={onLogout} /></>}
           {tab === 'notifications' && <><h1>{t('tabNotifications')}</h1><NotificationSettings me={me} onPrefs={onPrefs} /></>}
+          {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings /></>}
           {tab === 'security' && <><h1>{t('tabSecurity')}</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
           {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} /></>}
           {tab === 'badges' && me.creator && <><h1>{t('tabBadges')}</h1><BadgeSettings /></>}

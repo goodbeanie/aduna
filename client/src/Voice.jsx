@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { micConstraint, applyOutput, EVENT as DEVICES_EVENT } from './devices.js';
 import { Avatar, Icon } from './ui.jsx';
 import { emitAck } from './api.js';
 import { getIce } from './rtc.js';
@@ -131,7 +132,7 @@ export function useVoice({ socketRef, ready }) {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('Voice needs a secure page (https or localhost) and a modern browser');
         try {
-          rt.current.local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: false });
+          rt.current.local = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, ...micConstraint() }, video: false });
         } catch (e) {
           throw new Error(e.name === 'NotAllowedError' ? 'Microphone permission was denied' : e.name === 'NotFoundError' ? 'No microphone found' : 'Could not access your microphone');
         }
@@ -158,6 +159,7 @@ export function useVoice({ socketRef, ready }) {
 function RemoteAudio({ stream, deafened }) {
   const ref = useRef(null);
   useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
+  useEffect(() => { const go = () => applyOutput(ref.current); go(); window.addEventListener(DEVICES_EVENT, go); return () => window.removeEventListener(DEVICES_EVENT, go); }, []);
   return <audio ref={ref} autoPlay muted={deafened} />;
 }
 // Hidden elements that play everyone else's audio while you are in a channel.

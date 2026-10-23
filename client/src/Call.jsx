@@ -7,6 +7,7 @@ import { getIce, restartPath, failureText } from './rtc.js';
 import * as snd from './callsound.js';
 import { levelOf, SpeakingGate } from './speaking.js';
 import { ringtoneFor } from './ringtones.js';
+import { loadDevices, micConstraint, camConstraint, applyOutput, EVENT as DEVICES_EVENT } from './devices.js';
 
 // While a call is ringing the tab title flashes, and a desktop notification shows if the tab is hidden.
 let titleTimer = null, titleBase = '';
@@ -34,9 +35,9 @@ const IDLE = { phase: 'idle', callId: null, peerId: null, video: false, startedA
 
 async function getMedia(video) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Calls need a secure page (https or localhost) and a modern browser');
-  const audio = { echoCancellation: true, noiseSuppression: true };
+  const audio = { echoCancellation: true, noiseSuppression: true, ...micConstraint() };
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio, video: video ? { width: { ideal: 1280 }, height: { ideal: 720 } } : false });
+    return await navigator.mediaDevices.getUserMedia({ audio, video: video ? { width: { ideal: 1280 }, height: { ideal: 720 }, ...camConstraint() } : false });
   } catch (e) {
     if (video && (e.name === 'NotFoundError' || e.name === 'NotReadableError' || e.name === 'OverconstrainedError')) {
       try { return await navigator.mediaDevices.getUserMedia({ audio, video: false }); } catch (e2) { e = e2; }
@@ -239,7 +240,7 @@ export function useCall({ socketRef, privKey, getUser }) {
     try {
       if (r.cam && r.cam.readyState === 'live') { r.cam.enabled = !r.cam.enabled; }
       else {
-        const t = (await navigator.mediaDevices.getUserMedia({ video: true })).getVideoTracks()[0];
+        const t = (await navigator.mediaDevices.getUserMedia({ video: camConstraint() })).getVideoTracks()[0];
         r.cam = t; r.local.addTrack(t);
         if (r.vsender) await r.vsender.replaceTrack(r.screen || t); else r.vsender = r.pc.addTrack(t, r.local);
       }
@@ -371,6 +372,11 @@ function VideoEl({ stream, muted, className }) {
 function CallAudio({ call }) {
   const ref = useRef(null);
   useEffect(() => { const el = ref.current, s = call.remote || null; if (el && el.srcObject !== s) el.srcObject = s; }, [call.remote]);
+  useEffect(() => { // the speakers chosen in Settings > Voice & Video, also when changed during the call
+    const go = () => applyOutput(ref.current);
+    go(); window.addEventListener(DEVICES_EVENT, go);
+    return () => window.removeEventListener(DEVICES_EVENT, go);
+  }, []);
   return <audio ref={ref} autoPlay muted={!!call.deafened} />;
 }
 

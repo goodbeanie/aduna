@@ -1,9 +1,10 @@
 // Every sound a call makes (browser only; Call.jsx is the one caller).
 //   - incoming ring: the MP3 ringtone from public/sounds, looped until the call is answered, declined or missed.
 //     Which file plays is decided by ringtones.js (the normal one, or Halloween / Christmas around their dates).
-//   - outgoing ring ("ringback"): a soft generated double blip the caller hears while waiting.
+//   - outgoing ring: the caller hears the SAME ringtone while waiting (so both sides hear Halloween / Christmas).
 //   - small cues, like Discord's: connected, disconnected, muted, unmuted, deafened, undeafened.
 import { ringtoneFor } from './ringtones.js';
+import { applyOutput } from './devices.js';
 
 const VOLUME = 0.8; // of the MP3
 const CUE = 0.05;   // gain of the generated blips (they are meant to be quiet)
@@ -72,17 +73,12 @@ export function preloadRingtone(now = new Date()) {
 
 export function startRing(kind, now = new Date()) {
   stopRing();
-  const me = (ring = { kind });
-  if (kind === 'out') {
-    const play = () => notes([[440, 0, 0.16], [440, 0.3, 0.16]], 0.05);
-    play();
-    me.timer = setInterval(play, 2600);
-    return;
-  }
+  const me = (ring = { kind }); // kind: 'in' (someone is calling you) or 'out' (you are calling): both play the ringtone
   let el;
   try { el = elementFor(ringtoneFor(now).url); } catch { me.timer = beepRing(); return; }
   me.el = el;
   el.loop = true; el.volume = VOLUME;
+  applyOutput(el); // the speakers chosen in Settings > Voice & Video
   try { el.currentTime = 0; } catch { /* not loaded yet */ }
   me.onError = () => { if (ring === me && !me.timer) me.timer = beepRing(); }; // the file is missing or cannot be decoded
   el.addEventListener('error', me.onError);
@@ -113,3 +109,23 @@ export function stopRing() {
   }
 }
 export const ringing = () => ring?.kind || null;
+
+// Settings > Voice & Video "Test speakers": today's ringtone once, through the chosen speakers. Returns a stop function;
+// `onEnd(why)` is called when it finishes ('done'), is stopped ('stopped') or cannot play ('error' | 'blocked').
+let preview = null;
+export function testSpeakers(onEnd = () => {}, now = new Date()) {
+  stopTest();
+  const el = new Audio(ringtoneFor(now).url);
+  el.volume = VOLUME;
+  const me = (preview = { el, onEnd });
+  const end = (why) => { if (preview === me) preview = null; el.onended = el.onerror = null; try { el.pause(); } catch { /* gone */ } onEnd(why); };
+  el.onended = () => end('done');
+  el.onerror = () => end('error');
+  applyOutput(el).then(() => {
+    if (preview !== me) return;
+    const p = el.play();
+    if (p && p.catch) p.catch((e) => end(e?.name === 'NotAllowedError' ? 'blocked' : 'error'));
+  });
+  return () => end('stopped');
+}
+export function stopTest() { const p = preview; if (p) { preview = null; p.el.onended = p.el.onerror = null; try { p.el.pause(); } catch { /* gone */ } p.onEnd('stopped'); } }
