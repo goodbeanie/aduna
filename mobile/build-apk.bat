@@ -62,13 +62,21 @@ if exist "aduna.keystore" (
 )
 if not exist "google-services.json" echo No google-services.json here: the app will build but push notifications will not work.
 
-rem Version number: goes up by one on every build (Google Play and the in-app update box both need that)
+rem Version number (Google Play and the in-app update box both need it to go up on every build). It is minutes since 1 Jan 2025 (UTC), so it keeps
+rem rising no matter which PC or folder builds, even a fresh clone whose .versioncode counter was lost: a counter that restarts at 1 gives an app
+rem that is OLDER than the one already on the phone, and the update box then always says "No update available". The old counter is still honoured.
 set /a VC=0
 if exist ".versioncode" set /p VC=<.versioncode
 set /a VC=VC+1
+set "TC=0"
+for /f %%t in ('powershell -NoProfile -Command "[int][math]::Floor(([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()-1735689600)/60)" 2^>nul') do set "TC=%%t"
+if !TC! GTR !VC! set "VC=!TC!"
+set "VN=1.0.!VC!"
+for /f %%n in ('powershell -NoProfile -Command "$d=[DateTime]::UtcNow;[string]$d.Year+[char]46+$d.Month+[char]46+$d.Day+[char]46+($d.Hour*100+$d.Minute)" 2^>nul') do set "VN=%%n"
 echo !VC!>.versioncode
 set "ADUNA_VERSION_CODE=!VC!"
-set "ADUNA_VERSION_NAME=1.0.!VC!"
+set "ADUNA_VERSION_NAME=!VN!"
+echo Version !VN! ^(build number !VC!^)
 
 rem ---------- 5. Build ----------
 echo.
@@ -102,7 +110,7 @@ rem The update feed for the phone app (same idea as the desktop latest.yml): put
 rem /b matters: a wildcard copied onto ONE file name is a text-mode join in cmd, which stops at the first Ctrl-Z byte and wrecks the APK ("problem parsing the package")
 for %%f in ("android\app\build\outputs\apk\%MODE%\*.apk") do copy /b /y "%%~f" "dist\Aduna.apk" >nul
 if exist "dist\Aduna.apk" for %%f in ("android\app\build\outputs\apk\%MODE%\*.apk") do fc /b "%%~f" "dist\Aduna.apk" >nul || (echo Aduna.apk does not match the built APK. & goto fail)
->"dist\latest.json" echo {"versionCode":!VC!,"versionName":"1.0.!VC!","file":"Aduna.apk"}
+>"dist\latest.json" echo {"versionCode":!VC!,"versionName":"!VN!","file":"Aduna.apk"}
 rem One deploy updates both: put the APK and its feed into the site folder, so publishing the site publishes the new app too
 if exist "%~dp0..\client\public" (
   if not exist "%~dp0..\client\public\updates" mkdir "%~dp0..\client\public\updates"
