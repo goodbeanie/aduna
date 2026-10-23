@@ -1370,11 +1370,12 @@ html[data-season]::before, html[data-season]::after, html[data-season] body::bef
 .theme-card { position: relative; }
 
 /* Halloween: cobweb top right, a spider dangling on a thread, a skull peeking over the bottom edge, a few sweets bottom left */
-html[data-season=halloween] body::before { top: 0; right: 0; width: 170px; height: 170px; background: url(/deco/cobweb.svg) top right / contain; opacity: .8; }
-html[data-season=halloween][data-theme=candycorn] body::before { background-image: url(/deco/cobweb-dark.svg); opacity: .7; }
-html[data-season=halloween]::before { top: 0; right: 236px; width: 34px; height: 86px; background: url(/deco/spider.svg) top center / contain; transform-origin: 50% 0; animation: deco-sway 5s ease-in-out infinite; }
+html[data-season=halloween] body::before { top: 0; right: 0; width: 170px; height: 170px; background: url(/deco/cobweb.png) top right / contain; opacity: .6; }
+html[data-season=halloween][data-theme=candycorn] body::before { background-image: url(/deco/cobweb-dark.png); opacity: .6; }
+html[data-season=halloween]::before { top: 0; right: 236px; width: 34px; height: 86px; background: url(/deco/spider-light.png) top center / contain; transform-origin: 50% 0; animation: deco-sway 5s ease-in-out infinite; }
+html[data-season=halloween][data-theme=candycorn]::before { background-image: url(/deco/spider.png); } /* the light theme gets the black spider */
 html[data-season=halloween] body::after { right: 26px; bottom: 0; width: 64px; height: 42px; background: url(/deco/skull.svg) bottom center / contain; }
-html[data-season=halloween]::after { left: 14px; bottom: 74px; width: 96px; height: 38px; background: url(/deco/candy.svg) bottom left / contain; opacity: .95; }
+html[data-season=halloween]::after { left: 14px; bottom: 74px; width: 66px; height: 50px; background: url(/deco/candy.png) bottom left / contain; opacity: .95; }
 @keyframes deco-sway { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
 
 /* Christmas: a string of lights along the top with a stocking hanging from it, Santa's sleigh in the top right,
