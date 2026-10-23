@@ -1,6 +1,6 @@
 {
   "name": "aduna-desktop",
-  "version": "1.4.18",
+  "version": "1.4.19",
   "description": "Aduna desktop app: opens aduna.onrender.com/app",
   "main": "main.js",
   "author": "Aduna",
