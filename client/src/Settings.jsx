@@ -7,10 +7,11 @@ import { VoiceSettings } from './VoiceSettings.jsx';
 import { SecuritySettings } from './Security.jsx';
 import { DeveloperSettings } from './Bots.jsx';
 import { BadgeSettings } from './Badges.jsx';
+import { WhatsNewSettings } from './WhatsNew.jsx';
 import { LanguageSettings } from './Setup.jsx';
 import { useLang } from './i18n.js';
 
-const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['developer', 'tabDeveloper', 'code']];
+const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['whatsnew', 'tabWhatsNew', 'bulb'], ['developer', 'tabDeveloper', 'code']];
 
 // Full-screen settings: a section list on the left (a tab bar on phones) and the chosen section on the right.
 export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, onPrefs, onLogout, getSocketId }) {
@@ -42,6 +43,7 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
           {tab === 'notifications' && <><h1>{t('tabNotifications')}</h1><NotificationSettings me={me} onPrefs={onPrefs} /></>}
           {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings /></>}
           {tab === 'security' && <><h1>{t('tabSecurity')}</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
+          {tab === 'whatsnew' && <><h1>{t('tabWhatsNew')}</h1><WhatsNewSettings /></>}
           {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} /></>}
           {tab === 'badges' && me.creator && <><h1>{t('tabBadges')}</h1><BadgeSettings /></>}
           {tab === 'appearance' && <><h1>{t('tabAppearance')}</h1><AppearancePicker /></>}

@@ -769,6 +769,12 @@ button { touch-action: manipulation; }
 
 .check-row { display: flex; align-items: center; gap: 10px; margin: 6px 0 4px; font-size: 14px; letter-spacing: 0; color: var(--text); cursor: pointer; }
 .check-row input { width: 18px; height: 18px; padding: 0; flex: none; accent-color: var(--ink); }
+.whatsnew-list { display: flex; flex-direction: column; gap: 18px; margin: 4px 0 14px; max-height: 55vh; overflow-y: auto; }
+.whatsnew-release h3 { margin: 0 0 8px; font-size: 16px; }
+.whatsnew-release ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.whatsnew-release li { display: flex; flex-direction: column; gap: 2px; padding-left: 12px; border-left: 3px solid var(--ink); font-size: 14px; }
+.whatsnew-settings > label:not(.check-row) { display: block; margin-top: 22px; }
+.whatsnew-settings .whatsnew-list { max-height: none; }
 
 /* server settings preview card */
 .server-prev { max-width: 520px; margin-top: 12px; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--bg2); }

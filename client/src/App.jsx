@@ -33,6 +33,7 @@ import * as notify from './notify.js';
 import { NotifyPrompt } from './NotifyPrompt.jsx';
 import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
 import { RailUpdateChip } from './RailUpdate.jsx';
+import { WhatsNewPopup } from './WhatsNew.jsx';
 import { withCalls, mergeRecords } from './callhistory.js';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
@@ -961,6 +962,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       <NotifyPrompt />
       <UpdatePrompt />
       <SiteUpdateNotice />
+      <WhatsNewPopup />
       {gain && <div className="credit-gain" key={gain.key} aria-live="polite"><Icon name="coin" size={16} />+{gain.delta} credits</div>}
       <CallUI call={call.call} actions={call.actions} users={users} onOpen={goToCall} showStrip={!stageHere} />
       </div>
