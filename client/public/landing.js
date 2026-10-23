@@ -5,3 +5,50 @@ try{
     document.querySelectorAll('a.login').forEach(function(a){a.style.display='none'});
   }
 }catch(e){}
+
+// Click a theme in "Eleven themes" to try it on this page. Same seeds as the app's themes (client/src/themes.js); nothing is saved.
+(function () {
+  var THEMES = {
+    ocean: [0, '#f3f8fb', '#1f5f8b'], forest: [0, '#f4f8f1', '#2f6b45'], rose: [0, '#fcf4f4', '#b4435a'], lavender: [0, '#f7f4fc', '#6a4fb3'],
+    sunset: [0, '#fdf5ec', '#c2551d'], charcoal: [1, '#2a2a2d', '#e8e4da'], midnight: [1, '#161b2a', '#7aa2ff'],
+    evergreen: [1, '#17221d', '#6fcf97'], plum: [1, '#241a2b', '#d68cf0'], ember: [1, '#271c17', '#f09a5a']
+  }; // [dark, background, accent]; parchment is the page's own look, so it just clears the overrides
+  var NAMES = ['--cream', '--fg', '--muted', '--line', '--accent', '--on-accent', '--band', '--band-fg', '--band-muted',
+    '--d-bg', '--d-bg2', '--d-bg3', '--d-field', '--d-line', '--d-text', '--d-muted', '--d-sel', '--d-head'];
+  var root = document.documentElement;
+  var meta = document.querySelector('meta[name="theme-color"]');
+  var metaOrig = meta && meta.getAttribute('content');
+
+  function rgb(h) { h = h.replace('#', ''); return [0, 2, 4].map(function (i) { return parseInt(h.substr(i, 2), 16); }); }
+  function hex(a) { return '#' + a.map(function (v) { v = Math.max(0, Math.min(255, Math.round(v))); return (v < 16 ? '0' : '') + v.toString(16); }).join(''); }
+  function mix(a, b, t) { var A = rgb(a), B = rgb(b); return hex(A.map(function (v, i) { return v + (B[i] - v) * t; })); }
+  function lum(h) { var c = rgb(h).map(function (v) { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; }
+  function contrast(a, b) { var x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); }
+  function readable(bg) { return contrast(bg, '#14110d') >= contrast(bg, '#fbf8f1') ? '#14110d' : '#fbf8f1'; }
+
+  function apply(id) {
+    var t = THEMES[id], v = {};
+    if (t) {
+      var dark = !!t[0], bg = t[1], ac = t[2], k = dark ? '#ffffff' : '#000000';
+      var fg = mix(bg, k, dark ? 0.97 : 0.93), band = dark ? mix(bg, '#000000', 0.38) : ac, bandFg = dark ? fg : readable(ac);
+      v = {
+        '--cream': bg, '--fg': fg, '--muted': mix(bg, k, dark ? 0.55 : 0.52), '--line': mix(bg, k, dark ? 0.13 : 0.11),
+        '--accent': ac, '--on-accent': readable(ac), '--band': band, '--band-fg': bandFg, '--band-muted': mix(band, bandFg, 0.65),
+        '--d-bg': bg, '--d-bg2': dark ? mix(bg, '#000000', 0.18) : mix(bg, k, 0.04), '--d-bg3': dark ? mix(bg, '#000000', 0.38) : mix(bg, k, 0.09),
+        '--d-field': mix(bg, k, dark ? 0.07 : 0.05), '--d-line': mix(bg, k, dark ? 0.13 : 0.11), '--d-text': mix(bg, k, dark ? 0.12 : 0.16),
+        '--d-muted': mix(bg, k, dark ? 0.55 : 0.52), '--d-sel': mix(bg, k, dark ? 0.12 : 0.11), '--d-head': fg
+      };
+    }
+    NAMES.forEach(function (n) { if (v[n]) root.style.setProperty(n, v[n]); else root.style.removeProperty(n); });
+    root.style.colorScheme = t ? (t[0] ? 'dark' : 'light') : '';
+    root.classList.toggle('lt', !!t && !t[0]);
+    if (meta) meta.setAttribute('content', t ? t[1] : metaOrig);
+    document.querySelectorAll('.sw[data-theme]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-theme') === id)); });
+  }
+
+  var first = document.querySelector('.sw[data-theme="parchment"]');
+  if (first) first.setAttribute('aria-pressed', 'true');
+  document.querySelectorAll('.sw[data-theme]').forEach(function (b) {
+    b.addEventListener('click', function () { apply(b.getAttribute('data-theme')); });
+  });
+})();
