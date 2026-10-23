@@ -4,6 +4,16 @@
 // the next time they open Aduna after that release reaches them, unless they turned it off in Settings > What's new.
 export const RELEASES = [
   {
+    id: '2026.10.23.2',
+    date: '2026-10-23',
+    title: 'Shop, Quests and easier updates',
+    items: [
+      { title: 'Shop tab', text: 'The shop now has its own tab. Buy credits, spend them on badges and see your recent activity there.' },
+      { title: 'Quests tab', text: 'Daily quests, events and the ways to earn credits moved to their own Quests tab.' },
+      { title: 'Updates install themselves', text: 'The desktop app now downloads updates in the background and shows New Update [Refresh] when one is ready. The website says Refresh too.' },
+    ],
+  },
+  {
     id: '2026.10.23',
     date: '2026-10-23',
     title: 'What’s new in Aduna',

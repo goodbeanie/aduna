@@ -123,9 +123,9 @@ export function SiteUpdateNotice() {
   if (!fresh || apk || railMode) return null;
   return (
     <div className="update-box web-update" role="alert">
-      <div className="update-text"><b>Aduna was updated</b><span>Reload to get the newest version.</span></div>
+      <div className="update-text"><b>New Update</b><span>Refresh to get the newest version.</span></div>
       <button className="btn" onClick={() => setFresh(false)}>Later</button>
-      <button className="btn primary" onClick={() => window.location.reload()}>Reload</button>
+      <button className="btn primary" onClick={() => window.location.reload()}>Refresh</button>
     </div>
   );
 }

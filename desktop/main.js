@@ -21,7 +21,7 @@ let quitting = false;                 // false: the window's X only hides Aduna 
 const startHidden = process.argv.includes('--hidden'); // started by Windows at login: go straight to the tray
 const nativeToasts = new Map();       // fallback only: tag -> native Windows notification
 let theme = {};                       // latest colours from the page, forwarded to the title bar
-let upd = { phase: 'idle' };          // update status shown in the server bar: idle | checking | none | available | downloading | installing | error
+let upd = { phase: 'idle' };          // update status shown in the server bar: idle | checking | none | downloading | ready | installing | error
 
 function openExternal(url) { try { if (/^https?:$/.test(new URL(url).protocol)) shell.openExternal(url); } catch { /* ignore */ } }
 const alive = (v) => v && v.webContents && !v.webContents.isDestroyed();
@@ -213,7 +213,7 @@ ipcMain.on('theme-vars', (e, vars) => {
 });
 
 // ----- updates: status lives on the right of the server bar. Scan -> "Checking for update…" -> "No update available" (10s, then
-// fades) or "Update available [Install]". Install downloads, then restarts into the new version. -----
+// fades) or an update that downloads by itself ("Downloading 40%") and then shows "New Update [Refresh]"; Refresh restarts into the new version. -----
 function pushUpd() { if (alive(page)) page.webContents.send('upd-state', upd); }
 let idleTimer = null;
 function setUpd(next, autoMs, then) {
@@ -225,7 +225,7 @@ ipcMain.on('upd-install', (e) => { if (fromPage(e)) startInstall(); });
 
 let checking = false, showChecks = false, downloading = false;
 function runCheck(manual) {
-  if (['available', 'downloading', 'installing'].includes(upd.phase)) { pushUpd(); return; } // already know about one
+  if (['downloading', 'ready', 'installing'].includes(upd.phase)) { pushUpd(); return; } // already know about one
   if (checking) return;
   showChecks = !!manual;
   if (!app.isPackaged) return fakeCheck();           // dev run: simulate so the UI can be tried (ADUNA_FAKE_UPDATE=available|none)
@@ -233,27 +233,26 @@ function runCheck(manual) {
   if (showChecks) setUpd({ phase: 'checking' });
   autoUpdater.checkForUpdates().catch(() => {}).finally(() => { checking = false; });
 }
+// Refresh: the update has already downloaded by itself, so this only restarts into it.
 function startInstall() {
-  if (upd.phase !== 'available') return;
-  if (!app.isPackaged) return fakeInstall();
-  downloading = true;
-  setUpd({ phase: 'downloading', version: upd.version, pct: 0 });
-  autoUpdater.downloadUpdate().catch(() => {});
+  if (upd.phase !== 'ready') return;
+  if (!app.isPackaged) return fakeApply();
+  setUpd({ phase: 'installing', version: upd.version });
+  setTimeout(() => autoUpdater.quitAndInstall(true, true), 700);
 }
 function setupUpdates() {
-  autoUpdater.autoDownload = false;          // the person presses Install
-  autoUpdater.autoInstallOnAppQuit = false;
-  autoUpdater.on('update-available', (info) => { setUpd({ phase: 'available', version: info && info.version }); });
+  autoUpdater.autoDownload = true;           // new versions download in the background, no button
+  autoUpdater.autoInstallOnAppQuit = true;   // if Refresh is never pressed, the downloaded update installs the next time Aduna quits
+  autoUpdater.on('update-available', (info) => { downloading = true; setUpd({ phase: 'downloading', version: info && info.version, pct: 0 }); });
   autoUpdater.on('update-not-available', () => { if (showChecks) setUpd({ phase: 'none' }, 10 * 1000); });
   autoUpdater.on('download-progress', (p) => { upd = { phase: 'downloading', version: upd.version, pct: p.percent }; pushUpd(); });
   autoUpdater.on('update-downloaded', () => {
     downloading = false;
-    setUpd({ phase: 'installing', version: upd.version });
-    setTimeout(() => autoUpdater.quitAndInstall(true, true), 700);
+    setUpd({ phase: 'ready', version: upd.version }); // chip: "New Update [Refresh]"
   });
   autoUpdater.on('error', (err) => {
     console.error('Update error:', err && err.message);
-    if (downloading) { downloading = false; setUpd({ phase: 'error', message: 'Update failed' }, 6000, { phase: 'available', version: upd.version }); }
+    if (downloading) { downloading = false; setUpd({ phase: 'error', message: 'Update failed' }, 6000, { phase: 'idle' }); } // the next scan finds it again and retries
     else if (showChecks) setUpd({ phase: 'error', message: 'Couldn\u2019t check for updates' }, 10 * 1000);
   });
   setTimeout(() => runCheck(true), 10 * 1000);            // startup scan is shown, like a manual one
@@ -264,17 +263,18 @@ function fakeCheck() {
   checking = true; setUpd({ phase: 'checking' });
   setTimeout(() => {
     checking = false;
-    if (process.env.ADUNA_FAKE_UPDATE === 'available') setUpd({ phase: 'available', version: '9.9.9' });
+    if (process.env.ADUNA_FAKE_UPDATE === 'available') fakeDownload('9.9.9');
     else setUpd({ phase: 'none' }, 10 * 1000);
   }, 1800);
 }
-function fakeInstall() {
-  let p = 0; setUpd({ phase: 'downloading', version: upd.version, pct: 0 });
+function fakeDownload(version) {
+  let p = 0; setUpd({ phase: 'downloading', version, pct: 0 });
   const t = setInterval(() => {
-    p += 12; if (p < 100) { upd = { phase: 'downloading', version: upd.version, pct: p }; pushUpd(); return; }
-    clearInterval(t); setUpd({ phase: 'installing', version: upd.version }); setTimeout(() => setUpd({ phase: 'idle' }), 1500);
+    p += 12; if (p < 100) { upd = { phase: 'downloading', version, pct: p }; pushUpd(); return; }
+    clearInterval(t); setUpd({ phase: 'ready', version });
   }, 250);
 }
+function fakeApply() { setUpd({ phase: 'installing', version: upd.version }); setTimeout(() => setUpd({ phase: 'idle' }), 1500); }
 
 // ----- tray: Aduna keeps running here when the window is closed, so mentions / DMs / calls still pop up -----
 function startsWithWindows() { try { return app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin; } catch { return false; } }

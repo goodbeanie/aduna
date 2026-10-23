@@ -49,6 +49,7 @@ const PATHS = {
   plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="M16 16l4 4" /></>,
   clock: <><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 2" /></>,
+  bag: <><path d="M5.5 8h13l-1 11.5h-11z" /><path d="M9 10.5V7a3 3 0 016 0v3.5" /></>,
   star: <path d="M12 4l2.4 5 5.4.7-4 3.8 1 5.4L12 16.3 7.2 18.9l1-5.4-4-3.8 5.4-.7z" />,
   leaf: <><path d="M5 19c0-8 5-13 14-14 0 9-5 14-13 14z" /><path d="M5 19l8-8" /></>,
   cup: <><path d="M5 8h11v6a4 4 0 01-4 4H9a4 4 0 01-4-4z" /><path d="M16 9.5h1.5a2.5 2.5 0 010 5H16" /><path d="M8 4.5V6M12 4.5V6" /></>,

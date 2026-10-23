@@ -114,7 +114,7 @@ if (location.protocol === 'https:') {
     switch (st.phase) {
       case 'checking': fill(ICONS.spin, 'Checking for update…'); break;
       case 'none': fill(ICONS.ok, 'No update available'); break;
-      case 'available': fill(ICONS.down, 'Update available' + (st.version ? ' <b>' + esc(st.version) + '</b>' : ''), 'Install'); break;
+      case 'ready': fill(ICONS.down, 'New Update' + (st.version ? ' <b>' + esc(st.version) + '</b>' : ''), 'Refresh'); break;
       case 'downloading': {
         fill(ICONS.down, 'Downloading <b>' + Math.round(st.pct || 0) + '%</b>');
         const bar = document.createElement('div'); bar.className = 'pbar';

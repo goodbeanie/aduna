@@ -2,7 +2,7 @@ import React from 'react';
 import { actions, useRailMode, useUpdateState } from './updateStore.js';
 
 // The update chip on the right of the server bar, phones and the Android app (the desktop app has the same chip): "Checking for update…" ->
-// "No update available" (10 s, then it fades) or "Update available [Install]" -> "Downloading 40%". For a new site version the button is Reload.
+// "No update available" (10 s, then it fades) or "Update available [Install]" -> "Downloading 40%". For a new site version it says "New Update [Refresh]".
 const Svg = ({ cls, children }) => <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={cls}>{children}</svg>;
 const ICON = {
   spin: <Svg cls="spin"><path d="M13.2 8A5.2 5.2 0 1 1 11.7 4.3" /></Svg>,
@@ -19,7 +19,7 @@ export function RailUpdateChip() {
   else if (s.apk && s.apkState === 'permission') v = { icon: ICON.down, text: 'Allow installs, then tap Install', button: 'Install', on: () => actions.apkGo?.() };
   else if (s.apk && s.apkState === 'error') v = { icon: ICON.bad, text: 'Download failed', title: s.why, button: 'Retry', on: () => actions.apkGo?.() };
   else if (s.apk) v = { icon: ICON.down, text: <>Update available{s.apk.versionName ? <> <b>{s.apk.versionName}</b></> : null}</>, button: 'Install', on: () => actions.apkGo?.() };
-  else if (s.site) v = { icon: ICON.down, text: 'Update available', button: 'Reload', on: () => window.location.reload() };
+  else if (s.site) v = { icon: ICON.down, text: 'New Update', button: 'Refresh', on: () => window.location.reload() };
   else if (s.checking) v = { icon: ICON.spin, text: 'Checking for update…' };
   else if (s.none) v = { icon: ICON.ok, text: 'No update available' };
   if (!rail || !v) return null;

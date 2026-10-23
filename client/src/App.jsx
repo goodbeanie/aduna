@@ -303,8 +303,8 @@ function Main({ me, setMe, privKey, openServerId }) {
       const first = sv.find((x) => x.id === firstOpen.current) || sv[0];
       if (first) setView({ kind: 'server', serverId: first.id, channelId: first.channels[0].id });
       else setView({ kind: 'dm', userId: null });
-      if (payReturn.current) { // back from Stripe or PayPal checkout: show the Credits page
-        setView({ kind: 'dm', userId: null, credits: true }); setShowList(false);
+      if (payReturn.current) { // back from Stripe or PayPal checkout: show the Shop (where credits are bought)
+        setView({ kind: 'dm', userId: null, shop: true }); setShowList(false);
         if (payReturn.current === 'paid') setJustPaid(true);
         if (payReturn.current === 'paypal' && payToken.current) setPaypalOrder(payToken.current);
         history.replaceState(null, '', '/app');
@@ -774,7 +774,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     <div className="app">
       {/* server bar (top) */}
       <nav className="rail">
-        <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, credits: view.kind === 'dm' && !!view.credits }); setShowList(true); setMembersOpen(false); }}>
+        <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
           <img src="/aduna-icon.png" alt="" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
         <div className="rail-sep" />
@@ -872,10 +872,13 @@ function Main({ me, setMe, privKey, openServerId }) {
               <button className={'chan' + (view.explore ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}>
                 <span className="hash"><Icon name="globe" size={20} /></span>{tr('serverExplorer')}
               </button>
-              <button className={'chan' + (view.credits ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, credits: true }); setShowList(false); }}>
-                <span className="hash"><Icon name="coin" size={20} /></span>{tr('credits')}{balance !== null && <span className="credit-count">{balance.toLocaleString()}</span>}
+              <button className={'chan' + (view.shop ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); }}>
+                <span className="hash"><Icon name="bag" size={20} /></span>{tr('shopTab')}{balance !== null && <span className="credit-count">{balance.toLocaleString()}</span>}
               </button>
-              <button className={'chan' + (!view.userId && !view.explore && !view.credits ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
+              <button className={'chan' + (view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, quests: true }); setShowList(false); }}>
+                <span className="hash"><Icon name="flag" size={20} /></span>{tr('questsTab')}
+              </button>
+              <button className={'chan' + (!view.userId && !view.explore && !view.shop && !view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
                 <span className="hash"><Icon name="users" size={20} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
               <div className="side-label">{tr('lblDMs')}</div>
@@ -896,7 +899,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             <Avatar user={me} size={34} presence={myPresence} />
             <div><div className="me-name">{me.displayName}<BadgeIcons user={me} size={16} /></div><div className="muted small">{STATUS_LABEL[myPresence]}</div></div>
           </button>
-          <button className="credit-chip" title={tr('credits')} onClick={() => { setView({ kind: 'dm', userId: null, credits: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
+          <button className="credit-chip" title={tr('shopTab')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
           <button className="icon-btn" title={tr('customEmoji')} onClick={openManager}><Icon name="smile" size={18} /></button>
           <button className="icon-btn" title={tr('settings')} onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
         </div>
@@ -936,8 +939,8 @@ function Main({ me, setMe, privKey, openServerId }) {
           notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && <><br />You aren’t friends with {dmUser.displayName}, so you can’t send new messages until you are.</>}</>} />
       )}
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
-      {view.kind === 'dm' && !dmUser && view.credits && <Credits onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} />}
-      {view.kind === 'dm' && !dmUser && !view.explore && !view.credits && (
+      {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} />}
+      {view.kind === 'dm' && !dmUser && !view.explore && !view.shop && !view.quests && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
       )}
 

@@ -287,7 +287,8 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
 
 // Credits: balance, buying, the earning rules, quests and recent activity.
 // `rev` goes up whenever the server says the balance changed, so this page refreshes itself.
-export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
+// `page` picks the tab: 'shop' (buy credits, spend them on badges, recent activity) or 'quests' (earn credits: events, chatting, quests).
+export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOrder }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
@@ -369,8 +370,8 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
     <section className="chat">
       <header className="chat-head">
         {onBack && <button className="icon-btn back-btn" title="Back" aria-label="Back to list" onClick={onBack}><Icon name="back" size={22} /></button>}
-        <span className="hash"><Icon name="coin" size={20} /></span>
-        <h3>Credits</h3>
+        <span className="hash"><Icon name={page === 'quests' ? 'flag' : 'bag'} size={20} /></span>
+        <h3>{page === 'quests' ? 'Quests' : 'Shop'}</h3>
       </header>
       <div className="credits-body">
         {!d && !err && <p className="muted">Loading…</p>}
@@ -387,9 +388,10 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
                 {d.streak > 1 && <span>🔥 {d.streak}-day streak</span>}
               </div>
             </div>
-            {locked && <p className="muted notice-line">New accounts can earn and claim rewards after 30 minutes. About {mins} min to go.</p>}
-            {d.event && <EventSection ev={d.event} locked={locked && !d.event.test} busy={busy} onClaim={claimSeason} onDoor={openDoor} />}
+            {locked && page === 'quests' && <p className="muted notice-line">New accounts can earn and claim rewards after 30 minutes. About {mins} min to go.</p>}
+            {page === 'quests' && d.event && <EventSection ev={d.event} locked={locked && !d.event.test} busy={busy} onClaim={claimSeason} onDoor={openDoor} />}
 
+            {page === 'shop' && <>
             <h4 className="credit-h">Buy credits</h4>
             <div className="credit-packs">
               {d.packs.map((p) => (
@@ -402,10 +404,23 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
             {d.purchases && <BuyNotices />}
             {!d.purchases && <p className="muted small">Buying credits is not set up on this server yet.</p>}
 
-            <h4 className="credit-h">Shop</h4>
+            <h4 className="credit-h">Badges</h4>
             <p className="muted small shop-intro">Spend your credits on badges that show next to your name everywhere in Aduna. Each one is yours to keep.</p>
             <div className="shop">{d.shop.map((it) => <ShopItem key={it.id} item={it} balance={d.balance} busy={busy} onBuy={buyItem} />)}</div>
 
+            <h4 className="credit-h">Recent activity</h4>
+            {d.ledger.length === 0 && <p className="muted small">Nothing yet.</p>}
+            <div className="ledger">
+              {d.ledger.map((l, i) => (
+                <div key={i} className="ledger-row">
+                  <span className="grow">{l.reason === 'quest' ? l.note : l.reason === 'shop' ? `Shop: ${l.note || 'purchase'}` : REASON[l.reason] || l.reason}{l.reason === 'message' && l.n > 1 ? ` (${l.n})` : ''}<span className="muted small"> · {when(l.t)}</span></span>
+                  <b className={l.amount > 0 ? 'plus' : 'minus'}>{l.amount > 0 ? '+' : '−'}{Math.abs(l.amount).toLocaleString()}</b>
+                </div>
+              ))}
+            </div>
+            </>}
+
+            {page === 'quests' && <>
             <h4 className="credit-h">Earn by chatting</h4>
             <div className="earn-card">
               <p>Write real messages in server channels and earn <b>{m.reward} credits</b> each, up to <b>{m.cap} a day</b>.</p>
@@ -423,17 +438,7 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
             <div className="quests">{d.quests.filter((q) => q.daily).map((q) => <Quest key={q.id} q={q} locked={locked} busy={busy} onClaim={claim} />)}</div>
             <h4 className="credit-h">Quests</h4>
             <div className="quests">{d.quests.filter((q) => !q.daily).map((q) => <Quest key={q.id} q={q} locked={locked} busy={busy} onClaim={claim} />)}</div>
-
-            <h4 className="credit-h">Recent activity</h4>
-            {d.ledger.length === 0 && <p className="muted small">Nothing yet.</p>}
-            <div className="ledger">
-              {d.ledger.map((l, i) => (
-                <div key={i} className="ledger-row">
-                  <span className="grow">{l.reason === 'quest' ? l.note : l.reason === 'shop' ? `Shop: ${l.note || 'purchase'}` : REASON[l.reason] || l.reason}{l.reason === 'message' && l.n > 1 ? ` (${l.n})` : ''}<span className="muted small"> · {when(l.t)}</span></span>
-                  <b className={l.amount > 0 ? 'plus' : 'minus'}>{l.amount > 0 ? '+' : '−'}{Math.abs(l.amount).toLocaleString()}</b>
-                </div>
-              ))}
-            </div>
+            </>}
           </>
         )}
       </div>
