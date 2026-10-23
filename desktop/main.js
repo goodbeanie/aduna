@@ -1,14 +1,19 @@
 // Aduna desktop app: a window that opens https://aduna.onrender.com/app and nothing else.
 // All secrets and settings live on the server, so nothing sensitive is stored in this app.
 // Updates are fetched from https://aduna.onrender.com/updates/ (see the publish setting in package.json).
-const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, screen, shell, session, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, nativeTheme, screen, shell, session, ipcMain, Notification } = require('electron');
+const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 
 const ORIGIN = 'https://aduna.onrender.com';
 const APP_URL = ORIGIN + '/app';
-const iconPath = path.join(__dirname, 'build', 'icon.png');
+// The logo is black, which disappears on a dark taskbar / tray. So the window (taskbar) icon, the tray icon and notification icon switch to
+// the white logo when Windows is in dark mode, and back again live when the person changes it. (The .exe / pinned-shortcut icon is fixed by Windows.)
+const ICON_BLACK = path.join(__dirname, 'build', 'icon.png');
+const ICON_WHITE = path.join(__dirname, 'build', 'icon-white.png');
+let iconPath = nativeTheme.shouldUseDarkColors ? ICON_WHITE : ICON_BLACK;
 const BAR_H = 36; // height of the custom title bar
 
 let win = null, page = null, bar = null, tray = null;
@@ -52,7 +57,7 @@ function createWindow() {
   layout();
   for (const ev of ['resize', 'maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) win.on(ev, () => { layout(); sendBarState(); });
   for (const ev of ['focus', 'blur']) win.on(ev, sendBarState);
-  win.on('focus', () => win.flashFrame(false));
+  win.on('focus', () => { win.flashFrame(false); applyIcons(); });
   for (const ev of ['focus', 'blur', 'show', 'hide', 'minimize', 'restore']) win.on(ev, sendPresence);
   // The X hides Aduna to the tray instead of quitting, so the page stays connected and keeps raising notifications.
   win.on('close', (e) => {
@@ -274,10 +279,30 @@ function fakeInstall() {
 // ----- tray: Aduna keeps running here when the window is closed, so mentions / DMs / calls still pop up -----
 function startsWithWindows() { try { return app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin; } catch { return false; } }
 function setStartsWithWindows(on) { try { app.setLoginItemSettings({ openAtLogin: !!on, args: ['--hidden'] }); } catch { /* dev run */ } buildTray(); }
+// The taskbar and tray follow Windows' *system* mode, which can differ from the *apps* mode that nativeTheme reports, so read it from the registry.
+function taskbarIsDark(cb) {
+  const fallback = () => cb(nativeTheme.shouldUseDarkColors);
+  if (process.platform !== 'win32') return fallback();
+  execFile('reg', ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize', '/v', 'SystemUsesLightTheme'], { windowsHide: true, timeout: 4000 }, (err, out) => {
+    const m = !err && /SystemUsesLightTheme\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(String(out || ''));
+    if (m) cb(parseInt(m[1], 16) === 0); else fallback();
+  });
+}
+function trayImage() { const img = nativeImage.createFromPath(iconPath); return img.isEmpty() ? img : img.resize({ width: 32, height: 32 }); }
+function applyIcons() {
+  taskbarIsDark((dark) => {
+    const next = dark ? ICON_WHITE : ICON_BLACK;
+    if (next === iconPath) return;
+    iconPath = next;
+    try { if (win && !win.isDestroyed()) win.setIcon(iconPath); } catch { /* window closing */ }
+    try { if (tray && !tray.isDestroyed()) tray.setImage(trayImage()); } catch { /* tray gone */ }
+  });
+}
+nativeTheme.on('updated', applyIcons);
+
 function buildTray() {
   if (!tray) {
-    const img = nativeImage.createFromPath(iconPath);
-    tray = new Tray(img.isEmpty() ? img : img.resize({ width: 32, height: 32 }));
+    tray = new Tray(trayImage());
     tray.setToolTip('Aduna');
     tray.on('click', showWindow);
   }
@@ -312,6 +337,7 @@ else {
     if (app.isPackaged && !p.autostartHandled) { p.autostartHandled = true; writePrefs(p); try { app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] }); } catch { /* ignore */ } }
     createWindow();
     buildTray();
+    applyIcons(); // correct the first guess with the real taskbar mode
     setupUpdates();
   });
   // No 'window-all-closed' quit: closing the window hides it to the tray (see createWindow). "Quit" in the tray really exits.
