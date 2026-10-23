@@ -63,8 +63,18 @@ function BootSplash() {
   );
 }
 
+// The loading screen stays up for at least this long from the moment the page opened, even if the app is ready sooner.
+// The desktop and Android apps load this same page, so they get it too.
+const MIN_SPLASH_MS = 5000;
+
 export default function App() {
   const { t: tr } = useLang(); // redraws the whole app when the language changes
+  const [splashDone, setSplashDone] = useState(() => typeof performance === 'undefined' || performance.now() >= MIN_SPLASH_MS);
+  useEffect(() => {
+    if (splashDone) return undefined;
+    const id = setTimeout(() => setSplashDone(true), Math.max(0, MIN_SPLASH_MS - performance.now()));
+    return () => clearTimeout(id);
+  }, [splashDone]);
   const [boot, setBoot] = useState('loading');
   const [me, setMe] = useState(null);
   const [privKey, setPrivKey] = useState(null);
@@ -103,7 +113,7 @@ export default function App() {
   const leaveInvite = () => { history.replaceState(null, '', '/app'); setInvite(null); setSigningIn(false); };
 
   if (resetToken !== null) return <ResetPassword token={resetToken} />;
-  if (boot === 'loading') return <BootSplash />;
+  if (boot === 'loading' || !splashDone) return <BootSplash />;
   if (boot === 'auth' && invite && !signingIn) return <InvitePage code={invite} signedIn={false} onNeedAuth={() => setSigningIn(true)} />;
   if (boot === 'auth') {
     return <Auth onAuthed={async (u, k) => {
