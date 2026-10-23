@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { BadgeIcons } from './ui.jsx';
-import { ACCEPT_ATTR, processImage, uploadImage } from './image.js';
+import { ACCEPT_ATTR, processBadge, uploadImage } from './image.js';
 
 // Settings > Badges (creator accounts only): make badges, give them to people by username, take them back, delete them.
 const BADGE_PX = { w: 128, h: 128 };
@@ -63,7 +63,7 @@ function BadgeCard({ badge, onChange, onDeleted, onError }) {
       <div className="row">
         <input ref={file} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => {
           const picked = e.target.files?.[0]; e.target.value = '';
-          if (picked) run(async () => { const blob = await processImage(picked, BADGE_PX); onChange((await uploadImage('image', blob, '/api/badges/' + badge.id)).badge); });
+          if (picked) run(async () => { const blob = await processBadge(picked, BADGE_PX); onChange((await uploadImage('image', blob, '/api/badges/' + badge.id)).badge); });
         }} />
         <button className="btn" onClick={() => file.current?.click()}>{badge.image ? 'Change picture' : 'Add picture'}</button>
         {badge.image && <button className="btn" onClick={() => run(async () => onChange((await api('/badges/' + badge.id + '/image', { method: 'DELETE' })).badge))}>Remove picture</button>}

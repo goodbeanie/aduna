@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
-import { ACCEPT_ATTR, imageUrl, processImage, uploadImage } from './image.js';
+import { ACCEPT_ATTR, imageUrl, processBadge, uploadImage } from './image.js';
 
 // The shop's pieces: badge tiles, the "are you sure" window, the celebration after buying, and the creator's "add a badge" form.
 // Credits.jsx owns the data and the buying; this file is only what it draws.
@@ -120,26 +120,28 @@ export function Celebration({ item, onClose }) {
 // Creator accounts only: make a badge from a picture, give it a price, and it goes on sale. Nothing is created unless the picture is usable.
 export function AddBadgeModal({ onClose, onAdded }) {
   const [f, setF] = useState({ name: '', desc: '', price: '' });
-  const [file, setFile] = useState(null);
+  const [blob, setBlob] = useState(null); // the picture after the crop and the background removal, ready to upload
   const [preview, setPreview] = useState(null);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const input = useRef(null);
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview); }, [preview]);
 
-  const pick = (e) => {
+  // The picture is processed as soon as it is chosen, so the preview shows exactly what will be uploaded (background already cut out).
+  const pick = async (e) => {
     const picked = e.target.files?.[0]; e.target.value = '';
     if (!picked) return;
-    setErr(''); setFile(picked); setPreview(URL.createObjectURL(picked));
+    setErr('');
+    try { const out = await processBadge(picked, BADGE_PX); setBlob(out); setPreview(URL.createObjectURL(out)); }
+    catch (x) { setErr(x.message); }
   };
   const price = Number(f.price);
-  const ready = !!file && f.name.trim() && Number.isInteger(price) && price >= 1 && !busy;
+  const ready = !!blob && f.name.trim() && Number.isInteger(price) && price >= 1 && !busy;
 
   async function save(e) {
     e.preventDefault(); setErr(''); setBusy(true);
     let id = null;
     try {
-      const blob = await processImage(file, BADGE_PX); // a bad picture is caught here, before anything is made
       const { badge } = await api('/badges', { method: 'POST', body: { name: f.name, desc: f.desc } }); // not for sale yet
       id = badge.id;
       await uploadImage('image', blob, '/api/badges/' + id);
@@ -158,7 +160,7 @@ export function AddBadgeModal({ onClose, onAdded }) {
         <button type="button" className={'badge-pick' + (preview ? ' has' : '')} onClick={() => input.current?.click()} aria-label={preview ? 'Change picture' : 'Upload a picture'}>
           {preview ? <BadgeArt item={{ name: f.name }} size={88} src={preview} /> : <><Icon name="plus" size={26} /><span>Upload a picture</span></>}
         </button>
-        <p className="muted small">PNG, JPEG, WebP or GIF. It is cropped square and shown small, so keep it simple. Transparent backgrounds work.</p>
+        <p className="muted small">PNG, JPEG, WebP or GIF. A plain background (like white) is removed for you, and the picture is cropped square and shown small, so keep it simple.</p>
         <label>Name</label>
         <input value={f.name} maxLength={24} placeholder="Badge name" onChange={(e) => setF({ ...f, name: e.target.value })} />
         <label>Description <span className="muted small">(optional)</span></label>

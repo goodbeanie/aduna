@@ -17,7 +17,7 @@ function toBlob(canvas, type, quality) {
 // Centre-crops the picture to the target aspect ratio, scales it down, and re-encodes it.
 // This also strips EXIF data (e.g. GPS location) and keeps uploads small. Animated GIFs become
 // still images (first frame).
-export async function processImage(file, { w, h }) {
+async function drawCover(file, w, h) {
   if (!ACCEPT.includes(file.type)) throw new Error('Choose a PNG, JPEG, WebP or GIF image');
   if (file.size > MAX_INPUT) throw new Error('That image is too big (max 15 MB)');
 
@@ -28,13 +28,18 @@ export async function processImage(file, { w, h }) {
   const canvas = document.createElement('canvas');
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingQuality = 'high';
 
   const scale = Math.max(w / bmp.width, h / bmp.height); // "cover"
   const sw = w / scale, sh = h / scale;
   ctx.drawImage(bmp, (bmp.width - sw) / 2, (bmp.height - sh) / 2, sw, sh, 0, 0, w, h);
   bmp.close?.();
+  return canvas;
+}
+
+export async function processImage(file, { w, h }) {
+  const canvas = await drawCover(file, w, h);
 
   // WebP keeps transparency and is small; some browsers (Safari) can't encode it, so fall back to JPEG.
   let blob = await toBlob(canvas, 'image/webp', 0.88);
@@ -47,6 +52,67 @@ export async function processImage(file, { w, h }) {
     fctx.drawImage(canvas, 0, 0);
     blob = await toBlob(flat, 'image/jpeg', 0.9);
   }
+  if (!blob) throw new Error("Couldn't process that image");
+  if (blob.size > 1024 * 1024) throw new Error('That image is still too large after resizing, try a different one');
+  return blob;
+}
+
+// Badges: the same crop, then the plain background is cut out (so a logo on white becomes a logo on nothing) and the result is kept as a
+// PNG, which keeps the see-through parts in every browser.
+const BG_NEAR = 28;  // a pixel this close to the background colour is background
+const BG_FAR = 64;   // between NEAR and FAR, a pixel on the edge is faded out gradually
+
+// Looks at the four corners; if they agree on one solid colour, everything of that colour that touches the picture's edge is made
+// transparent. Returns false (and changes nothing) when the picture already has see-through corners, has no plain background, or
+// would be wiped out.
+export function removeBackground(canvas) {
+  const w = canvas.width, h = canvas.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const img = ctx.getImageData(0, 0, w, h);
+  const d = img.data;
+  const at = (x, y) => (y * w + x) * 4;
+
+  const corners = [at(0, 0), at(w - 1, 0), at(0, h - 1), at(w - 1, h - 1)];
+  if (corners.some((i) => d[i + 3] < 250)) return false; // already has transparency
+  const bg = [0, 1, 2].map((c) => corners.reduce((s, i) => s + d[i + c], 0) / 4);
+  const dist = (i) => Math.max(Math.abs(d[i] - bg[0]), Math.abs(d[i + 1] - bg[1]), Math.abs(d[i + 2] - bg[2]));
+  if (corners.some((i) => dist(i) > BG_NEAR)) return false; // corners disagree: a photo, not a plain background
+
+  const gone = new Uint8Array(w * h);
+  const stack = [];
+  const seed = (x, y) => { const p = y * w + x; if (!gone[p] && dist(p * 4) <= BG_NEAR) { gone[p] = 1; stack.push(p); } };
+  for (let x = 0; x < w; x++) { seed(x, 0); seed(x, h - 1); }
+  for (let y = 0; y < h; y++) { seed(0, y); seed(w - 1, y); }
+  while (stack.length) {
+    const p = stack.pop(), x = p % w, y = (p - x) / w;
+    if (x > 0) seed(x - 1, y);
+    if (x < w - 1) seed(x + 1, y);
+    if (y > 0) seed(x, y - 1);
+    if (y < h - 1) seed(x, y + 1);
+  }
+
+  let removed = 0;
+  for (let p = 0; p < gone.length; p++) removed += gone[p];
+  if (removed < gone.length * 0.005 || removed > gone.length * 0.92) return false; // nothing to cut, or nothing would be left
+
+  // soften the rim: a pixel touching the background fades out the closer its colour is to the background
+  for (let p = 0; p < gone.length; p++) {
+    if (gone[p]) continue;
+    const x = p % w, y = (p - x) / w;
+    const touches = (x > 0 && gone[p - 1]) || (x < w - 1 && gone[p + 1]) || (y > 0 && gone[p - w]) || (y < h - 1 && gone[p + w]);
+    if (!touches) continue;
+    const dd = dist(p * 4);
+    if (dd < BG_FAR) d[p * 4 + 3] = Math.round(255 * Math.max(0, Math.min(1, (dd - BG_NEAR) / (BG_FAR - BG_NEAR))));
+  }
+  for (let p = 0; p < gone.length; p++) if (gone[p]) d[p * 4 + 3] = 0;
+  ctx.putImageData(img, 0, 0);
+  return true;
+}
+
+export async function processBadge(file, { w, h }) {
+  const canvas = await drawCover(file, w, h);
+  removeBackground(canvas);
+  const blob = await toBlob(canvas, 'image/png');
   if (!blob) throw new Error("Couldn't process that image");
   if (blob.size > 1024 * 1024) throw new Error('That image is still too large after resizing, try a different one');
   return blob;
