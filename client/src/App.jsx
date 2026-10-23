@@ -17,7 +17,7 @@ import * as np from './notifprefs.js';
 import { ServerNotifications } from './ServerNotifications.jsx';
 import { can, canManageAny, roleColorOf } from './perms.js';
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
-import { CallUI, useCall } from './Call.jsx';
+import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
 import RulesView from './Rules.jsx';
 import { mentionPreview } from './Mentions.jsx';
@@ -571,6 +571,8 @@ function Main({ me, setMe, privKey, openServerId }) {
   const openOnboarding = () => api(`/servers/${server.id}/onboarding`).then((st) => setModal({ type: 'onboarding', serverId: server.id, state: st })).catch((e) => alert(e.message));
   const channel = server?.channels.find((c) => c.id === view.channelId);
   const dmUser = view?.kind === 'dm' && view.userId ? users[view.userId] : null;
+  const stageHere = !!dmUser && inCall(call.call) && call.call.peerId === dmUser.id; // the call is drawn in this conversation
+  const goToCall = (peerId) => { setView({ kind: 'dm', userId: peerId }); setShowList(false); setMembersOpen(false); };
 
   // On a server page the app fades to that server's theme; anywhere else (DMs, friends) it fades back to yours.
   // While the owner is in server settings, that screen previews the draft theme itself, so leave it alone.
@@ -875,6 +877,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             </div>
           </>
         )}
+        <CallDock call={call.call} actions={call.actions} users={users} onOpen={goToCall} />
         <div className="user-panel">
           <button className="me" onClick={() => setModal({ type: 'user', id: me.id })}>
             <Avatar user={me} size={34} presence={myPresence} />
@@ -911,6 +914,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={false} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
           files={{ scope: relationOf(dmUser.id) === 'friend' ? { kind: 'dm', target: dmUser.id, privKey, theirPublic: dmUser.publicKey } : null, dm: { privKey, theirPublic: dmUser.publicKey } }} gifEnabled={gifEnabled}
           placeholder={`Message @${dmUser.displayName}`} mentionables={[me, dmUser]}
+          stage={stageHere ? <CallStage call={call.call} actions={call.actions} users={users} me={me} /> : null}
           headerExtra={<>
             <button className="icon-btn" title="Voice call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle'} onClick={() => call.actions.startCall(dmUser.id, false)}><Icon name="phone" size={18} /></button>
             <button className="icon-btn" title="Video call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle'} onClick={() => call.actions.startCall(dmUser.id, true)}><Icon name="video" size={18} /></button>
@@ -946,7 +950,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       <UpdatePrompt />
       <SiteUpdateNotice />
       {gain && <div className="credit-gain" key={gain.key} aria-live="polite"><Icon name="coin" size={16} />+{gain.delta} credits</div>}
-      <CallUI call={call.call} actions={call.actions} users={users} me={me} />
+      <CallUI call={call.call} actions={call.actions} users={users} onOpen={goToCall} showStrip={!stageHere} />
       </div>
 
       {modal?.type === 'server' && <ServerModal onClose={() => setModal(null)} onDone={(s) => { setServers((p) => (p.some((x) => x.id === s.id) ? p : [...p, s])); addUsers(s.members); openServer(s); setModal(null); }} />}

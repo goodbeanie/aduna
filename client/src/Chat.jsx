@@ -155,7 +155,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, onBack, messages, users, me, presence, onSend, onPoll, onVote, onClosePoll, onReact, onEdit, onDelete, canModerate, roleColors, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly, mentionables, canEveryone }) {
+export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, users, me, presence, onSend, onPoll, onVote, onClosePoll, onReact, onEdit, onDelete, canModerate, roleColors, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly, mentionables, canEveryone }) {
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [err, setErr] = useState('');
@@ -305,6 +305,7 @@ export default function Chat({ title, subtitle, headerExtra, onBack, messages, u
         <div className="spacer" />
         {headerExtra}
       </header>
+      {stage}
       <div className="scroll" ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
         {notice && <div className="notice">{notice}</div>}
         {!messages.some((m) => !m.system) && <div className="empty">No messages yet. Say hello.</div>}
