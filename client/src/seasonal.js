@@ -11,7 +11,7 @@ export const SEASONAL_THEMES = [
   { id: 'candycane', icon: '\u{1F381}', name: 'Candy Cane',    season: 'christmas', dark: false, bg: '#fff7f4', accent: '#c8312c' },
 ];
 
-// The limited-time themes open on `now`: { season, label, until: Date (last day), themes: [...] } or null.
+// The limited-time themes open on `now`: { season, label, until: Date (last day, or null in developer test mode), themes: [...] } or null.
 export function seasonalNow(now = new Date()) {
   const f = seasonOf(now);
   if (!f) return null;

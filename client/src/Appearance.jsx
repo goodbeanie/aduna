@@ -46,7 +46,7 @@ export function AppearancePicker() {
 
       {limited && (
         <>
-          <label>{tr('limitedLbl')} &middot; {tr('limitedUntil', { date: limited.until.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) })}</label>
+          <label>{tr('limitedLbl')} &middot; {limited.until ? tr('limitedUntil', { date: limited.until.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }) : 'Test mode'}</label>
           <div className="theme-grid">{limited.themes.map((t) => <Swatch key={t.id} theme={t} on={s.id === t.id} onPick={() => pick(t.id)} />)}</div>
         </>
       )}

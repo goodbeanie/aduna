@@ -16,6 +16,12 @@ export const SEASONAL = [
   { id: 'christmas', label: 'Christmas', url: '/sounds/ringtone-christmas.mp3', month: 12, day: 25 },
 ];
 
+// Developer test mode (Settings > Developer): act as if this event's window were open, whatever the date. null = the real calendar.
+// App.jsx sets it from the signed-in account; the themes (seasonal.js), the decorations and the ringtone all follow seasonOf(), so they follow it too.
+let forced = null;
+export function forceSeason(id) { forced = SEASONAL.some((s) => s.id === id) ? id : null; }
+export const forcedSeason = () => forced;
+
 // A whole-number day count for a calendar date. Built from UTC so daylight-saving changes can never shift a day by one.
 const dayNumber = (year, month, day) => Math.floor(Date.UTC(year, month - 1, day) / 86400000);
 
@@ -28,8 +34,9 @@ export function windowOf(special, year) {
 }
 
 // The special event whose window contains `now`: { special, end } (end = last day of the window, a Date at local midnight), or null.
-// Ringtones and the limited-time themes (seasonal.js) both use this, so they always start and stop together.
+// Ringtones and the limited-time themes (seasonal.js) both use this, so they always start and stop together. `end` is null in test mode.
 export function seasonOf(now = new Date()) {
+  if (forced) return { special: SEASONAL.find((s) => s.id === forced), end: null }; // test mode: no end date
   if (!(now instanceof Date) || Number.isNaN(now.getTime())) return null;
   const year = now.getFullYear();
   const today = dayNumber(year, now.getMonth() + 1, now.getDate());

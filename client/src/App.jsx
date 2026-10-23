@@ -6,7 +6,8 @@ import Chat from './Chat.jsx';
 import Friends from './Friends.jsx';
 import { Avatar, BadgeIcons, Icon, ServerIcon, STATUS_LABEL } from './ui.jsx';
 import { imageUrl } from './image.js';
-import { setServerTheme } from './themes.js';
+import { applyTheme, loadTheme, setServerTheme } from './themes.js';
+import { forceSeason, forcedSeason } from './ringtones.js';
 import { ServerSettings } from './ServerSettings.jsx';
 import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, UserCard, ProfileEditor, SafetyModal } from './Modals.jsx';
 import { api, connectSocket, emitAck, markSignedIn, endSession, adoptLegacyToken } from './api.js';
@@ -36,6 +37,10 @@ import { withCalls, mergeRecords } from './callhistory.js';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
 // Older messages are plain strings.
+// Direct messages are end-to-end encrypted, so the server cannot read them. For the Halloween ("Trick or Treat") and Christmas (a GIF)
+// quests the browser says what the message was; the server only counts it after its own checks (see server/events.js).
+const TRICK_RE = /\btrick[\s-]*(?:or|n|and|&)[\s-]*treat(?:ing)?\b/i;
+const questHint = (text, atts) => (TRICK_RE.test(String(text || '')) ? 'trick' : (atts || []).some((a) => a && a.gif) ? 'gif' : undefined);
 const wrapDm = (text, attachments, invite) => JSON.stringify({ v: 1, t: text, a: attachments || [], ...(invite ? { i: invite } : {}) });
 const unwrapDm = (s) => {
   try { const o = JSON.parse(s); if (o && o.v === 1 && typeof o.t === 'string') return { text: o.t, attachments: Array.isArray(o.a) ? o.a : [], invite: typeof o.i === 'string' && INVITE_CODE_RE.test(o.i) ? o.i : undefined }; } catch {}
@@ -138,6 +143,13 @@ export default function App() {
 function Main({ me, setMe, privKey, openServerId }) {
   const { t: tr } = useLang(); // the main screen is its own component, so it needs its own copy
   const firstOpen = useRef(openServerId); // an invite link just joined this server: start there
+  // Developer test mode (Settings > Developer): look as if Halloween or Christmas were on, on every device signed in to this account.
+  useEffect(() => {
+    if ((forcedSeason() || null) === (me.seasonTest || null)) return;
+    forceSeason(me.seasonTest || null);
+    applyTheme(loadTheme());
+  }, [me.seasonTest]);
+  useEffect(() => () => { forceSeason(null); applyTheme(loadTheme()); }, []);
   const [servers, setServers] = useState([]);
   const [users, setUsers] = useState({ [me.id]: me });
   const [presence, setPresence] = useState({});
@@ -617,7 +629,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     const s = socketRef.current;
     if (view.kind === 'server') return emitAck(s, 'message:send', { channelId: view.channelId, content: text, replyTo, attachments: atts, typing });
     const enc = await encryptFor(privKey, dmUser.publicKey, wrapDm(text, atts));
-    return emitAck(s, 'dm:send', { to: dmUser.id, ...enc, replyTo, files: atts.map((a) => a.id).filter(Boolean) });
+    return emitAck(s, 'dm:send', { to: dmUser.id, ...enc, replyTo, files: atts.map((a) => a.id).filter(Boolean), quest: questHint(text, atts) });
   };
   // A poll is a channel message with no text; the server cleans it (polls.js) and sends it back to everyone through message:new.
   const sendPoll = (poll) => emitAck(socketRef.current, 'message:send', { channelId: view.channelId, content: '', poll });

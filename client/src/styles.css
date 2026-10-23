@@ -1022,6 +1022,34 @@ span.mention { cursor: default; }
 .quest-bar.big { max-width: none; height: 8px; margin-top: 0; margin-bottom: 6px; }
 .quest-bar i { display: block; height: 100%; border-radius: inherit; background: var(--green); transition: width .4s ease; }
 .reward { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--head); font-variant-numeric: tabular-nums; }
+/* limited-time event on the Credits page (Halloween quests, Christmas quests + Advent calendar); see Credits.jsx EventSection */
+.event-card { margin: 18px 0 4px; padding: 4px 14px 14px; border-radius: 14px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); border-top: 3px solid var(--gold); }
+.event-card.halloween { border-top-color: #e8731a; }
+.event-card.christmas { border-top-color: #c8312c; }
+.event-card.test { box-shadow: inset 0 0 0 1px var(--line), inset 0 0 0 2px color-mix(in srgb, var(--gold) 45%, transparent); }
+.event-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+.event-head .credit-h { margin: 12px 2px 2px; }
+.event-ico { font-size: 28px; line-height: 1; margin-top: 8px; }
+.event-test { margin-top: 8px; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .06em; background: var(--gold); color: var(--ink); white-space: nowrap; }
+.event-note { margin: 8px 2px 10px; line-height: 1.4; }
+.event-card .quest { background: var(--bg); }
+.advent-h { margin-top: 20px; }
+.advent { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 8px; margin: 8px 0 10px; }
+.door { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 58px; padding: 6px 4px; border: 0; border-radius: 10px; font: inherit; color: var(--head); background: var(--bg); box-shadow: inset 0 0 0 1px var(--line); cursor: pointer; transition: transform .12s ease, background .12s ease; }
+.door-n { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.door-r { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.door.ready { background: color-mix(in srgb, #c8312c 14%, var(--bg)); box-shadow: inset 0 0 0 2px #c8312c; }
+.door.ready:hover:not(:disabled) { transform: translateY(-2px); }
+.door.ready .door-r { color: var(--head); font-weight: 600; }
+.door.opened { opacity: .6; cursor: default; }
+.door.opened .door-r { color: var(--green); font-weight: 700; }
+.door.locked { opacity: .55; cursor: default; }
+.door.last { grid-column: span 2; }
+.door:disabled { cursor: default; }
+@media (prefers-reduced-motion: reduce) { .door { transition: none; } .door.ready:hover:not(:disabled) { transform: none; } }
+.season-test { margin-top: 28px; padding-top: 4px; border-top: 1px solid var(--line); display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
+.season-test .credit-h { margin: 14px 0 0; }
+.season-test p { margin: 0; }
 .quest-done { display: inline-flex; align-items: center; gap: 4px; color: var(--green); font-size: 13px; white-space: nowrap; }
 .ledger { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
 .ledger-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--bg2); }

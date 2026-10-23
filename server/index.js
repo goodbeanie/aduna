@@ -153,6 +153,7 @@ function badgeViews(u) {
     const b = db().badges && db().badges[id];
     if (b) out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' });
   }
+  out.push(...credits.events.badgeViews(u)); // Trick or Treater, Santa's Helper (earned from the Halloween / Christmas events)
   return out;
 }
 function publicUser(u) {
@@ -182,7 +183,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending });
+const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -2806,6 +2807,8 @@ app.get('/api/call/config', auth, ah(async (req, res) => {
 credits.register(app, {
   auth, ah, db, save: () => store.save(),
   notify: (uid, payload) => io.to('user:' + uid).emit('credits:update', payload),
+  isDev: (u) => !!u.developer || isCreator(u), // may use the Halloween / Christmas test mode
+  userChanged: (u) => emitUserUpdate(u),       // an event badge was earned
 });
 // ----- push notifications (installed mobile app / browsers while Aduna is closed) -----
 // Keys are generated once and kept in the database (see db.js). The service worker (client/public/sw.js) shows the notification.
@@ -3177,6 +3180,9 @@ io.on('connection', (socket) => {
       reactions: {}, createdAt: now(),
     };
     db().dms[msg.id] = msg;
+    // The server cannot read an end-to-end encrypted DM, so the browser says whether it said "Trick or Treat" or carried a GIF.
+    // That only counts towards an event quest after the checks in events.js (friends, 5 different people, account age, event open).
+    if (p.quest === 'trick' || p.quest === 'gif') credits.events.noteDm(db().users[uid], to, p.quest, { dev: !!db().users[uid].developer || isCreator(db().users[uid]), minAgeMs: credits.EARN.minAccountAgeMs });
     store.save();
     io.to('user:' + uid).to('user:' + to.id).emit('dm:new', msg);
     // end-to-end encrypted: the server cannot read it, so the notification only says who wrote
@@ -3214,6 +3220,7 @@ io.on('connection', (socket) => {
     if (!list.length) delete msg.reactions[emoji];
     if (Object.keys(msg.reactions).length > 20) { list.splice(list.indexOf(uid), 1); if (!list.length) delete msg.reactions[emoji]; return reply({ error: 'Too many reactions' }); }
     if (added && !db().users[msg.authorId]?.bot) credits.noteReaction(db().users[uid], msg.id, msg.authorId || msg.from); // counts towards the daily react quest
+    if (added && !db().users[msg.authorId]?.bot) { const me = db().users[uid]; credits.events.noteReaction(me, emoji, msg.id, msg.authorId || msg.from, { dev: !!me.developer || isCreator(me), minAgeMs: credits.EARN.minAccountAgeMs }); } // Pumpkin patch / Holiday cheer
     store.save();
     let target = io;
     rooms.forEach((r) => { target = target.to(r); });

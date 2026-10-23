@@ -230,6 +230,44 @@ function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, o
   );
 }
 
+// A limited-time event (Halloween, Christmas): its quests and, at Christmas, the Advent calendar. The server decides what is open;
+// in a developer's test mode (ev.test) claims are dry runs that pay nothing.
+const dayLabel = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+function EventSection({ ev, locked, busy, onClaim, onDoor }) {
+  const adv = ev.advent;
+  return (
+    <div className={'event-card ' + ev.id + (ev.test ? ' test' : '')}>
+      <div className="event-head">
+        <span className="event-ico" aria-hidden="true">{ev.icon}</span>
+        <div className="grow">
+          <h4 className="credit-h">{ev.label} event</h4>
+          <div className="muted small">{ev.until ? `Until ${dayLabel(ev.until)}` : 'Test mode'}{ev.badge ? ` · finish Trick or Treat for the ${ev.badge.emoji} ${ev.badge.name} badge` : ''}</div>
+        </div>
+        {ev.test && <span className="event-test">TEST MODE</span>}
+      </div>
+      {ev.test && <p className="muted small event-note">Test mode is on for your developer account. Claims here are a dry run: they show the reward but pay no credits and give no badge. Turn it off or reset it in Settings &gt; Developer.</p>}
+      <div className="quests">{ev.quests.map((q) => <Quest key={q.id} q={q} locked={locked} busy={busy} onClaim={onClaim} />)}</div>
+      {adv && (
+        <>
+          <h4 className="credit-h advent-h">Advent calendar <span className="muted small">· {adv.opened} of {adv.total} doors opened</span></h4>
+          <div className="advent" role="list">
+            {adv.doors.map((dr) => (
+              <button key={dr.day} role="listitem" type="button" className={'door ' + dr.state + (dr.day === adv.total ? ' last' : '')}
+                disabled={dr.state !== 'ready' || locked || busy === 'door' + dr.day}
+                title={dr.state === 'locked' ? `Opens on ${dr.day} December` : dr.state === 'opened' ? `Door ${dr.day}: +${dr.reward} credits` : `Open door ${dr.day}`}
+                onClick={() => onDoor(dr)}>
+                <span className="door-n">{dr.day}</span>
+                <span className="door-r">{dr.state === 'opened' ? '✓' : dr.state === 'locked' ? '🔒' : <><Icon name="coin" size={11} />{dr.reward}</>}</span>
+              </button>
+            ))}
+          </div>
+          <p className="muted small">A door opens on its own day in December and stays open until the event ends, so a missed one can still be opened. Open all {adv.total} doors for the {adv.badge.emoji} {adv.badge.name} badge.</p>
+        </>
+      )}
+    </div>
+  );
+}
+
 // Credits: balance, buying, the earning rules, quests and recent activity.
 // `rev` goes up whenever the server says the balance changed, so this page refreshes itself.
 export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
@@ -280,6 +318,22 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
     setBusy('');
   }
 
+  const seasonNote = (r, what) => (r.test
+    ? `Test mode: ${what} would pay +${r.amount} credits (nothing was paid)`
+    : `+${r.amount} credits for ${what}${r.badge ? ` and the ${r.badge} badge` : ''}`);
+  async function claimSeason(q) {
+    setBusy(q.id); setErr(''); setNote('');
+    try { const r = await api(`/credits/season/quests/${q.id}/claim`, { method: 'POST' }); setD(r); setNote(seasonNote(r, `“${q.title}”`)); }
+    catch (e) { setErr(e.message); }
+    setBusy('');
+  }
+  async function openDoor(door) {
+    setBusy('door' + door.day); setErr(''); setNote('');
+    try { const r = await api(`/credits/season/advent/${door.day}/open`, { method: 'POST' }); setD(r); setNote(seasonNote(r, `Advent door ${door.day}`)); }
+    catch (e) { setErr(e.message); }
+    setBusy('');
+  }
+
   const locked = d?.unlocksAt && d.unlocksAt > Date.now();
   const mins = locked ? Math.max(1, Math.ceil((d.unlocksAt - Date.now()) / 60000)) : 0;
   const m = d?.messaging;
@@ -309,6 +363,7 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
               </div>
             </div>
             {locked && <p className="muted notice-line">New accounts can earn and claim rewards after 30 minutes. About {mins} min to go.</p>}
+            {d.event && <EventSection ev={d.event} locked={locked && !d.event.test} busy={busy} onClaim={claimSeason} onDoor={openDoor} />}
 
             <h4 className="credit-h">Buy credits</h4>
             <div className="credit-packs">

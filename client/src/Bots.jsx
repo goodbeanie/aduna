@@ -96,6 +96,38 @@ export function DeveloperSettings({ me, onSaved }) {
       ))}
       <button className="btn primary" disabled={full} onClick={() => open('new')}><Icon name="plus" size={16} className="inline-icon" /> New bot</button>
       {full && <p className="muted small hint">You have reached the limit. Delete a bot to make a new one.</p>}
+      <SeasonTest me={me} onSaved={onSaved} />
+    </div>
+  );
+}
+
+// Developer test mode: look at Halloween or Christmas whatever the date is. The themes, decorations, ringtone, quests and the Advent
+// calendar all follow it, on every device signed in to this account. Claims in it are dry runs (the server pays nothing, see server/events.js).
+const TEST_EVENTS = [[null, 'Off'], ['halloween', '\u{1F383} Halloween'], ['christmas', '\u{1F384} Christmas']];
+function SeasonTest({ me, onSaved }) {
+  const mode = me.seasonTest || null;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [note, setNote] = useState('');
+  async function run(path, body, done) {
+    setErr(''); setNote(''); setBusy(true);
+    try { const r = await api(path, { method: 'POST', body }); onSaved?.({ ...me, seasonTest: r.seasonTest }); setNote(done); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  }
+  return (
+    <div className="season-test">
+      <h4 className="credit-h">Event test mode</h4>
+      <p className="muted small">Try Halloween or Christmas whatever the date is: the limited-time themes and decorations, the ringtone, the event quests and the Advent calendar (every door is open). Only you see it, on every device you are signed in on.</p>
+      <div className="mode-pick" role="radiogroup" aria-label="Event test mode">
+        {TEST_EVENTS.map(([id, label]) => (
+          <button type="button" role="radio" key={String(id)} aria-checked={mode === id} className={mode === id ? 'on' : ''} disabled={busy}
+            onClick={() => mode !== id && run('/credits/season/test', { mode: id }, id ? `Test mode is on: ${label.replace(/^\S+\s/, '')}.` : 'Test mode is off.')}>{label}</button>
+        ))}
+      </div>
+      {mode && <button type="button" className="btn small-btn" disabled={busy} onClick={() => run('/credits/season/test/reset', {}, 'Test progress reset. Quests and doors are closed again.')}>Reset test progress</button>}
+      <p className="muted small">Claims in test mode are a dry run: they show the reward, but no credits are paid and no badge is given. Test progress is kept apart from your real progress.</p>
+      {err && <div className="error">{err}</div>}
+      {note && <p className="ok-text small">{note}</p>}
     </div>
   );
 }

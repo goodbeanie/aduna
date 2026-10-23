@@ -13,6 +13,7 @@
 //     is a speed bump against paste / auto-typing, NOT a guarantee: anything the browser sends can be forged by a
 //     determined script. The real limits are the daily cap, cooldown, account age, similarity and conversation checks.
 const crypto = require('crypto');
+const events = require('./events'); // the Halloween / Christmas quests, the Advent calendar and the developer test mode
 
 // ---------- tunables ----------
 const EARN = {
@@ -273,7 +274,7 @@ function claimQuest(u, id, db, now = Date.now()) {
 }
 
 // ---------- what the client sees ----------
-function view(u, db, { purchases, now = Date.now() }) {
+function view(u, db, { purchases, now = Date.now(), dev = false }) {
   const c = acct(u), d = today(c, now);
   return {
     balance: c.balance,
@@ -285,6 +286,7 @@ function view(u, db, { purchases, now = Date.now() }) {
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
     quests: questList(u, db, now),
+    event: events.view(u, { now, dev }), // the Halloween / Christmas quests and Advent calendar, or null when no event is on
     messaging: { reward: EARN.msgReward, cap: EARN.msgDailyCap, earnedToday: d.msg, cooldownMs: EARN.msgCooldownMs, nextAt: c.lastMsgAt + EARN.msgCooldownMs, minMembers: EARN.minServerMembers },
     lifetime: { earned: c.earned, bought: c.bought, spent: c.spent },
     ledger: c.ledger.slice(0, 25),
@@ -519,14 +521,47 @@ function handleStripeEvent(event, db, now = Date.now()) {
 function register(app, d) {
   const push = (u, delta, reason) => d.notify(u.id, { balance: acct(u).balance, delta, reason });
 
-  app.get('/api/credits', d.auth, (req, res) => res.json(view(req.user, d.db(), { purchases: purchasesEnabled() })));
+  // developers (and the creator) can switch an event on for themselves to test it, see events.js
+  const isDev = (u) => !!(d.isDev && d.isDev(u));
+  const fullView = (u) => view(u, d.db(), { purchases: purchasesEnabled(), dev: isDev(u) });
+
+  app.get('/api/credits', d.auth, (req, res) => res.json(fullView(req.user)));
 
   app.post('/api/credits/quests/:id/claim', d.auth, (req, res) => {
     const r = claimQuest(req.user, req.params.id, d.db());
     if (!r.ok) return res.status(r.status).json({ error: r.error, unlocksAt: r.unlocksAt });
     d.save();
     push(req.user, r.amount, 'quest');
-    res.json({ ...view(req.user, d.db(), { purchases: purchasesEnabled() }), amount: r.amount });
+    res.json({ ...fullView(req.user), amount: r.amount });
+  });
+
+  // ----- seasonal events (Halloween / Christmas) -----
+  const seasonPay = (req, res, r) => {
+    if (!r.ok) return res.status(r.status).json({ error: r.error, unlocksAt: r.unlocksAt });
+    d.save();
+    if (!r.test) push(req.user, r.amount, 'quest'); // a test claim moves no credits
+    if (r.badge && d.userChanged) d.userChanged(req.user); // a new badge shows next to their name right away
+    res.json({ ...fullView(req.user), amount: r.amount, test: !!r.test, ...(r.badge ? { badge: r.badge } : {}), ...(r.all ? { all: true } : {}) });
+  };
+  const seasonOpts = (u) => ({ dev: isDev(u), grant, unlocksAt: unlocksAt(u), minAgeMs: EARN.minAccountAgeMs });
+  app.post('/api/credits/season/quests/:id/claim', d.auth, (req, res) => seasonPay(req, res, events.claim(req.user, req.params.id, seasonOpts(req.user))));
+  app.post('/api/credits/season/advent/:day/open', d.auth, (req, res) => seasonPay(req, res, events.openDoor(req.user, req.params.day, seasonOpts(req.user))));
+
+  // Developer test mode: { mode: 'halloween' | 'christmas' | null }. Developers only; everything claimed in it is a dry run.
+  const devOnly = (req, res) => { if (isDev(req.user)) return true; res.status(403).json({ error: 'Test mode is for developer accounts', code: 'not_developer' }); return false; };
+  app.post('/api/credits/season/test', d.auth, (req, res) => {
+    if (!devOnly(req, res)) return;
+    const mode = req.body?.mode ?? null;
+    if (mode !== null && !events.EVENTS[mode]) return res.status(400).json({ error: 'Choose halloween, christmas or off' });
+    events.setTest(req.user, mode);
+    d.save();
+    res.json({ seasonTest: events.testMode(req.user, true), credits: fullView(req.user) });
+  });
+  app.post('/api/credits/season/test/reset', d.auth, (req, res) => {
+    if (!devOnly(req, res)) return;
+    events.resetTest(req.user);
+    d.save();
+    res.json({ seasonTest: events.testMode(req.user, true), credits: fullView(req.user) });
   });
 
   const tries = new Map();
@@ -604,7 +639,7 @@ function register(app, d) {
 
 module.exports = {
   EARN, PACKS, QUESTS, acct, grant, spend, claw, normalize, quality, similar, typingProblem,
-  noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view,
+  noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events,
   verifyStripeSignature, createCheckout, handleStripeEvent, purchasesEnabled, register,
   paypalEnabled, createPaypalOrder, capturePaypalOrder, applyPaypalCapture, verifyPaypalWebhook, handlePaypalEvent,
   _reset: () => { spoke.clear(); seen.clear(); },
