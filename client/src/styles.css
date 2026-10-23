@@ -1038,6 +1038,8 @@ span.mention { cursor: default; }
 .shop-main b { color: var(--head); font-weight: 600; }
 .shop-buy { display: inline-flex; align-items: center; gap: 4px; font-variant-numeric: tabular-nums; }
 /* the shop, take two: badge tiles, the buy window, the reward moment and the creator's add-a-badge form; see Shop.jsx */
+.buy-credits-btn { display: inline-flex; flex-direction: row; align-items: center; justify-content: center; gap: 7px; flex: none; width: auto; white-space: nowrap; line-height: 1; padding: 0 16px; min-height: 38px; margin-left: auto; }
+.buy-credits-btn svg { flex: none; }
 .shop-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 26px 2px 10px; }
 .shop-head .credit-h { margin: 0; }
 .shop-head .btn { display: inline-flex; align-items: center; gap: 6px; }

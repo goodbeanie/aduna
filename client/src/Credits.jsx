@@ -397,7 +397,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
             <div className="credit-balance">
               <Icon name="coin" size={34} />
               <div><div key={bump} className="credit-num bump">{shownBalance.toLocaleString()}</div><div className="muted small">your credits</div></div>
-              <button className="btn primary small-btn" onClick={() => setBuying(true)}><Icon name="coin" size={14} /> Buy credits</button>
+              <button className="btn primary small-btn buy-credits-btn" onClick={() => setBuying(true)}><Icon name="coin" size={14} /><span>Buy credits</span></button>
               <div className="credit-stats muted small">
                 <span>{d.lifetime.earned.toLocaleString()} earned</span><span>{d.lifetime.bought.toLocaleString()} bought</span><span>{d.lifetime.spent.toLocaleString()} spent</span>
                 {d.streak > 1 && <span>🔥 {d.streak}-day streak</span>}
