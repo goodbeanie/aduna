@@ -146,7 +146,8 @@ const CREATOR_KEYS = new Set(String(process.env.CREATOR_EMAILS || 'adunachatapp@
 const isCreatorEmail = (email) => !!email && CREATOR_KEYS.has(security.emailKey(email));
 const isCreator = (u) => !!u && !u.bot && u.emailVerified === true && isCreatorEmail(u.email);
 const CREATOR_BADGE = { id: 'creator', name: 'Creator', builtin: true, image: null, emoji: '', color: '' };
-function badgeViews(u) {
+// Every badge a person owns (the Creator badge, ones a creator gave, event badges and shop badges).
+function allBadgeViews(u) {
   const out = [];
   if (isCreator(u)) out.push(CREATOR_BADGE);
   for (const id of Array.isArray(u.badges) ? u.badges : []) {
@@ -156,6 +157,17 @@ function badgeViews(u) {
   out.push(...credits.events.badgeViews(u)); // Trick or Treater, Santa's Helper (earned from the Halloween / Christmas events)
   out.push(...credits.shop.badgeViews(u));   // badges bought in the credits shop
   return out;
+}
+// A person can take badges off (Settings > Profile): u.hiddenBadges holds the ids they are not wearing. Everyone else only ever sees what is worn.
+const hiddenBadgeIds = (u) => new Set(Array.isArray(u.hiddenBadges) ? u.hiddenBadges : []);
+function badgeViews(u) {
+  const hide = hiddenBadgeIds(u), all = allBadgeViews(u);
+  return hide.size ? all.filter((b) => !hide.has(b.id)) : all;
+}
+// What the owner sees in Settings: everything they own, each marked worn or not.
+function ownedBadgeViews(u) {
+  const hide = hiddenBadgeIds(u);
+  return allBadgeViews(u).map((b) => ({ ...b, worn: !hide.has(b.id) }));
 }
 function publicUser(u) {
   return {
@@ -184,7 +196,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -916,6 +928,12 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (b.links !== undefined) {
     try { newLinks = cleanLinks(b.links); } catch (e) { return res.status(400).json({ error: e.message }); }
   }
+  let newHidden; // the badges the person is not wearing: only ids they really own are kept
+  if (b.hiddenBadges !== undefined) {
+    if (!Array.isArray(b.hiddenBadges) || b.hiddenBadges.length > 500) return res.status(400).json({ error: 'Badges must be a list' });
+    const mine = new Set(allBadgeViews(u).map((x) => x.id));
+    newHidden = [...new Set(b.hiddenBadges.filter((id) => typeof id === 'string' && mine.has(id)))];
+  }
   let newUsername;
   if (b.username !== undefined && String(b.username).trim() !== u.username) {
     newUsername = String(b.username).trim().replace(/^@/, '');
@@ -945,6 +963,7 @@ app.patch('/api/me', authAny, async (req, res) => {
     u.usernameChangedAt = now();
   }
   if (newLinks !== undefined) u.links = newLinks;
+  if (newHidden !== undefined) { if (newHidden.length) u.hiddenBadges = newHidden; else delete u.hiddenBadges; }
   if (b.avatarLogo !== undefined) u.avatarLogo = !!b.avatarLogo;
   if (b.displayName !== undefined) u.displayName = clip(b.displayName, 32).trim() || u.username;
   if (b.lang !== undefined && LANGS.includes(b.lang)) u.lang = b.lang;
@@ -2201,6 +2220,8 @@ const BADGE_LIMITS = { name: 24, total: 200, perUser: 12, desc: 80 };
 const badgeOwnView = (b) => ({
   id: b.id, name: b.name, emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null,
   desc: b.desc || '', price: Number.isInteger(b.price) && b.price > 0 ? b.price : null, // a price puts the badge on sale in the credits shop
+  shopEnds: Number.isFinite(b.shopEnds) && b.shopEnds > 0 ? b.shopEnds : null, // when it leaves the shop; pinned = always shown; daily = takes part in the daily shop (see shop.js)
+  pinned: b.pinned === true, daily: b.daily === true,
   holders: Object.values(db().users).filter((u) => Array.isArray(u.badges) && u.badges.includes(b.id)).map((u) => ({ id: u.id, username: u.username, displayName: u.displayName })),
 });
 const badgeById = (id) => (db().badges && db().badges[id]) || null;
@@ -2233,6 +2254,17 @@ function cleanBadgeFields(body, partial) {
       out.price = p;
     }
   }
+  if (body.shopEnds !== undefined) {
+    if (body.shopEnds === null || body.shopEnds === '') out.shopEnds = null; // no end date
+    else {
+      const t = Number(body.shopEnds);
+      if (!Number.isFinite(t) || t <= now()) return { error: 'Pick an end date that is still to come' };
+      if (t > now() + 5 * 365 * 86_400_000) return { error: 'That end date is too far away' };
+      out.shopEnds = Math.round(t);
+    }
+  }
+  if (body.pinned !== undefined) out.pinned = body.pinned === true;
+  if (body.daily !== undefined) out.daily = body.daily === true;
   return { out };
 }
 const badgeNameTaken = (name, exceptId) => name.toLowerCase() === 'creator' || Object.values(db().badges).some((b) => b.id !== exceptId && b.name.toLowerCase() === name.toLowerCase());
@@ -2243,7 +2275,7 @@ app.post('/api/badges', auth, creatorOnly, (req, res) => {
   const { out, error } = cleanBadgeFields(req.body || {}, false);
   if (error) return res.status(400).json({ error });
   if (badgeNameTaken(out.name)) return res.status(409).json({ error: 'A badge with that name already exists' });
-  const b = { id: store.id(), name: out.name, emoji: out.emoji || '', color: out.color || '#8c6b4f', image: null, desc: out.desc || '', price: out.price ?? null, createdBy: req.user.id, createdAt: now() };
+  const b = { id: store.id(), name: out.name, emoji: out.emoji || '', color: out.color || '#8c6b4f', image: null, desc: out.desc || '', price: out.price ?? null, shopEnds: out.shopEnds ?? null, pinned: out.pinned === true, daily: out.daily === true, createdBy: req.user.id, createdAt: now() };
   db().badges[b.id] = b; store.save();
   res.json({ badge: badgeOwnView(b) });
 });
@@ -2823,6 +2855,7 @@ credits.register(app, {
   auth, ah, db, save: () => store.save(),
   notify: (uid, payload) => io.to('user:' + uid).emit('credits:update', payload),
   isDev: (u) => !!u.developer || isCreator(u), // may use the Halloween / Christmas test mode
+  isCreator: (u) => isCreator(u),              // sees every badge in the shop, with its shop state
   userChanged: (u) => emitUserUpdate(u),       // an event badge was earned
 });
 // ----- push notifications (installed mobile app / browsers while Aduna is closed) -----
@@ -2974,7 +3007,7 @@ function broadcastPresence(uid) {
 // The audience sees the public profile (Invisible shows as offline); the person's own devices get the real status.
 function emitUserUpdate(u) {
   toAudience(u.id).except('user:' + u.id).emit('user:update', publicUser(u));
-  io.to('user:' + u.id).emit('user:update', selfView(u));
+  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u) }); // their own devices also learn which badges they own and wear
 }
 // Two people just became able to see each other (friend request, joining a server): each learns the other's current presence.
 function introduce(a, b) {

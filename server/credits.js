@@ -275,7 +275,7 @@ function claimQuest(u, id, db, now = Date.now()) {
 }
 
 // ---------- what the client sees ----------
-function view(u, db, { purchases, now = Date.now(), dev = false }) {
+function view(u, db, { purchases, now = Date.now(), dev = false, creator = false }) {
   const c = acct(u), d = today(c, now);
   return {
     balance: c.balance,
@@ -288,7 +288,8 @@ function view(u, db, { purchases, now = Date.now(), dev = false }) {
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
     quests: questList(u, db, now),
     event: events.view(u, { now, dev }), // the Halloween / Christmas quests and Advent calendar, or null when no event is on
-    shop: shop.view(u, db.badges),       // the creator-made badges that are for sale, with what this person already owns marked
+    shop: shop.view(u, db.badges, { now, all: creator }), // the creator-made badges on show today (the creator sees every priced badge, with its state), with what this person already owns marked
+    shopInfo: shop.info(now),                              // the daily shop: how many are shown at once and when today's picks change
     messaging: { reward: EARN.msgReward, cap: EARN.msgDailyCap, earnedToday: d.msg, cooldownMs: EARN.msgCooldownMs, nextAt: c.lastMsgAt + EARN.msgCooldownMs, minMembers: EARN.minServerMembers },
     lifetime: { earned: c.earned, bought: c.bought, spent: c.spent },
     ledger: c.ledger.slice(0, 25),
@@ -525,7 +526,8 @@ function register(app, d) {
 
   // developers (and the creator) can switch an event on for themselves to test it, see events.js
   const isDev = (u) => !!(d.isDev && d.isDev(u));
-  const fullView = (u) => view(u, d.db(), { purchases: purchasesEnabled(), dev: isDev(u) });
+  const isCreator = (u) => !!(d.isCreator && d.isCreator(u));
+  const fullView = (u) => view(u, d.db(), { purchases: purchasesEnabled(), dev: isDev(u), creator: isCreator(u) });
 
   app.get('/api/credits', d.auth, (req, res) => res.json(fullView(req.user)));
 

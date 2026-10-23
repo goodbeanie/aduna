@@ -22,7 +22,7 @@ const badges = () => ({
   const u = user(), list = S.view(u, badges());
   assert.deepStrictEqual(list.map((i) => i.id), ['b1', 'b2', 'b3'], 'only priced badges, cheapest first');
   assert.ok(list.every((i) => i.owned === false && i.kind === 'badge'));
-  assert.deepStrictEqual(list[0], { id: 'b1', kind: 'badge', name: 'Star', desc: 'A shiny star.', emoji: '', color: '#d9a400', image: 'img-star', price: 100, owned: false });
+  assert.deepStrictEqual(list[0], { id: 'b1', kind: 'badge', name: 'Star', desc: 'A shiny star.', emoji: '', color: '#d9a400', image: 'img-star', price: 100, owned: false, pinned: false, daily: false, ends: null });
   assert.deepStrictEqual(S.view(u, {}), []); assert.deepStrictEqual(S.view(u), []); assert.deepStrictEqual(S.view(u, null), []);
   step('catalogue: creator badges with a whole positive price, cheapest first; no presets any more');
 }
@@ -141,6 +141,69 @@ const badges = () => ({
   assert.strictEqual(r.code, 404);
   assert.strictEqual(calls.notify.length, 1, 'only the real purchase notified');
   step('route: buys once, saves, notifies, refuses repeats, too-expensive badges and unknown ones');
+}
+
+// ---- end dates ----
+{
+  const u = user(), B = badges();
+  B.b1.shopEnds = T0 + 1000;
+  const at = (now, o) => S.view(u, B, { now, ...o });
+  assert.strictEqual(at(T0).find((i) => i.id === 'b1').ends, T0 + 1000, 'the end time is shown');
+  assert.ok(!at(T0 + 1000).some((i) => i.id === 'b1'), 'the badge leaves the shop at its end time');
+  assert.strictEqual(at(T0 + 1000, { all: true }).find((i) => i.id === 'b1').state, 'ended', 'the creator still sees it, marked ended');
+  C.grant(u, 5000, 'quest', { now: T0 });
+  assert.strictEqual(S.buy(u, 'b1', C.spend, { badges: B, now: T0 + 1000 }).status, 404, 'an ended badge cannot be bought');
+  assert.strictEqual(C.acct(u).balance, 5000, 'and costs nothing');
+  assert.strictEqual(S.buy(u, 'b1', C.spend, { badges: B, now: T0 }).ok, true, 'before the end time it can');
+  B.b1.shopEnds = null; assert.ok(at(T0 + 5000).some((i) => i.id === 'b1'), 'clearing the date puts it back');
+  B.b1.shopEnds = 'soon'; assert.ok(at(T0 + 5000).some((i) => i.id === 'b1'), 'a junk end date is ignored');
+  step('end dates: the badge leaves the shop on time, cannot be bought after, and the creator can bring it back');
+}
+
+// ---- pins and the daily shop ----
+{
+  const u = user(), B = {};
+  for (let i = 0; i < 8; i++) B['d' + i] = { id: 'd' + i, name: 'Daily ' + i, price: 10 + i, daily: true };
+  const ids = (now, o) => S.view(u, B, { now, ...o }).map((i) => i.id);
+
+  assert.strictEqual(ids(T0).length, S.DAILY_MAX, 'eight daily badges, but only five show');
+  assert.deepStrictEqual(ids(T0), ids(T0 + 3_600_000), 'the same five all day');
+  const sets = new Set(); for (let k = 0; k < 10; k++) sets.add(ids(T0 + k * 86_400_000).join());
+  assert.ok(sets.size > 1, 'the picks change from day to day');
+  const all = S.view(u, B, { now: T0, all: true });
+  assert.deepStrictEqual([all.length, all.filter((i) => i.state === 'live').length, all.filter((i) => i.state === 'resting').length], [8, 5, 3], 'the creator sees all eight');
+  assert.deepStrictEqual(S.info(T0), { dailyMax: 5, resetsAt: Date.UTC(2026, 9, 24) }, 'picks change at midnight UTC');
+
+  C.grant(u, 10_000, 'quest', { now: T0 });
+  const resting = all.find((i) => i.state === 'resting').id, live = all.find((i) => i.state === 'live').id;
+  assert.strictEqual(S.buy(u, resting, C.spend, { badges: B, now: T0 }).status, 404, 'a resting daily badge cannot be bought');
+  assert.strictEqual(C.acct(u).balance, 10_000);
+  assert.strictEqual(S.buy(u, live, C.spend, { badges: B, now: T0 }).ok, true, 'one of today\u2019s picks can');
+
+  B[resting].pinned = true;
+  assert.strictEqual(ids(T0).length, S.DAILY_MAX + 1, 'a pinned badge is always shown and does not use up a daily slot');
+  assert.strictEqual(ids(T0)[0], resting, 'pinned badges come first');
+  assert.strictEqual(S.buy(user('p'), resting, C.spend, { badges: B, now: T0 }).status, 402, 'a pinned daily badge is on sale (this person just has no credits)');
+
+  const regular = { id: 'r1', name: 'Regular', price: 5 };
+  B.r1 = regular;
+  assert.ok(ids(T0).includes('r1'), 'badges that are not daily are always shown');
+  for (const k of Object.keys(B)) B[k].shopEnds = T0 + 1;
+  assert.deepStrictEqual(ids(T0 + 2), [], 'ended badges are never picked');
+  step('pin and daily: five shown a day out of any number, the same for everyone, pinned first, resting ones cannot be bought');
+}
+
+// ---- the credits view for players and for the creator ----
+{
+  const u = user(); const B = badges(); B.b2.daily = true; B.b3.pinned = true;
+  const db = { users: {}, servers: {}, friendships: {}, emojis: {}, badges: B };
+  const player = C.view(u, db, { purchases: false, now: T0 });
+  assert.strictEqual(player.shop[0].id, 'b3', 'pinned first');
+  assert.ok(player.shop.every((i) => i.state === undefined), 'players do not get the creator state');
+  assert.deepStrictEqual(player.shopInfo, { dailyMax: 5, resetsAt: Date.UTC(2026, 9, 24) });
+  const creator = C.view(u, db, { purchases: false, now: T0, creator: true });
+  assert.ok(creator.shop.every((i) => ['live', 'resting', 'ended'].includes(i.state)));
+  step('credits view: players see what is on show; the creator also sees each badge\u2019s state');
 }
 
 console.log('shop tests passed');

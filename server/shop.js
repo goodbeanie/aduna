@@ -3,7 +3,8 @@
 // Like credits.js and events.js this file has no Express / database imports: the rules are plain functions over a user record, the badge
 // table and the credits `spend` function, so server/shop-test.js can run them without a server. credits.js wires them to the routes.
 //
-// What is for sale: every badge in db().badges that has a `price` (a whole number of credits, set by a creator; no price = not for sale).
+// What is for sale: every badge in db().badges that has a `price` (a whole number of credits, set by a creator; no price = not for sale),
+// has not reached its end date (`shopEnds`), and is on show today: pinned, or not daily, or one of today's DAILY_MAX daily picks.
 // Buying one puts its id in the buyer's `u.badges`, exactly like a badge a creator gives away by username, so it shows next to their name
 // through the same code (badgeViews in index.js).
 //
@@ -31,21 +32,62 @@ const LEGACY = [
 const LEGACY_BY_ID = new Map(LEGACY.map((i) => [i.id, i]));
 
 const has = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
-const forSale = (b) => !!b && Number.isInteger(b.price) && b.price > 0 && b.price <= MAX_PRICE;
 const held = (u) => (Array.isArray(u?.badges) ? u.badges : []);
 
-// what the client sees: every badge that is for sale, cheapest first, with what this person already owns marked
-function view(u, badges = {}) {
+// A badge has a price (that is what puts it in the shop) and three optional shop settings a creator controls:
+//   shopEnds  a time (ms): from then on the badge is off the shop for good, until the creator clears or moves the date. Owners keep it.
+//   pinned    always shown, and listed first
+//   daily     takes part in the daily shop: every day (UTC) at most DAILY_MAX of the daily badges are picked at random and shown; the rest
+//             rest until a later day. Any number of badges can be daily. A pinned badge is always shown, so it never uses up a daily slot.
+const priced = (b) => !!b && Number.isInteger(b.price) && b.price > 0 && b.price <= MAX_PRICE;
+const ended = (b, now) => !!b && Number.isFinite(b.shopEnds) && b.shopEnds > 0 && b.shopEnds <= now;
+const forSale = (b, now = Date.now()) => priced(b) && !ended(b, now);
+
+const DAILY_MAX = 5;
+const DAY_MS = 86_400_000;
+const dayOf = (now) => Math.floor(now / DAY_MS);
+// A number that looks random but is the same for one badge on one day, so everybody sees the same daily shop and it
+// needs no stored state. It is mixed so that the order changes completely from one day to the next.
+function rank(id, day) {
+  let h = (2166136261 ^ Math.imul(day + 1, 2654435761)) >>> 0;
+  const s = String(id);
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+  h ^= h >>> 15; h = Math.imul(h, 2246822519) >>> 0; h ^= h >>> 13;
+  return h >>> 0;
+}
+// the ids of today's daily badges
+function dailyPicks(badges, now = Date.now()) {
+  const day = dayOf(now);
+  return new Set(Object.values(badges || {})
+    .filter((b) => forSale(b, now) && b.daily === true && b.pinned !== true)
+    .sort((a, b) => rank(a.id, day) - rank(b.id, day) || (String(a.id) < String(b.id) ? -1 : 1))
+    .slice(0, DAILY_MAX).map((b) => b.id));
+}
+// is this badge on show in the shop right now?
+const shown = (b, picks, now) => forSale(b, now) && (b.pinned === true || b.daily !== true || picks.has(b.id));
+const info = (now = Date.now()) => ({ dailyMax: DAILY_MAX, resetsAt: (dayOf(now) + 1) * DAY_MS });
+
+// what the client sees: the badges on show (pinned first, then cheapest first), with what this person already owns marked.
+// `all` is for the creator: every badge that has a price, with a `state` of live, resting (daily, not picked today) or ended.
+function view(u, badges = {}, { now = Date.now(), all = false } = {}) {
   const have = new Set(held(u));
-  return Object.values(badges || {}).filter(forSale)
-    .map((b) => ({ id: b.id, kind: 'badge', name: b.name, desc: b.desc || '', emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null, price: b.price, owned: have.has(b.id) }))
-    .sort((a, b) => a.price - b.price || a.name.localeCompare(b.name));
+  const picks = dailyPicks(badges, now);
+  return Object.values(badges || {}).filter((b) => priced(b) && (all || shown(b, picks, now)))
+    .map((b) => {
+      const item = {
+        id: b.id, kind: 'badge', name: b.name, desc: b.desc || '', emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null, price: b.price, owned: have.has(b.id),
+        pinned: b.pinned === true, daily: b.daily === true, ends: Number.isFinite(b.shopEnds) && b.shopEnds > 0 ? b.shopEnds : null,
+      };
+      if (all) item.state = ended(b, now) ? 'ended' : shown(b, picks, now) ? 'live' : 'resting';
+      return item;
+    })
+    .sort((a, b) => (b.pinned - a.pinned) || a.price - b.price || a.name.localeCompare(b.name));
 }
 
 // `spend` is credits.spend. Returns { ok: true, item } or { status, error }.
 function buy(u, id, spend, { badges = {}, maxHeld = MAX_HELD, now = Date.now() } = {}) {
   const b = typeof id === 'string' && has(badges, id) ? badges[id] : null;
-  if (!forSale(b)) return { status: 404, error: 'That item is not in the shop' };
+  if (!b || !shown(b, dailyPicks(badges, now), now)) return { status: 404, error: 'That item is not in the shop' }; // off sale, ended, or a daily badge that is resting today
   if (held(u).includes(b.id)) return { status: 409, error: 'You already own this' };
   if (held(u).length >= maxHeld) return { status: 400, error: `Nobody can hold more than ${maxHeld} badges` };
   if (!spend(u, b.price, 'shop', { note: b.name, now })) return { status: 402, error: 'Not enough credits' };
@@ -59,4 +101,4 @@ function badgeViews(u) {
   return owned(u).map((id) => { const i = LEGACY_BY_ID.get(id); return { id: i.id, name: i.name, image: null, emoji: i.emoji, color: i.color }; });
 }
 
-module.exports = { MAX_PRICE, MAX_HELD, LEGACY, owned, forSale, view, buy, badgeViews };
+module.exports = { MAX_PRICE, MAX_HELD, DAILY_MAX, LEGACY, owned, forSale, ended, dailyPicks, info, view, buy, badgeViews };

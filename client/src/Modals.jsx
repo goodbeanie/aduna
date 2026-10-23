@@ -240,6 +240,11 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const [saving, setSaving] = useState(false);
   const set = (k) => (v) => setF((s) => ({ ...s, [k]: v }));
 
+  // Badges: everything the person owns, each worn or taken off. Saved with the rest of the profile; the preview card follows the toggles.
+  const ownedBadges = Array.isArray(me.ownedBadges) ? me.ownedBadges : [];
+  const [hidden, setHidden] = useState(() => new Set(ownedBadges.filter((b) => b.worn === false).map((b) => b.id)));
+  const toggleBadge = (id) => setHidden((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+
   // Username can be changed once every 7 days (the server enforces this; this just explains it).
   const unlockAt = me.usernameChangedAt ? me.usernameChangedAt + USERNAME_COOLDOWN_MS : 0;
   const locked = unlockAt > Date.now();
@@ -288,6 +293,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
 
   const preview = {
     ...me, ...f,
+    badges: ownedBadges.length ? ownedBadges.filter((b) => !hidden.has(b.id)) : me.badges, // the card shows only the badges that are on
     username: me.username,
     avatarLogo: mode === 'logo',
     avatarEmoji: mode === 'letter' ? f.avatarEmoji : '',
@@ -302,6 +308,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     try {
       const body = { ...f, avatarLogo: mode === 'logo', links: f.links.filter((l) => l.url.trim()) };
       if (renaming) body.username = f.username.trim().replace(/^@/, ''); else delete body.username;
+      if (ownedBadges.length) body.hiddenBadges = [...hidden];
       let { user } = await api('/me', { method: 'PATCH', body });
       // Choosing the letter or the logo drops any saved picture; choosing "image" applies the staged upload.
       const avatarChange = mode === 'image' ? staged.avatar : (me.avatarImage ? null : undefined);
@@ -382,6 +389,24 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           <select value={f.status} onChange={(e) => set('status')(e.target.value)}>
             {['online', 'idle', 'dnd', 'invisible'].map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
+          {ownedBadges.length > 0 && (
+            <>
+              <label>Badges</label>
+              <div className="badge-wear">
+                {ownedBadges.map((b) => {
+                  const on = !hidden.has(b.id);
+                  return (
+                    <div key={b.id} className={'badge-wear-row' + (on ? ' on' : '')}>
+                      <BadgeIcons user={{ badges: [b] }} size={28} />
+                      <span className="grow">{b.name}</span>
+                      <button type="button" className={'btn small-btn' + (on ? '' : ' primary')} aria-pressed={on} onClick={() => toggleBadge(b.id)}>{on ? 'Take off' : 'Put on'}</button>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="muted small hint">Badges you take off are hidden from your profile and from next to your name. You still own them, so you can put them back on any time. Press Save changes to apply.</p>
+            </>
+          )}
           {err && <div className="error">{err}</div>}
         </div>
 

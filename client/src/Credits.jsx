@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
-import { AddBadgeModal, BuyConfirm, Celebration, ShopTile, useCountUp } from './Shop.jsx';
+import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
 const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed', shop: 'Shop' };
@@ -281,6 +281,8 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
   const [confirm, setConfirm] = useState(null); // the badge the person is about to buy, or null
   const [won, setWon] = useState(null); // the badge just bought (the celebration), or null
   const [adding, setAdding] = useState(false); // a creator's "add a badge" window
+  const [editing, setEditing] = useState(null); // the shop badge a creator is editing, or null
+  const [, setTick] = useState(0);
   const [checkout, setCheckout] = useState(null); // the pack being checked out, or null
   const [coErr, setCoErr] = useState('');
   const captured = useRef('');
@@ -290,6 +292,12 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
 
   const load = useCallback(() => api('/credits').then((r) => { setD(r); setErr(''); }).catch((e) => setErr(e.message)), []);
   useEffect(() => { load(); }, [load, rev]);
+  // The daily shop changes at a set time: keep the countdown moving, and refresh the shop when the time passes (also when an end date passes).
+  const resetsAt = d?.shopInfo?.resetsAt;
+  useEffect(() => {
+    const iv = setInterval(() => { setTick((n) => n + 1); if (resetsAt && Date.now() >= resetsAt) load(); }, 30_000);
+    return () => clearInterval(iv);
+  }, [resetsAt, load]);
   // After paying, Stripe tells the server in the background; give it a moment, then stop looking.
   useEffect(() => {
     if (!justPaid) return undefined;
@@ -340,6 +348,15 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
     try { await api('/badges/' + item.id, { method: 'PATCH', body: { price: null } }); load(); setNote(`${item.name} is off sale.`); }
     catch (e) { setErr(e.message); }
   }
+  // A creator's quick controls on a shop tile. The server holds the truth; the page just reloads.
+  async function patchBadge(item, body, msg) {
+    setErr(''); setNote('');
+    try { await api('/badges/' + item.id, { method: 'PATCH', body }); load(); setNote(msg); }
+    catch (e) { setErr(e.message); }
+  }
+  const togglePin = (item) => patchBadge(item, { pinned: !item.pinned }, item.pinned ? `${item.name} is unpinned.` : `${item.name} is pinned to the top of the shop.`);
+  const toggleDaily = (item) => patchBadge(item, { daily: !item.daily }, item.daily ? `${item.name} is back in the regular shop.` : `${item.name} is now part of the daily shop.`);
+  const timeLeft = (ms) => { const m = Math.max(1, Math.ceil(ms / 60_000)); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
 
   const seasonNote = (r, what) => (r.test
     ? `Test mode: ${what} would pay +${r.amount} credits (nothing was paid)`
@@ -378,6 +395,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
         {confirm && d && <BuyConfirm item={confirm} balance={d.balance} busy={busy === confirm.id} onConfirm={() => buyItem(confirm)} onClose={() => setConfirm(null)} />}
         {won && <Celebration item={won} onClose={() => setWon(null)} />}
         {adding && <AddBadgeModal onClose={() => setAdding(false)} onAdded={(name) => { setAdding(false); load(); setNote(`${name} is in the shop.`); }} />}
+        {editing && <EditBadgeModal item={editing} onClose={() => setEditing(null)} onSaved={(name) => { setEditing(null); load(); setNote(`${name} is updated.`); }} />}
         {buying && d && (
           <Modal title="Buy credits" onClose={() => setBuying(false)}>
             <div className="credit-packs">
@@ -414,7 +432,28 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
             <p className="muted small shop-intro">Spend your credits on badges that show next to your name everywhere in Aduna. Each one is yours to keep.</p>
             {d.shop.length === 0
               ? <div className="shop-empty muted">{creator ? 'No badges are for sale yet. Add one with a picture and a price.' : 'No badges are for sale right now. Check back soon.'}</div>
-              : <div className="shop tiles">{d.shop.map((it) => <ShopTile key={it.id} item={it} balance={d.balance} busy={busy} creator={creator} onOpen={setConfirm} onOffSale={takeOffSale} />)}</div>}
+              : (() => {
+                const tile = (it) => <ShopTile key={it.id} item={it} balance={d.balance} busy={busy} creator={creator} onOpen={setConfirm} onOffSale={takeOffSale} onPin={togglePin} onDaily={toggleDaily} onEdit={setEditing} />;
+                const regular = d.shop.filter((it) => !it.daily), daily = d.shop.filter((it) => it.daily);
+                const max = d.shopInfo?.dailyMax || 5;
+                return (
+                  <>
+                    {regular.length > 0 && <div className="shop tiles">{regular.map(tile)}</div>}
+                    {daily.length > 0 && (
+                      <>
+                        <div className="shop-head daily-head">
+                          <h4 className="credit-h">Daily shop</h4>
+                          {d.shopInfo?.resetsAt && <span className="muted small">New picks in {timeLeft(d.shopInfo.resetsAt - Date.now())}</span>}
+                        </div>
+                        <p className="muted small shop-intro">{creator
+                          ? `Up to ${max} of these badges are picked at random each day. The others rest until a later day. ${daily.length} ${daily.length === 1 ? 'badge is' : 'badges are'} ticked as daily.`
+                          : `A few badges show up here each day, picked at random. Come back tomorrow to see what’s new.`}</p>
+                        <div className="shop tiles">{daily.map(tile)}</div>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
 
             <h4 className="credit-h">Recent activity</h4>
             {d.ledger.length === 0 && <p className="muted small">Nothing yet.</p>}
