@@ -154,6 +154,7 @@ function badgeViews(u) {
     if (b) out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' });
   }
   out.push(...credits.events.badgeViews(u)); // Trick or Treater, Santa's Helper (earned from the Halloween / Christmas events)
+  out.push(...credits.shop.badgeViews(u));   // badges bought in the credits shop
   return out;
 }
 function publicUser(u) {

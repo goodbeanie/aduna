@@ -3,8 +3,25 @@ import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
-const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed' };
+const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed', shop: 'Shop' };
 const when = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+// One thing in the shop. The server holds the price and does the buying; this only asks for it.
+function ShopItem({ item, balance, busy, onBuy }) {
+  const short = !item.owned && balance < item.price;
+  return (
+    <div className={'shop-item' + (item.owned ? ' owned' : '')}>
+      <span className="shop-badge" style={{ background: item.color }} aria-hidden="true">{item.emoji}</span>
+      <div className="shop-main">
+        <b>{item.name}</b>
+        <div className="muted small">{item.desc}</div>
+      </div>
+      {item.owned
+        ? <span className="quest-done"><Icon name="check" size={16} /> Owned</span>
+        : <button className="btn primary small-btn shop-buy" disabled={short || busy === item.id} title={short ? `You need ${(item.price - balance).toLocaleString()} more credits` : `Buy ${item.name}`} onClick={() => onBuy(item)}><Icon name="coin" size={14} />{item.price.toLocaleString()}</button>}
+    </div>
+  );
+}
 
 function Quest({ q, locked, busy, onClaim }) {
   const pct = Math.round((q.have / q.need) * 100);
@@ -318,6 +335,14 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
     setBusy('');
   }
 
+  async function buyItem(item) {
+    if (!window.confirm(`Buy the ${item.name} badge for ${item.price.toLocaleString()} credits?`)) return;
+    setBusy(item.id); setErr(''); setNote('');
+    try { const r = await api(`/credits/shop/${item.id}/buy`, { method: 'POST' }); setD(r); setNote(`You bought the ${r.bought} badge. It now shows next to your name.`); }
+    catch (e) { setErr(e.message); }
+    setBusy('');
+  }
+
   const seasonNote = (r, what) => (r.test
     ? `Test mode: ${what} would pay +${r.amount} credits (nothing was paid)`
     : `+${r.amount} credits for ${what}${r.badge ? ` and the ${r.badge} badge` : ''}`);
@@ -377,6 +402,10 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
             {d.purchases && <BuyNotices />}
             {!d.purchases && <p className="muted small">Buying credits is not set up on this server yet.</p>}
 
+            <h4 className="credit-h">Shop</h4>
+            <p className="muted small shop-intro">Spend your credits on badges that show next to your name everywhere in Aduna. Each one is yours to keep.</p>
+            <div className="shop">{d.shop.map((it) => <ShopItem key={it.id} item={it} balance={d.balance} busy={busy} onBuy={buyItem} />)}</div>
+
             <h4 className="credit-h">Earn by chatting</h4>
             <div className="earn-card">
               <p>Write real messages in server channels and earn <b>{m.reward} credits</b> each, up to <b>{m.cap} a day</b>.</p>
@@ -400,7 +429,7 @@ export default function Credits({ onBack, rev, justPaid, paypalOrder }) {
             <div className="ledger">
               {d.ledger.map((l, i) => (
                 <div key={i} className="ledger-row">
-                  <span className="grow">{l.reason === 'quest' ? l.note : REASON[l.reason] || l.reason}{l.reason === 'message' && l.n > 1 ? ` (${l.n})` : ''}<span className="muted small"> · {when(l.t)}</span></span>
+                  <span className="grow">{l.reason === 'quest' ? l.note : l.reason === 'shop' ? `Shop: ${l.note || 'purchase'}` : REASON[l.reason] || l.reason}{l.reason === 'message' && l.n > 1 ? ` (${l.n})` : ''}<span className="muted small"> · {when(l.t)}</span></span>
                   <b className={l.amount > 0 ? 'plus' : 'minus'}>{l.amount > 0 ? '+' : '−'}{Math.abs(l.amount).toLocaleString()}</b>
                 </div>
               ))}

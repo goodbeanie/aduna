@@ -196,7 +196,9 @@ Anyone can post a poll in a text channel (up to 10 answers, optional time limit,
 
 ## Credits
 
-Credits are Aduna's currency. Everyone has a balance (private to them) shown in the sidebar and on the **Credits** page, which also lists quests and recent activity. Nothing in the app spends credits yet: the server has `spend()` ready in `server/credits.js` for whatever you add next.
+Credits are Aduna's currency. Everyone has a balance (private to them) shown in the sidebar and on the **Credits** page, which also lists the shop, quests and recent activity.
+
+**Spending: the shop.** The Credits page has a **Shop** where credits buy profile badges (an emoji on a colour, shown next to your name everywhere, like other badges). The catalogue and prices are `ITEMS` at the top of `server/shop.js`; add a line there to add an item. Prices are whole credits and always come from the server (`POST /api/credits/shop/:id/buy` takes only the item id, never an amount). Each item is bought once: the credits are taken and the badge is handed over in one step, so a double click cannot charge twice, and a balance below zero (after a refund) cannot shop. Bought badges are kept in `user.shopBadges` and show up through `badgeViews` in `server/index.js`. Purchases appear in Recent activity as "Shop: <item>". Tests: `server/shop-test.js`.
 
 **Earning**
 
@@ -249,6 +251,7 @@ server/index.js        REST API + Socket.IO
 server/db.js           encrypted Postgres/Neon persistence (records, images, files)
 server/security.js     browser headers, email rules, login lockout, password checks
 server/credits.js      credits: balances, earning rules, quests, PayPal and Stripe checkout + webhooks
+server/shop.js         the credits shop: badges you can buy with credits (catalogue, buying rules)
 server/images.js       checks uploaded images (file signature + dimensions)
 server/r2-test.js      R2 storage test (uses a local S3 stand-in)
 server/smoke-test.js   end-to-end tests (npm test)

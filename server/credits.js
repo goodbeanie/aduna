@@ -14,6 +14,7 @@
 //     determined script. The real limits are the daily cap, cooldown, account age, similarity and conversation checks.
 const crypto = require('crypto');
 const events = require('./events'); // the Halloween / Christmas quests, the Advent calendar and the developer test mode
+const shop = require('./shop');     // what credits can be spent on (profile badges)
 
 // ---------- tunables ----------
 const EARN = {
@@ -287,6 +288,7 @@ function view(u, db, { purchases, now = Date.now(), dev = false }) {
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
     quests: questList(u, db, now),
     event: events.view(u, { now, dev }), // the Halloween / Christmas quests and Advent calendar, or null when no event is on
+    shop: shop.view(u),                  // the shop catalogue with what this person already owns marked
     messaging: { reward: EARN.msgReward, cap: EARN.msgDailyCap, earnedToday: d.msg, cooldownMs: EARN.msgCooldownMs, nextAt: c.lastMsgAt + EARN.msgCooldownMs, minMembers: EARN.minServerMembers },
     lifetime: { earned: c.earned, bought: c.bought, spent: c.spent },
     ledger: c.ledger.slice(0, 25),
@@ -535,6 +537,16 @@ function register(app, d) {
     res.json({ ...fullView(req.user), amount: r.amount });
   });
 
+  // ----- the shop: spend credits on a badge. The price comes from shop.js; the browser only names the item. -----
+  app.post('/api/credits/shop/:id/buy', d.auth, (req, res) => {
+    const r = shop.buy(req.user, req.params.id, spend);
+    if (!r.ok) return res.status(r.status).json({ error: r.error });
+    d.save();
+    push(req.user, -r.item.price, 'shop');
+    if (d.userChanged) d.userChanged(req.user); // the new badge shows next to their name right away
+    res.json({ ...fullView(req.user), bought: r.item.name });
+  });
+
   // ----- seasonal events (Halloween / Christmas) -----
   const seasonPay = (req, res, r) => {
     if (!r.ok) return res.status(r.status).json({ error: r.error, unlocksAt: r.unlocksAt });
@@ -639,7 +651,7 @@ function register(app, d) {
 
 module.exports = {
   EARN, PACKS, QUESTS, acct, grant, spend, claw, normalize, quality, similar, typingProblem,
-  noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events,
+  noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events, shop,
   verifyStripeSignature, createCheckout, handleStripeEvent, purchasesEnabled, register,
   paypalEnabled, createPaypalOrder, capturePaypalOrder, applyPaypalCapture, verifyPaypalWebhook, handlePaypalEvent,
   _reset: () => { spoke.clear(); seen.clear(); },

@@ -66,6 +66,8 @@ const BOOK = [
   ['Thank you. Your report was sent. The server owner is not told who reported.', 'Merci. Votre signalement a été envoyé. Le propriétaire du serveur ne sait pas qui l’a fait.', 'Gracias. Tu denuncia fue enviada. Al propietario del servidor no se le dice quién denunció.'],
   ['What is wrong with this listing?', 'Quel est le problème avec cette fiche ?', '¿Qué le pasa a esta ficha?'],
   // credits
+  ['Shop', 'Boutique', 'Tienda'], ['Owned', 'Possédé', 'Obtenido'],
+  ['Spend your credits on badges that show next to your name everywhere in Aduna. Each one is yours to keep.', 'Dépensez vos crédits en badges qui s’affichent à côté de votre nom partout dans Aduna. Chacun est à vous pour toujours.', 'Gasta tus créditos en insignias que aparecen junto a tu nombre en todo Aduna. Cada una es tuya para siempre.'],
   ['Aduna credits', 'Crédits Aduna', 'Créditos de Aduna'], ['Aduna does not save your payment information, your security is our priority.', 'Aduna n’enregistre pas vos informations de paiement : votre sécurité est notre priorité.', 'Aduna no guarda tu información de pago: tu seguridad es nuestra prioridad.'],
   ['Buy credits', 'Acheter des crédits', 'Comprar créditos'], ['Buying credits is not set up on this server yet.', 'L’achat de crédits n’est pas encore configuré sur ce serveur.', 'La compra de créditos aún no está configurada en este servidor.'],
   ['Cancel checkout', 'Annuler le paiement', 'Cancelar el pago'], ['Checkout', 'Paiement', 'Pago'], ['Choose where you are', 'Choisissez où vous êtes', 'Elige dónde estás'], ['Choose your country', 'Choisissez votre pays', 'Elige tu país'],
