@@ -288,7 +288,7 @@ function view(u, db, { purchases, now = Date.now(), dev = false }) {
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
     quests: questList(u, db, now),
     event: events.view(u, { now, dev }), // the Halloween / Christmas quests and Advent calendar, or null when no event is on
-    shop: shop.view(u),                  // the shop catalogue with what this person already owns marked
+    shop: shop.view(u, db.badges),       // the creator-made badges that are for sale, with what this person already owns marked
     messaging: { reward: EARN.msgReward, cap: EARN.msgDailyCap, earnedToday: d.msg, cooldownMs: EARN.msgCooldownMs, nextAt: c.lastMsgAt + EARN.msgCooldownMs, minMembers: EARN.minServerMembers },
     lifetime: { earned: c.earned, bought: c.bought, spent: c.spent },
     ledger: c.ledger.slice(0, 25),
@@ -539,7 +539,7 @@ function register(app, d) {
 
   // ----- the shop: spend credits on a badge. The price comes from shop.js; the browser only names the item. -----
   app.post('/api/credits/shop/:id/buy', d.auth, (req, res) => {
-    const r = shop.buy(req.user, req.params.id, spend);
+    const r = shop.buy(req.user, req.params.id, spend, { badges: d.db().badges });
     if (!r.ok) return res.status(r.status).json({ error: r.error });
     d.save();
     push(req.user, -r.item.price, 'shop');

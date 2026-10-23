@@ -1,27 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
+import { AddBadgeModal, BuyConfirm, Celebration, ShopTile, useCountUp } from './Shop.jsx';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
 const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed', shop: 'Shop' };
 const when = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-
-// One thing in the shop. The server holds the price and does the buying; this only asks for it.
-function ShopItem({ item, balance, busy, onBuy }) {
-  const short = !item.owned && balance < item.price;
-  return (
-    <div className={'shop-item' + (item.owned ? ' owned' : '')}>
-      <span className="shop-badge" style={{ background: item.color }} aria-hidden="true">{item.emoji}</span>
-      <div className="shop-main">
-        <b>{item.name}</b>
-        <div className="muted small">{item.desc}</div>
-      </div>
-      {item.owned
-        ? <span className="quest-done"><Icon name="check" size={16} /> Owned</span>
-        : <button className="btn primary small-btn shop-buy" disabled={short || busy === item.id} title={short ? `You need ${(item.price - balance).toLocaleString()} more credits` : `Buy ${item.name}`} onClick={() => onBuy(item)}><Icon name="coin" size={14} />{item.price.toLocaleString()}</button>}
-    </div>
-  );
-}
 
 function Quest({ q, locked, busy, onClaim }) {
   const pct = Math.round((q.have / q.need) * 100);
@@ -288,14 +272,21 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
 // Credits: balance, buying, the earning rules, quests and recent activity.
 // `rev` goes up whenever the server says the balance changed, so this page refreshes itself.
 // `page` picks the tab: 'shop' (buy credits, spend them on badges, recent activity) or 'quests' (earn credits: events, chatting, quests).
-export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOrder }) {
+export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOrder, creator = false }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState('');
+  const [buying, setBuying] = useState(false); // the "Buy credits" window (the packs) is open
+  const [confirm, setConfirm] = useState(null); // the badge the person is about to buy, or null
+  const [won, setWon] = useState(null); // the badge just bought (the celebration), or null
+  const [adding, setAdding] = useState(false); // a creator's "add a badge" window
   const [checkout, setCheckout] = useState(null); // the pack being checked out, or null
   const [coErr, setCoErr] = useState('');
   const captured = useRef('');
+  const shownBalance = useCountUp(d ? d.balance : null);
+  const [bump, setBump] = useState(0);
+  useEffect(() => { if (d) setBump((n) => n + 1); }, [d?.balance]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const load = useCallback(() => api('/credits').then((r) => { setD(r); setErr(''); }).catch((e) => setErr(e.message)), []);
   useEffect(() => { load(); }, [load, rev]);
@@ -336,12 +327,18 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
     setBusy('');
   }
 
+  // Tapping a badge opens the confirm window; only its Buy button spends credits. The server holds the price and does the buying.
   async function buyItem(item) {
-    if (!window.confirm(`Buy the ${item.name} badge for ${item.price.toLocaleString()} credits?`)) return;
     setBusy(item.id); setErr(''); setNote('');
-    try { const r = await api(`/credits/shop/${item.id}/buy`, { method: 'POST' }); setD(r); setNote(`You bought the ${r.bought} badge. It now shows next to your name.`); }
-    catch (e) { setErr(e.message); }
+    try { const r = await api(`/credits/shop/${item.id}/buy`, { method: 'POST' }); setD(r); setConfirm(null); setWon(item); }
+    catch (e) { setErr(e.message); setConfirm(null); }
     setBusy('');
+  }
+  async function takeOffSale(item) {
+    if (!window.confirm(`Take the ${item.name} badge off sale? People who already have it keep it.`)) return;
+    setErr(''); setNote('');
+    try { await api('/badges/' + item.id, { method: 'PATCH', body: { price: null } }); load(); setNote(`${item.name} is off sale.`); }
+    catch (e) { setErr(e.message); }
   }
 
   const seasonNote = (r, what) => (r.test
@@ -378,11 +375,29 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
         {err && <p className="error-text">{err}</p>}
         {justPaid && <p className="ok-text">Thank you! Your credits are added as soon as the payment is confirmed, usually within seconds.</p>}
         {note && <p className="ok-text">{note}</p>}
+        {confirm && d && <BuyConfirm item={confirm} balance={d.balance} busy={busy === confirm.id} onConfirm={() => buyItem(confirm)} onClose={() => setConfirm(null)} />}
+        {won && <Celebration item={won} onClose={() => setWon(null)} />}
+        {adding && <AddBadgeModal onClose={() => setAdding(false)} onAdded={(name) => { setAdding(false); load(); setNote(`${name} is in the shop.`); }} />}
+        {buying && d && (
+          <Modal title="Buy credits" onClose={() => setBuying(false)}>
+            <div className="credit-packs">
+              {d.packs.map((p) => (
+                <div key={p.id} className="credit-pack">
+                  <div className="pack-amt"><Icon name="coin" size={20} />{p.credits.toLocaleString()}</div>
+                  <button className="btn primary" disabled={!d.purchases} onClick={() => { setBuying(false); setCoErr(''); setCheckout(p); }}>{money(p.cents, p.currency)}</button>
+                </div>
+              ))}
+            </div>
+            {d.purchases && <BuyNotices />}
+            {!d.purchases && <p className="muted small">Buying credits is not set up on this server yet.</p>}
+          </Modal>
+        )}
         {d && (
           <>
             <div className="credit-balance">
               <Icon name="coin" size={34} />
-              <div><div className="credit-num">{d.balance.toLocaleString()}</div><div className="muted small">your credits</div></div>
+              <div><div key={bump} className="credit-num bump">{shownBalance.toLocaleString()}</div><div className="muted small">your credits</div></div>
+              <button className="btn primary small-btn" onClick={() => setBuying(true)}><Icon name="coin" size={14} /> Buy credits</button>
               <div className="credit-stats muted small">
                 <span>{d.lifetime.earned.toLocaleString()} earned</span><span>{d.lifetime.bought.toLocaleString()} bought</span><span>{d.lifetime.spent.toLocaleString()} spent</span>
                 {d.streak > 1 && <span>🔥 {d.streak}-day streak</span>}
@@ -392,21 +407,14 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
             {page === 'quests' && d.event && <EventSection ev={d.event} locked={locked && !d.event.test} busy={busy} onClaim={claimSeason} onDoor={openDoor} />}
 
             {page === 'shop' && <>
-            <h4 className="credit-h">Buy credits</h4>
-            <div className="credit-packs">
-              {d.packs.map((p) => (
-                <div key={p.id} className="credit-pack">
-                  <div className="pack-amt"><Icon name="coin" size={20} />{p.credits.toLocaleString()}</div>
-                  <button className="btn primary" disabled={!d.purchases} onClick={() => { setCoErr(''); setCheckout(p); }}>{money(p.cents, p.currency)}</button>
-                </div>
-              ))}
+            <div className="shop-head">
+              <h4 className="credit-h">Badges</h4>
+              {creator && <button className="btn primary small-btn" onClick={() => setAdding(true)}><Icon name="plus" size={14} /> Add a badge</button>}
             </div>
-            {d.purchases && <BuyNotices />}
-            {!d.purchases && <p className="muted small">Buying credits is not set up on this server yet.</p>}
-
-            <h4 className="credit-h">Badges</h4>
             <p className="muted small shop-intro">Spend your credits on badges that show next to your name everywhere in Aduna. Each one is yours to keep.</p>
-            <div className="shop">{d.shop.map((it) => <ShopItem key={it.id} item={it} balance={d.balance} busy={busy} onBuy={buyItem} />)}</div>
+            {d.shop.length === 0
+              ? <div className="shop-empty muted">{creator ? 'No badges are for sale yet. Add one with a picture and a price.' : 'No badges are for sale right now. Check back soon.'}</div>
+              : <div className="shop tiles">{d.shop.map((it) => <ShopTile key={it.id} item={it} balance={d.balance} busy={busy} creator={creator} onOpen={setConfirm} onOffSale={takeOffSale} />)}</div>}
 
             <h4 className="credit-h">Recent activity</h4>
             {d.ledger.length === 0 && <p className="muted small">Nothing yet.</p>}

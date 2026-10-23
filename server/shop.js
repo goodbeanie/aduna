@@ -1,52 +1,62 @@
-// The credits shop: things you can spend credits on. Right now that is profile badges (an emoji on a colour, shown next to your name).
+// The credits shop: things you can spend credits on. That is profile badges that creator accounts make (a name, a picture, a price).
 //
-// Like credits.js and events.js this file has no Express / database imports: the rules are plain functions over a user record and the
-// credits `spend` function, so server/shop-test.js can run them without a server. credits.js wires them to the routes.
+// Like credits.js and events.js this file has no Express / database imports: the rules are plain functions over a user record, the badge
+// table and the credits `spend` function, so server/shop-test.js can run them without a server. credits.js wires them to the routes.
 //
-// What is stored, per user:
-//   u.shopBadges = [item id]     badges bought in the shop (see ITEMS); shown next to the name together with the other badges
+// What is for sale: every badge in db().badges that has a `price` (a whole number of credits, set by a creator; no price = not for sale).
+// Buying one puts its id in the buyer's `u.badges`, exactly like a badge a creator gives away by username, so it shows next to their name
+// through the same code (badgeViews in index.js).
 //
 // Where the safety lives (same ideas as credits.js):
-//   * The price always comes from ITEMS on the server. The browser only says WHICH item; it never sends an amount.
-//   * buy() checks, takes the credits and hands over the item in one synchronous step, so two quick requests cannot buy the same item
+//   * The price always comes from the badge on the server. The browser only says WHICH badge; it never sends an amount.
+//   * buy() checks, takes the credits and hands over the badge in one synchronous step, so two quick requests cannot buy the same badge
 //     twice or spend the same credits twice. spend() refuses when the balance does not cover the price (a negative balance after a
 //     refund blocks spending until it is earned back).
-//   * Items are one-off: you own a badge once. Nothing here can be refunded or sold on.
+//   * Badges are one-off: you own one once. Nothing here can be refunded or sold on.
 
+const MAX_PRICE = 1_000_000;
+const MAX_HELD = 12; // the most badges one person can hold (the same limit as creators giving them away)
+
+// The seven badges the shop used to sell. They are NOT for sale any more, but people who already bought one keep it (u.shopBadges).
 // Not `builtin` on purpose: the client draws `builtin` badges with the Creator picture.
-// kind is 'badge' for now; a new kind would also need handing over in buy() below and its own place in the client's Shop section.
-const ITEMS = [
-  { id: 'shop-star',    kind: 'badge', name: 'Star',         emoji: '\u2B50',       color: '#d9a400', price: 100,  desc: 'A shiny gold star next to your name.' },
-  { id: 'shop-spark',   kind: 'badge', name: 'Spark',        emoji: '\u26A1',       color: '#7c5cff', price: 150,  desc: 'Quick and bright.' },
-  { id: 'shop-flame',   kind: 'badge', name: 'Flame',        emoji: '\u{1F525}',    color: '#e8590c', price: 200,  desc: 'For people who are on fire.' },
-  { id: 'shop-clover',  kind: 'badge', name: 'Lucky Clover', emoji: '\u{1F340}',    color: '#2f9e44', price: 250,  desc: 'A little luck, always with you.' },
-  { id: 'shop-rocket',  kind: 'badge', name: 'Rocket',       emoji: '\u{1F680}',    color: '#1c7ed6', price: 400,  desc: 'Going places.' },
-  { id: 'shop-gem',     kind: 'badge', name: 'Gem',          emoji: '\u{1F48E}',    color: '#0c8599', price: 600,  desc: 'Rare, cut and polished.' },
-  { id: 'shop-crown',   kind: 'badge', name: 'Crown',        emoji: '\u{1F451}',    color: '#c2255c', price: 1000, desc: 'The most expensive thing in the shop.' },
+const LEGACY = [
+  { id: 'shop-star',    name: 'Star',         emoji: '⭐',    color: '#d9a400' },
+  { id: 'shop-spark',   name: 'Spark',        emoji: '⚡',    color: '#7c5cff' },
+  { id: 'shop-flame',   name: 'Flame',        emoji: '\u{1F525}', color: '#e8590c' },
+  { id: 'shop-clover',  name: 'Lucky Clover', emoji: '\u{1F340}', color: '#2f9e44' },
+  { id: 'shop-rocket',  name: 'Rocket',       emoji: '\u{1F680}', color: '#1c7ed6' },
+  { id: 'shop-gem',     name: 'Gem',          emoji: '\u{1F48E}', color: '#0c8599' },
+  { id: 'shop-crown',   name: 'Crown',        emoji: '\u{1F451}', color: '#c2255c' },
 ];
-const BY_ID = new Map(ITEMS.map((i) => [i.id, i]));
+const LEGACY_BY_ID = new Map(LEGACY.map((i) => [i.id, i]));
 
-const owned = (u) => (Array.isArray(u?.shopBadges) ? u.shopBadges.filter((id) => BY_ID.has(id)) : []);
+const has = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+const forSale = (b) => !!b && Number.isInteger(b.price) && b.price > 0 && b.price <= MAX_PRICE;
+const held = (u) => (Array.isArray(u?.badges) ? u.badges : []);
 
-// what the client sees: the whole catalogue, with what this person already owns marked
-function view(u) {
-  const have = new Set(owned(u));
-  return ITEMS.map((i) => ({ id: i.id, kind: i.kind, name: i.name, emoji: i.emoji, color: i.color, price: i.price, desc: i.desc, owned: have.has(i.id) }));
+// what the client sees: every badge that is for sale, cheapest first, with what this person already owns marked
+function view(u, badges = {}) {
+  const have = new Set(held(u));
+  return Object.values(badges || {}).filter(forSale)
+    .map((b) => ({ id: b.id, kind: 'badge', name: b.name, desc: b.desc || '', emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null, price: b.price, owned: have.has(b.id) }))
+    .sort((a, b) => a.price - b.price || a.name.localeCompare(b.name));
 }
 
 // `spend` is credits.spend. Returns { ok: true, item } or { status, error }.
-function buy(u, id, spend, { now = Date.now() } = {}) {
-  const item = typeof id === 'string' ? BY_ID.get(id) : null;
-  if (!item) return { status: 404, error: 'That item is not in the shop' };
-  if (owned(u).includes(item.id)) return { status: 409, error: 'You already own this' };
-  if (!spend(u, item.price, 'shop', { note: item.name, now })) return { status: 402, error: 'Not enough credits' };
-  u.shopBadges = [...owned(u), item.id]; // paid in the same synchronous step
-  return { ok: true, item: { id: item.id, name: item.name, price: item.price } };
+function buy(u, id, spend, { badges = {}, maxHeld = MAX_HELD, now = Date.now() } = {}) {
+  const b = typeof id === 'string' && has(badges, id) ? badges[id] : null;
+  if (!forSale(b)) return { status: 404, error: 'That item is not in the shop' };
+  if (held(u).includes(b.id)) return { status: 409, error: 'You already own this' };
+  if (held(u).length >= maxHeld) return { status: 400, error: `Nobody can hold more than ${maxHeld} badges` };
+  if (!spend(u, b.price, 'shop', { note: b.name, now })) return { status: 402, error: 'Not enough credits' };
+  u.badges = [...held(u), b.id]; // paid in the same synchronous step
+  return { ok: true, item: { id: b.id, name: b.name, price: b.price } };
 }
 
-// the shop badges a person owns, in the same shape as other badges (see badgeViews in index.js)
+// Old preset badges a person bought before creators took over the shop, in the same shape as other badges (see badgeViews in index.js)
+const owned = (u) => (Array.isArray(u?.shopBadges) ? u.shopBadges.filter((id) => LEGACY_BY_ID.has(id)) : []);
 function badgeViews(u) {
-  return owned(u).map((id) => { const i = BY_ID.get(id); return { id: i.id, name: i.name, image: null, emoji: i.emoji, color: i.color }; });
+  return owned(u).map((id) => { const i = LEGACY_BY_ID.get(id); return { id: i.id, name: i.name, image: null, emoji: i.emoji, color: i.color }; });
 }
 
-module.exports = { ITEMS, owned, view, buy, badgeViews };
+module.exports = { MAX_PRICE, MAX_HELD, LEGACY, owned, forSale, view, buy, badgeViews };

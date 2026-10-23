@@ -2197,9 +2197,10 @@ app.delete('/api/bots/:id/avatar', auth, developerOnly, ah(async (req, res) => {
 // ----- badges (creator accounts only) -----
 // A creator makes badges (a name plus a picture, or an emoji on a colour) and gives them to people by username. The Creator badge itself is automatic.
 const creatorOnly = (req, res, next) => (isCreator(req.user) ? next() : res.status(403).json({ error: 'Only the creator account can manage badges', code: 'not_creator' }));
-const BADGE_LIMITS = { name: 24, total: 200, perUser: 12 };
+const BADGE_LIMITS = { name: 24, total: 200, perUser: 12, desc: 80 };
 const badgeOwnView = (b) => ({
   id: b.id, name: b.name, emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null,
+  desc: b.desc || '', price: Number.isInteger(b.price) && b.price > 0 ? b.price : null, // a price puts the badge on sale in the credits shop
   holders: Object.values(db().users).filter((u) => Array.isArray(u.badges) && u.badges.includes(b.id)).map((u) => ({ id: u.id, username: u.username, displayName: u.displayName })),
 });
 const badgeById = (id) => (db().badges && db().badges[id]) || null;
@@ -2219,6 +2220,19 @@ function cleanBadgeFields(body, partial) {
     if (!/^#[0-9a-f]{6}$/i.test(String(body.color))) return { error: 'Colour must look like #8c6b4f' };
     out.color = String(body.color).toLowerCase();
   }
+  if (body.desc !== undefined) {
+    const desc = String(body.desc ?? '').trim().replace(/\s+/g, ' ');
+    if (Array.from(desc).length > BADGE_LIMITS.desc) return { error: `A description is at most ${BADGE_LIMITS.desc} characters` };
+    out.desc = desc;
+  }
+  if (body.price !== undefined) {
+    if (body.price === null || body.price === '') out.price = null; // off sale
+    else {
+      const p = Number(body.price);
+      if (!Number.isInteger(p) || p < 1 || p > credits.shop.MAX_PRICE) return { error: `The price is a whole number of credits from 1 to ${credits.shop.MAX_PRICE.toLocaleString('en-US')}` };
+      out.price = p;
+    }
+  }
   return { out };
 }
 const badgeNameTaken = (name, exceptId) => name.toLowerCase() === 'creator' || Object.values(db().badges).some((b) => b.id !== exceptId && b.name.toLowerCase() === name.toLowerCase());
@@ -2229,7 +2243,7 @@ app.post('/api/badges', auth, creatorOnly, (req, res) => {
   const { out, error } = cleanBadgeFields(req.body || {}, false);
   if (error) return res.status(400).json({ error });
   if (badgeNameTaken(out.name)) return res.status(409).json({ error: 'A badge with that name already exists' });
-  const b = { id: store.id(), name: out.name, emoji: out.emoji || '', color: out.color || '#8c6b4f', image: null, createdBy: req.user.id, createdAt: now() };
+  const b = { id: store.id(), name: out.name, emoji: out.emoji || '', color: out.color || '#8c6b4f', image: null, desc: out.desc || '', price: out.price ?? null, createdBy: req.user.id, createdAt: now() };
   db().badges[b.id] = b; store.save();
   res.json({ badge: badgeOwnView(b) });
 });
