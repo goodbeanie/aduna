@@ -9,7 +9,8 @@ import { useTypingProof } from './typing.js';
 import { BotTag } from './Bots.jsx';
 import { PollCard, PollModal } from './Polls.jsx';
 import { callSummary } from './callhistory.js';
-import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
+import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, MAX_FILE, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
+import { canCompress, compressVideo } from './compress.js';
 
 function Picker({ onPick, onClose }) {
   const ref = useRef(null);
@@ -161,7 +162,9 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
-  const [pending, setPending] = useState([]); // uploads: { key, name, size, type, progress, att, err, preview }
+  const [pending, setPending] = useState([]); // uploads: { key, name, size, type, progress, att, err, preview, compressing }
+  const [bigVideos, setBigVideos] = useState([]); // videos over the size limit waiting for "compress it?" (the first one is being asked about)
+  const aborts = useRef({}); // pending key -> AbortController, for a video that is being compressed
   const [pop, setPop] = useState(null);
   const [lightbox, setLightbox] = useState(null);
   const [dragging, setDragging] = useState(false);
@@ -181,6 +184,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const decode = (t) => fromMentionTokens(fromTokens(t), users); // and back, for editing
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
+  useEffect(() => () => { Object.values(aborts.current).forEach((c) => c.abort()); }, []); // leaving the chat stops any compressing
   const scroller = useRef(null);
   const stick = useRef(true);
   const lastTyping = useRef(0);
@@ -215,14 +219,33 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   }
 
   function clearPending(discard) {
-    for (const p of pendingRef.current) { if (p.preview) URL.revokeObjectURL(p.preview); if (discard && p.att) discardUpload(p.att.id); }
+    for (const p of pendingRef.current) { if (p.preview) URL.revokeObjectURL(p.preview); if (discard && p.att) discardUpload(p.att.id); if (discard) aborts.current[p.key]?.abort(); }
+    if (discard) setBigVideos([]);
     setPending([]);
   }
   const patch = (key, fields) => setPending((l) => l.map((p) => (p.key === key ? { ...p, ...fields } : p)));
   function removePending(p) {
     if (p.preview) URL.revokeObjectURL(p.preview);
     if (p.att) discardUpload(p.att.id);
+    aborts.current[p.key]?.abort(); // stops compressing a video that is still being squeezed
     setPending((l) => l.filter((x) => x.key !== p.key));
+  }
+  // Uploads one file. compress: shrink the video first (it was over the limit and the person said yes).
+  function startUpload(f, compress) {
+    const key = Math.random().toString(36).slice(2);
+    const entry = { key, name: f.name || 'pasted-file', size: f.size, type: f.type, progress: 0, compressing: !!compress, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : null };
+    setPending((l) => [...l, entry]);
+    (async () => {
+      let file = f;
+      if (compress) {
+        const ctl = new AbortController();
+        aborts.current[key] = ctl;
+        try { file = await compressVideo(f, { signal: ctl.signal, onProgress: (progress) => patch(key, { progress }) }); } finally { delete aborts.current[key]; }
+        patch(key, { compressing: false, progress: 0, name: file.name, size: file.size, type: file.type });
+      }
+      const att = await uploadFile(file, files.scope, (progress) => patch(key, { progress }));
+      patch(key, { att, progress: 1 });
+    })().catch((e) => { if (!e.cancelled) patch(key, { err: e.message, compressing: false }); });
   }
   function addFiles(list) {
     const picked = [...list];
@@ -232,13 +255,18 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     if (picked.length > room) setErr(`You can attach up to ${MAX_ATTACH} files per message`);
     else setErr('');
     for (const f of picked.slice(0, Math.max(room, 0))) {
-      const key = Math.random().toString(36).slice(2);
-      const entry = { key, name: f.name || 'pasted-file', size: f.size, type: f.type, progress: 0, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : null };
-      setPending((l) => [...l, entry]);
-      uploadFile(f, files.scope, (progress) => patch(key, { progress }))
-        .then((att) => patch(key, { att, progress: 1 }))
-        .catch((e) => patch(key, { err: e.message }));
+      if (f.size > MAX_FILE && f.type.startsWith('video/') && canCompress()) setBigVideos((l) => [...l, f]); // ask before squeezing it
+      else startUpload(f, false);
     }
+  }
+  function answerBigVideo(yes) {
+    const f = bigVideos[0];
+    setBigVideos((l) => l.slice(1));
+    if (!f) return;
+    if (!yes) return setErr(`${f.name || 'The video'} was not added: it is over 20 MB`);
+    if (pendingRef.current.length >= MAX_ATTACH) return setErr(`You can attach up to ${MAX_ATTACH} files per message`);
+    setErr('');
+    startUpload(f, true);
   }
   const uploading = pending.some((p) => !p.att && !p.err);
 
@@ -342,11 +370,12 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
               <div key={p.key} className={'pend' + (p.err ? ' bad' : '')} title={p.err || p.name}>
                 {p.preview ? <img src={p.preview} alt="" /> : <Icon name="file" size={26} />}
                 <div className="pend-name">{p.name}</div>
-                <div className="muted small">{p.err || (p.att ? sizeLabel(p.size) : Math.round(p.progress * 100) + '%')}</div>
+                <div className="muted small">{p.err || (p.att ? sizeLabel(p.size) : (p.compressing ? 'Compressing ' : '') + Math.round(p.progress * 100) + '%')}</div>
                 {!p.att && !p.err && <div className="pend-bar"><i style={{ width: p.progress * 100 + '%' }} /></div>}
-                <button className="pend-x" title="Remove" onClick={() => removePending(p)}><Icon name="close" size={13} /></button>
+                <button className="pend-x" title={p.compressing ? 'Cancel' : 'Remove'} onClick={() => removePending(p)}><Icon name="close" size={13} /></button>
               </div>
             ))}
+            {pending.some((p) => p.compressing) && <div className="muted small" style={{ flexBasis: '100%' }}>Compressing takes about as long as the video lasts. Keep this window open.</div>}
             <div className="muted small" style={{ flexBasis: '100%' }}>Files are removed {FILE_DAYS} days after sending ({LARGE_FILE_DAYS} days if over 10 MB).</div>
           </div>
         )}
@@ -356,7 +385,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
             {pop === 'attach' && (
               <div className="pop attach-pop" role="menu">
                 <button role="menuitem" disabled={!files?.scope} onClick={() => { setPop(null); camInput.current?.click(); }}><Icon name="camera" size={18} />Camera</button>
-                <button role="menuitem" disabled={!files?.scope} title={`Max 20 MB each; removed after ${FILE_DAYS} days (${LARGE_FILE_DAYS} if over 10 MB)`} onClick={() => { setPop(null); fileInput.current?.click(); }}><Icon name="file" size={18} />Files</button>
+                <button role="menuitem" disabled={!files?.scope} title={`Max 20 MB each (bigger videos can be compressed); removed after ${FILE_DAYS} days (${LARGE_FILE_DAYS} if over 10 MB)`} onClick={() => { setPop(null); fileInput.current?.click(); }}><Icon name="file" size={18} />Files</button>
                 {onPoll && <button role="menuitem" onClick={() => { setPop(null); setPollOpen(true); }}><Icon name="poll" size={18} />Poll</button>}
               </div>
             )}
@@ -379,6 +408,16 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
       {dragging && <div className="drop-hint"><Icon name="clip" size={28} />Drop files to send</div>}
       {lightbox && <Lightbox view={lightbox} onClose={() => setLightbox(null)} />}
       {pollOpen && onPoll && <PollModal onSubmit={onPoll} onClose={() => setPollOpen(false)} />}
+      {bigVideos[0] && (
+        <Modal title="Compress this video?" onClose={() => answerBigVideo(false)}>
+          <p className="muted"><b>{bigVideos[0].name || 'This video'}</b> is {sizeLabel(bigVideos[0].size)}, over the 20 MB limit. Would you like to compress it so it can be sent?</p>
+          <p className="muted small">It is compressed on your device and takes about as long as the video lasts. The picture will be a bit smaller and softer. Your original file is not changed.</p>
+          <div className="modal-foot">
+            <button className="btn" onClick={() => answerBigVideo(false)}>Don't send</button>
+            <button className="btn primary" autoFocus onClick={() => answerBigVideo(true)}>Compress</button>
+          </div>
+        </Modal>
+      )}
       {confirmDel && (
         <Modal title="Delete message" onClose={() => setConfirmDel(null)}>
           <p className="muted">This permanently removes the message for everyone in this conversation.</p>
