@@ -81,7 +81,35 @@
 [data-nc] { color: var(--nc) !important; color: color-mix(in srgb, var(--nc), var(--head) var(--name-lift)) !important; }
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--bg); color: var(--text); font: 15px/1.4 var(--font); font-synthesis: none; -webkit-font-smoothing: antialiased; }
+body { background: var(--bg); background-image: var(--app-grad, none); background-attachment: fixed; color: var(--text); font: 15px/1.4 var(--font); font-synthesis: none; -webkit-font-smoothing: antialiased; }
+/* gradient themes: the panels are see-through so the page gradient shows behind them */
+html[data-grad] .chat { background: transparent; }
+html[data-grad] .side, html[data-grad] .members { background: color-mix(in srgb, var(--bg2) 62%, transparent); }
+html[data-grad] .rail, html[data-grad] .user-panel { background: color-mix(in srgb, var(--bg3) 70%, transparent); }
+html[data-grad] .chat-head { background: color-mix(in srgb, var(--bg) 35%, transparent); }
+html[data-grad] .composer { background: color-mix(in srgb, var(--field) 80%, transparent); }
+/* gradient profile themes (server/profilethemes.js): the banner, a soft tint over the card, and for some a slowly moving gradient */
+.banner.pt { background-size: cover; }
+.banner.pt-anim { background-size: 300% 300%; animation: pt-move 9s ease-in-out infinite; }
+@keyframes pt-move { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@media (prefers-reduced-motion: reduce) { .banner.pt-anim { animation: none; background-size: cover; } }
+.pt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.pt-tile { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--field); text-align: left; }
+.pt-tile:hover { border-color: var(--line2); } .pt-tile.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.pt-swatch { display: block; height: 38px; border-radius: 8px; }
+.pt-name { font-size: 12px; color: var(--head); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pt-price { font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.pt-tag { position: absolute; top: 10px; right: 10px; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--scrim); color: #fff; }
+/* check-in streak card on the Quests page */
+.streak-card { background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; }
+.streak-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.streak-num { font-size: 28px; color: var(--head); line-height: 1; } .streak-flame { font-size: 22px; }
+.streak-warn { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--err-bg); color: var(--err-fg); font-size: 13px; }
+.streak-track { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; padding-bottom: 2px; }
+.streak-step { flex: 1 0 64px; text-align: center; padding: 8px 4px; border-radius: 10px; background: var(--field); border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.streak-step b { display: block; font-size: 14px; color: var(--head); font-weight: 400; }
+.streak-step.reached { background: var(--ok-bg); border-color: transparent; color: var(--ok-fg); } .streak-step.reached b { color: var(--ok-fg); }
+.streak-step.next { border-color: var(--ink); }
 button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
 input, textarea, select { font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; width: 100%; outline: none; }
 input::placeholder, textarea::placeholder { color: var(--placeholder); }

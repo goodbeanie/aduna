@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
-import { Avatar, BadgeIcons, Banner, Icon, Modal, STATUS_LABEL } from './ui.jsx';
+import { Avatar, BadgeIcons, Banner, Icon, Modal, STATUS_LABEL, useCardTheme } from './ui.jsx';
+import { useProfileThemes, setProfileThemes, themeGradient } from './profilethemes.js';
 import { processImage, uploadImage, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
@@ -184,10 +185,11 @@ export function ProfileLinks({ links }) {
 }
 
 export function UserCard({ user, presence, relation, onClose, onMessage, onEdit, onAddFriend, onAccept }) {
+  const tint = useCardTheme(user);
   if (!user) return null;
   return (
     <Modal title="Profile" onClose={onClose}>
-      <div className="card" style={{ '--accent': user.accentColor }}>
+      <div className="card" style={{ '--accent': user.accentColor, ...tint }}>
         <Banner user={user} />
         <div className="card-avatar"><Avatar user={user} size={80} presence={presence} /></div>
         <div className="card-body">
@@ -239,6 +241,20 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
   const set = (k) => (v) => setF((s) => ({ ...s, [k]: v }));
+
+  // Gradient profile themes: a few are free, the rest are bought with credits. The choice is saved with "Save changes".
+  const ptList = useProfileThemes();
+  const [theme, setTheme] = useState(me.profileTheme || null);
+  const [credits, setCredits] = useState(null);
+  const [ptBusy, setPtBusy] = useState('');
+  useEffect(() => { api('/profile-themes').then((r) => { setProfileThemes(r.themes); setCredits(r.balance); }).catch(() => {}); }, []);
+  async function buyTheme(th) {
+    if (!window.confirm(`Buy the ${th.name} profile theme for ${th.price} credits?`)) return;
+    setPtBusy(th.id); setErr('');
+    try { const r = await api(`/profile-themes/${th.id}/buy`, { method: 'POST' }); setProfileThemes(r.themes); setCredits(r.balance); setTheme(th.id); }
+    catch (ex) { setErr(ex.message); }
+    setPtBusy('');
+  }
 
   // Badges: everything the person owns, each worn or taken off. Saved with the rest of the profile; the preview card follows the toggles.
   const ownedBadges = Array.isArray(me.ownedBadges) ? me.ownedBadges : [];
@@ -295,6 +311,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     ...me, ...f,
     badges: ownedBadges.length ? ownedBadges.filter((b) => !hidden.has(b.id)) : me.badges, // the card shows only the badges that are on
     username: me.username,
+    profileTheme: theme,
     avatarLogo: mode === 'logo',
     avatarEmoji: mode === 'letter' ? f.avatarEmoji : '',
     avatarImage: mode === 'image' && staged.avatar !== null ? me.avatarImage : null,
@@ -306,7 +323,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     setSaving(true);
     setErr('');
     try {
-      const body = { ...f, avatarLogo: mode === 'logo', links: f.links.filter((l) => l.url.trim()) };
+      const body = { ...f, avatarLogo: mode === 'logo', profileTheme: theme, links: f.links.filter((l) => l.url.trim()) };
       if (renaming) body.username = f.username.trim().replace(/^@/, ''); else delete body.username;
       if (ownedBadges.length) body.hiddenBadges = [...hidden];
       let { user } = await api('/me', { method: 'PATCH', body });
@@ -383,6 +400,23 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           <ColorRow label={t('bannerColor')} value={f.bannerColor} onChange={set('bannerColor')} colors={BANNER_COLORS} />
           {hasBanner && <div className="upload-row"><button type="button" className="btn" onClick={removeBanner}>{t('removeBanner')}</button></div>}
           <input ref={bannerInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('banner', e)} />
+
+          <label>Profile theme</label>
+          <div className="pt-grid" role="radiogroup" aria-label="Profile theme">
+            <button type="button" role="radio" aria-checked={!theme} className={'pt-tile' + (!theme ? ' on' : '')} onClick={() => setTheme(null)}>
+              <span className="pt-swatch" style={{ background: f.bannerColor }} /><span className="pt-name">None</span><span className="pt-price">Your banner colour</span>
+            </button>
+            {(ptList || []).map((th) => (
+              <button type="button" role="radio" aria-checked={theme === th.id} key={th.id} className={'pt-tile' + (theme === th.id ? ' on' : '')} disabled={ptBusy === th.id}
+                onClick={() => (th.owned ? setTheme(th.id) : buyTheme(th))}>
+                <span className={'pt-swatch' + (th.animated ? ' pt-anim' : '')} style={{ backgroundImage: themeGradient(th), backgroundSize: th.animated ? '300% 300%' : undefined }} />
+                <span className="pt-name">{th.name}</span>
+                <span className="pt-price">{th.owned ? (th.price ? 'Owned' : 'Free') : <><Icon name="coin" size={12} />{th.price}</>}</span>
+                {th.animated && <span className="pt-tag">Animated</span>}
+              </button>
+            ))}
+          </div>
+          <p className="muted small hint">Gradient themes colour your banner and tint your profile card. An uploaded banner picture shows instead of the gradient.{credits !== null ? ` You have ${credits.toLocaleString()} credits; earn more on the Quests tab.` : ''}</p>
 
           <ColorRow label={t('nameColor')} value={f.accentColor} onChange={set('accentColor')} />
           <label>{t('statusLbl')}</label>

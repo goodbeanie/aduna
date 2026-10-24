@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Modal } from './ui.jsx';
-import { THEMES, DEFAULT_CUSTOM, applyTheme, loadTheme, previewColors } from './themes.js';
+import { THEMES, GRADIENT_THEMES, DEFAULT_CUSTOM, applyTheme, loadTheme, previewColors } from './themes.js';
 import { ThemeGallery, PublishTheme } from './ThemeGallery.jsx';
 import { useLang } from './i18n.js';
 import { seasonalNow } from './seasonal.js';
@@ -9,7 +9,7 @@ export function Swatch({ theme, on, onPick }) {
   const c = previewColors(theme);
   return (
     <button type="button" className={'theme-card' + (on ? ' on' : '')} onClick={onPick} aria-pressed={on}>
-      <span className="theme-prev" style={{ background: c.bg, borderColor: c.bg2 }}>
+      <span className="theme-prev" style={{ background: c.bg, backgroundImage: c.image || undefined, borderColor: c.bg2 }}>
         <i style={{ background: c.bg2 }} />
         <b style={{ background: c.accent }} />
       </span>
@@ -44,6 +44,9 @@ export function AppearancePicker() {
       <label>{tr('darkLbl')}</label>
       <div className="theme-grid">{dark.map((t) => <Swatch key={t.id} theme={t} on={s.id === t.id} onPick={() => pick(t.id)} />)}</div>
 
+      <label>GRADIENT</label>
+      <div className="theme-grid">{GRADIENT_THEMES.map((t) => <Swatch key={t.id} theme={t} on={s.id === t.id} onPick={() => pick(t.id)} />)}</div>
+
       {limited && (
         <>
           <label>{tr('limitedLbl')} &middot; {limited.until ? tr('limitedUntil', { date: limited.until.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) }) : 'Test mode'}</label>
@@ -69,6 +72,17 @@ export function AppearancePicker() {
           <input type="color" value={c.accent} onChange={(e) => setCustom({ accent: e.target.value })} aria-label={tr('customAccentAria')} />
           <code>{c.accent}</code>
         </div>
+        <label className="check-row">
+          <input type="checkbox" checked={!!c.grad} onChange={(e) => setCustom({ grad: e.target.checked ? (c.dark ? '#5b2a86' : '#ffd9e4') : null })} />
+          <span>Gradient background</span>
+        </label>
+        {c.grad && (
+          <div className="custom-row">
+            <span>Gradient to</span>
+            <input type="color" value={c.grad} onChange={(e) => setCustom({ grad: e.target.value })} aria-label="Gradient end colour" />
+            <code>{c.grad}</code>
+          </div>
+        )}
         <div className="mode-pick">
           <button type="button" onClick={() => setCustom({ ...DEFAULT_CUSTOM })}>{tr('resetCustom')}</button>
           <button type="button" onClick={() => setPublishing(true)}>{tr('publishTheme')}</button>

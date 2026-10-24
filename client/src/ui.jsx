@@ -1,6 +1,7 @@
 import React from 'react';
 import { imageUrl } from './image.js';
 import { t } from './i18n.js';
+import { useProfileThemes, findProfileTheme, themeGradient, themeCardTint } from './profilethemes.js';
 
 // STATUS_LABEL[status] gives the word in the current language (a screen redraws on a language change, so it is always read fresh)
 export const STATUS_LABEL = new Proxy({}, { get: (_, k) => (typeof k === 'string' ? t('st_' + k) : undefined) });
@@ -37,8 +38,17 @@ export function ServerIcon({ server, size = 48, fill = false, preview }) {
 }
 
 export function Banner({ user }) {
+  const themes = useProfileThemes();
   const src = user.bannerPreview || imageUrl(user.bannerImage);
+  const th = !src ? findProfileTheme(themes, user.profileTheme) : null; // an uploaded banner picture wins over a gradient theme
+  if (th) return <div className={'banner pt' + (th.animated ? ' pt-anim' : '')} style={{ backgroundColor: user.bannerColor, backgroundImage: themeGradient(th) }} />;
   return <div className="banner" style={{ backgroundColor: user.bannerColor, backgroundImage: src ? `url("${src}")` : undefined }} />;
+}
+
+// The inline style that gives a profile card the soft wash of its owner's gradient theme (empty when they wear none)
+export function useCardTheme(user) {
+  const th = findProfileTheme(useProfileThemes(), user?.profileTheme);
+  return th ? { backgroundImage: themeCardTint(th) } : undefined;
 }
 
 const PATHS = {

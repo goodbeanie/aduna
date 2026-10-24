@@ -187,6 +187,7 @@ function publicUser(u) {
     avatarImage: u.avatarImage || null,
     bannerImage: u.bannerImage || null,
     accentColor: u.accentColor,
+    profileTheme: credits.pthemes.wornId(u), // a gradient profile theme (see profilethemes.js), or null
     status: u.status === 'invisible' ? 'offline' : u.status, // other people never learn that someone chose Invisible (ownUser / selfView carry the real value)
     publicKey: u.publicKey,
     createdAt: u.createdAt,
@@ -935,6 +936,12 @@ app.patch('/api/me', authAny, async (req, res) => {
     const mine = new Set(allBadgeViews(u).map((x) => x.id));
     newHidden = [...new Set(b.hiddenBadges.filter((id) => typeof id === 'string' && mine.has(id)))];
   }
+  let newTheme; // a gradient profile theme: only a free one or one the person bought (undefined = unchanged, null = take it off)
+  if (b.profileTheme !== undefined) {
+    const t = credits.pthemes.wear({ profileThemes: u.profileThemes }, b.profileTheme); // a dry run on a copy, so a rejected request changes nothing
+    if (!t.ok) return res.status(t.status).json({ error: t.error });
+    newTheme = b.profileTheme || null;
+  }
   let newUsername;
   if (b.username !== undefined && String(b.username).trim() !== u.username) {
     newUsername = String(b.username).trim().replace(/^@/, '');
@@ -964,6 +971,7 @@ app.patch('/api/me', authAny, async (req, res) => {
     u.usernameChangedAt = now();
   }
   if (newLinks !== undefined) u.links = newLinks;
+  if (newTheme !== undefined) { if (newTheme) u.profileTheme = newTheme; else delete u.profileTheme; }
   if (newHidden !== undefined) { if (newHidden.length) u.hiddenBadges = newHidden; else delete u.hiddenBadges; }
   if (b.avatarLogo !== undefined) u.avatarLogo = !!b.avatarLogo;
   if (b.displayName !== undefined) u.displayName = clip(b.displayName, 32).trim() || u.username;

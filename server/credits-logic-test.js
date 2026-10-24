@@ -181,12 +181,32 @@ const fresh = () => { C._reset(); };
   const DAY = 24 * 60 * MIN;
   const got = [];
   for (const d of [0, 1, 2, 3]) got.push(C.claimQuest(u, 'checkin', db, T0 + d * DAY).amount);
-  assert.deepStrictEqual(got, [10, 12, 14, 16], 'each consecutive day adds 2');
+  assert.deepStrictEqual(got, [10, 12, 24, 16], 'each consecutive day adds 2, and day 3 pays the +10 milestone');
   assert.strictEqual(C.claimQuest(u, 'checkin', db, T0 + 3 * DAY).status, 409);
   assert.strictEqual(C.claimQuest(u, 'checkin', db, T0 + 6 * DAY).amount, 10, 'a missed day resets the streak');
-  const u2 = user(); let last; for (let d = 0; d < 9; d++) last = C.claimQuest(u2, 'checkin', db, T0 + d * DAY).amount;
-  assert.strictEqual(last, 20, 'streak bonus tops out at +10');
-  step('check-in streak: +2 per consecutive day up to +10, resets after a missed day');
+  const u2 = user(); const amounts = []; for (let d = 0; d < 9; d++) amounts.push(C.claimQuest(u2, 'checkin', db, T0 + d * DAY).amount);
+  assert.deepStrictEqual(amounts, [10, 12, 24, 16, 18, 20, 50, 20, 20], 'daily bonus tops out at +10; day 3 pays +10 and day 7 pays +30 extra');
+  step('check-in streak: +2 per consecutive day up to +10, milestone bonuses, resets after a missed day');
+}
+
+// ---- streak milestones and what the page shows ----
+{
+  const u = user(), db = { users: {}, servers: {}, emojis: {}, friendships: {}, payments: {} };
+  const DAY = 24 * 60 * MIN;
+  let r;
+  for (let d = 0; d < 7; d++) r = C.claimQuest(u, 'checkin', db, T0 + d * DAY);
+  assert.strictEqual(r.milestone, 30, 'the 7th day reports its milestone');
+  assert.strictEqual(r.streak, 7);
+  const info = C.streakView(C.acct(u), T0 + 6 * DAY);
+  assert.strictEqual(info.current, 7); assert.strictEqual(info.best, 7); assert.strictEqual(info.checkedInToday, true);
+  assert.deepStrictEqual(info.next, { days: 14, bonus: 60, left: 7 }, 'the next milestone is shown');
+  assert.strictEqual(info.milestones.filter((m) => m.reached).length, 2, '3 and 7 days are reached');
+  const tomorrow = C.streakView(C.acct(u), T0 + 7 * DAY);
+  assert.strictEqual(tomorrow.atRisk, true, 'checked in yesterday but not today: the streak is at risk');
+  assert.strictEqual(C.questList(u, db, T0 + 7 * DAY).find((q) => q.id === 'checkin').reward, 10 + 10, "tomorrow's check-in preview includes the streak bonus");
+  const gone = C.streakView(C.acct(u), T0 + 9 * DAY);
+  assert.strictEqual(gone.current, 0, 'two missed days end the streak'); assert.strictEqual(gone.best, 7, 'but the best run is remembered');
+  step('streak milestones: reported on claim, next one previewed, best run kept');
 }
 
 // ---- Stripe signature ----

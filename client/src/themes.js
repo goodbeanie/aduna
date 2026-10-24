@@ -31,7 +31,7 @@ const readableOn = (bg) => (contrast(bg, '#14110d') >= contrast(bg, '#fbf8f1') ?
 const alpha = (h, a) => h + Math.round(a * 255).toString(16).padStart(2, '0');
 
 // ---------- palette generation ----------
-export function buildPalette({ dark, bg, accent }) {
+export function buildPalette({ dark, bg, accent, grad, angle = 135 }) {
   const text = dark ? mix(bg, '#ffffff', 0.88) : mix(bg, '#000000', 0.84);
   const head = dark ? mix(bg, '#ffffff', 0.97) : mix(bg, '#000000', 0.93);
   const ink = accent;
@@ -77,8 +77,12 @@ export function buildPalette({ dark, bg, accent }) {
     '--name-lift': dark ? '45%' : '0%',
   };
   v.__scheme = dark ? 'dark' : 'light';
+  // A gradient theme also paints the page background with a gradient (styles.css lets it show through the side panels).
+  if (Array.isArray(grad) && grad.length >= 2 && grad.every((c) => /^#[0-9a-fA-F]{6}$/.test(c))) v['--app-grad'] = gradientCss(grad, angle);
   return v;
 }
+
+export const gradientCss = (stops, angle = 135) => `linear-gradient(${Math.round(angle)}deg, ${stops.join(', ')})`;
 
 // ---------- the themes ----------
 // `vars` (optional) pins exact values so the original look stays pixel-identical.
@@ -98,7 +102,20 @@ export const THEMES = [
   { id: 'ember',    name: 'Ember',    dark: true,  bg: '#271c17', accent: '#f09a5a' },
 ];
 
-export const DEFAULT_CUSTOM = { dark: true, bg: '#1b1f2a', accent: '#ff7a90' };
+// Gradient themes: the page background is a gradient and the side panels are see-through over it. The palette is built from the middle colour.
+const gradTheme = (id, name, dark, grad, accent, angle = 135) => ({ id, name, dark, bg: grad[1], accent, grad, angle, gradient: true });
+export const GRADIENT_THEMES = [
+  gradTheme('g-peach',   'Peach Fizz',   false, ['#fff1e8', '#ffd9e4', '#e6dcff'], '#d6456f'),
+  gradTheme('g-skymint', 'Sky Mint',     false, ['#eaf6ff', '#dff7ee', '#f3fbdc'], '#1f7a8c', 160),
+  gradTheme('g-candy',   'Cotton Candy', false, ['#fde8f3', '#e5ecff', '#e0f7ff'], '#7b5cd6', 120),
+  gradTheme('g-aurora',  'Aurora',       true,  ['#0f2027', '#203a43', '#2c5364'], '#5eead4'),
+  gradTheme('g-nebula',  'Nebula',       true,  ['#1a1033', '#2d1b69', '#5b2a86'], '#e0a8ff'),
+  gradTheme('g-dusk',    'Dusk',         true,  ['#1f1c2c', '#3a2a4d', '#6b3f5e'], '#ffb38a', 150),
+  gradTheme('g-deepsea', 'Deep Sea',     true,  ['#06141f', '#0b3a53', '#0e6a7a'], '#7ee0ff', 160),
+  gradTheme('g-glow',    'Ember Glow',   true,  ['#1c0f0f', '#4a1c14', '#8a3b12'], '#ffb066', 135),
+];
+
+export const DEFAULT_CUSTOM = { dark: true, bg: '#1b1f2a', accent: '#ff7a90', grad: null }; // grad: a second colour for a gradient background, or null
 export const THEME_LS_KEY = STORE;
 
 function parchmentVars() {
@@ -122,9 +139,10 @@ export function resolveVars(settings) {
   }
   if (id === 'custom') {
     const c = settings.custom;
-    return buildPalette({ dark: !!c.dark, bg: c.bg, accent: c.accent });
+    const grad = /^#[0-9a-fA-F]{6}$/.test(c.grad || '') ? [mix(c.bg, c.grad, 0), c.bg, c.grad] : null;
+    return buildPalette({ dark: !!c.dark, bg: c.bg, accent: c.accent, grad, angle: 135 });
   }
-  const t = THEMES.find((x) => x.id === id) || seasonalTheme(id) || PARCHMENT; // a limited-time theme out of season falls back to Parchment
+  const t = THEMES.find((x) => x.id === id) || GRADIENT_THEMES.find((x) => x.id === id) || seasonalTheme(id) || PARCHMENT; // a limited-time theme out of season falls back to Parchment
   if (t.id === 'parchment') return parchmentVars();
   return buildPalette(t);
 }
@@ -146,6 +164,7 @@ function paint(vars, id) {
   if (!vars.__clear) for (const [k, v] of Object.entries(vars)) if (!k.startsWith('__')) root.style.setProperty(k, v);
   root.style.colorScheme = vars.__scheme;
   root.dataset.theme = id;
+  if (vars['--app-grad']) root.dataset.grad = '1'; else delete root.dataset.grad; // styles.css keys the see-through panels on this
   const sea = SEASONAL_THEMES.find((x) => x.id === id);
   if (sea && seasonalTheme(id)) root.dataset.season = sea.season; else delete root.dataset.season; // decorations (styles.css) key on this
   const metaColor = vars.__meta || vars['--bg3'];
@@ -202,5 +221,5 @@ export function initTheme() {
 export function previewColors(theme) {
   if (theme.id === 'parchment') return { bg: '#fbf8f1', bg2: '#f4efe3', accent: '#1c1812' };
   const v = buildPalette(theme);
-  return { bg: v['--bg'], bg2: v['--bg2'], accent: v['--ink'] };
+  return { bg: v['--bg'], bg2: v['--bg2'], accent: v['--ink'], image: v['--app-grad'] || null };
 }

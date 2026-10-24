@@ -24,6 +24,37 @@ function Quest({ q, locked, busy, onClaim }) {
   );
 }
 
+// The daily check-in streak (Quests page): the current run, the best run, a warning when it is about to end, and the bonuses waiting along the way.
+// The server decides everything shown here (credits.js streakView); this only draws it.
+function StreakCard({ s }) {
+  if (!s) return null;
+  const days = (n) => `${n} ${n === 1 ? 'day' : 'days'}`;
+  return (
+    <div className="streak-card">
+      <div className="streak-top">
+        <span className="streak-flame" aria-hidden="true">🔥</span>
+        <span className="streak-num">{s.current}</span>
+        <b>{s.current === 1 ? 'day streak' : 'days streak'}</b>
+        <span className="muted small">Best: {days(s.best)}</span>
+      </div>
+      <div className="muted small">
+        {s.current === 0
+          ? 'Check in today to start a streak. Every day in a row adds to your reward.'
+          : `Every day in a row adds +2 to your check-in, up to +${s.dailyBonusMax}.`}
+        {s.next && ` ${days(s.next.left)} to go for the ${s.next.days}-day bonus of +${s.next.bonus}.`}
+      </div>
+      {s.atRisk && <div className="streak-warn" role="status">You have not checked in today. Check in to keep your {days(s.current)} streak.</div>}
+      <div className="streak-track" aria-label="Streak bonuses">
+        {s.milestones.map((m) => (
+          <div key={m.days} className={'streak-step' + (m.reached ? ' reached' : '') + (s.next && s.next.days === m.days ? ' next' : '')} title={m.reached ? 'Reached' : `${days(m.days)} in a row`}>
+            <b>{m.days}d</b>+{m.bonus}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // The one notice shown before paying. Shown on the Credits page and again inside the checkout.
 function BuyNotices() {
   return (
@@ -330,7 +361,11 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
   }
   async function claim(q) {
     setBusy(q.id); setErr(''); setNote('');
-    try { const r = await api(`/credits/quests/${q.id}/claim`, { method: 'POST' }); setD(r); setNote(`+${r.amount} credits for “${q.title}”`); }
+    try {
+      const r = await api(`/credits/quests/${q.id}/claim`, { method: 'POST' });
+      setD(r);
+      setNote(`+${r.amount} credits for “${q.title}”${r.milestone ? `, including a +${r.milestone} bonus for ${r.milestoneStreak} days in a row!` : ''}`);
+    }
     catch (e) { setErr(e.message); }
     setBusy('');
   }
@@ -422,6 +457,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
               </div>
             </div>
             {locked && page === 'quests' && <p className="muted notice-line">New accounts can earn and claim rewards after 30 minutes. About {mins} min to go.</p>}
+            {page === 'quests' && d.streakInfo && <StreakCard s={d.streakInfo} />}
             {page === 'quests' && d.event && <EventSection ev={d.event} locked={locked && !d.event.test} busy={busy} onClaim={claimSeason} onDoor={openDoor} />}
 
             {page === 'shop' && <>

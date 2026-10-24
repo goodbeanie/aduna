@@ -15,6 +15,7 @@
 const crypto = require('crypto');
 const events = require('./events'); // the Halloween / Christmas quests, the Advent calendar and the developer test mode
 const shop = require('./shop');     // what credits can be spent on (profile badges)
+const pthemes = require('./profilethemes'); // gradient profile themes: a few free, the rest bought with credits
 
 // ---------- tunables ----------
 const EARN = {
@@ -49,7 +50,7 @@ const dayKey = (ts) => new Date(ts).toISOString().slice(0, 10);
 function acct(u) {
   const c = u.credits || (u.credits = {});
   if (!Number.isFinite(c.balance)) c.balance = 0;
-  for (const k of ['earned', 'bought', 'spent', 'msgTotal', 'lastMsgAt', 'streak']) if (!Number.isFinite(c[k])) c[k] = 0;
+  for (const k of ['earned', 'bought', 'spent', 'msgTotal', 'lastMsgAt', 'streak', 'bestStreak']) if (!Number.isFinite(c[k])) c[k] = 0;
   if (!Array.isArray(c.ledger)) c.ledger = [];
   if (!Array.isArray(c.recent)) c.recent = [];
   if (!c.claimed || typeof c.claimed !== 'object') c.claimed = {};
@@ -241,6 +242,19 @@ const QUESTS = [
 ];
 
 const streakBonus = (streak) => Math.min(Math.max(streak - 1, 0), 5) * 2;
+// One-time extra rewards on the day the check-in streak reaches these lengths. Miss a day and the streak starts over,
+// so the milestones come around again on the next run.
+const STREAK_MILESTONES = [
+  { days: 3, bonus: 10 },
+  { days: 7, bonus: 30 },
+  { days: 14, bonus: 60 },
+  { days: 30, bonus: 150 },
+  { days: 60, bonus: 300 },
+  { days: 100, bonus: 600 },
+];
+const milestoneBonus = (streak) => STREAK_MILESTONES.find((m) => m.days === streak)?.bonus || 0;
+// the streak the next check-in would make
+const nextStreak = (c, now) => (c.lastCheckin === dayKey(now - 86_400_000) ? c.streak + 1 : 1);
 const unlocksAt = (u) => (u.createdAt || 0) + EARN.minAccountAgeMs;
 
 function questList(u, db, now = Date.now()) {
@@ -249,7 +263,7 @@ function questList(u, db, now = Date.now()) {
     const { have, need } = q.progress({ u, c, db, now });
     const claimed = !!(q.daily ? d.claimed : c.claimed)[q.id];
     let reward = q.reward;
-    if (q.id === 'checkin') reward += streakBonus(c.lastCheckin === dayKey(now - 86_400_000) ? c.streak + 1 : 1);
+    if (q.id === 'checkin') { const s = nextStreak(c, now); reward += streakBonus(s) + milestoneBonus(s); }
     return { id: q.id, title: q.title, desc: q.desc, daily: !!q.daily, reward, have: Math.min(have, need), need, done: have >= need, claimed };
   });
 }
@@ -263,15 +277,33 @@ function claimQuest(u, id, db, now = Date.now()) {
   if (claimed[id]) return { status: 409, error: q.daily ? 'Already claimed today' : 'Already claimed' };
   const { have, need } = q.progress({ u, c, db, now });
   if (have < need) return { status: 400, error: 'Not finished yet' };
-  let amount = q.reward;
+  let amount = q.reward, milestone = 0;
   if (id === 'checkin') {
-    c.streak = c.lastCheckin === dayKey(now - 86_400_000) ? c.streak + 1 : 1;
+    c.streak = nextStreak(c, now);
     c.lastCheckin = dayKey(now);
-    amount += streakBonus(c.streak);
+    if (c.streak > c.bestStreak) c.bestStreak = c.streak;
+    milestone = milestoneBonus(c.streak);
+    amount += streakBonus(c.streak) + milestone;
   }
   claimed[id] = now; // marked before paying: the check and the payment happen in one synchronous step
-  grant(u, amount, 'quest', { note: q.title, now });
-  return { ok: true, amount, balance: c.balance };
+  grant(u, amount, 'quest', { note: milestone ? `${q.title} (${c.streak}-day streak!)` : q.title, now });
+  return { ok: true, amount, balance: c.balance, ...(milestone ? { milestone, streak: c.streak } : {}) };
+}
+
+// What the Quests page shows for the check-in streak: the current run, the best run, and the next reward waiting at the end of it.
+function streakView(c, now) {
+  const alive = c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000);
+  const streak = alive ? c.streak : 0;
+  const next = STREAK_MILESTONES.find((m) => m.days > streak) || null;
+  return {
+    current: streak,
+    best: Math.max(c.bestStreak, streak),
+    checkedInToday: c.lastCheckin === dayKey(now),
+    atRisk: c.lastCheckin === dayKey(now - 86_400_000) && streak > 0, // checked in yesterday, not yet today: check in today to keep it
+    next: next ? { days: next.days, bonus: next.bonus, left: next.days - streak } : null,
+    milestones: STREAK_MILESTONES.map((m) => ({ ...m, reached: streak >= m.days })),
+    dailyBonusMax: streakBonus(99),
+  };
 }
 
 // ---------- what the client sees ----------
@@ -285,6 +317,7 @@ function view(u, db, { purchases, now = Date.now(), dev = false, creator = false
     paypalClientId: paypalEnabled() ? ppId() : null, // public by design: the browser needs it to load PayPal's card fields and button
     packs: PACKS.map((p) => ({ ...p, currency: CURRENCY })),
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
+    streakInfo: streakView(c, now),
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
     quests: questList(u, db, now),
     event: events.view(u, { now, dev }), // the Halloween / Christmas quests and Advent calendar, or null when no event is on
@@ -536,7 +569,7 @@ function register(app, d) {
     if (!r.ok) return res.status(r.status).json({ error: r.error, unlocksAt: r.unlocksAt });
     d.save();
     push(req.user, r.amount, 'quest');
-    res.json({ ...fullView(req.user), amount: r.amount });
+    res.json({ ...fullView(req.user), amount: r.amount, ...(r.milestone ? { milestone: r.milestone, milestoneStreak: r.streak } : {}) });
   });
 
   // ----- the shop: spend credits on a badge. The price comes from shop.js; the browser only names the item. -----
@@ -547,6 +580,16 @@ function register(app, d) {
     push(req.user, -r.item.price, 'shop');
     if (d.userChanged) d.userChanged(req.user); // the new badge shows next to their name right away
     res.json({ ...fullView(req.user), bought: r.item.name });
+  });
+
+  // ----- profile themes: the picker's list (with what this person owns) and buying one with credits -----
+  app.get('/api/profile-themes', d.auth, (req, res) => res.json({ themes: pthemes.view(req.user), balance: acct(req.user).balance }));
+  app.post('/api/profile-themes/:id/buy', d.auth, (req, res) => {
+    const r = pthemes.buy(req.user, req.params.id, spend);
+    if (!r.ok) return res.status(r.status).json({ error: r.error });
+    d.save();
+    push(req.user, -r.theme.price, 'shop');
+    res.json({ themes: pthemes.view(req.user), balance: acct(req.user).balance, bought: r.theme.name });
   });
 
   // ----- seasonal events (Halloween / Christmas) -----
@@ -653,7 +696,7 @@ function register(app, d) {
 
 module.exports = {
   EARN, PACKS, QUESTS, acct, grant, spend, claw, normalize, quality, similar, typingProblem,
-  noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events, shop,
+  noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events, shop, pthemes, STREAK_MILESTONES, streakView,
   verifyStripeSignature, createCheckout, handleStripeEvent, purchasesEnabled, register,
   paypalEnabled, createPaypalOrder, capturePaypalOrder, applyPaypalCapture, verifyPaypalWebhook, handlePaypalEvent,
   _reset: () => { spoke.clear(); seen.clear(); },
