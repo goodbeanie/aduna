@@ -115,7 +115,15 @@ export const GRADIENT_THEMES = [
   gradTheme('g-glow',    'Ember Glow',   true,  ['#1c0f0f', '#4a1c14', '#8a3b12'], '#ffb066', 135),
 ];
 
-export const DEFAULT_CUSTOM = { dark: true, bg: '#1b1f2a', accent: '#ff7a90', grad: null }; // grad: a second colour for a gradient background, or null
+// stops: 2 to 4 colours for a gradient background (or null for a plain one), angle: its direction in degrees.
+// (An older saved custom theme has `grad`, one colour to fade to from the background; customStops still understands it.)
+export const DEFAULT_CUSTOM = { dark: true, bg: '#1b1f2a', accent: '#ff7a90', stops: null, angle: 135 };
+export const MAX_STOPS = 4;
+export function customStops(c) {
+  const hex = /^#[0-9a-fA-F]{6}$/;
+  if (Array.isArray(c.stops)) { const s = c.stops.filter((x) => hex.test(x)).slice(0, MAX_STOPS); if (s.length >= 2) return s; }
+  return hex.test(c.grad || '') ? [c.bg, c.grad] : null;
+}
 export const THEME_LS_KEY = STORE;
 
 function parchmentVars() {
@@ -139,8 +147,7 @@ export function resolveVars(settings) {
   }
   if (id === 'custom') {
     const c = settings.custom;
-    const grad = /^#[0-9a-fA-F]{6}$/.test(c.grad || '') ? [mix(c.bg, c.grad, 0), c.bg, c.grad] : null;
-    return buildPalette({ dark: !!c.dark, bg: c.bg, accent: c.accent, grad, angle: 135 });
+    return buildPalette({ dark: !!c.dark, bg: c.bg, accent: c.accent, grad: customStops(c), angle: Number.isFinite(c.angle) ? c.angle : 135 });
   }
   const t = THEMES.find((x) => x.id === id) || GRADIENT_THEMES.find((x) => x.id === id) || seasonalTheme(id) || PARCHMENT; // a limited-time theme out of season falls back to Parchment
   if (t.id === 'parchment') return parchmentVars();

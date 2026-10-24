@@ -88,11 +88,18 @@ html[data-grad] .side, html[data-grad] .members { background: color-mix(in srgb,
 html[data-grad] .rail, html[data-grad] .user-panel { background: color-mix(in srgb, var(--bg3) 70%, transparent); }
 html[data-grad] .chat-head { background: color-mix(in srgb, var(--bg) 35%, transparent); }
 html[data-grad] .composer { background: color-mix(in srgb, var(--field) 80%, transparent); }
-/* gradient profile themes (server/profilethemes.js): the banner, a soft tint over the card, and for some a slowly moving gradient */
-.banner.pt { background-size: cover; }
-.banner.pt-anim { background-size: 300% 300%; animation: pt-move 9s ease-in-out infinite; }
+/* gradient profile themes (server/profilethemes.js): the gradient fills the card under the banner, for some it moves slowly */
+.card.pt-card { border-color: transparent; }
+.card.pt-anim { background-size: 300% 300%; animation: pt-move 9s ease-in-out infinite; }
 @keyframes pt-move { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
-@media (prefers-reduced-motion: reduce) { .banner.pt-anim { animation: none; background-size: cover; } }
+@media (prefers-reduced-motion: reduce) { .card.pt-anim { animation: none; background-size: cover; } }
+.pt-swatch.pt-none { background: var(--bg2); border: 1px dashed var(--line2); }
+.custom-grad { margin-top: 10px; display: grid; gap: 10px; }
+.cg-stops { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cg-stop { display: inline-flex; align-items: center; gap: 2px; }
+.cg-stop input[type=color] { width: 44px; height: 34px; padding: 2px; }
+.cg-angle { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.cg-angle input[type=range] { padding: 0; border: 0; background: none; }
 .pt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
 .pt-tile { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--field); text-align: left; }
 .pt-tile:hover { border-color: var(--line2); } .pt-tile.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
@@ -238,6 +245,11 @@ img.mark.big { height: 96px; width: auto; margin-bottom: 6px; }
 .overlay { position: fixed; inset: 0; background: var(--scrim); display: grid; place-items: center; z-index: 50; padding: 16px; }
 .modal { background: var(--bg); width: 100%; max-width: 440px; border-radius: 20px; padding: 22px; max-height: 92vh; overflow-y: auto; border: 1px solid var(--line); box-shadow: 0 20px 60px #2a1f0f40; }
 .modal.wide { max-width: 760px; }
+/* the profile card on its own: no frame and no title, only a round close button in the corner */
+.modal.bare { background: none; border: 0; box-shadow: none; padding: 0; max-width: 380px; position: relative; overflow: visible; }
+.modal.bare .card { box-shadow: 0 20px 60px var(--shadow); }
+.modal-x { position: absolute; top: 10px; right: 10px; z-index: 3; width: 30px; height: 30px; border-radius: 50%; background: var(--scrim); color: #fff; }
+.modal-x:hover { background: var(--scrim-soft); color: #fff; }
 .modal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .modal-head h2 { color: var(--head); font-size: 22px; }
 .modal-foot { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
@@ -725,6 +737,8 @@ button { touch-action: manipulation; }
   .overlay { padding: 0; place-items: end center; }
   .modal, .modal.wide { max-width: none; width: 100%; border-radius: 20px 20px 0 0; max-height: 92vh; max-height: 92dvh; padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
   .modal-foot.spread { bottom: calc(-18px - env(safe-area-inset-bottom, 0px)); }
+  .modal.bare { padding: 0 10px calc(10px + env(safe-area-inset-bottom, 0px)); background: none; border-radius: 0; overflow: visible; }
+  .modal.bare .modal-x { right: 20px; }
   .editor, .em-layout { grid-template-columns: 1fr; }
   .em-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); max-height: 40vh; }
   .invite code { font-size: 17px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

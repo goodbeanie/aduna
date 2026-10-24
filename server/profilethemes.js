@@ -5,6 +5,7 @@
 // unit tested (server/profilethemes-test.js). credits.js wires them to the routes.
 //   u.profileTheme  = the id of the theme being worn (or nothing)
 //   u.profileThemes = ids of the paid themes this person bought
+//   u.profileGradient = the person's own gradient { colors: [2 to 4 #rrggbb], angle } (worn when u.profileTheme is 'custom')
 // Prices live here, on the server. The browser only ever names a theme; it never sends an amount.
 
 const THEMES = [
@@ -24,6 +25,17 @@ const THEMES = [
 
 const byId = (id) => THEMES.find((t) => t.id === id) || null;
 
+// ----- custom gradient: free for everybody. The person picks 2 to 4 colours and an angle (u.profileTheme = 'custom', u.profileGradient = { colors, angle }) -----
+const CUSTOM_ID = 'custom';
+const HEX = /^#[0-9a-fA-F]{6}$/;
+function cleanCustom(g) {
+  if (!g || typeof g !== 'object' || !Array.isArray(g.colors) || g.colors.length < 2 || g.colors.length > 4) return null;
+  if (!g.colors.every((c) => typeof c === 'string' && HEX.test(c))) return null;
+  const a = Number(g.angle);
+  if (!Number.isFinite(a)) return null;
+  return { colors: g.colors.map((c) => c.toLowerCase()), angle: ((Math.round(a) % 360) + 360) % 360 };
+}
+
 function ownedSet(u) {
   const s = new Set(THEMES.filter((t) => !t.price).map((t) => t.id));
   if (Array.isArray(u.profileThemes)) for (const id of u.profileThemes) if (byId(id)) s.add(id);
@@ -32,8 +44,12 @@ function ownedSet(u) {
 
 // The theme other people see on this person's profile: the one they wear, if they still own it.
 function wornId(u) {
+  if (u.profileTheme === CUSTOM_ID) return cleanCustom(u.profileGradient) ? CUSTOM_ID : null;
   return u.profileTheme && byId(u.profileTheme) && ownedSet(u).has(u.profileTheme) ? u.profileTheme : null;
 }
+
+// The custom gradient other people see (colours and angle), or null when the person does not wear it.
+const customOf = (u) => (wornId(u) === CUSTOM_ID ? cleanCustom(u.profileGradient) : null);
 
 // Everything the picker needs: the look of every theme, its price, and whether this person owns / wears it.
 function view(u) {
@@ -44,9 +60,16 @@ function view(u) {
   }));
 }
 
-// null / '' takes the theme off. Returns { ok } or { ok: false, status, error } and changes nothing on failure.
-function wear(u, id) {
+// null / '' takes the theme off. 'custom' wears the person's own gradient (`custom` = { colors, angle }; left out, the saved one is kept).
+// Returns { ok } or { ok: false, status, error } and changes nothing on failure.
+function wear(u, id, custom) {
   if (id === null || id === '' || id === undefined) { delete u.profileTheme; return { ok: true }; }
+  if (id === CUSTOM_ID) {
+    const g = cleanCustom(custom !== undefined ? custom : u.profileGradient);
+    if (!g) return { ok: false, status: 400, error: 'Pick 2 to 4 colours and an angle for your custom gradient' };
+    u.profileTheme = CUSTOM_ID; u.profileGradient = g;
+    return { ok: true };
+  }
   if (typeof id !== 'string' || !byId(id)) return { ok: false, status: 400, error: 'Unknown profile theme' };
   if (!ownedSet(u).has(id)) return { ok: false, status: 403, error: 'You do not own this profile theme yet' };
   u.profileTheme = id;
@@ -65,4 +88,4 @@ function buy(u, id, spend, { now = Date.now() } = {}) {
   return { ok: true, theme: t };
 }
 
-module.exports = { THEMES, byId, ownedSet, wornId, view, wear, buy };
+module.exports = { THEMES, CUSTOM_ID, byId, cleanCustom, ownedSet, wornId, customOf, view, wear, buy };

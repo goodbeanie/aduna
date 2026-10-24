@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Modal } from './ui.jsx';
-import { THEMES, GRADIENT_THEMES, DEFAULT_CUSTOM, applyTheme, loadTheme, previewColors } from './themes.js';
+import { THEMES, GRADIENT_THEMES, DEFAULT_CUSTOM, MAX_STOPS, customStops, applyTheme, loadTheme, previewColors } from './themes.js';
 import { ThemeGallery, PublishTheme } from './ThemeGallery.jsx';
 import { useLang } from './i18n.js';
 import { seasonalNow } from './seasonal.js';
@@ -27,6 +27,9 @@ export function AppearancePicker() {
   const pick = (id) => choose({ ...s, id });
   const setCustom = (patch) => choose({ ...s, id: 'custom', custom: { ...s.custom, ...patch } });
   const c = s.custom;
+  const stops = customStops(c); // the custom theme's gradient colours, or null for a plain background
+  const angle = Number.isFinite(c.angle) ? c.angle : 135;
+  const setStops = (next) => setCustom({ grad: null, stops: next });
   const light = THEMES.filter((t) => !t.dark);
   const dark = THEMES.filter((t) => t.dark);
   const limited = seasonalNow();
@@ -73,15 +76,26 @@ export function AppearancePicker() {
           <code>{c.accent}</code>
         </div>
         <label className="check-row">
-          <input type="checkbox" checked={!!c.grad} onChange={(e) => setCustom({ grad: e.target.checked ? (c.dark ? '#5b2a86' : '#ffd9e4') : null })} />
+          <input type="checkbox" checked={!!stops} onChange={(e) => setCustom({ grad: null, stops: e.target.checked ? [c.bg, c.dark ? '#5b2a86' : '#ffd9e4'] : null })} />
           <span>Gradient background</span>
         </label>
-        {c.grad && (
-          <div className="custom-row">
-            <span>Gradient to</span>
-            <input type="color" value={c.grad} onChange={(e) => setCustom({ grad: e.target.value })} aria-label="Gradient end colour" />
-            <code>{c.grad}</code>
-          </div>
+        {stops && (
+          <>
+            <div className="custom-row cg-stops">
+              <span>Gradient</span>
+              {stops.map((col, i) => (
+                <span className="cg-stop" key={i}>
+                  <input type="color" value={col} onChange={(e) => setStops(stops.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Gradient colour ${i + 1}`} />
+                  {stops.length > 2 && <button type="button" className="icon-btn" title="Remove this colour" aria-label={`Remove gradient colour ${i + 1}`} onClick={() => setStops(stops.filter((_, j) => j !== i))}>×</button>}
+                </span>
+              ))}
+              {stops.length < MAX_STOPS && <button type="button" className="btn small-btn" onClick={() => setStops([...stops, stops[stops.length - 1]])}>+ Colour</button>}
+            </div>
+            <label className="custom-row cg-angle">
+              <span>Angle {angle}°</span>
+              <input type="range" min="0" max="360" step="5" value={angle} onChange={(e) => setCustom({ angle: Number(e.target.value) })} aria-label="Gradient angle" />
+            </label>
+          </>
         )}
         <div className="mode-pick">
           <button type="button" onClick={() => setCustom({ ...DEFAULT_CUSTOM })}>{tr('resetCustom')}</button>

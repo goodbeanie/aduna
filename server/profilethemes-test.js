@@ -51,4 +51,26 @@ const spendFor = () => credits.spend; // profilethemes.buy calls spend(u, price,
   step('profile themes: buying takes the price once, ownership is required to show it');
 }
 
+{
+  const u = user();
+  const g = { colors: ['#FF9A8B', '#6a88ff', '#00ff99'], angle: 405 };
+  assert.deepStrictEqual(P.wear(u, 'custom', g), { ok: true });
+  assert.strictEqual(P.wornId(u), 'custom');
+  assert.deepStrictEqual(P.customOf(u), { colors: ['#ff9a8b', '#6a88ff', '#00ff99'], angle: 45 }, 'colours are lower-cased and the angle wraps');
+  const bad = [undefined, null, {}, { colors: ['#ffffff'], angle: 0 }, { colors: ['#ffffff', 'red'], angle: 0 }, { colors: ['#ffffff', '#000000'], angle: 'x' },
+    { colors: Array(5).fill('#ffffff'), angle: 0 }, { colors: ['#ffffff', { a: 1 }], angle: 0 }];
+  for (const b of bad) {
+    const v = user();
+    assert.strictEqual(P.wear(v, 'custom', b).status, 400, 'a custom gradient needs 2 to 4 real colours and an angle: ' + JSON.stringify(b));
+    assert.strictEqual(P.wornId(v), null);
+  }
+  assert.deepStrictEqual(P.wear(u, 'sunrise'), { ok: true });
+  assert.strictEqual(P.customOf(u), null, 'a preset hides the custom gradient');
+  assert.deepStrictEqual(P.wear(u, 'custom'), { ok: true }, 'the saved custom gradient comes back without sending it again');
+  assert.strictEqual(P.customOf(u).angle, 45);
+  u.profileGradient = { colors: ['nope'], angle: 0 }; // junk in the record shows nothing
+  assert.strictEqual(P.wornId(u), null);
+  step('profile themes: custom gradient is free, validated, cleaned and only shown while worn');
+}
+
 console.log('profile themes tests passed');
