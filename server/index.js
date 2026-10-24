@@ -2356,26 +2356,35 @@ app.post('/api/developer/test', auth, developerOnly, ah(async (req, res) => {
   const u = req.user;
   const TEST_EVENTS = ['message', 'messageEdit', 'memberJoin', 'memberLeave', 'install', 'timer', 'fetch'];
   const event = TEST_EVENTS.includes(b.event) ? b.event : 'message';
-  // the same shapes the real events have, against a made-up server with one text channel and nothing stored yet
-  const fake = { id: 'test-server', name: 'Test server', members: [u.id], channels: [{ id: 'test-channel', name: 'general' }] };
-  const fakeMsg = { id: 'test-message', channelId: 'test-channel', serverId: 'test-server', content: text, mentions: [], createdAt: now(), editedAt: event === 'messageEdit' ? now() : null };
-  const payload = event === 'memberJoin' ? botrun.joinPayload({ server: fake, user: u, install: {} })
-    : event === 'memberLeave' ? botrun.leavePayload({ server: fake, user: u, install: {}, reason: 'left' })
-    : event === 'install' ? botrun.installPayload({ server: fake, install: {}, by: u })
-    : event === 'timer' ? botrun.timerPayload({ server: fake, install: {}, timer: { name: clip(b.name, 32) || 'test', kind: 'after', data: null }, firedAt: now() })
-    : event === 'fetch' ? botrun.fetchPayload({ server: fake, install: {}, request: { name: clip(b.name, 32) || 'fetch', url: 'https://api.github.com/' }, result: { ok: true, status: 200, text: text || '{}', json: (() => { try { return JSON.parse(text); } catch { return null; } })() } }) // made up: a test never goes out to the network
-    : event === 'messageEdit' ? botrun.editPayload({ msg: fakeMsg, author: u, botUserId: null })
-    : botrun.messagePayload({ msg: fakeMsg, author: u, botUserId: null });
-  const r = await sandbox.run({ code, event, payload, state: { kv: {}, timers: [] } });
-  const plan = botrun.planActions({ actions: r.actions, server: fake, install: {}, mentionUserId: u.id, maxText: MAX_MSG, replyOk: (cid, mid) => (mid === 'test-message' ? mid : null) });
-  r.dropped = plan.dropped; // what a real server would refuse, e.g. a wrong channel id
+  // The chat simulator (client/src/BotSim.jsx) acts as one of two made-up people or as the developer, and hands the saved data and timers of
+  // the run before back in `state`, so a conversation builds up like it would in a real server. Without those it is a single fresh run.
+  const SIM_BOT = 'b07000000000b001';
+  const SIM_PEOPLE = { alex: { id: 'a1e0000000000001', username: 'alex', displayName: 'Alex' }, sam: { id: 'a5a0000000000002', username: 'sam', displayName: 'Sam' } };
+  const who = Object.prototype.hasOwnProperty.call(SIM_PEOPLE, b.as) ? SIM_PEOPLE[b.as] : u;
+  const msgId = typeof b.messageId === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(b.messageId) ? b.messageId : 'test-message';
+  // the same shapes the real events have, against a made-up server with one text channel
+  const fake = { id: 'test-server', name: 'Test server', members: [u.id, ...Object.values(SIM_PEOPLE).map((p) => p.id)], channels: [{ id: 'test-channel', name: 'general' }] };
+  const fakeMsg = { id: msgId, channelId: 'test-channel', serverId: 'test-server', content: text, mentions: b.mentionBot === true ? [SIM_BOT] : [], createdAt: now(), editedAt: event === 'messageEdit' ? now() : null };
+  const timerKind = ['after', 'every', 'daily'].includes(b.kind) ? b.kind : 'after';
+  const timerData = typeof b.data === 'string' && b.data.length <= botstate.LIMITS.timerDataBytes ? b.data : null;
+  const payload = event === 'memberJoin' ? botrun.joinPayload({ server: fake, user: who, install: {} })
+    : event === 'memberLeave' ? botrun.leavePayload({ server: fake, user: who, install: {}, reason: 'left' })
+    : event === 'install' ? botrun.installPayload({ server: fake, install: {}, by: who })
+    : event === 'timer' ? botrun.timerPayload({ server: fake, install: {}, timer: { name: clip(b.name, 32) || 'test', kind: timerKind, data: timerData }, firedAt: now() })
+    : event === 'fetch' ? botrun.fetchPayload({ server: fake, install: {}, request: { name: clip(b.name, 32) || 'fetch', url: clip(b.url, 400) || 'https://api.github.com/' }, result: { ok: true, status: 200, text: text || '{}', json: (() => { try { return JSON.parse(text); } catch { return null; } })() } }) // made up: a test never goes out to the network
+    : event === 'messageEdit' ? botrun.editPayload({ msg: fakeMsg, author: who, botUserId: SIM_BOT })
+    : botrun.messagePayload({ msg: fakeMsg, author: who, botUserId: SIM_BOT });
   // storage, timers, reactions and fetches go through the same checks as real ones, on throw-away copies
-  const scratch = { kv: {}, timers: [] };
+  const scratch = botstate.cleanSimState(b.state, now());
+  const r = await sandbox.run({ code, event, payload, state: botstate.snapshotFor(scratch) });
+  const plan = botrun.planActions({ actions: r.actions, server: fake, install: {}, mentionUserId: who.id, maxText: MAX_MSG, replyOk: (cid, mid) => (mid === msgId ? mid : null) });
+  r.dropped = plan.dropped; // what a real server would refuse, e.g. a wrong channel id
   r.dropped.push(...botstate.applyStoreOps(scratch.kv, r.store).dropped, ...botstate.applyTimers(scratch, r.timers, now()).dropped);
-  r.dropped.push(...botrun.planReactions({ actions: r.reactions, server: fake, install: {}, messageOf: (id) => (id === 'test-message' ? fakeMsg : null), emojiOk }).dropped);
+  r.dropped.push(...botrun.planReactions({ actions: r.reactions, server: fake, install: {}, messageOf: (id) => (id === msgId ? fakeMsg : null), emojiOk }).dropped);
   r.dropped.push(...botrun.planFetches({ actions: r.fetches, check: fetcher.check }).dropped);
   r.stored = Object.entries(scratch.kv).map(([key, value]) => ({ key, value })); // what the storage would hold afterwards
   r.timersSet = scratch.timers.map((t) => ({ name: t.name, kind: t.kind, everySec: t.everySec, time: t.time, tz: t.tz, at: t.at }));
+  r.state = { kv: scratch.kv, timers: scratch.timers }; // for the next run of the simulator (timers keep their data here)
   res.json({ result: r });
 }));
 

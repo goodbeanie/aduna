@@ -52,6 +52,26 @@ assert.strictEqual(B.botView(bot, 'u2', users).developer.username, 'dev');
 assert.ok(!JSON.stringify(B.botView(bot, 'u2', users)).includes('bot.on'), 'code never leaks to others');
 step('views: code only for the developer');
 
+// block bots: the layout is saved next to the generated code, only its developer gets it back
+const layout = JSON.stringify({ blocks: { languageVersion: 0, blocks: [{ type: 'bot_on_message', x: 0, y: 0 }] } });
+r = B.checkBot({ ...good, blocks: layout }, { words: WORDS });
+assert.strictEqual(r.value.blocks, layout, 'a block layout is kept as given');
+assert.strictEqual(B.checkBot({ ...good }, { words: WORDS }).value.blocks, undefined, 'a plain code bot has no layout');
+assert.ok(B.checkBot({ ...good, blocks: '{nope' }).error, 'layout must be JSON');
+assert.ok(B.checkBot({ ...good, blocks: '[1,2]' }).error, 'layout must be an object');
+assert.ok(B.checkBot({ ...good, blocks: '"text"' }).error, 'layout must be an object');
+assert.ok(B.checkBot({ ...good, blocks: { blocks: [] } }).error, 'layout must be text, not a live object');
+assert.ok(/too big/.test(B.checkBot({ ...good, blocks: JSON.stringify({ a: 'x'.repeat(B.LIMITS.blocks) }) }).error), 'layout size limit');
+assert.ok(B.checkBot({ ...good, code: 'bot.on(', blocks: layout }).error, 'the generated code is checked like any other code');
+r = B.checkBot({ blocks: null }, { current: { ...cur, blocks: layout } });
+assert.strictEqual(r.value.blocks, null, 'converting to JavaScript clears the layout');
+r = B.checkBot({ description: 'x' }, { current: { ...cur, blocks: layout } });
+assert.ok(!('blocks' in r.value), 'an edit that does not mention the layout leaves it alone');
+assert.strictEqual(B.botView({ ...bot, blocks: layout }, 'u1', users).blocks, layout);
+assert.strictEqual(B.botView({ ...bot, blocks: layout }, 'u2', users).blocks, undefined);
+assert.strictEqual(B.botView(bot, 'u1', users).blocks, null, 'a code bot reports no layout');
+step('blocks: layout checked, kept next to the code, shown only to the developer, clearable');
+
 // explore: public only, not held, search + sort
 const mk = (id, name, extra = {}) => ({ id, name, description: 'does things', tags: [], visibility: 'public', installs: [], createdAt: Number(id.slice(1)), ...extra });
 const all = [mk('b1', 'Alpha', { installs: ['x'] }), mk('b2', 'Beta', { installs: ['x', 'y', 'z'], tags: ['music'] }), mk('b3', 'Gamma', { visibility: 'private' }), mk('b4', 'Delta', { listingHold: { state: 'hidden' } }), mk('b5', 'Porn bot')];

@@ -1,14 +1,15 @@
 // Bot records: validation, code checks, views and search (no Express, no database: tested by bots-logic-test.js).
 //
 // A bot is a small JavaScript program a developer writes and Aduna runs in a sandbox (the runtime is NOT in this file; see HANDOFF.md).
-// bots[id] = { id, ownerId, name, description, tags, avatarImage (image id or null), visibility: 'private'|'public', code, createdAt, updatedAt, installs: [serverId],
+// bots[id] = { id, ownerId, name, description, tags, avatarImage (image id or null), visibility: 'private'|'public', code, blocks (JSON text of the
+//              block layout, only for bots built with blocks; null/absent for plain code), createdAt, updatedAt, installs: [serverId],
 //              reports: [...], listingHold }
 // "private" = only its developer can install it; "public" = listed on the Bots tab in the explorer and anyone can add it to a server
 // they manage.
 const vm = require('vm');
 const listing = require('./listing');
 
-const LIMITS = { perDeveloper: 5, name: 32, description: 200, code: 32 * 1024, tags: 5, page: 24 };
+const LIMITS = { perDeveloper: 5, name: 32, description: 200, code: 32 * 1024, blocks: 128 * 1024, tags: 5, page: 24 };
 const VISIBILITY = ['private', 'public'];
 const TAG = /^[a-z0-9][a-z0-9-]{0,18}[a-z0-9]$/;
 
@@ -20,6 +21,15 @@ function syntaxProblem(code) {
     const line = /bot\.js:(\d+)/.exec(String(e.stack || ''));
     return `Syntax error${line ? ` near line ${Math.max(1, Number(line[1]) - 1)}` : ''}: ${String(e.message).slice(0, 160)}`;
   }
+}
+
+// The saved block layout is JSON text (the editor's own format). Only its shape and size are checked: it is never run.
+function blocksProblem(s) {
+  if (typeof s !== 'string') return 'The block layout must be text';
+  if (Buffer.byteLength(s) > LIMITS.blocks) return `The blocks are too big (max ${LIMITS.blocks / 1024} KB)`;
+  let j; try { j = JSON.parse(s); } catch { return 'The block layout is not valid'; }
+  if (!j || typeof j !== 'object' || Array.isArray(j)) return 'The block layout is not valid';
+  return null;
 }
 
 const cleanName = (v) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, LIMITS.name);
@@ -52,6 +62,16 @@ function checkBot(input, { current = null, words = [] } = {}) {
     const bad = syntaxProblem(code); if (bad) return { error: bad };
     v.code = code;
   }
+  // A block bot also keeps the layout of its blocks so the editor can open them again. It is only ever read back by the editor: what runs
+  // is `code`, which the editor generates from the blocks and which is checked above like any other code. null = a plain code bot.
+  if (b.blocks !== undefined) {
+    if (b.blocks === null) v.blocks = null;
+    else {
+      const bad = blocksProblem(b.blocks);
+      if (bad) return { error: bad };
+      v.blocks = b.blocks;
+    }
+  }
   const after = { ...(current || {}), ...v };
   if (after.visibility === 'public') {
     if (!String(after.description || '').trim()) return { error: 'Write a short description so people know what your public bot does' };
@@ -69,7 +89,7 @@ function botView(b, viewerId, users = {}) {
     developer: o ? { id: o.id, username: o.username, displayName: o.displayName } : null,
     avatarImage: b.avatarImage || null, installs: (b.installs || []).length, createdAt: b.createdAt, mine: b.ownerId === viewerId,
   };
-  if (b.ownerId === viewerId) { view.code = b.code; view.review = b.listingHold ? b.listingHold.state : null; }
+  if (b.ownerId === viewerId) { view.code = b.code; view.blocks = b.blocks || null; view.review = b.listingHold ? b.listingHold.state : null; }
   return view;
 }
 

@@ -67,11 +67,12 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual(S.nextDaily(utc(2026, 10, 19, 8, 0), '09:30', 'UTC'), utc(2026, 10, 19, 9, 30));
   assert.strictEqual(S.nextDaily(utc(2026, 10, 19, 9, 30), '09:30', 'UTC'), utc(2026, 10, 20, 9, 30), 'exactly now means tomorrow');
   assert.strictEqual(S.nextDaily(utc(2026, 10, 19, 23, 59), '00:00'), utc(2026, 10, 20, 0, 0), 'default zone is UTC');
-  // Vancouver is UTC-7 in summer (PDT) and UTC-8 in winter (PST)
-  assert.strictEqual(S.nextDaily(utc(2026, 7, 1, 0, 0), '09:00', 'America/Vancouver'), utc(2026, 7, 1, 16, 0));
-  assert.strictEqual(S.nextDaily(utc(2026, 12, 1, 0, 0), '09:00', 'America/Vancouver'), utc(2026, 12, 1, 17, 0));
+  // Los Angeles is UTC-7 in summer (PDT) and UTC-8 in winter (PST). (Not Vancouver: British Columbia is moving to permanent daylight time,
+  // and Node's time zone data already says so for late 2026, which made this test fail.)
+  assert.strictEqual(S.nextDaily(utc(2026, 7, 1, 0, 0), '09:00', 'America/Los_Angeles'), utc(2026, 7, 1, 16, 0));
+  assert.strictEqual(S.nextDaily(utc(2026, 12, 1, 0, 0), '09:00', 'America/Los_Angeles'), utc(2026, 12, 1, 17, 0));
   // across the autumn change (2026-11-01, 02:00 PDT -> 01:00 PST) the wall clock still reads 09:00
-  const after = S.nextDaily(utc(2026, 11, 1, 18, 0), '09:00', 'America/Vancouver');
+  const after = S.nextDaily(utc(2026, 11, 1, 18, 0), '09:00', 'America/Los_Angeles');
   assert.strictEqual(after, utc(2026, 11, 2, 17, 0), 'the day after the change is 09:00 PST');
   // a zone ahead of UTC and one with a half-hour offset
   assert.strictEqual(S.nextDaily(utc(2026, 10, 19, 0, 0), '08:00', 'Asia/Tokyo'), utc(2026, 10, 19, 23, 0));
@@ -142,5 +143,34 @@ const step = (m) => console.log('✓', m);
   snap.kv.a = '2';
   assert.deepStrictEqual(S.snapshotFor(null), { kv: {}, timers: [] });
   step('due, advance (no drift, missed runs skipped), snapshot is a copy');
+}
+
+// the chat simulator sends the last run's data back: it is rebuilt under the real limits
+{
+  const now = 1_000_000_000_000;
+  const c = S.cleanSimState({
+    kv: { count: '3', 'bad key!': '1', notjson: 'oops', big: JSON.stringify('x'.repeat(5000)), n: 7, __proto__: '1', fine: '{"a":[1,2]}' },
+    timers: [
+      { name: 'once', kind: 'after', at: now + 5000, data: '{"x":1}' },
+      { name: 'beat', kind: 'every', everySec: 120, at: now },
+      { name: 'morning', kind: 'daily', time: '09:30', tz: 'America/Vancouver', at: now },
+      { name: 'bad name!', kind: 'after' }, { name: 'nokind', kind: 'weekly' }, { name: 'e0', kind: 'every', everySec: 0 },
+      { name: 'late', kind: 'daily', time: '25:99' }, { name: 'baddata', kind: 'after', data: '{nope' },
+    ],
+  }, now);
+  assert.deepStrictEqual(Object.keys(c.kv).sort(), ['count', 'fine'], 'only valid keys with JSON text values under the size limit are kept');
+  assert.deepStrictEqual(c.timers.map((t) => t.name), ['once', 'beat', 'morning', 'baddata']);
+  assert.strictEqual(c.timers[0].data, '{"x":1}');
+  assert.strictEqual(c.timers[3].data, null, 'data that is not JSON is dropped, the timer stays');
+  assert.deepStrictEqual([c.timers[1].everySec, c.timers[2].time, c.timers[2].tz], [120, '09:30', 'America/Vancouver']);
+  assert.deepStrictEqual(S.cleanSimState(null), { kv: {}, timers: [] });
+  assert.deepStrictEqual(S.cleanSimState({ kv: [1, 2], timers: 'x' }), { kv: {}, timers: [] });
+  const many = {}; for (let i = 0; i < 100; i++) many['k' + i] = '1';
+  assert.strictEqual(Object.keys(S.cleanSimState({ kv: many }).kv).length, S.LIMITS.keys, 'the key limit applies');
+  const lots = []; for (let i = 0; i < 30; i++) lots.push({ name: 't' + i, kind: 'after' });
+  assert.strictEqual(S.cleanSimState({ timers: lots }).timers.length, S.LIMITS.timersPerInstall, 'the timer limit applies');
+  const snap = S.snapshotFor(c);
+  assert.deepStrictEqual(Object.keys(snap.kv).sort(), ['count', 'fine'], 'the cleaned state can be handed straight to the sandbox');
+  step('simulator state: rebuilt field by field under the real limits');
 }
 console.log('\nAll bot storage and timer checks passed.');

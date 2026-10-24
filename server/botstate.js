@@ -163,4 +163,36 @@ function snapshotFor(inst) {
   };
 }
 
-module.exports = { LIMITS, validKey, sizeOf, applyStoreOps, applyTimers, dueTimers, advance, snapshotFor, nextDaily, isTimeZone };
+// The developer's chat simulator carries the saved data and timers of one test run into the next one. They come from the browser, so
+// they are rebuilt field by field under the same limits as real ones; whatever does not fit is simply left out.
+// Returns { kv, timers } shaped like an install record (see the top of this file).
+function cleanSimState(input, now = Date.now()) {
+  const src = input && typeof input === 'object' ? input : {};
+  const kv = {}, timers = [];
+  if (src.kv && typeof src.kv === 'object' && !Array.isArray(src.kv)) {
+    for (const k of Object.keys(src.kv)) {
+      if (Object.keys(kv).length >= LIMITS.keys) break;
+      const v = src.kv[k];
+      if (!validKey(k) || typeof v !== 'string' || bytes(v) > LIMITS.valueBytes) continue;
+      try { JSON.parse(v); } catch { continue; }
+      kv[k] = v;
+      if (sizeOf(kv) > LIMITS.totalBytes) delete kv[k];
+    }
+  }
+  if (Array.isArray(src.timers)) {
+    for (const t of src.timers) {
+      if (timers.length >= LIMITS.timersPerInstall) break;
+      if (!t || typeof t.name !== 'string' || !TIMER_NAME.test(t.name) || !['after', 'every', 'daily'].includes(t.kind)) continue;
+      const everySec = t.kind === 'every' && Number.isFinite(Number(t.everySec)) && Number(t.everySec) >= 1 ? Math.round(Number(t.everySec)) : null;
+      if (t.kind === 'every' && !everySec) continue;
+      const time = t.kind === 'daily' && /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(t.time)) ? String(t.time) : null;
+      if (t.kind === 'daily' && !time) continue;
+      const tz = t.kind === 'daily' ? (t.tz && isTimeZone(t.tz) ? String(t.tz) : 'UTC') : null;
+      const d = cleanData(typeof t.data === 'string' ? t.data : null);
+      timers.push({ name: t.name, kind: t.kind, at: Number.isFinite(Number(t.at)) ? Number(t.at) : now, everySec, time, tz, data: d.ok ? d.data : null, since: now });
+    }
+  }
+  return { kv, timers };
+}
+
+module.exports = { LIMITS, validKey, sizeOf, applyStoreOps, applyTimers, dueTimers, advance, snapshotFor, nextDaily, isTimeZone, cleanSimState };

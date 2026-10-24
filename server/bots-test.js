@@ -126,8 +126,27 @@ const CODE = "bot.on('message', (m) => { if (m.text === '!ping') bot.reply(m, 'p
       r = await call('/developer/test', { method: 'POST', body: { botId: mine.bot.id }, token: T(other) });
       assert.strictEqual(r.status, 404, "cannot run someone else's bot");
     }
+    // the chat simulator: acts as made-up people and carries saved data and timers from one run into the next
+    const SIM = "bot.on('message', (m) => { const n = bot.store.incr('seen'); if (m.text === '!timer') bot.timer.after('t', 30, { by: m.author.username }); bot.reply(m, m.author.displayName + ' #' + n + ' ' + m.mentionsBot + ' ' + m.author.id); bot.react(m, '\u{1F44D}'); });\n"
+      + "bot.on('timer', (e) => bot.send(e.channels[0].id, 'timer ' + e.name + ' ' + JSON.stringify(e.data) + ' ' + bot.store.get('seen')));";
+    r = await call('/developer/test', { method: 'POST', body: { code: SIM, text: 'hi', as: 'alex', messageId: 'm1' }, token: T(dev) });
+    assert.strictEqual(r.status, 200, JSON.stringify(r));
+    assert.deepStrictEqual(r.result.actions.map((a) => a.text), ['Alex #1 false a1e0000000000001'], JSON.stringify(r.result));
+    assert.strictEqual(r.result.actions[0].replyTo, 'm1', 'the answer points at the message that was sent');
+    assert.deepStrictEqual(r.result.reactions, [{ messageId: 'm1', emoji: '\u{1F44D}' }]);
+    assert.deepStrictEqual(r.result.dropped, [], JSON.stringify(r.result.dropped));
+    let st = r.result.state;
+    assert.deepStrictEqual(st.kv, { seen: '1' });
+    r = await call('/developer/test', { method: 'POST', body: { code: SIM, text: '!timer', as: 'sam', messageId: 'm2', mentionBot: true, state: st }, token: T(dev) });
+    assert.deepStrictEqual(r.result.actions.map((a) => a.text), ['Sam #2 true a5a0000000000002'], JSON.stringify(r.result));
+    st = r.result.state;
+    assert.deepStrictEqual([st.kv.seen, st.timers.length, st.timers[0].name, st.timers[0].data], ['2', 1, 't', '{"by":"sam"}']);
+    r = await call('/developer/test', { method: 'POST', body: { code: SIM, event: 'timer', name: 't', kind: 'after', data: st.timers[0].data, state: { kv: st.kv, timers: [] } }, token: T(dev) });
+    assert.deepStrictEqual(r.result.actions.map((a) => a.text), ['timer t {"by":"sam"} 2'], JSON.stringify(r.result));
+    r = await call('/developer/test', { method: 'POST', body: { code: SIM, text: 'x', state: { kv: { seen: 'not json', __proto__: 'x' }, timers: [{ name: 'bad name', kind: 'after' }] } }, token: T(dev) });
+    assert.ok(/ #1 false /.test(r.result.actions[0].text), 'state sent from the browser is rebuilt: a value that is not JSON is ignored, so the counter starts again: ' + r.result.actions[0].text);
     await sb.stop();
-    step('test runs go through the sandbox');
+    step('test runs go through the sandbox, and the simulator keeps saved data and timers between runs');
   } else console.log('(skipped sandbox test run: quickjs-emscripten not installed)');
 
   console.log('\nAll bot checks passed.');
