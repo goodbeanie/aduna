@@ -160,6 +160,132 @@ function VoiceAtt({ att, url }) {
   );
 }
 
+// Volume and mute are remembered (and shared by every player on screen), like the speed button on voice messages is per message.
+let audioPrefs = null;
+const prefListeners = new Set();
+function loadPrefs() {
+  if (!audioPrefs) {
+    audioPrefs = { volume: 1, muted: false };
+    try {
+      const s = JSON.parse(localStorage.getItem('aduna-audio') || 'null');
+      if (s && typeof s.volume === 'number') audioPrefs = { volume: Math.min(1, Math.max(0, s.volume)), muted: !!s.muted };
+    } catch { /* storage blocked: the defaults are fine */ }
+  }
+  return audioPrefs;
+}
+function useAudioPrefs() {
+  const [prefs, setPrefs] = useState(loadPrefs);
+  useEffect(() => { prefListeners.add(setPrefs); return () => { prefListeners.delete(setPrefs); }; }, []);
+  const change = useCallback((next) => {
+    audioPrefs = next;
+    try { localStorage.setItem('aduna-audio', JSON.stringify(next)); } catch { /* not saved, still applied */ }
+    prefListeners.forEach((f) => f(next));
+  }, []);
+  return [prefs, change];
+}
+
+const RATES = [1, 1.25, 1.5, 2, 0.75];
+
+// An audio file (music, a podcast, anything that is not a voice message): our own player instead of the browser's, with the title
+// and size, a play button, a seek bar, volume, speed and download. Space plays/pauses, left/right on the seek bar jump 5 seconds, M mutes.
+function AudioAtt({ att, dm, url }) {
+  const aref = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [cur, setCur] = useState(0);
+  const [dur, setDur] = useState(0);
+  const [rate, setRate] = useState(1);
+  const [bad, setBad] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [prefs, setPrefs] = useAudioPrefs();
+
+  useEffect(() => () => { if (playingNow === aref.current) playingNow = null; }, []);
+  useEffect(() => { const a = aref.current; if (a) { a.volume = prefs.volume; a.muted = prefs.muted; } }, [prefs]);
+
+  const toggle = () => {
+    const a = aref.current;
+    if (!a || bad) return;
+    if (a.paused) a.play().catch(() => {}); else a.pause();
+  };
+  // same trick as the video player: recorded files often report no length until the end has been reached once
+  const onMeta = (e) => {
+    const a = e.currentTarget;
+    if (a.duration === Infinity) {
+      const fix = () => { a.removeEventListener('timeupdate', fix); a.currentTime = 0; if (Number.isFinite(a.duration) && a.duration > 0) setDur(a.duration); };
+      a.addEventListener('timeupdate', fix);
+      a.currentTime = 1e101;
+    } else if (a.duration > 0) setDur(a.duration);
+  };
+  const jump = (t) => {
+    const a = aref.current;
+    if (!a) return;
+    a.currentTime = Math.max(0, Math.min(dur || t, t));
+    setCur(a.currentTime);
+  };
+  const onSeekKey = (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    jump((aref.current?.currentTime || 0) + (e.key === 'ArrowRight' ? 5 : -5));
+  };
+  const onKey = (e) => {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === ' ' && e.target.tagName !== 'BUTTON') { e.preventDefault(); toggle(); }
+    else if (e.key === 'm' || e.key === 'M') setPrefs({ ...prefs, muted: !prefs.muted });
+  };
+  const silent = prefs.muted || prefs.volume === 0;
+  const mute = () => setPrefs(silent ? { volume: prefs.volume || 0.5, muted: false } : { ...prefs, muted: true });
+  const nextRate = () => {
+    const next = RATES[(RATES.indexOf(rate) + 1) % RATES.length];
+    setRate(next);
+    if (aref.current) aref.current.playbackRate = next;
+  };
+  async function download() {
+    setBusy(true);
+    try { await saveAttachment(att, dm); } catch { /* expired or offline: nothing more to show on a player */ }
+    setBusy(false);
+  }
+
+  const named = /^(.*)\.([A-Za-z0-9]{1,5})$/.exec(att.name || '');
+  const title = (named ? named[1] : att.name) || 'Audio';
+  const sub = bad ? "Can't play this file here" : [named ? named[2].toUpperCase() : '', att.size > 0 ? sizeLabel(att.size) : ''].filter(Boolean).join(' · ');
+  const pct = (v, max) => (max > 0 ? Math.min(100, Math.max(0, (v / max) * 100)) : 0) + '%';
+
+  return (
+    <div className={'ap' + (playing ? ' playing' : '') + (bad ? ' bad' : '')} onKeyDown={onKey}>
+      <audio
+        ref={aref} src={url} preload="metadata"
+        onPlay={(e) => { if (playingNow && playingNow !== e.currentTarget) playingNow.pause(); playingNow = e.currentTarget; setPlaying(true); }}
+        onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCur(0); }} onError={() => { setBad(true); setPlaying(false); }}
+        onLoadedMetadata={onMeta} onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && e.currentTarget.duration > 0 && setDur(e.currentTarget.duration)}
+        onTimeUpdate={(e) => { if (e.currentTarget.currentTime < 86400) setCur(e.currentTarget.currentTime); }}
+      />
+      <div className="ap-top">
+        <div className="ap-art" aria-hidden="true">{playing ? <span className="ap-eq"><i /><i /><i /><i /></span> : <Icon name="music" size={20} />}</div>
+        <div className="ap-meta">
+          <div className="ap-title" title={att.name}>{title}</div>
+          <div className="ap-sub">{sub}</div>
+        </div>
+        <button className="icon-btn" title="Download" aria-label="Download" onClick={download} disabled={busy}><Icon name="download" size={18} /></button>
+      </div>
+      <div className="ap-bar">
+        <button className="ap-play" title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'} onClick={toggle} disabled={bad}><Icon name={playing ? 'pause' : 'play'} size={18} className="fill" /></button>
+        <span className="ap-time">{clock(cur)}</span>
+        <input
+          className="ap-seek" type="range" min="0" max={dur || 0} step="0.01" value={Math.min(cur, dur || 0)} disabled={!dur || bad}
+          style={{ '--p': pct(cur, dur) }} onChange={(e) => jump(Number(e.target.value))} onKeyDown={onSeekKey} aria-label="Seek"
+          aria-valuetext={`${clock(cur)} of ${clock(dur)}`}
+        />
+        <span className="ap-time">{clock(dur)}</span>
+        <button className="icon-btn ap-mute" title={silent ? 'Unmute' : 'Mute'} aria-label={silent ? 'Unmute' : 'Mute'} onClick={mute}><Icon name={silent ? 'speakeroff' : 'speaker'} size={18} /></button>
+        <input
+          className="ap-seek ap-volume" type="range" min="0" max="1" step="0.05" value={silent ? 0 : prefs.volume} style={{ '--p': pct(silent ? 0 : prefs.volume, 1) }}
+          onChange={(e) => { const v = Number(e.target.value); setPrefs({ volume: v, muted: v === 0 }); }} aria-label="Volume"
+        />
+        <button className="voice-rate" onClick={nextRate} title="Playback speed" aria-label={`Playback speed ${rate}x`}>{rate}x</button>
+      </div>
+    </div>
+  );
+}
+
 function MediaAtt({ att, dm, kind }) {
   const { url, err, expired } = useBlobUrl(att, dm, true);
   if (expired) return <Expired att={att} />;
@@ -168,7 +294,7 @@ function MediaAtt({ att, dm, kind }) {
   return kind === 'video'
     ? <VideoAtt att={att} dm={dm} url={url} />
     : isVoice(att) ? <VoiceAtt att={att} url={url} />
-    : <div className="att-audio"><div className="att-name">{att.name}</div><audio src={url} controls preload="metadata" /></div>;
+    : <AudioAtt att={att} dm={dm} url={url} />;
 }
 
 function FileAtt({ att, dm }) {

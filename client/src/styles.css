@@ -347,6 +347,42 @@ img.mark.big { height: 96px; width: auto; margin-bottom: 6px; }
 .vp.max .att-video { width: 100%; height: 100%; max-width: none; max-height: none; object-fit: contain; }
 .vp.max .vp-bar { padding: 28px 16px calc(10px + env(safe-area-inset-bottom, 0px)); }
 .att-audio { background: var(--field); border-radius: 12px; padding: 8px 12px; max-width: 100%; } .att-audio audio { display: block; margin-top: 4px; max-width: 100%; }
+/* our own audio player (AudioAtt in Attachments.jsx) */
+.ap { width: 420px; max-width: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; background: var(--field); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px 8px; }
+.ap-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ap-art { flex: none; width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; background: var(--bg3); color: var(--ink); transition: background .15s, color .15s; }
+.ap.playing .ap-art { background: var(--ink); color: var(--on-ink); }
+.ap-eq { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
+.ap-eq i { width: 3px; height: 30%; border-radius: 2px; background: currentColor; animation: ap-eq .9s ease-in-out infinite; }
+.ap-eq i:nth-child(2) { animation-delay: -.45s; } .ap-eq i:nth-child(3) { animation-delay: -.2s; } .ap-eq i:nth-child(4) { animation-delay: -.65s; }
+@keyframes ap-eq { 0%, 100% { height: 25%; } 50% { height: 100%; } }
+@media (prefers-reduced-motion: reduce) { .ap-eq i { animation: none; height: 65%; } }
+.ap-meta { flex: 1; min-width: 0; }
+.ap-title { color: var(--head); font-size: 14px; line-height: 1.25; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.ap-sub { margin-top: 1px; font-size: 12px; color: var(--muted); }
+.ap.bad .ap-sub { color: var(--danger); }
+.ap-bar { display: flex; align-items: center; gap: 6px; }
+.ap-play { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--ink); color: var(--on-ink); }
+.ap-play:hover:not(:disabled) { background: var(--ink-h); }
+.ap-play:disabled { opacity: .4; cursor: default; }
+.ap .icon.fill { fill: currentColor; }
+.ap-time { flex: none; min-width: 32px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: center; }
+.ap button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.ap-mute { flex: none; }
+/* the seek and volume sliders: a filled track (--p is the played share) and a round handle that appears on hover or focus */
+.ap-seek { -webkit-appearance: none; appearance: none; flex: 1; min-width: 0; width: auto; height: 18px; margin: 0; padding: 0; border: 0; border-radius: 0; background: none; cursor: pointer; --p: 0%; }
+.ap-seek:disabled { cursor: default; opacity: .5; }
+.ap-seek:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 4px; }
+.ap-seek::-webkit-slider-runnable-track { height: 5px; border-radius: 999px; background: linear-gradient(to right, var(--ink) var(--p), var(--line2) var(--p)); }
+.ap-seek::-moz-range-track { height: 5px; border-radius: 999px; background: var(--line2); }
+.ap-seek::-moz-range-progress { height: 5px; border-radius: 999px; background: var(--ink); }
+.ap-seek::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; margin-top: -4px; border: 0; border-radius: 50%; background: var(--ink); transform: scale(0); transition: transform .12s; }
+.ap-seek::-moz-range-thumb { width: 13px; height: 13px; border: 0; border-radius: 50%; background: var(--ink); transform: scale(0); transition: transform .12s; }
+.ap-seek:hover::-webkit-slider-thumb, .ap-seek:focus-visible::-webkit-slider-thumb, .ap-seek:active::-webkit-slider-thumb { transform: scale(1); }
+.ap-seek:hover::-moz-range-thumb, .ap-seek:focus-visible::-moz-range-thumb, .ap-seek:active::-moz-range-thumb { transform: scale(1); }
+@media (hover: none) { .ap-seek::-webkit-slider-thumb { transform: scale(1); } .ap-seek::-moz-range-thumb { transform: scale(1); } }
+.ap-volume { flex: none; width: 60px; }
+@media (max-width: 520px) { .ap-volume { display: none; } }
 .att-file { display: flex; align-items: center; gap: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; width: 340px; max-width: 100%; color: var(--head); }
 .att-meta { flex: 1; min-width: 0; } .att-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
 .content a { color: var(--link); }
