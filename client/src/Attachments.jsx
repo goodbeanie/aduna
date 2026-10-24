@@ -3,7 +3,7 @@ import { Icon } from './ui.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import { api } from './api.js';
 import { useEmoji } from './Emoji.jsx';
-import { keepDays, kindOf, loadBlob, safeGif, saveAttachment, sizeLabel } from './files.js';
+import { isVoice, keepDays, kindOf, loadBlob, safeGif, saveAttachment, sizeLabel, voiceSecs } from './files.js';
 
 function fit(w, h, maxW = 380, maxH = 320) {
   if (!w || !h) return null;
@@ -109,6 +109,57 @@ function VideoAtt({ att, dm, url }) {
   );
 }
 
+let playingNow = null; // only one voice message plays at a time
+
+// A voice message: a round play button, a seek bar, the time and a speed button. Recorded audio often reports no length until the end has
+// been reached once (and then cannot be seeked): jump there and back to learn it, like the video player does. The length written into the
+// file name is the fallback until then.
+function VoiceAtt({ att, url }) {
+  const aref = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [cur, setCur] = useState(0);
+  const [dur, setDur] = useState(voiceSecs(att));
+  const [rate, setRate] = useState(1);
+  useEffect(() => () => { if (playingNow === aref.current) playingNow = null; }, []);
+  const toggle = () => {
+    const a = aref.current;
+    if (!a) return;
+    if (a.paused) a.play().catch(() => {}); else a.pause();
+  };
+  const onMeta = (e) => {
+    const a = e.currentTarget;
+    if (a.duration === Infinity) {
+      const fix = () => { a.removeEventListener('timeupdate', fix); a.currentTime = 0; if (Number.isFinite(a.duration) && a.duration > 0) setDur(a.duration); };
+      a.addEventListener('timeupdate', fix);
+      a.currentTime = 1e101;
+    } else if (a.duration > 0) setDur(a.duration);
+  };
+  const seek = (e) => {
+    const a = aref.current, t = Number(e.target.value);
+    if (a) a.currentTime = t;
+    setCur(t);
+  };
+  const faster = () => {
+    const next = rate === 1 ? 1.5 : rate === 1.5 ? 2 : 1;
+    setRate(next);
+    if (aref.current) aref.current.playbackRate = next;
+  };
+  return (
+    <div className="voice-msg">
+      <audio
+        ref={aref} src={url} preload="metadata"
+        onPlay={(e) => { if (playingNow && playingNow !== e.currentTarget) playingNow.pause(); playingNow = e.currentTarget; setPlaying(true); }}
+        onPause={() => setPlaying(false)} onEnded={() => { setPlaying(false); setCur(0); }}
+        onLoadedMetadata={onMeta} onTimeUpdate={(e) => { if (e.currentTarget.currentTime < 86400) setCur(e.currentTarget.currentTime); }}
+      />
+      <button className="icon-btn" title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause voice message' : 'Play voice message'} onClick={toggle}><Icon name={playing ? 'pause' : 'play'} size={18} className="fill" /></button>
+      <input className="vp-seek" type="range" min="0" max={dur || 0} step="0.05" value={Math.min(cur, dur || 0)} onChange={seek} disabled={!dur} aria-label="Seek voice message" />
+      <span className="voice-time">{clock(playing || cur > 0 ? cur : dur)}</span>
+      <button className="voice-rate" onClick={faster} title="Playback speed" aria-label={`Playback speed ${rate}x`}>{rate}x</button>
+    </div>
+  );
+}
+
 function MediaAtt({ att, dm, kind }) {
   const { url, err, expired } = useBlobUrl(att, dm, true);
   if (expired) return <Expired att={att} />;
@@ -116,6 +167,7 @@ function MediaAtt({ att, dm, kind }) {
   if (!url) return <div className="att-file muted">Loading {att.name}…</div>;
   return kind === 'video'
     ? <VideoAtt att={att} dm={dm} url={url} />
+    : isVoice(att) ? <VoiceAtt att={att} url={url} />
     : <div className="att-audio"><div className="att-name">{att.name}</div><audio src={url} controls preload="metadata" /></div>;
 }
 

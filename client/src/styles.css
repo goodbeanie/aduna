@@ -355,6 +355,36 @@ img.mark.big { height: 96px; width: auto; margin-bottom: 6px; }
 .lightbox-bar { position: fixed; left: 0; right: 0; bottom: 0; height: 52px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #f3ecdc; }
 .lightbox-bar .icon-btn { color: #f3ecdc; } .lightbox-bar .icon-btn:hover { background: #fff2; color: #fff; }
 .chat { position: relative; }
+/* jump-to-latest: floats at the bottom of the message list while you are scrolled up; a zero-height sticky wrapper so it takes no room in the list */
+.jump-wrap { position: sticky; bottom: 14px; height: 0; z-index: 6; pointer-events: none; }
+.jump-btn { position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); pointer-events: auto; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 17px; background: var(--bg2); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; box-shadow: 0 2px 10px rgba(0, 0, 0, .25); white-space: nowrap; }
+.jump-btn:hover { background: var(--bg3); }
+.jump-btn.fresh { background: var(--ink); color: var(--on-ink); border-color: transparent; font-weight: 600; }
+.jump-btn.fresh:hover { background: var(--ink-h); color: var(--on-ink); }
+/* voice messages: the player inside a message, and the bar that replaces the composer while recording */
+.voice-msg { display: flex; align-items: center; gap: 8px; width: 290px; max-width: 100%; background: var(--field); border-radius: 18px; padding: 6px 10px 6px 6px; box-sizing: border-box; }
+.voice-msg .icon-btn { width: 34px; height: 34px; border-radius: 50%; flex: none; background: var(--ink); color: var(--on-ink); }
+.voice-msg .icon-btn:hover { background: var(--ink-h); color: var(--on-ink); }
+.voice-msg .vp-seek { accent-color: var(--ink); }
+.voice-time { flex: none; min-width: 34px; text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.voice-rate { flex: none; border: 0; background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 600; padding: 2px 5px; border-radius: 6px; cursor: pointer; }
+.voice-rate:hover { background: var(--sel); color: var(--text); }
+.voice-rec { display: flex; align-items: center; gap: 8px; min-height: 46px; background: var(--field); border-radius: 14px; padding: 4px 6px; box-sizing: border-box; }
+.replying + .voice-rec { border-radius: 0 0 14px 14px; }
+.voice-rec .icon-btn { width: 36px; height: 36px; border-radius: 10px; flex: none; }
+.voice-rec .icon-btn:disabled { opacity: .4; cursor: default; }
+.rec-dot { flex: none; width: 10px; height: 10px; margin-left: 4px; border-radius: 50%; background: var(--muted); }
+.rec-dot.live { background: var(--dnd); animation: rec-pulse 1.2s ease-in-out infinite; }
+@keyframes rec-pulse { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) { .rec-dot.live { animation: none; } }
+.rec-time { min-width: 38px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.rec-send { background: var(--ink); color: var(--on-ink); border-radius: 50% !important; }
+.rec-send:disabled { background: var(--sel); color: var(--muted); opacity: 1 !important; }
+.rec-send:not(:disabled):hover { background: var(--ink-h); color: var(--on-ink); }
+.voice-err { flex: 1; min-width: 0; font-size: 13px; }
+/* the line above the first message you had not read when you opened the chat */
+.new-divider { display: flex; align-items: center; gap: 10px; margin: 12px 16px 4px; color: var(--dnd); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+.new-divider::before { content: ''; flex: 1; height: 1px; background: var(--dnd); opacity: .6; }
 .drop-hint { position: absolute; inset: 8px; z-index: 30; border: 2px dashed var(--ink); border-radius: 18px; background: color-mix(in srgb, var(--bg) 90%, transparent); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; color: var(--head); font-size: 18px; pointer-events: none; }
 
 /* custom emoji */
@@ -676,6 +706,18 @@ button { touch-action: manipulation; }
 .ep-search, .gif-search input { width: 100%; padding: 8px 10px 8px 32px; border-radius: 10px; background: var(--field); }
 .ep-tabs { display: flex; gap: 2px; padding: 2px 8px 6px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
 .ep-tabs::-webkit-scrollbar { display: none; }
+.ep-recent { display: flex; gap: 0; padding: 4px 8px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.ep-recent::-webkit-scrollbar { display: none; }
+.ep-recent .ep-e { flex: 0 0 36px; width: 36px; }
+/* who reacted (Reactors.jsx) */
+.who-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.who-tabs .chip { cursor: pointer; }
+.who-sub { margin: -2px 2px 6px; }
+.who-list { list-style: none; margin: 0; padding: 0; max-height: min(320px, 48vh); overflow-y: auto; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); }
+.who-list li + li { border-top: 1px solid var(--line); }
+.who-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; text-align: left; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
+.who-row:hover { background: var(--hover); }
+.who-name { flex: 1; min-width: 0; color: var(--head); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ep-tab { flex: 1 1 0; min-width: 28px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
 .ep-tab:hover { background: var(--hover); color: var(--head); } .ep-tab.on { background: var(--sel); color: var(--head); }
 .ep-scroll { flex: 1; overflow-y: auto; padding: 0 8px 8px; overscroll-behavior: contain; position: relative; }

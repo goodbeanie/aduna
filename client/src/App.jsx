@@ -35,6 +35,8 @@ import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
 import { RailUpdateChip } from './RailUpdate.jsx';
 import { WhatsNewPopup } from './WhatsNew.jsx';
 import { withCalls, mergeRecords } from './callhistory.js';
+import { clearDrafts, hasDraft, useDrafts } from './drafts.js';
+import { clearSeen } from './seen.js';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
 // Older messages are plain strings.
@@ -162,6 +164,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [convos, setConvos] = useState([]);
   const [fr, setFr] = useState({ friends: [], incoming: [], outgoing: [] });
   const [unread, setUnread] = useState({});
+  useDrafts(); // re-render when a draft is saved or cleared, so the DM list can show its "Draft" tag
   const [mentions, setMentions] = useState({}); // 'c:<channelId>' -> unread messages that mention you (kept in memory like unread)
   const [notePrefs, setNotePrefs] = useState({}); // serverId -> your notification settings for it (mute, level, ...); saved on your account
   const [typing, setTyping] = useState({});
@@ -287,6 +290,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     socketRef.current?.disconnect();
     await Promise.race([notify.unsubscribe(), new Promise((r) => setTimeout(r, 2500))]); // stop pushes to this device before the token goes
     await clearKeys();
+    clearDrafts(); clearSeen(); // unsent messages and read positions never outlive the session
     await endSession();
     location.reload();
   }, []);
@@ -680,6 +684,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   const fmtN = (n) => (n >= np.MAX_COUNT ? np.MAX_COUNT + '+' : n); // badges stop at 99+
   const totalUnreadFor = (s) => s.channels.reduce((n, c) => n + (unread['c:' + c.id] || 0), 0);
+  const unreadCountsAll = (sv, ch) => { const e = np.effective(notePrefs[sv.id], ch.id, Date.now()); return e.level === 'all' && !e.muted; }; // the unread number counts every message only then
   const totalMentionsFor = (s) => s.channels.reduce((n, c) => n + (mentions['c:' + c.id] || 0), 0);
   const dmUnread = Object.entries(unread).filter(([k]) => k.startsWith('d:')).reduce((n, [, v]) => n + v, 0);
   const myPresence = me.status === 'invisible' ? 'offline' : me.status;
@@ -888,6 +893,7 @@ function Main({ me, setMe, privKey, openServerId }) {
                 <button key={id} className={'chan dm' + (id === view.userId ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: id }); setShowList(false); }}>
                   <Avatar user={users[id]} size={32} presence={statusOf(id)} />
                   <span className="grow">{users[id].displayName}<BadgeIcons user={users[id]} size={16} /></span>
+                  {id !== view.userId && hasDraft('d:' + id) && <span className="muted small" title="You have an unsent message here">Draft</span>}
                   {unread['d:' + id] > 0 && <span className="badge inline">{unread['d:' + id]}</span>}
                 </button>
               ))}
@@ -915,7 +921,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
       )}
       {server && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
-        <Chat title={channel.name} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
+        <Chat title={channel.name} draftKey={'c:' + channel.id} unreadCount={unread['c:' + channel.id] || 0} unreadExact={unreadCountsAll(server, channel)} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onPoll={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
           onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={can(server, me.id, 'manageMessages')} roleColors={roleColors} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
@@ -927,7 +933,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           headerExtra={membersToggle} />
       )}
       {dmUser && (
-        <Chat title={dmUser.displayName} subtitle="@" onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
+        <Chat title={dmUser.displayName} draftKey={'d:' + dmUser.id} unreadCount={unread['d:' + dmUser.id] || 0} unreadExact subtitle="@" onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={false} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
           files={{ scope: relationOf(dmUser.id) === 'friend' ? { kind: 'dm', target: dmUser.id, privKey, theirPublic: dmUser.publicKey } : null, dm: { privKey, theirPublic: dmUser.publicKey } }} gifEnabled={gifEnabled}
           placeholder={`Message @${dmUser.displayName}`} mentionables={[me, dmUser]}

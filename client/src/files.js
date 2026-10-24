@@ -15,13 +15,20 @@ const INLINE = {
 };
 export const kindOf = (type) => Object.keys(INLINE).find((k) => INLINE[k].includes(type)) || 'file';
 
+// A voice message is an ordinary audio attachment named by the recorder: 'voice-message-<seconds>s.<ext>'. The server keeps only an
+// attachment's id, name, size, type and w/h, so the name is what carries "this was recorded in the chat" (and its length) to every reader.
+const VOICE_NAME = /^voice-message-(\d{1,4})s\.(webm|ogg|m4a)$/;
+export const isVoice = (att) => !!att && kindOf(att.type) === 'audio' && VOICE_NAME.test(att.name || '');
+export const voiceSecs = (att) => Number(VOICE_NAME.exec(att?.name || '')?.[1]) || 0;
+export const voiceName = (secs, type) => `voice-message-${Math.max(1, Math.round(secs))}s.${type === 'audio/ogg' ? 'ogg' : type === 'audio/mp4' ? 'm4a' : 'webm'}`;
+
 export const sizeLabel = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(n < 10240 ? 1 : 0) + ' KB' : (n / 1048576).toFixed(1) + ' MB');
 
 // Only GIFs from the GIF service are ever loaded from a third party.
 export const safeGif = (u) => { try { const x = new URL(u); return x.protocol === 'https:' && /^(media\d*|i)\.giphy\.com$/.test(x.hostname); } catch { return false; } };
 
 // What a message looks like in a one-line preview (reply bars, delete dialog)
-export const previewText = (m) => m.content || (m.poll ? 'Poll: ' + m.poll.question : '') || (m.attachments?.length ? (m.attachments[0].gif ? 'GIF' : m.attachments[0].name || 'Attachment') : '');
+export const previewText = (m) => m.content || (m.poll ? 'Poll: ' + m.poll.question : '') || (m.attachments?.length ? (m.attachments[0].gif ? 'GIF' : isVoice(m.attachments[0]) ? 'Voice message' : m.attachments[0].name || 'Attachment') : '');
 
 async function imageSize(file) {
   if (!file.type.startsWith('image/')) return {};

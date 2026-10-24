@@ -25,6 +25,7 @@ const botsLib = require('./bots');
 const botrun = require('./botrun');
 const botstate = require('./botstate');
 const botfetch = require('./botfetch');
+const linkpreview = require('./linkpreview');
 const { createBotHost } = require('./bothost');
 const { createIce } = require('./turn');
 const sandbox = require('./sandbox'); // starts its worker threads on first use, not at boot (each holds a WebAssembly runtime)

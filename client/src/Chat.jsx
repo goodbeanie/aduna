@@ -11,6 +11,12 @@ import { PollCard, PollModal } from './Polls.jsx';
 import { callSummary } from './callhistory.js';
 import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, MAX_FILE, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
 import { canCompress, compressVideo } from './compress.js';
+import { getDraft, setDraft } from './drafts.js';
+import { getSeen, markSeen } from './seen.js';
+import VoiceRecorder, { voiceSupported } from './VoiceRecorder.jsx';
+import ReactorsModal from './Reactors.jsx';
+
+const QUICK_REACTION = '\u2764\uFE0F'; // what a double-tap / double-click on a message reacts with
 
 function Picker({ onPick, onClose }) {
   const ref = useRef(null);
@@ -90,6 +96,8 @@ function CallEntry({ m, users, me }) {
 
 function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onEdit, onDelete, editing, setEditing, grouped, canDelete, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone }) {
   const [picker, setPicker] = useState(false);
+  const [who, setWho] = useState(null); // the reaction chip that was clicked: opens the "who reacted" list on that emoji
+  const lastTap = useRef(0);
   const { lib, openMenu } = useEmoji();
   const mine = m.authorId === me.id;
   const author = users[m.authorId];
@@ -99,9 +107,24 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   const pinged = !!m.everyone || !!m.mentions?.includes(me.id) || (!!dm && !!m.content?.includes('<@' + me.id + '>'));
   const mention = { users, meId: me.id, onUser, everyone: !!m.everyone };
 
+  // A tap or click on the message itself: one shows its actions on a touch screen, two in a row add a quick reaction
+  // (only ever adds: if you already reacted with it, the second tap does nothing rather than take it back).
+  function tapMessage(e) {
+    if (editing || e.target.closest('button, a, img, video, audio, textarea, input, .toolbar, .reactions, .overlay, .invite-card, .link-card')) return;
+    const now = Date.now();
+    if (now - lastTap.current < 350) {
+      lastTap.current = 0;
+      window.getSelection?.()?.removeAllRanges();
+      if (!m.reactions?.[QUICK_REACTION]?.includes(me.id)) onReact(m.id, QUICK_REACTION);
+      return;
+    }
+    lastTap.current = now;
+    onTap?.();
+  }
+
   return (
     <div className={'msg' + (grouped ? ' grouped' : '') + (mine ? ' mine' : '') + (editing ? ' editing' : '') + (tapped ? ' tapped' : '') + (pinged ? ' pinged' : '')} id={'m-' + m.id}
-      onClick={(e) => { if (!editing && !e.target.closest('button, a, img, video, audio, textarea, input, .toolbar')) onTap?.(); }}>
+      onClick={tapMessage}>
       {m.replyTo && (
         <div className="reply-ref" onClick={() => document.getElementById('m-' + m.replyTo)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
           <span className="reply-line" />
@@ -135,7 +158,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           {Object.keys(m.reactions || {}).length > 0 && (
             <div className="reactions">
               {Object.entries(m.reactions).map(([emoji, ids]) => (
-                <button key={emoji} className={'chip' + (ids.includes(me.id) ? ' on' : '')} onClick={() => onReact(m.id, emoji)}
+                <button key={emoji} className={'chip' + (ids.includes(me.id) ? ' on' : '')} onClick={() => setWho(emoji)} aria-haspopup="dialog"
                   onContextMenu={emoji.startsWith('c:') ? (e) => { e.preventDefault(); openMenu(emoji.slice(2), lib.find((x) => x.id === emoji.slice(2))?.name || 'emoji', e.clientX, e.clientY); } : undefined}
                   title={(emoji.startsWith('c:') ? ':' + (lib.find((x) => x.id === emoji.slice(2))?.name || 'custom emoji') + ': (right-click to save or report)\n' : '') + ids.map((i) => users[i]?.displayName || '?').join(', ')}>
                   {emoji.startsWith('c:') ? <img className="cemoji" src={`/api/emoji/${emoji.slice(2)}/image`} alt="" /> : emoji} <span>{ids.length}</span>
@@ -152,12 +175,14 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           {picker && !editing && <Picker onPick={(e) => onReact(m.id, e)} onClose={() => setPicker(false)} />}
         </div>
       </div>
+      {who && <ReactorsModal reactions={m.reactions} start={who} users={users} me={me} onToggle={(e) => onReact(m.id, e)} onUser={onUser} onClose={() => setWho(null)} />}
     </div>
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, users, me, presence, onSend, onPoll, onVote, onClosePoll, onReact, onEdit, onDelete, canModerate, roleColors, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly, mentionables, canEveryone }) {
-  const [text, setText] = useState('');
+export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, users, me, presence, onSend, onPoll, onVote, onClosePoll, onReact, onEdit, onDelete, canModerate, roleColors, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly, mentionables, canEveryone, draftKey, unreadCount, unreadExact }) {
+  const convoKey = draftKey || title; // which conversation this composer belongs to (titles can repeat, so App passes a real key)
+  const [text, setText] = useState(() => getDraft(convoKey));
   const [replyTo, setReplyTo] = useState(null);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState(null);
@@ -187,6 +212,12 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   useEffect(() => () => { Object.values(aborts.current).forEach((c) => c.abort()); }, []); // leaving the chat stops any compressing
   const scroller = useRef(null);
   const stick = useRef(true);
+  const [away, setAway] = useState(false); // scrolled well above the newest message: shows the jump-to-latest button
+  const [fresh, setFresh] = useState(0); // messages from others that arrived below while you were scrolled up
+  const lastMsgId = useRef(null); // newest message at the previous render, to tell what is new
+  const [divider, setDivider] = useState(null); // id of the first message you had not read when you opened this chat: the "New messages" line goes above it
+  const openInfo = useRef(null); // what was unread when the chat was opened { since, count, exact }; cleared once the line is placed
+  const newest = useRef(null); // { key, ts } of the newest message in the list, remembered when you leave
   const lastTyping = useRef(0);
   const inputRef = useRef(null);
   const mc = useMentionComplete({ text, setText, inputRef, people, everyone: canEveryone });
@@ -196,10 +227,48 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
 
   useLayoutEffect(() => {
     const el = scroller.current;
-    if (el && stick.current) el.scrollTop = el.scrollHeight;
-  }, [messages]);
+    const prev = lastMsgId.current;
+    lastMsgId.current = messages[messages.length - 1]?.id ?? null;
+    if (el && stick.current) { el.scrollTop = el.scrollHeight; setFresh(0); return; }
+    // scrolled up: count what came in below the old newest message (yours and call entries don't count)
+    const i = prev ? messages.findIndex((m) => m.id === prev) : -1;
+    if (i >= 0) {
+      const n = messages.slice(i + 1).filter((m) => !m.system && m.authorId !== me.id).length;
+      if (n) setFresh((c) => c + n);
+    }
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => { setReplyTo(null); setEditing(null); setConfirmDel(null); setPop(null); clearPending(true); setText(''); typed.reset(); stick.current = true; setTapped(null); if (window.matchMedia?.('(hover: hover)').matches) inputRef.current?.focus(); }, [title]);
+  function jumpToLatest() {
+    const el = scroller.current;
+    if (!el) return;
+    stick.current = true; setFresh(0); setAway(false);
+    el.scrollTop = el.scrollHeight;
+  }
+
+  useEffect(() => { setReplyTo(null); setEditing(null); setConfirmDel(null); setPop(null); clearPending(true); setText(getDraft(convoKey)); typed.reset(); stick.current = true; setTapped(null); setFresh(0); setAway(false); lastMsgId.current = messages[messages.length - 1]?.id ?? null; setDivider(null); openInfo.current = unreadCount > 0 ? { since: getSeen(convoKey), count: unreadCount, exact: !!unreadExact } : null; if (window.matchMedia?.('(hover: hover)').matches) inputRef.current?.focus(); }, [convoKey]); // switching chats brings back what you had typed there
+
+  // every change to the composer is saved as that conversation's draft (sending clears the text, which clears the draft)
+  useEffect(() => { if (!readOnly) setDraft(convoKey, text); }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "New messages" line: placed once, as soon as the chat has messages, and then left where it is while you read.
+  // Where you stopped last time wins; otherwise the unread count is used, but only when it counts every message (not for @mentions-only or muted channels).
+  useEffect(() => {
+    const o = openInfo.current;
+    if (!o || !messages.length) return;
+    const incoming = messages.filter((m) => !m.system && m.authorId !== me.id);
+    let id = null;
+    if (o.since) id = incoming.find((m) => m.createdAt > o.since)?.id ?? null;
+    else if (o.exact) id = incoming[Math.max(0, incoming.length - o.count)]?.id ?? null;
+    openInfo.current = null;
+    setDivider(id);
+  }, [messages, convoKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Remember where you stopped: the newest message on screen, counted only if you were at the bottom and the tab was visible.
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    if (last && !document.hidden) newest.current = { key: convoKey, ts: last.createdAt };
+  }, [messages, convoKey]);
+  useEffect(() => () => { const s = newest.current; if (s && stick.current) markSeen(s.key, s.ts); }, [convoKey]); // runs when you switch chats or leave
 
   // drop a pending reply / edit if its message disappears
   useEffect(() => {
@@ -270,6 +339,21 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   }
   const uploading = pending.some((p) => !p.att && !p.err);
 
+  // voice messages: record, upload (encrypted for a DM), then send as an attachment
+  const [recording, setRecording] = useState(false);
+  const voiceUp = useRef(null); // { file, att }: an uploaded voice message whose send failed, so Retry does not upload it twice
+  const canRecordVoice = !!files?.scope && voiceSupported();
+  async function sendVoice(file, onProgress) {
+    if (!voiceUp.current || voiceUp.current.file !== file) voiceUp.current = { file, att: await uploadFile(file, files.scope, onProgress) };
+    await onSend('', replyTo?.id || null, [voiceUp.current.att]);
+    voiceUp.current = null; setReplyTo(null); stick.current = true; setRecording(false);
+  }
+  function stopVoice() { // closes the recorder; an upload that was never sent is discarded
+    if (voiceUp.current) { discardUpload(voiceUp.current.att.id); voiceUp.current = null; }
+    setRecording(false);
+  }
+  useEffect(() => { stopVoice(); }, [convoKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function sendGif(g) {
     setPop(null); setErr('');
     try {
@@ -334,19 +418,28 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
         {headerExtra}
       </header>
       {stage}
-      <div className="scroll" ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80; }}>
+      <div className="scroll" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const gap = el.scrollHeight - el.scrollTop - el.clientHeight; stick.current = gap < 80; setAway(gap > 200); if (gap < 80) setFresh(0); }}>
         {notice && <div className="notice">{notice}</div>}
         {!messages.some((m) => !m.system) && <div className="empty">No messages yet. Say hello.</div>}
         {messages.map((m, i) => {
           if (m.system === 'call') return <CallEntry key={m.id} m={m} users={users} me={me} />;
           const prev = messages[i - 1];
           const grouped = prev && !prev.system && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60000 && !m.replyTo;
-          return <Message key={m.id} m={m} grouped={grouped} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence} onVote={onVote} onClosePoll={onClosePoll}
+          return <React.Fragment key={m.id}>{m.id === divider && <div className="new-divider" role="separator"><span>New messages</span></div>}<Message m={m} grouped={grouped && m.id !== divider} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence} onVote={onVote} onClosePoll={onClosePoll}
             onReact={onReact} onReply={(x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }} onUser={onUser}
             onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone}
             canDelete={m.authorId === me.id || !!canModerate} dm={files?.dm} onOpen={setLightbox}
-            tapped={tapped === m.id} onTap={() => setTapped((t) => (t === m.id ? null : m.id))} />;
+            tapped={tapped === m.id} onTap={() => setTapped((t) => (t === m.id ? null : m.id))} /></React.Fragment>;
         })}
+        {(away || fresh > 0) && (
+          <div className="jump-wrap">
+            <button className={'jump-btn' + (fresh > 0 ? ' fresh' : '')} onClick={jumpToLatest}
+              aria-label={fresh > 0 ? `${fresh} new message${fresh > 1 ? 's' : ''}. Jump to the latest` : 'Jump to the latest messages'}>
+              <Icon name="chevron" size={16} />
+              {fresh > 0 && <span>{fresh > 99 ? '99+' : fresh} new message{fresh > 1 ? 's' : ''}</span>}
+            </button>
+          </div>
+        )}
       </div>
       {readOnly ? <div className="composer-wrap readonly"><div className="readonly-note"><Icon name="lock" size={15} className="inline-icon" /> {readOnly}</div></div> : <div className="composer-wrap">
         {replyTo && (
@@ -379,7 +472,8 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
             <div className="muted small" style={{ flexBasis: '100%' }}>Files are removed {FILE_DAYS} days after sending ({LARGE_FILE_DAYS} days if over 10 MB).</div>
           </div>
         )}
-        <div className="composer-row">
+        {recording && <VoiceRecorder onSend={sendVoice} onCancel={stopVoice} />}
+        <div className="composer-row" style={recording ? { display: 'none' } : undefined}>
           <div className="attach-wrap" ref={attachWrap}>
             <button className="icon-btn" title="Attach" aria-label="Attach" aria-haspopup="menu" aria-expanded={pop === 'attach'} disabled={!files?.scope && !onPoll} onClick={() => setPop(pop === 'attach' ? null : 'attach')}><Icon name="clip" size={20} /></button>
             {pop === 'attach' && (
@@ -396,6 +490,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
             onFocus={() => { if (!window.matchMedia('(max-width: 720px)').matches) return; stick.current = true; [120, 320, 600].forEach((ms) => setTimeout(() => { const el = scroller.current; if (el && document.activeElement === inputRef.current) el.scrollTop = el.scrollHeight; }, ms)); }}
             onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }} />
           <div className="comp-tools">
+            {canRecordVoice && <button className="icon-btn" title="Voice message" aria-label="Record a voice message" onClick={() => { setErr(''); setPop(null); setRecording(true); }}><Icon name="mic" size={20} /></button>}
             <button className="icon-btn" title="Emoji" onClick={() => setPop(pop === 'emoji' ? null : 'emoji')}><Icon name="smile" size={20} /></button>
             <button className="icon-btn gif-btn" title="GIF" onClick={() => setPop(pop === 'gif' ? null : 'gif')}>GIF</button>
           </div>

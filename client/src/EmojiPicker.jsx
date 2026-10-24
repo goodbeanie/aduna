@@ -8,7 +8,6 @@ const loadData = () => dataPromise || (dataPromise = import('./emoji-data.json')
 
 const TABS = [
   { id: 'custom', label: 'Your emoji', icon: 'star' },
-  { id: 'recent', label: 'Frequently used', icon: 'clock' },
   { id: 0, label: 'Smileys & Emotion', icon: 'smile' },
   { id: 1, label: 'People & Body', icon: 'users' },
   { id: 3, label: 'Animals & Nature', icon: 'leaf' },
@@ -48,7 +47,7 @@ export default function EmojiPicker({ onPick, onCustom, onManage }) {
   const [tone, setTone] = useState(() => store.get('aduna_skin', 0));
   const [toneOpen, setToneOpen] = useState(false);
   const [recent, setRecent] = useState(() => store.get('aduna_recent', []));
-  const [active, setActive] = useState('recent');
+  const [active, setActive] = useState(null);
   const hoverEl = useRef(null);
   const scroller = useRef(null);
   const sections = useRef({});
@@ -68,16 +67,18 @@ export default function EmojiPicker({ onPick, onCustom, onManage }) {
     return { emoji, custom };
   }, [q, groups, lib]);
 
-  const frequent = useMemo(() => {
+  // The row pinned under the search box: what you picked last (unicode and custom emoji), or a few quick picks until you have picked something.
+  const quick = useMemo(() => {
     const list = recent.length ? recent : EMOJIS;
-    return list.map((e) => ({ e, it: null }));
-  }, [recent]);
+    return list.filter((e) => !String(e).startsWith('c:') || lib.some((c) => c.id === e.slice(2))).slice(0, 9);
+  }, [recent, lib]);
 
-  function choose(emoji) {
-    const next = [emoji, ...recent.filter((x) => x !== emoji)].slice(0, 24);
+  function remember(key) {
+    const next = [key, ...recent.filter((x) => x !== key)].slice(0, 24);
     setRecent(next); store.set('aduna_recent', next);
-    onPick(emoji);
   }
+  function choose(emoji) { remember(emoji); onPick(emoji); }
+  function chooseCustom(c) { remember('c:' + c.id); onCustom(c); }
   function pickTone(n) { setTone(n); store.set('aduna_skin', n); setToneOpen(false); }
 
   function jump(id) {
@@ -101,7 +102,7 @@ export default function EmojiPicker({ onPick, onCustom, onManage }) {
     <button key={emoji} type="button" className="ep-e" title={label} aria-label={label} onMouseEnter={() => showHover(label)} onFocus={() => showHover(label)} onClick={() => choose(emoji)}>{emoji}</button>
   );
   const custom = (c) => (
-    <button key={c.id} type="button" className="ep-e ep-c" title={':' + c.name + ':'} aria-label={c.name} onMouseEnter={() => showHover(':' + c.name + ':')} onClick={() => onCustom(c)}>
+    <button key={c.id} type="button" className="ep-e ep-c" title={':' + c.name + ':'} aria-label={c.name} onMouseEnter={() => showHover(':' + c.name + ':')} onClick={() => chooseCustom(c)}>
       <img src={`/api/emoji/${c.id}/image`} alt={c.name} loading="lazy" />
     </button>
   );
@@ -119,6 +120,11 @@ export default function EmojiPicker({ onPick, onCustom, onManage }) {
               <Icon name={t.icon} size={17} />
             </button>
           ))}
+        </div>
+      )}
+      {!results && quick.length > 0 && (
+        <div className="ep-recent" aria-label={recent.length ? 'Recently used' : 'Quick picks'}>
+          {quick.map((e) => (String(e).startsWith('c:') ? custom(lib.find((c) => c.id === e.slice(2))) : btn(e, e)))}
         </div>
       )}
       <div className="ep-scroll" ref={scroller} onScroll={results ? undefined : onScroll}>
@@ -139,10 +145,6 @@ export default function EmojiPicker({ onPick, onCustom, onManage }) {
                 {onManage && <button type="button" className="pop-add" onClick={onManage}><Icon name="plus" size={15} /> Add custom emoji</button>}
               </section>
             )}
-            <section ref={(el) => { sections.current.recent = el; }}>
-              <div className="ep-label">{recent.length ? 'FREQUENTLY USED' : 'QUICK PICKS'}</div>
-              <div className="ep-grid">{frequent.map(({ e }) => btn(e, e))}</div>
-            </section>
             {groups.map((g) => (
               <section key={g.id} className="ep-sec" ref={(el) => { sections.current[g.id] = el; }}>
                 <div className="ep-label">{g.name.toUpperCase()}</div>
