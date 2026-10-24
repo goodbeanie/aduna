@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Icon, Modal } from './ui.jsx';
 import { api } from './api.js';
 import { EveryoneMention, Mention } from './Mentions.jsx';
+import { renderMarkdown } from './Markdown.jsx';
 
 // ---------- links + custom emoji inside message text ----------
 const URL_RE = /(https?:\/\/[^\s<]+[^\s<.,;:!?)"'\]])/g;
@@ -18,20 +19,18 @@ const ONLY_EMOJI = /^(\s*<:[a-z0-9_]{2,32}:[0-9a-f]{16}>\s*){1,5}$/;
 const RICH = /<:([a-z0-9_]{2,32}):([0-9a-f]{16})>|<@([0-9a-f]{16})>|(?<![\w<@])@everyone(?![\w])/g;
 
 // mention: { users, meId, onUser, everyone } - everyone is true only when the server accepted this message's @everyone
-export function Rich({ text, mention }) {
+// Message text is Discord-style Markdown (see Markdown.jsx); emoji, mentions and @everyone are drawn here and handed in as atoms.
+export function Rich({ text: raw, mention }) {
+  const text = String(raw ?? '');
   const big = ONLY_EMOJI.test(text);
-  const out = [];
-  let last = 0, m, k = 0;
-  RICH.lastIndex = 0;
-  while ((m = RICH.exec(text))) {
-    if (m.index > last) out.push(<React.Fragment key={k++}><Linkified text={text.slice(last, m.index)} /></React.Fragment>);
-    if (m[2]) out.push(<CustomEmoji key={k++} id={m[2]} name={m[1]} big={big} />);
-    else if (m[3]) out.push(<Mention key={k++} id={m[3]} ctx={mention} />);
-    else out.push(mention?.everyone ? <EveryoneMention key={k++} /> : <React.Fragment key={k++}>{m[0]}</React.Fragment>);
-    last = m.index + m[0].length;
-  }
-  if (last < text.length) out.push(<React.Fragment key={k++}><Linkified text={text.slice(last)} /></React.Fragment>);
-  return out;
+  return renderMarkdown(text, {
+    atomRe: RICH,
+    atom: (m) => {
+      if (m[2]) return <CustomEmoji id={m[2]} name={m[1]} big={big} />;
+      if (m[3]) return <Mention id={m[3]} ctx={mention} />;
+      return mention?.everyone ? <EveryoneMention /> : m[0];
+    },
+  });
 }
 
 export function CustomEmoji({ id, name, big }) {

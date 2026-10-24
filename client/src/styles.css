@@ -350,6 +350,27 @@ img.mark.big { height: 96px; width: auto; margin-bottom: 6px; }
 .att-file { display: flex; align-items: center; gap: 12px; background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; width: 340px; max-width: 100%; color: var(--head); }
 .att-meta { flex: 1; min-width: 0; } .att-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
 .content a { color: var(--link); }
+/* message formatting (Markdown.jsx). The body font has one weight, so bold/italic are drawn by the browser */
+.content strong, .content em, .content .md-h { font-synthesis: weight style; }
+.content strong { font-weight: 700; }
+.content em { font-style: italic; }
+.content u { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.content s { text-decoration: line-through; }
+.md-code, .md-pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+.md-code { font-size: .88em; background: var(--field); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+.md-pre { display: block; margin: 4px 0; padding: 10px 12px; background: var(--field); border: 1px solid var(--line); border-radius: 8px; color: var(--text); font-size: 13px; line-height: 1.45; white-space: pre; overflow-x: auto; overflow-wrap: normal; max-width: 100%; }
+.md-pre code { font: inherit; }
+.md-quote { margin: 2px 0; padding-left: 12px; border-left: 4px solid var(--line2); border-radius: 2px; }
+.md-h { color: var(--head); font-weight: 700; line-height: 1.25; margin: 8px 0 2px; }
+.md-h1 { font-size: 1.6em; } .md-h2 { font-size: 1.3em; } .md-h3 { font-size: 1.12em; }
+.md-sub { font-size: 12px; color: var(--muted); }
+.md-list { margin: 2px 0; padding-left: 22px; white-space: normal; }
+.md-list li { padding-left: 2px; }
+.spoiler { border-radius: 4px; padding: 0 2px; }
+.spoiler:not(.on) { background: var(--line2); color: transparent; cursor: pointer; user-select: none; }
+.spoiler:not(.on):hover { background: var(--sel); }
+.spoiler:not(.on) * { visibility: hidden; }
+.spoiler.on { background: var(--field); }
 .lightbox { position: fixed; inset: 0; z-index: 60; background: #14110dd9; display: grid; place-items: center; padding: 24px 24px 64px; }
 .lightbox img { max-width: 92vw; max-height: calc(100vh - 110px); object-fit: contain; border-radius: 8px; }
 .lightbox-bar { position: fixed; left: 0; right: 0; bottom: 0; height: 52px; display: flex; align-items: center; justify-content: center; gap: 10px; color: #f3ecdc; }
