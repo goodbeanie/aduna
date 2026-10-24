@@ -30,6 +30,7 @@ const server = http.createServer((req, res) => {
       const j = JSON.parse(body);
       if (j.model === 'nope') { res.statusCode = 404; return res.end(JSON.stringify({ error: "model 'nope' not found" })); }
       if (j.model === 'oom') { send({ error: 'model requires more system memory (20.0 GiB) than is available (8.0 GiB)' }); return res.end(); }
+      if (j.model === 'long') { send({ message: { content: '<file path="bot.js">\nbot.on(' } }); send({ done: true, done_reason: 'length' }); return res.end(); }
       const half = JSON.stringify({ message: { role: 'assistant', content: '<file path="a.js">' } }) + '\n' + JSON.stringify({ message: { role: 'assistant', content: 'x</file>' }, done: true });
       res.write(half.slice(0, 20)); setTimeout(() => res.end(half.slice(20)), 20); // a JSON line split across two chunks
     }
@@ -58,6 +59,12 @@ server.listen(0, '127.0.0.1', async () => {
     assert.strictEqual(full, '<file path="a.js">x</file>'); assert.strictEqual(toks.length, 2);
     const req = requests.filter((r) => r.url === '/api/chat').pop();
     assert.strictEqual(req.body.options.num_ctx, 8192); assert.strictEqual(req.body.stream, true);
+  });
+  await t('chat tells the caller when the reply was cut off by the length limit', async () => {
+    const meta = {}; await o.chat({ model: 'long', messages: [], meta });
+    assert.strictEqual(meta.truncated, true);
+    const ok = {}; await o.chat({ model: 'm', messages: [], meta: ok });
+    assert.strictEqual(ok.truncated, undefined);
   });
   await t('chat reports missing model and out-of-memory clearly', async () => {
     await assert.rejects(o.chat({ model: 'nope', messages: [] }), /not found/);

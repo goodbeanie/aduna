@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
 import { can } from './perms.js';
 import BotSim from './BotSim.jsx';
+import AiBuilder, { hasAiBuilder } from './AiBuilder.jsx';
 
 // Bots on the client: Settings > Developer (write, test and publish bots), Server settings > Bots (add, scope and remove them),
 // and the "Add to server" picker the explorer uses. The sandbox and every rule live on the server; this file only asks.
@@ -36,18 +37,26 @@ function StatusChips({ bot }) {
 }
 
 // ---------- Settings > Developer ----------
-export function DeveloperSettings({ me, onSaved }) {
+// aiFocus: the desktop app's tray item, title bar button or menu sent the person here to use the AI panel (desktop app only).
+export function DeveloperSettings({ me, onSaved, aiFocus }) {
   const [state, setState] = useState('loading'); // loading | ready | error
   const [dev, setDev] = useState(null);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState(null); // null = list, 'new' or a bot
   const editKey = useRef(0); // bumps when another bot is opened, so saving a new bot does not reset the editor
-  const open = (x) => { editKey.current += 1; setEditing(x); };
+  const aiOpen = useRef(false); // the editor was opened to use the AI panel: show it open
+  const open = (x, ai) => { editKey.current += 1; aiOpen.current = !!ai; setEditing(x); };
   const [accept, setAccept] = useState(false);
   const [busy, setBusy] = useState(false);
+  const jumped = useRef(false);
 
   const load = useCallback(() => api('/developer').then((r) => { setDev(r); setState('ready'); }).catch((e) => { setErr(e.message); setState('error'); }), []);
   useEffect(() => { load(); }, [load]);
+  // sent here by the desktop app: go straight to the editor, with the AI panel open
+  useEffect(() => {
+    if (!aiFocus || jumped.current || state !== 'ready' || !dev?.developer || !hasAiBuilder()) return;
+    jumped.current = true; open('new', true);
+  }, [aiFocus, state, dev]); // eslint-disable-line react-hooks/exhaustive-deps
   // the server tells the developer live when a listing is held, removed or restored, or a bot gets paused
   useEffect(() => {
     const h = (e) => setDev((d) => (d ? { ...d, bots: d.bots.map((b) => (b.id === e.detail.id ? { ...b, ...e.detail } : b)) } : d));
@@ -82,7 +91,7 @@ export function DeveloperSettings({ me, onSaved }) {
     );
   }
   if (editing) {
-    return <BotEditor key={editKey.current} bot={editing === 'new' ? null : editing} limits={dev.limits} fetchHosts={dev.fetchHosts} onSaved={(b) => { upsert(b); setEditing(b); }} onDeleted={(id) => { drop(id); open(null); }} onBack={() => open(null)} />;
+    return <BotEditor key={editKey.current} bot={editing === 'new' ? null : editing} aiOpen={aiOpen.current} limits={dev.limits} fetchHosts={dev.fetchHosts} onSaved={(b) => { upsert(b); setEditing(b); }} onDeleted={(id) => { drop(id); open(null); }} onBack={() => open(null)} />;
   }
   const full = dev.bots.length >= dev.limits.perDeveloper;
   return (
@@ -96,6 +105,7 @@ export function DeveloperSettings({ me, onSaved }) {
         </button>
       ))}
       <button className="btn primary" disabled={full} onClick={() => open('new')}><Icon name="plus" size={16} className="inline-icon" /> New bot</button>
+      {hasAiBuilder() && <button className="btn" disabled={full} onClick={() => open('new', true)}>Build a bot with AI</button>}
       {full && <p className="muted small hint">You have reached the limit. Delete a bot to make a new one.</p>}
       <SeasonTest me={me} onSaved={onSaved} />
     </div>
@@ -133,7 +143,7 @@ function SeasonTest({ me, onSaved }) {
   );
 }
 
-function BotEditor({ bot, limits, fetchHosts, onSaved, onDeleted, onBack }) {
+function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack }) {
   const [name, setName] = useState(bot?.name || '');
   const [description, setDescription] = useState(bot?.description || '');
   const [tags, setTags] = useState((bot?.tags || []).join(', '));
@@ -161,6 +171,11 @@ function BotEditor({ bot, limits, fetchHosts, onSaved, onDeleted, onBack }) {
     try { await api(`/bots/${bot.id}`, { method: 'DELETE' }); onDeleted(bot.id); }
     catch (e) { setErr(e.message); setConfirmDel(false); setBusy(false); }
   }
+  // "Use this bot" in the AI panel: its name, description and code go into the editor. Nothing is saved until the person saves.
+  const useAi = (b) => {
+    setName(b.name); setDescription(b.description); setCode(b.code); setErr('');
+    setNote(`Filled in by the AI${b.finished ? '' : ' (not finished)'}. Look it over, try it in the chat simulator below, then press ${bot ? 'Save changes' : 'Create bot'}.`);
+  };
   const onTab = (e) => { // Tab inserts two spaces in the code box instead of leaving it (Escape then Tab leaves)
     if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
@@ -178,6 +193,8 @@ function BotEditor({ bot, limits, fetchHosts, onSaved, onDeleted, onBack }) {
       {removed && <div className="error">Moderators removed this bot from the public listing after reports. It left every server and cannot be added again.</div>}
       {bot?.review && !removed && <div className="error">This bot&rsquo;s public listing is under review after reports. You can edit it again once moderators have decided.</div>}
       {bot?.pausedUntil && <div className="error">This bot is paused because its code kept running out of time. Save new code to resume it.</div>}
+
+      {hasAiBuilder() && !held && <AiBuilder fetchHosts={fetchHosts} defaultOpen={aiOpen} onUse={useAi} />}
 
       <label>NAME</label>
       <input value={name} maxLength={limits.name} onChange={(e) => setName(e.target.value)} aria-label="Bot name" disabled={held} />

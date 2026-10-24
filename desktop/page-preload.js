@@ -15,6 +15,12 @@ if (location.protocol === 'https:') {
     dismiss: (tag) => ipcRenderer.send('notify-dismiss', String(tag || '')),
     onClick: (cb) => { onClick = typeof cb === 'function' ? cb : null; return () => { onClick = null; }; },
     isActive: () => active,
+    // The AI bot builder (desktop/ai/ai-service.js). A fixed list of actions: the page cannot reach Node, files or any other channel.
+    ai: Object.assign(
+      Object.fromEntries(['status', 'startOllama', 'installOllama', 'autoSetup', 'pull', 'cancelPull', 'remove', 'run', 'resume', 'stop', 'jobs', 'job', 'deleteJob', 'panel']
+        .map((name) => [name, (...a) => ipcRenderer.invoke('ai:' + name.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()), ...a)])),
+      { onEvent: (cb) => { if (typeof cb !== 'function') return () => {}; const h = (_e, d) => cb(d); ipcRenderer.on('ai:event', h); return () => ipcRenderer.removeListener('ai:event', h); } },
+    ),
   });
 
   // ---------- 1. theme sync ----------

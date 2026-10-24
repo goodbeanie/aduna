@@ -530,6 +530,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       if (!u) { try { u = (await api('/users/' + a)).user; } catch { return; } }
       openDm(u);
     } else if (kind === 'f') { setView({ kind: 'dm', userId: null }); setShowList(false); }
+    else if (kind === 'ai' && window.adunaDesktop?.ai) setModal({ type: 'edit', tab: 'developer', ai: Date.now() }); // desktop app: AI Coder (tray, title bar, menu, "your bot is ready")
   };
   openTargetRef.current = openTarget;
   useEffect(() => { // the app was opened by tapping a notification (/app?n=...)
@@ -989,7 +990,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onMessage={() => openDm(users[modal.id])} onEdit={() => setModal({ type: 'edit' })}
           onAddFriend={() => requestFriend(users[modal.id].username).catch((e) => alert(e.message))} onAccept={() => acceptFriend(modal.id)} />
       )}
-      {modal?.type === 'edit' && <SettingsScreen me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} getSocketId={() => socketRef.current?.id} />}
+      {modal?.type === 'edit' && <SettingsScreen key={modal.ai || 0} initialTab={modal.tab} aiFocus={modal.ai} me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} getSocketId={() => socketRef.current?.id} />}
     </div>
     </InviteContext.Provider>
   );

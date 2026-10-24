@@ -28,16 +28,29 @@
       "toast.html",
       "toast-preload.js",
       "page-preload.js",
-      "ai/ai-window.js",
-      "ai/ai-preload.js",
-      "ai/ai-ui.js",
-      "ai/ai.html",
-      "ai/agent.js",
+      "ai/ai-service.js",
+      "ai/bot-mode.js",
+      "ai/botfetch.js",
+      "ai/botrun.js",
+      "ai/botstate.js",
       "ai/core.js",
+      "ai/diff.js",
+      "ai/jobs.js",
+      "ai/lessons.js",
+      "ai/loop.js",
+      "ai/memory.js",
       "ai/ollama.js",
+      "ai/qjs-host.js",
+      "ai/qjs-worker.js",
+      "ai/sandbox-core.js",
+      "ai/suite.js",
       "build/icon.png",
       "build/icon-white.png",
       "build/bree-serif.woff2"
+    ],
+    "asarUnpack": [
+      "ai/*.js",
+      "node_modules/quickjs-emscripten/**"
     ],
     "win": {
       "target": [
@@ -70,6 +83,7 @@
     ]
   },
   "dependencies": {
-    "electron-updater": "^6.3.9"
+    "electron-updater": "^6.3.9",
+    "quickjs-emscripten": "~0.23.0"
   }
 }

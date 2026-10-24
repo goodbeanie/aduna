@@ -1336,6 +1336,29 @@ span.mention { cursor: default; }
 .bot-logs, .bot-help pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: var(--field); border-radius: 8px; padding: 8px 10px; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bot-help summary { cursor: pointer; font-weight: 600; color: var(--head); }
 .bot-help ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.5; }
+/* "Build with AI on this PC" in the bot editor (AiBuilder.jsx, desktop app only) */
+.ai-panel > summary { cursor: pointer; font-weight: 600; color: var(--head); }
+.ai-box { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.ai-box textarea { width: 100%; }
+.ai-ready { border-color: var(--ok-fg); }
+.ai-controls { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ai-controls select, .ai-controls input { width: auto; max-width: 100%; }
+.ai-controls input { flex: 1 1 200px; min-width: 0; }
+.ai-bar { width: 100%; max-width: 320px; height: 8px; border-radius: 99px; background: var(--field); overflow: hidden; }
+.ai-bar i { display: block; height: 100%; background: var(--ink); transition: width .2s; }
+.ai-log { display: flex; flex-direction: column; gap: 4px; max-height: 380px; overflow: auto; font-size: 13px; border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+.ai-ev { padding: 4px 8px; border-left: 3px solid var(--line); border-radius: 0 6px 6px 0; overflow-wrap: anywhere; }
+.ai-ev.ok { border-color: var(--ok-fg); } .ai-ev.bad { border-color: var(--danger); } .ai-ev.warn { border-color: #b8860b; }
+.ai-ev.ai-head { border: 0; padding-left: 0; margin-top: 6px; font-weight: 600; color: var(--head); }
+.ai-ev.ai-dim, .ai-ev.ai-hint { color: var(--muted); }
+.ai-ev.ai-end { font-weight: 600; }
+.ai-ev pre, .ai-log > details pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: var(--field); border-radius: 8px; padding: 6px 8px; margin: 4px 0 0; overflow: auto; max-height: 220px; white-space: pre-wrap; }
+.ai-ev summary { cursor: pointer; color: var(--muted); }
+.ai-jobs { display: flex; flex-direction: column; gap: 6px; }
+.ai-job, .ai-model { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-top: 1px solid var(--line); padding: 8px 0; }
+.ai-job-who { min-width: 0; overflow-wrap: anywhere; }
+.ai-job-act { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; flex: none; }
+.ai-models > summary { cursor: pointer; color: var(--muted); }
 .bot-inst { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
 .bot-inst-row { display: flex; align-items: center; gap: 10px; }
 .bot-inst-who { flex: 1; min-width: 0; overflow-wrap: anywhere; }

@@ -6,7 +6,7 @@ const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
-const { openAiWindow } = require('./ai/ai-window'); // AI Coder: runs local Ollama coding models (see ai/ai-window.js)
+
 
 const ORIGIN = 'https://aduna.onrender.com';
 const APP_URL = ORIGIN + '/app';
@@ -23,6 +23,7 @@ const startHidden = process.argv.includes('--hidden'); // started by Windows at 
 const nativeToasts = new Map();       // fallback only: tag -> native Windows notification
 let theme = {};                       // latest colours from the page, forwarded to the title bar
 let upd = { phase: 'idle' };          // update status shown in the server bar: idle | checking | none | downloading | ready | installing | error
+let ai = null;                        // the AI bot builder (ai/ai-service.js): runs in the background, its panel is in Settings > Developer
 
 function openExternal(url) { try { if (/^https?:$/.test(new URL(url).protocol)) shell.openExternal(url); } catch { /* ignore */ } }
 const alive = (v) => v && v.webContents && !v.webContents.isDestroyed();
@@ -101,7 +102,7 @@ ipcMain.on('bar-action', (e, action) => {
   else if (action === 'max') { if (win.isMaximized()) win.unmaximize(); else win.maximize(); }
   else if (action === 'close') win.close();
   else if (action === 'check') runCheck(true);
-  else if (action === 'ai') openAiWindow(iconPath);
+  else if (action === 'ai') openAiPanel();
 });
 
 // ----- notifications: the page says what to show; the app draws it as a small card in the bottom-right corner of the screen,
@@ -128,6 +129,27 @@ function showWindow() {
   if (!win) { createWindow(); return; }
   if (win.isMinimized()) win.restore();
   win.show(); win.focus();
+}
+
+// The tray item, the title bar button and the menu all lead to the same place: Settings > Developer, where the AI panel is.
+// The page does the navigating (it has the login and the settings screen); it hears this as a click on an "ai" notification.
+function openAiPanel() {
+  const fresh = !win;                                  // the window was closed to nothing: wait for the page to load first
+  showWindow();
+  const go = () => { if (alive(page)) page.webContents.send('notif-click', 'ai'); };
+  if (fresh) setTimeout(go, 4000); else go();
+}
+
+// The AI builder is a bonus: if it cannot start, Aduna still opens.
+function startAi() {
+  try {
+    const aiService = require('./ai/ai-service');
+    ai = aiService.create({
+      ipcMain, dataDir: app.getPath('userData'), ollama: require('./ai/ollama').create(),
+      send: (ch, d) => { if (alive(page)) page.webContents.send(ch, d); },
+      isTrusted: fromPage, notify: showToast, windowActive: isActive, openExternal,
+    });
+  } catch (e) { console.error('AI builder did not start:', e && e.message); }
 }
 
 function ensureToastWin() {
@@ -310,7 +332,7 @@ function buildTray() {
   }
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Aduna', click: showWindow },
-    { label: 'AI Coder\u2026', click: () => openAiWindow(iconPath) },
+    { label: 'AI Coder\u2026', click: openAiPanel },
     { label: 'Check for updates\u2026', click: () => { showWindow(); runCheck(true); } },
     { type: 'separator' },
     { label: 'Start with Windows', type: 'checkbox', checked: startsWithWindows(), enabled: app.isPackaged, click: (item) => setStartsWithWindows(item.checked) },
@@ -323,7 +345,7 @@ app.setAppUserModelId('app.aduna.desktop'); // same as build.appId: Windows need
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', showWindow);
-  app.on('before-quit', () => { quitting = true; }); // lets the update installer and "Quit" really close the window
+  app.on('before-quit', () => { quitting = true; if (ai) ai.shutdown().catch(() => {}); }); // lets the update installer and "Quit" really close the window; a running AI build stops after its last saved attempt
   app.whenReady().then(() => {
     // Calls need the microphone and camera; mentions need notifications. Allowed only for the Aduna server.
     const ok = (wc, perm) => ['media', 'notifications', 'fullscreen', 'clipboard-sanitized-write'].includes(perm) && !!wc && wc.getURL().startsWith(ORIGIN);
@@ -331,13 +353,14 @@ else {
     session.defaultSession.setPermissionCheckHandler((wc, perm) => ok(wc, perm));
     // No visible menu any more (the window is frameless), but the shortcuts still work.
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Aduna', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => page && page.webContents.loadURL(APP_URL) }, { label: 'Check for updates\u2026', accelerator: 'CmdOrCtrl+Shift+U', click: () => runCheck(true) }, { label: 'AI Coder\u2026', accelerator: 'CmdOrCtrl+Shift+A', click: () => openAiWindow(iconPath) }, { type: 'separator' }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }] },
+      { label: 'Aduna', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => page && page.webContents.loadURL(APP_URL) }, { label: 'Check for updates\u2026', accelerator: 'CmdOrCtrl+Shift+U', click: () => runCheck(true) }, { label: 'AI Coder\u2026', accelerator: 'CmdOrCtrl+Shift+A', click: openAiPanel }, { type: 'separator' }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }] },
       { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: 'View', submenu: [{ role: 'togglefullscreen' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' }] },
     ]));
     // First run of an installed copy: start with Windows (hidden in the tray) so notifications work after a reboot. The tray menu turns it off.
     const p = readPrefs();
     if (app.isPackaged && !p.autostartHandled) { p.autostartHandled = true; writePrefs(p); try { app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] }); } catch { /* ignore */ } }
+    startAi();
     createWindow();
     buildTray();
     applyIcons(); // correct the first guess with the real taskbar mode

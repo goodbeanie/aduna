@@ -14,7 +14,8 @@ import { useLang } from './i18n.js';
 const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['whatsnew', 'tabWhatsNew', 'bulb'], ['developer', 'tabDeveloper', 'code']];
 
 // Full-screen settings: a section list on the left (a tab bar on phones) and the chosen section on the right.
-export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, onPrefs, onLogout, getSocketId }) {
+// aiFocus: opened by the desktop app's AI Coder button/menu/notification: show Developer with the AI panel.
+export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, onSaved, onPrefs, onLogout, getSocketId }) {
   const { t } = useLang();
   const [tab, setTab] = useState(initialTab);
   useEffect(() => {
@@ -44,7 +45,7 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
           {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings /></>}
           {tab === 'security' && <><h1>{t('tabSecurity')}</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
           {tab === 'whatsnew' && <><h1>{t('tabWhatsNew')}</h1><WhatsNewSettings /></>}
-          {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} /></>}
+          {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} aiFocus={aiFocus} /></>}
           {tab === 'badges' && me.creator && <><h1>{t('tabBadges')}</h1><BadgeSettings /></>}
           {tab === 'appearance' && <><h1>{t('tabAppearance')}</h1><AppearancePicker /></>}
           {tab === 'language' && <><h1>{t('tabLanguage')}</h1><LanguageSettings me={me} onSaved={onSaved} /></>}

@@ -88,8 +88,9 @@ function create(opts) {
     if (!res.ok) throw new Error(await errText(res));
   }
 
-  // Streams a chat reply; returns the full text.
-  async function chat({ model, messages, numCtx, numPredict, signal, onToken }) {
+  // Streams a chat reply; returns the full text. When the reply stopped because it hit the length limit, meta.truncated is set to true
+  // (Ollama says so with done_reason "length"), so the caller knows the last file may be unfinished.
+  async function chat({ model, messages, numCtx, numPredict, signal, onToken, meta }) {
     const res = await fetch(base + '/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
       body: JSON.stringify({ model, messages, stream: true, options: { num_ctx: numCtx, num_predict: numPredict, temperature: 0.2 } }),
@@ -100,6 +101,7 @@ function create(opts) {
       if (o.error) throw new Error(String(o.error));
       const t = o.message && o.message.content;
       if (t) { full += t; if (onToken) onToken(t); }
+      if (meta && o.done && o.done_reason === 'length') meta.truncated = true;
     });
     return full;
   }
@@ -140,6 +142,7 @@ function create(opts) {
   // Video memory in GB, or null if it can't be read. NVIDIA first (exact), then the Windows registry (works for AMD / Intel Arc).
   let gpuCache; // undefined = not tried yet
   function detectGpu() {
+    if (opts && opts.gpu !== undefined) return Promise.resolve(opts.gpu); // tests pass a fixed card
     if (gpuCache !== undefined) return Promise.resolve(gpuCache);
     const run = (file, args) => new Promise((res) => execFile(file, args, { windowsHide: true, timeout: 8000 }, (err, out) => res(err ? '' : String(out || ''))));
     return (async () => {
