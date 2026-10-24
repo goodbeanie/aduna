@@ -28,6 +28,13 @@
       "toast.html",
       "toast-preload.js",
       "page-preload.js",
+      "ai/ai-window.js",
+      "ai/ai-preload.js",
+      "ai/ai-ui.js",
+      "ai/ai.html",
+      "ai/agent.js",
+      "ai/core.js",
+      "ai/ollama.js",
       "build/icon.png",
       "build/icon-white.png",
       "build/bree-serif.woff2"

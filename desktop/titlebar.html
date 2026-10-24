@@ -35,6 +35,9 @@
 <div class="bar">
   <div class="brand"><img src="build/icon.png" alt=""><span>Aduna</span></div>
   <div class="ctl">
+    <button class="scan" id="ai" title="AI Coder" aria-label="AI Coder">
+      <svg viewBox="0 0 16 16"><path d="M5.5 4.5L2 8l3.5 3.5"/><path d="M10.5 4.5L14 8l-3.5 3.5"/><path d="M9 3.2L7 12.8"/></svg>
+    </button>
     <button class="scan" id="scan" title="Check for updates" aria-label="Check for updates">
       <svg viewBox="0 0 16 16"><path d="M13.2 8A5.2 5.2 0 1 1 11.7 4.3"/><path d="M12.4 1.6v3h-3"/></svg>
     </button>
@@ -58,6 +61,7 @@
   document.getElementById('max').onclick = send('max');
   document.getElementById('close').onclick = send('close');
   document.getElementById('scan').onclick = send('check');
+  document.getElementById('ai').onclick = send('ai');
   adunaBar.onTheme(function (vars) {
     for (var k in vars) root.style.setProperty(k, vars[k]);
     // the logo is black; flip it on dark themes (same trick the app's home button uses)

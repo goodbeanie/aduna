@@ -6,6 +6,7 @@ const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+const { openAiWindow } = require('./ai/ai-window'); // AI Coder: runs local Ollama coding models (see ai/ai-window.js)
 
 const ORIGIN = 'https://aduna.onrender.com';
 const APP_URL = ORIGIN + '/app';
@@ -100,6 +101,7 @@ ipcMain.on('bar-action', (e, action) => {
   else if (action === 'max') { if (win.isMaximized()) win.unmaximize(); else win.maximize(); }
   else if (action === 'close') win.close();
   else if (action === 'check') runCheck(true);
+  else if (action === 'ai') openAiWindow(iconPath);
 });
 
 // ----- notifications: the page says what to show; the app draws it as a small card in the bottom-right corner of the screen,
@@ -308,6 +310,7 @@ function buildTray() {
   }
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Aduna', click: showWindow },
+    { label: 'AI Coder\u2026', click: () => openAiWindow(iconPath) },
     { label: 'Check for updates\u2026', click: () => { showWindow(); runCheck(true); } },
     { type: 'separator' },
     { label: 'Start with Windows', type: 'checkbox', checked: startsWithWindows(), enabled: app.isPackaged, click: (item) => setStartsWithWindows(item.checked) },
@@ -328,7 +331,7 @@ else {
     session.defaultSession.setPermissionCheckHandler((wc, perm) => ok(wc, perm));
     // No visible menu any more (the window is frameless), but the shortcuts still work.
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Aduna', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => page && page.webContents.loadURL(APP_URL) }, { label: 'Check for updates\u2026', accelerator: 'CmdOrCtrl+Shift+U', click: () => runCheck(true) }, { type: 'separator' }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }] },
+      { label: 'Aduna', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => page && page.webContents.loadURL(APP_URL) }, { label: 'Check for updates\u2026', accelerator: 'CmdOrCtrl+Shift+U', click: () => runCheck(true) }, { label: 'AI Coder\u2026', accelerator: 'CmdOrCtrl+Shift+A', click: () => openAiWindow(iconPath) }, { type: 'separator' }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }] },
       { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: 'View', submenu: [{ role: 'togglefullscreen' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' }] },
     ]));
