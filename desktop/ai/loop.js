@@ -35,8 +35,14 @@ function filePart(name, text, cap) {
   return text.length > per ? `--- ${name} (TRUNCATED: rewrite this file completely if you change it) ---\n${text.slice(0, per)}` : `--- ${name} ---\n${text}`;
 }
 
-function buildPrompt({ job, cap, lessonsText, memoryText, lastDetail, hint, notes, mode }) {
-  const parts = ['REQUEST:\n' + job.request, '', 'YOUR CURRENT FILES:\n' + filePart('bot.js', job.bot, cap) + '\n' + filePart('test.js', job.test, cap)];
+function hiddenPart(name) { return `--- ${name} --- (hidden on purpose: your last replies kept sending the same files back, which fixes nothing. Write a NEW, complete ${name} from the request and the failing result below. Do not try to remember the old one.)`; }
+
+function buildPrompt({ job, cap, lessonsText, memoryText, lastDetail, hint, notes, mode, stuck = 0 }) {
+  // After 2 identical replies in a row the model is not shown one of its files, so it cannot just copy it back.
+  // It alternates: bot.js first, then test.js (the test may be the wrong one), then bot.js again...
+  const hide = stuck >= 2 && mode === 'fix' ? (stuck % 2 === 0 ? 'bot.js' : 'test.js') : '';
+  const part = (name, text) => (hide === name ? hiddenPart(name) : filePart(name, text, cap));
+  const parts = ['REQUEST:\n' + job.request, '', 'YOUR CURRENT FILES:\n' + part('bot.js', job.bot) + '\n' + part('test.js', job.test)];
   if (lessonsText) parts.push('', lessonsText);
   if (memoryText) parts.push('', memoryText);
   if (lastDetail) parts.push('', 'RESULT OF YOUR LAST ATTEMPT:\n' + lastDetail);
@@ -46,7 +52,8 @@ function buildPrompt({ job, cap, lessonsText, memoryText, lastDetail, hint, note
   parts.push(mode === 'first' ? 'Write bot.js and test.js for this request.'
     : mode === 'finish' ? 'The test passed and everything is covered. If the request is now fully satisfied, reply with only <name> and <done> blocks. If anything is missing, add it, extend the test, and reply with the files.'
       : mode === 'cover' ? 'The test passes, but it is not finished yet (see above). Extend test.js so every handler is triggered and checked, then reply with the files.'
-        : 'Fix the problem, then reply with the changed files.');
+        : hide ? `You sent the same files back ${stuck} times in a row, so nothing changed. Write a NEW complete ${hide} that is clearly different from before and fixes the failing result above. Reply with ${hide}.`
+          : 'Fix the problem, then reply with the changed files.');
   return parts.join('\n');
 }
 
@@ -109,14 +116,17 @@ async function runBuild(o) {
       emit({ kind: 'attempt', n });
       const lessons = o.lessons ? o.lessons.relevant({ request: job.request, problem: lastProblem, limit: 3 }) : [];
       const mode = !prev ? 'first' : lastPassedCovered ? 'finish' : prev.outcome === 'incomplete' ? 'cover' : 'fix';
+      const stuck = memory.stuck(job.attempts);
       const messages = [
         { role: 'system', content: system },
-        { role: 'user', content: buildPrompt({ job, cap, lessonsText: o.lessons ? o.lessons.render(lessons) : '', memoryText: memory.render(job.attempts), lastDetail, hint: lastHint, notes: carry, mode }) },
+        { role: 'user', content: buildPrompt({ job, cap, lessonsText: o.lessons ? o.lessons.render(lessons) : '', memoryText: memory.render(job.attempts), lastDetail, hint: lastHint, notes: carry, mode, stuck }) },
       ];
       carry = [];
 
       // after cut-off replies the model is allowed a longer reply next time (the service reads meta.cutoffs)
-      const meta = { cutoffs: job.attempts.slice(-3).filter((a) => a.outcome === 'cutoff' || (a.notes || []).includes('reply was cut off')).length };
+      // the more often it repeats itself, the more it is allowed to vary (the service passes meta.temperature to the model)
+      const cold = Math.max(stuck, memory.repeats(job.attempts) - 2, 0);
+      const meta = { cutoffs: job.attempts.slice(-3).filter((a) => a.outcome === 'cutoff' || (a.notes || []).includes('reply was cut off')).length, temperature: Math.min(0.9, 0.2 + 0.15 * cold) };
       const text = await chatRetry(messages, meta);
       if (aborted()) throw STOPPED;
       const p = botMode.parseReply(text, meta);

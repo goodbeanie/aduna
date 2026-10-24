@@ -63,6 +63,16 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'aduna-ai-logic-'));
     assert.match(add(), /NEW APPROACH[\s\S]*CHECK THE TEST[\s\S]*EXPECTED value in test\.js/);
     assert.doesNotMatch(add({ stage: 'bot' }), /CHECK THE TEST/);
   });
+  await t('stuck counts identical replies in a row; diagnose explains an empty result', () => {
+    const at = [];
+    const add = (o) => at.push({ n: at.length + 1, outcome: 'failed', wrote: ['bot.js', 'test.js'], unchanged: true, ...o });
+    add({ unchanged: false }); assert.strictEqual(memory.stuck(at), 0);
+    add(); add(); assert.strictEqual(memory.stuck(at), 2);
+    add({ outcome: 'cutoff', wrote: [] }); assert.strictEqual(memory.stuck(at), 2);
+    add({ unchanged: false }); assert.strictEqual(memory.stuck(at), 0);
+    assert.match(memory.diagnose({ tests: [{ ok: false, error: 'AssertionError: Expected values to be strictly deep-equal.\nfirst difference at .length: actual 0, expected 1' }] }), /produced none[\s\S]*WHAT THE BOT DID/);
+    assert.match(memory.diagnose({ tests: [{ ok: false, error: 'AssertionError: x\nfirst difference at .length: actual 2, expected 0' }] }), /expected nothing/);
+  });
   await t('weakened notices a test that got easier after a failure', () => {
     assert.ok(memory.weakened({ outcome: 'failed', assertions: 5, testsTotal: 3 }, { assertions: 2, testsTotal: 3 }));
     assert.ok(memory.weakened({ outcome: 'failed', assertions: 5, testsTotal: 3 }, { assertions: 5, testsTotal: 1 }));
@@ -173,6 +183,19 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'aduna-ai-logic-'));
     assert.match(b.prompts[10], /WHAT YOU ALREADY TRIED/); assert.match(b.prompts[10], /bot\.js change:/);
     assert.match(b.prompts[36], /The test passed and everything is covered/);
     assert.strictEqual(b.jobs.load(b.job.id).status, 'done'); assert.strictEqual(b.jobs.load(b.job.id).attempts.length, 36);
+  });
+
+  await t('a model that keeps sending the same files is not shown them again, and is allowed to vary more', async () => {
+    const b = build(); let n = 0; const temps = [];
+    const r = await b.run({
+      chat: async (m, o) => { b.prompts.push(m[1].content); temps.push(o.meta.temperature); n++; return n <= 6 ? botN(1) : '<name>X</name><done>d</done>'; },
+      runner: { run: async () => (b.prompts.length < 6 ? failing('AssertionError: x\nfirst difference at .length: actual 0, expected 1') : PASS) },
+    });
+    assert.strictEqual(r.ok, true, JSON.stringify(r));
+    assert.doesNotMatch(b.prompts[1] + b.prompts[2], /hidden on purpose/);
+    assert.match(b.prompts[3], /bot\.js --- \(hidden on purpose/); assert.doesNotMatch(b.prompts[3], /test\.js --- \(hidden/); assert.match(b.prompts[3], /Write a NEW complete bot\.js/);
+    assert.match(b.prompts[4], /test\.js --- \(hidden on purpose/); assert.doesNotMatch(b.prompts[4], /bot\.js --- \(hidden/);
+    assert.strictEqual(temps[0], 0.2); assert.ok(temps[3] > 0.2 && temps[5] > temps[3] && temps[5] <= 0.9);
   });
 
   await t('a passing test that does not cover every handler is not the end', async () => {

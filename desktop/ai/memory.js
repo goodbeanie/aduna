@@ -108,7 +108,24 @@ function diagnose(r) {
   if (/SyntaxError/.test(text)) return botSide ? 'bot.js must be only the function body: no "function" wrapper around it, no exports, no top-level import. Check brackets and quotes.' : 'test.js has a syntax error. Check brackets and quotes.';
   if (/not on the allowed list/.test(text)) return 'The server only lets bots fetch the addresses listed in the instructions. Use one of those.';
   if (/bot\.store\.[a-z]+ is not a function|store\.(push|find|map) is not a function/.test(text)) return 'bot.store only has set, get, incr, delete and keys. To keep a list, save an array with bot.store.set(key, array).';
+  const none = /first difference at \.length: actual 0, expected (\d+)/.exec(text);
+  if (none) return `The test expected ${none[1]} item${none[1] === '1' ? '' : 's'} but the bot produced none. Look under "WHAT THE BOT DID": if the event says "did nothing", the handler's condition never matched. Check that the text the test sends (t.say) is exactly what the handler looks for (command, prefix, spaces, upper/lower case), that the handler really calls bot.reply, bot.send or bot.react, and that the test reads the right list (t.sent, t.reactions or t.store).`;
+  const extra = /first difference at \.length: actual (\d+), expected 0/.exec(text);
+  if (extra) return `The test expected nothing, but the bot did something (${extra[1]} item${extra[1] === '1' ? '' : 's'}). Make the handler ignore this case, or fix the expectation if the bot's behaviour is what the request asks for.`;
   return '';
+}
+
+// How many of the latest real attempts in a row sent back exactly the files it already had (and still failed).
+// A cut-off or badly formatted reply says nothing either way, so it neither counts nor breaks the streak.
+function stuck(attempts) {
+  let n = 0;
+  for (let i = attempts.length - 1; i >= 0; i--) {
+    const a = attempts[i];
+    if (a.outcome === 'format' || a.outcome === 'cutoff') continue;
+    if (a.outcome === 'passed' || !a.wrote || !a.wrote.length || !a.unchanged) break;
+    n++;
+  }
+  return n;
 }
 
 // How many of the latest real attempts in a row failed with the same problem (0 when the last one passed or had no problem).
@@ -176,4 +193,4 @@ function render(attempts) {
   return parts.join('\n\n');
 }
 
-module.exports = { signature, gapsOf, problemOf, stageOf, detailOf, diagnose, repeats, escalation, weakened, render, HELPER };
+module.exports = { signature, gapsOf, problemOf, stageOf, detailOf, diagnose, repeats, stuck, escalation, weakened, render, HELPER };
