@@ -242,4 +242,46 @@ function rememberFailed(job, { n, problem }) {
   for (let i = 0; i < list.length - KEEP_FAILED_CODE; i++) { delete list[i].bot; delete list[i].test; }
 }
 
-module.exports = { fingerprint, findFailed, rememberFailed, signature, gapsOf, problemOf, stageOf, detailOf, diagnose, repeats, stuck, escalation, estimate, weakened, render, HELPER };
+// ---- Brackets: where a "SyntaxError: expecting '}'" really is, and a cheap repair ----
+// Walks the code and ignores strings, template text and comments. Returns { missing: [closers still needed, in order], extra: first stray closer, openLine }.
+const PAIR = { '{': '}', '(': ')', '[': ']' };
+function bracketReport(code) {
+  const s = String(code == null ? '' : code), stack = [];
+  let line = 1, extra = null;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (c === '\n') { line++; continue; }
+    if (c === '/' && s[i + 1] === '/') { while (i < s.length && s[i] !== '\n') i++; line++; continue; }
+    if (c === '/' && s[i + 1] === '*') { i += 2; while (i < s.length && !(s[i] === '*' && s[i + 1] === '/')) { if (s[i] === '\n') line++; i++; } i++; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      for (i++; i < s.length && s[i] !== c; i++) {
+        if (s[i] === '\\') { i++; continue; }
+        if (s[i] === '\n') { line++; if (c !== '`') break; }
+      }
+      continue;
+    }
+    if (PAIR[c]) stack.push({ c, line });
+    else if (c === '}' || c === ')' || c === ']') {
+      const top = stack[stack.length - 1];
+      if (top && PAIR[top.c] === c) stack.pop(); else if (!extra) extra = { c, line };
+    }
+  }
+  return { missing: stack.map((o) => PAIR[o.c]).reverse(), extra, openLine: stack.length ? stack[stack.length - 1].line : 0, open: stack.length ? stack[stack.length - 1].c : '' };
+}
+// The code with its missing closing brackets added at the end, or '' when that is not the problem (nothing missing, a stray closer, or too many to be a simple miss).
+function autoClose(code) {
+  const r = bracketReport(code);
+  if (!r.missing.length || r.missing.length > 6 || r.extra) return '';
+  return String(code).replace(/\s+$/, '') + '\n' + r.missing.join('') + '\n';
+}
+// A plain-words hint for a syntax error: which file, and which bracket was never closed.
+function syntaxHint(r, bot, test) {
+  const text = [r.error || '', ...(r.tests || []).map((t) => t.error || ''), ...(r.failures || [])].join('\n');
+  if (!/SyntaxError/.test(text)) return '';
+  const file = /BotError|The bot failed/.test(text) ? 'bot.js' : 'test.js', rep = bracketReport(file === 'bot.js' ? bot : test);
+  if (rep.extra) return `${file} has a stray "${rep.extra.c}" on line ${rep.extra.line} with nothing to close. Remove it or add the matching opener.`;
+  if (rep.missing.length) return `${file} opens "${rep.open}" on line ${rep.openLine} and never closes it (${rep.missing.length} bracket${rep.missing.length === 1 ? '' : 's'} still open: ${rep.missing.join(' ')}). Close every { ( [ you open.`;
+  return '';
+}
+
+module.exports = { bracketReport, autoClose, syntaxHint, fingerprint, findFailed, rememberFailed, signature, gapsOf, problemOf, stageOf, detailOf, diagnose, repeats, stuck, escalation, estimate, weakened, render, HELPER };

@@ -42,8 +42,8 @@ function hiddenPart(name) { return `--- ${name} --- (hidden on purpose: your las
 function buildPrompt({ job, cap, lessonsText, memoryText, lastDetail, hint, notes, mode, stuck = 0 }) {
   // After 2 identical replies in a row the model is not shown one of its files, so it cannot just copy it back.
   // It alternates: bot.js first, then test.js (the test may be the wrong one), then bot.js again...
-  const hide = stuck >= 2 && mode === 'fix' ? (stuck % 2 === 0 ? 'bot.js' : 'test.js') : '';
-  const part = (name, text) => (hide === name ? hiddenPart(name) : filePart(name, text, cap));
+  const hide = stuck >= 2 && mode === 'fix' ? (stuck >= 4 ? 'both' : stuck % 2 === 0 ? 'bot.js' : 'test.js') : '';
+  const part = (name, text) => (hide === name || hide === 'both' ? hiddenPart(name) : filePart(name, text, cap));
   const parts = ['REQUEST:\n' + job.request, '', 'YOUR CURRENT FILES:\n' + part('bot.js', job.bot) + '\n' + part('test.js', job.test)];
   if (lessonsText) parts.push('', lessonsText);
   if (memoryText) parts.push('', memoryText);
@@ -54,7 +54,8 @@ function buildPrompt({ job, cap, lessonsText, memoryText, lastDetail, hint, note
   parts.push(mode === 'first' ? 'Write bot.js and test.js for this request.'
     : mode === 'finish' ? 'The test passed and everything is covered. If the request is now fully satisfied, reply with only <name> and <done> blocks. If anything is missing, add it, extend the test, and reply with the files.'
       : mode === 'cover' ? 'The test passes, but it is not finished yet (see above). Extend test.js so every handler is triggered and checked, then reply with the files.'
-        : hide ? `You sent the same files back ${stuck} times in a row, so nothing changed. Write a NEW complete ${hide} that is clearly different from before and fixes the failing result above. Reply with ${hide}.`
+        : hide ? (hide === 'both' ? `You sent the same files back ${stuck} times in a row, so nothing changed. Both files are hidden. Write NEW complete bot.js AND test.js from the request, clearly different from before, and make sure every { ( [ you open is closed. Reply with both files.`
+          : `You sent the same files back ${stuck} times in a row, so nothing changed. Write a NEW complete ${hide} that is clearly different from before and fixes the failing result above. Reply with ${hide}.`)
           : 'Fix the problem, then reply with the changed files.');
   return parts.join('\n');
 }
@@ -129,7 +130,7 @@ async function runBuild(o) {
       // after cut-off replies the model is allowed a longer reply next time (the service reads meta.cutoffs)
       // the more often it repeats itself, the more it is allowed to vary (the service passes meta.temperature to the model)
       const cold = Math.max(stuck, memory.repeats(job.attempts) - 2, 0);
-      const meta = { cutoffs: job.attempts.slice(-3).filter((a) => a.outcome === 'cutoff' || (a.notes || []).includes('reply was cut off')).length, temperature: Math.min(0.9, 0.2 + 0.15 * cold) };
+      const meta = { cutoffs: job.attempts.slice(-3).filter((a) => a.outcome === 'cutoff' || (a.notes || []).includes('reply was cut off')).length, temperature: Math.min(0.9, 0.2 + 0.15 * cold), seed: cold > 0 ? Math.floor(Math.random() * 2147483647) : undefined };
       const text = await chatRetry(messages, meta);
       if (aborted()) throw STOPPED;
       const p = botMode.parseReply(text, meta);
@@ -172,7 +173,18 @@ async function runBuild(o) {
       }
 
       // Code that already failed is never run again: the model is told, and asked for something different.
-      const seen = memory.findFailed(job, job.bot, job.test);
+      // A syntax error from a missing closing bracket is the one thing fixed here directly: the brackets are closed, and that new code is run.
+      let seen = memory.findFailed(job, job.bot, job.test);
+      if (seen && /SyntaxError/i.test(lastProblem + ' ' + lastDetail)) {
+        for (const f of ['bot', 'test']) {
+          const fixed = memory.autoClose(job[f]);
+          if (fixed && !memory.findFailed(job, f === 'bot' ? fixed : job.bot, f === 'test' ? fixed : job.test)) {
+            job[f] = fixed; seen = null; changed = true; base.unchanged = false; notes.push(`closed missing brackets in ${f}.js`);
+            emit({ kind: 'note', text: `The model kept sending the same broken code, so the missing brackets in ${f}.js were closed for it.` });
+            break;
+          }
+        }
+      }
       if (seen) {
         const problem = `this exact code already failed in attempt ${seen.n}: ${seen.problem || 'it did not pass'}`;
         record({ outcome: 'repeat', stage: 'repeat', problem, sig: '', detail: lastDetail, ms: 0, fp: memory.fingerprint(job.bot, job.test), notes: ['same code as attempt ' + seen.n] });
@@ -202,7 +214,7 @@ async function runBuild(o) {
       record(attempt);
       if (!passed) memory.rememberFailed(job, { n, problem });
       save();
-      lastDetail = attempt.detail; lastHint = passed ? '' : memory.diagnose(r); lastProblem = passed ? '' : problem; lastPassedCovered = passed;
+      lastDetail = attempt.detail; lastHint = passed ? '' : (memory.syntaxHint(r, job.bot, job.test) || memory.diagnose(r)); lastProblem = passed ? '' : problem; lastPassedCovered = passed;
       if (lastHint) emit({ kind: 'hint', text: lastHint });
       emit({ kind: 'result', n, ok: passedTests, passed, problem, gaps: attempt.gaps, testsPassed: attempt.testsPassed, testsTotal: attempt.testsTotal, assertions: attempt.assertions, detail: core.tail(attempt.detail, 1800), activity: (r.activity || []).slice(-6), eta: memory.estimate(job.attempts) });
 

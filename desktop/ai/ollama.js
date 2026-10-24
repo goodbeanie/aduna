@@ -93,7 +93,7 @@ function create(opts) {
   async function chat({ model, messages, numCtx, numPredict, signal, onToken, meta }) {
     const res = await fetch(base + '/api/chat', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, signal,
-      body: JSON.stringify({ model, messages, stream: true, options: { num_ctx: numCtx, num_predict: numPredict, temperature: meta && typeof meta.temperature === 'number' ? meta.temperature : 0.2 } }),
+      body: JSON.stringify({ model, messages, stream: true, options: { num_ctx: numCtx, num_predict: numPredict, temperature: meta && typeof meta.temperature === 'number' ? meta.temperature : 0.2, ...(meta && Number.isInteger(meta.seed) ? { seed: meta.seed } : {}) } }),
     });
     if (!res.ok) throw new Error(await errText(res));
     let full = '';
