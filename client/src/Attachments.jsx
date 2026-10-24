@@ -43,13 +43,79 @@ function ImageAtt({ att, dm, onOpen }) {
   );
 }
 
+const clock = (s) => {
+  const n = Number.isFinite(s) && s > 0 ? Math.floor(s) : 0;
+  return Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
+};
+
+// Our own video player: play/pause, a seek bar, download, and maximize/minimize (instead of the browser's default controls).
+function VideoAtt({ att, dm, url }) {
+  const vref = useRef(null);
+  const [playing, setPlaying] = useState(false);
+  const [cur, setCur] = useState(0);
+  const [dur, setDur] = useState(0);
+  const [max, setMax] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!max) return undefined;
+    const h = (e) => e.key === 'Escape' && setMax(false);
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [max]);
+
+  const toggle = () => {
+    const v = vref.current;
+    if (!v) return;
+    if (v.paused) v.play().catch(() => {}); else v.pause();
+  };
+  // Recorded .webm files often report an infinite length until the end has been reached once; jump there and back to learn it.
+  const onMeta = (e) => {
+    const v = e.currentTarget;
+    if (v.duration === Infinity) {
+      const fix = () => { v.removeEventListener('timeupdate', fix); v.currentTime = 0; setDur(Number.isFinite(v.duration) ? v.duration : 0); };
+      v.addEventListener('timeupdate', fix);
+      v.currentTime = 1e101;
+    } else setDur(v.duration || 0);
+  };
+  const seek = (e) => {
+    const v = vref.current, t = Number(e.target.value);
+    if (v) v.currentTime = t;
+    setCur(t);
+  };
+  async function download() {
+    setBusy(true);
+    try { await saveAttachment(att, dm); } catch { /* expired or offline: nothing more to show on a player */ }
+    setBusy(false);
+  }
+
+  return (
+    <div className={'vp' + (max ? ' max' : '')}>
+      <video
+        ref={vref} className="att-video" src={url} playsInline preload="metadata" onClick={toggle}
+        onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+        onLoadedMetadata={onMeta} onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setDur(e.currentTarget.duration)}
+        onTimeUpdate={(e) => setCur(e.currentTarget.currentTime)}
+      />
+      {!playing && <button className="vp-big" onClick={toggle} aria-label="Play"><Icon name="play" size={26} className="fill" /></button>}
+      <div className="vp-bar">
+        <button className="icon-btn" title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'} onClick={toggle}><Icon name={playing ? 'pause' : 'play'} size={18} className="fill" /></button>
+        <input className="vp-seek" type="range" min="0" max={dur || 0} step="0.05" value={Math.min(cur, dur || 0)} onChange={seek} disabled={!dur} aria-label="Seek" />
+        <span className="vp-time">{clock(cur)} / {clock(dur)}</span>
+        <button className="icon-btn" title="Download" aria-label="Download" onClick={download} disabled={busy}><Icon name="download" size={18} /></button>
+        <button className="icon-btn" title={max ? 'Minimize' : 'Maximize'} aria-label={max ? 'Minimize' : 'Maximize'} onClick={() => setMax(!max)}><Icon name={max ? 'shrink' : 'expand'} size={18} /></button>
+      </div>
+    </div>
+  );
+}
+
 function MediaAtt({ att, dm, kind }) {
   const { url, err, expired } = useBlobUrl(att, dm, true);
   if (expired) return <Expired att={att} />;
   if (err) return <div className="att-file muted">Could not load {att.name}</div>;
   if (!url) return <div className="att-file muted">Loading {att.name}…</div>;
   return kind === 'video'
-    ? <video className="att-video" src={url} controls preload="metadata" />
+    ? <VideoAtt att={att} dm={dm} url={url} />
     : <div className="att-audio"><div className="att-name">{att.name}</div><audio src={url} controls preload="metadata" /></div>;
 }
 
