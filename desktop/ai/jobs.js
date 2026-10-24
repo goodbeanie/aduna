@@ -17,7 +17,7 @@ function createJobStore({ dir, fs = require('fs'), now = Date.now }) {
     return {
       v: 1, id: t.toString(36) + crypto.randomBytes(4).toString('hex'), createdAt: t, updatedAt: t,
       request: String(request || ''), model: String(model || ''), fetchHosts: Array.isArray(fetchHosts) ? fetchHosts.slice(0, 20) : [],
-      status: 'running', summary: '', name: '', bot: '', test: '', attempts: [], hiccups: 0, error: null, learned: false,
+      status: 'running', summary: '', name: '', bot: '', test: '', attempts: [], failed: [], hiccups: 0, error: null, learned: false,
     };
   }
 

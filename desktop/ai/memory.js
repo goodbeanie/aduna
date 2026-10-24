@@ -6,8 +6,16 @@
 //             outcome: 'passed'|'failed'|'format'|'cutoff'|'incomplete', stage, problem, sig, detail, notes: [string],
 //             assertions, testsTotal, testsPassed, covered, gaps: [string] }
 'use strict';
+const crypto = require('crypto');
 
 const MAX_ATTEMPT_LINES = 8, MAX_CHARS = 2600;
+// Replies that say nothing new about the error: a bad format, a cut-off, or code that was skipped because it had already failed.
+const SKIPPED = ['format', 'cutoff', 'repeat'];
+const isReal = (a) => !SKIPPED.includes(a.outcome);
+
+// A short fingerprint of code, to recognise code that already failed. Comment-only lines and spacing do not make code "different".
+const normCode = (s) => String(s == null ? '' : s).replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ').replace(/\s+/g, ' ').trim();
+const fingerprint = (...texts) => crypto.createHash('sha1').update(texts.map(normCode).join('\u0000')).digest('hex').slice(0, 16);
 const clip = (s, n) => { s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; };
 
 // The same mistake looks the same twice: no paths, no numbers, no quotes around names.
@@ -122,6 +130,7 @@ function stuck(attempts) {
   for (let i = attempts.length - 1; i >= 0; i--) {
     const a = attempts[i];
     if (a.outcome === 'format' || a.outcome === 'cutoff') continue;
+    if (a.outcome === 'repeat') { n++; continue; }   // code that was skipped because it had already failed counts as being stuck
     if (a.outcome === 'passed' || !a.wrote || !a.wrote.length || !a.unchanged) break;
     n++;
   }
@@ -131,7 +140,7 @@ function stuck(attempts) {
 // How many of the latest real attempts in a row failed with the same problem (0 when the last one passed or had no problem).
 // A reply that was cut off or in the wrong format says nothing about the error, so it neither counts nor breaks the streak.
 function repeats(attempts) {
-  const real = attempts.filter((a) => a.outcome !== 'format' && a.outcome !== 'cutoff');
+  const real = attempts.filter(isReal);
   const last = real[real.length - 1];
   if (!last || last.outcome === 'passed' || !last.sig) return 0;
   let n = 0;
@@ -143,7 +152,7 @@ function repeats(attempts) {
 function escalation(attempts) {
   const n = repeats(attempts);
   if (n < 2) return '';
-  const real = attempts.filter((a) => a.outcome !== 'format' && a.outcome !== 'cutoff');
+  const real = attempts.filter(isReal);
   const p = real[real.length - 1].problem;
   if (n === 2) return `WARNING: your last 2 attempts failed with the same problem ("${p}"). Repeating the same fix does not work. Read the error and the files again and find the real cause.`;
   const step = (n - 3) % 3;
@@ -167,7 +176,7 @@ function estimate(attempts) {
   const times = attempts.filter((a) => a.ms > 0).slice(-5).map((a) => a.ms).sort((x, y) => x - y);
   if (!times.length) return null;
   const avgMs = times.length % 2 ? times[(times.length - 1) / 2] : (times[times.length / 2 - 1] + times[times.length / 2]) / 2;
-  const real = attempts.filter((a) => a.outcome !== 'format' && a.outcome !== 'cutoff');
+  const real = attempts.filter(isReal);
   const last = real[real.length - 1] || attempts[attempts.length - 1];
   const rep = repeats(attempts), st = stuck(attempts);
   if (rep >= 5 || st >= 3) return { avgMs: Math.round(avgMs), unknown: true, reason: st >= 3 ? `the model sent the same files back ${st} times in a row` : `the same problem has come back ${rep} times in a row` };
@@ -184,7 +193,7 @@ function estimate(attempts) {
 
 // Fewer tests or fewer assertions than the attempt before, which had failed: the test may have been made easier instead of fixing the bot.
 function weakened(prev, cur) {
-  if (!prev || prev.outcome === 'passed' || prev.outcome === 'format' || prev.outcome === 'cutoff') return null;
+  if (!prev || prev.outcome === 'passed' || !isReal(prev)) return null;
   if (!prev.assertions && !prev.testsTotal) return null;
   const a = cur.assertions < prev.assertions, t = cur.testsTotal < prev.testsTotal;
   if (!a && !t) return null;
@@ -204,7 +213,7 @@ function render(attempts) {
   if (!attempts.length) return '';
   const mine = attempts.slice(-MAX_ATTEMPT_LINES);
   const rows = mine.map((a, i) => {
-    const end = a.outcome === 'passed' ? 'PASSED' : a.outcome === 'format' ? 'reply did not follow the format' : a.outcome === 'cutoff' ? 'reply was cut off' : a.outcome === 'incomplete' ? `passed but ${clip(a.gaps && a.gaps[0], 90) || 'not finished'}` : 'FAILED: ' + (a.problem || 'see above');
+    const end = a.outcome === 'passed' ? 'PASSED' : a.outcome === 'repeat' ? 'SKIPPED, not run: ' + (a.problem || 'the same code had already failed') : a.outcome === 'format' ? 'reply did not follow the format' : a.outcome === 'cutoff' ? 'reply was cut off' : a.outcome === 'incomplete' ? `passed but ${clip(a.gaps && a.gaps[0], 90) || 'not finished'}` : 'FAILED: ' + (a.problem || 'see above');
     let row = `- Attempt ${a.n}: ${a.wrote.length ? 'changed ' + changeText(a) : 'changed nothing'} -> ${end}${a.notes && a.notes.length ? ' [' + a.notes.join('; ') + ']' : ''}`;
     if (i >= mine.length - 3 && a.botDiff) row += '\n    bot.js change:\n    ' + snippet(a.botDiff, 7);
     return row;
@@ -216,4 +225,21 @@ function render(attempts) {
   return parts.join('\n\n');
 }
 
-module.exports = { signature, gapsOf, problemOf, stageOf, detailOf, diagnose, repeats, stuck, escalation, estimate, weakened, render, HELPER };
+// ---- Code that did not work, saved with the job ----
+// job.failed = [{ fp, n, problem, bot?, test? }]: every bot.js + test.js pair that failed or stayed unfinished. The fingerprint is kept for all of them,
+// the code itself for the newest KEEP_FAILED_CODE (so the job file stays small). A new reply that matches one of them is not run again.
+const KEEP_FAILED = 300, KEEP_FAILED_CODE = 20;
+const failedList = (job) => (Array.isArray(job.failed) ? job.failed : (job.failed = []));
+function findFailed(job, bot, test) {
+  const fp = fingerprint(bot, test);
+  return failedList(job).find((f) => f.fp === fp) || null;
+}
+function rememberFailed(job, { n, problem }) {
+  const list = failedList(job), fp = fingerprint(job.bot, job.test);
+  if (list.some((f) => f.fp === fp)) return;
+  list.push({ fp, n, problem: clip(problem, 200), bot: job.bot, test: job.test });
+  if (list.length > KEEP_FAILED) list.splice(0, list.length - KEEP_FAILED);
+  for (let i = 0; i < list.length - KEEP_FAILED_CODE; i++) { delete list[i].bot; delete list[i].test; }
+}
+
+module.exports = { fingerprint, findFailed, rememberFailed, signature, gapsOf, problemOf, stageOf, detailOf, diagnose, repeats, stuck, escalation, estimate, weakened, render, HELPER };

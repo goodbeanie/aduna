@@ -4,6 +4,8 @@
 //  - If Ollama hiccups (not running, crashed, out of memory for a moment) it waits, restarts it, and tries again.
 //  - Every attempt is saved to disk (jobs.js) before the next one starts, so a build can be resumed after the app was closed.
 //  - The model sees what each attempt changed, how it failed, and a bigger nudge each time the same error comes back (memory.js).
+//  - Every bot.js + test.js pair that failed is saved in job.failed. If a new reply matches one of them (comments and spacing ignored) it is not run:
+//    the model is told and asked again.
 'use strict';
 const botMode = require('./bot-mode');
 const core = require('./core');
@@ -169,6 +171,18 @@ async function runBuild(o) {
         return finish(p, null);
       }
 
+      // Code that already failed is never run again: the model is told, and asked for something different.
+      const seen = memory.findFailed(job, job.bot, job.test);
+      if (seen) {
+        const problem = `this exact code already failed in attempt ${seen.n}: ${seen.problem || 'it did not pass'}`;
+        record({ outcome: 'repeat', stage: 'repeat', problem, sig: '', detail: lastDetail, ms: 0, fp: memory.fingerprint(job.bot, job.test), notes: ['same code as attempt ' + seen.n] });
+        carry.push(`The files you just sent are the same as attempt ${seen.n}, which already failed ("${seen.problem || 'it did not pass'}"). They were NOT run again. Write something clearly different that fixes the problem.`);
+        const times = job.attempts.slice(-3).filter((a) => a.outcome === 'repeat').length;
+        if (times >= 3) emit({ kind: 'hint', text: 'The model keeps sending code that already failed. A larger model usually does better.' });
+        emit({ kind: 'result', n, ok: false, passed: false, problem, gaps: [], eta: memory.estimate(job.attempts) });
+        continue;
+      }
+
       emit({ kind: 'testing', n });
       const r = await testRun();
       if (aborted()) throw STOPPED;
@@ -186,7 +200,8 @@ async function runBuild(o) {
       if (weak) { notes.push('test made weaker'); carry.push(weak.text); emit({ kind: 'hint', text: weak.text }); }
       if (!changed && wrote.length && prev && prev.outcome !== 'passed') { notes.push('same code again'); carry.push('You sent exactly the same code as the attempt before, so nothing changed. Change something that addresses the problem.'); }
       record(attempt);
-
+      if (!passed) memory.rememberFailed(job, { n, problem });
+      save();
       lastDetail = attempt.detail; lastHint = passed ? '' : memory.diagnose(r); lastProblem = passed ? '' : problem; lastPassedCovered = passed;
       if (lastHint) emit({ kind: 'hint', text: lastHint });
       emit({ kind: 'result', n, ok: passedTests, passed, problem, gaps: attempt.gaps, testsPassed: attempt.testsPassed, testsTotal: attempt.testsTotal, assertions: attempt.assertions, detail: core.tail(attempt.detail, 1800), activity: (r.activity || []).slice(-6), eta: memory.estimate(job.attempts) });
