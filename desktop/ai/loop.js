@@ -64,7 +64,7 @@ async function runBuild(o) {
   const job = o.job, emit = o.emit || (() => {}), sleep = o.sleep || abortableSleep;
   const aborted = () => !!(o.signal && o.signal.aborted);
   const cap = o.snapshotCap || 12000;
-  const system = botMode.systemPrompt({ fetchHosts: job.fetchHosts });
+  const system = botMode.systemPrompt({ fetchHosts: job.fetchHosts, request: job.request });
   const save = () => { try { o.jobs.save(job); } catch (e) { emit({ kind: 'note', text: 'Could not save progress to disk: ' + (e && e.message) }); } };
   const last = () => job.attempts[job.attempts.length - 1] || null;
 
