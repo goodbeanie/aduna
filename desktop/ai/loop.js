@@ -113,6 +113,7 @@ async function runBuild(o) {
       if (aborted()) return stop();
       const prev = last();
       const n = job.attempts.length + 1;
+      const t0 = Date.now();
       emit({ kind: 'attempt', n });
       const lessons = o.lessons ? o.lessons.relevant({ request: job.request, problem: lastProblem, limit: 3 }) : [];
       const mode = !prev ? 'first' : lastPassedCovered ? 'finish' : prev.outcome === 'incomplete' ? 'cover' : 'fix';
@@ -140,7 +141,7 @@ async function runBuild(o) {
       if (wrote.length) emit({ kind: 'files', wrote, botAdded: botDiff.added, botRemoved: botDiff.removed, testAdded: testDiff.added, testRemoved: testDiff.removed });
 
       const base = { n, at: Date.now(), wrote, botDiff: botDiff.text, testDiff: testDiff.text, botAdded: botDiff.added, botRemoved: botDiff.removed, testAdded: testDiff.added, testRemoved: testDiff.removed, unchanged: !changed, notes, assertions: 0, testsTotal: 0, testsPassed: 0, covered: false, gaps: [] };
-      const record = (extra) => { job.attempts.push({ ...base, ...extra }); save(); };
+      const record = (extra) => { job.attempts.push({ ...base, ms: Date.now() - t0, ...extra }); save(); };
 
       // a reply with no files and no <done>, or files missing so nothing can run
       if (!wrote.length && !p.done) {
@@ -151,7 +152,7 @@ async function runBuild(o) {
         lastProblem = lastProblem || problem; // keep showing the error that was being fixed: a cut-off or badly formatted reply did not change it
         const formats = job.attempts.slice(-3).filter((a) => a.outcome === 'format').length;
         if (formats >= 3) emit({ kind: 'hint', text: 'The model keeps ignoring the reply format. A larger model usually follows it better.' });
-        emit({ kind: 'result', n, ok: false, passed: false, problem, gaps: [] });
+        emit({ kind: 'result', n, ok: false, passed: false, problem, gaps: [], eta: memory.estimate(job.attempts) });
         continue;
       }
       if (!job.bot.trim() || !job.test.trim()) {
@@ -160,7 +161,7 @@ async function runBuild(o) {
         record({ outcome: 'format', stage: 'format', problem, sig: memory.signature(problem), detail: problem });
         carry.push(`${need} is missing. Write both bot.js and test.js.`);
         lastDetail = ''; lastHint = ''; lastProblem = problem; lastPassedCovered = false;
-        emit({ kind: 'result', n, ok: false, passed: false, problem, gaps: [] });
+        emit({ kind: 'result', n, ok: false, passed: false, problem, gaps: [], eta: memory.estimate(job.attempts) });
         continue;
       }
       if (p.done && !wrote.length && last() && last().outcome === 'passed') {
@@ -188,7 +189,7 @@ async function runBuild(o) {
 
       lastDetail = attempt.detail; lastHint = passed ? '' : memory.diagnose(r); lastProblem = passed ? '' : problem; lastPassedCovered = passed;
       if (lastHint) emit({ kind: 'hint', text: lastHint });
-      emit({ kind: 'result', n, ok: passedTests, passed, problem, gaps: attempt.gaps, testsPassed: attempt.testsPassed, testsTotal: attempt.testsTotal, assertions: attempt.assertions, detail: core.tail(attempt.detail, 1800), activity: (r.activity || []).slice(-6) });
+      emit({ kind: 'result', n, ok: passedTests, passed, problem, gaps: attempt.gaps, testsPassed: attempt.testsPassed, testsTotal: attempt.testsTotal, assertions: attempt.assertions, detail: core.tail(attempt.detail, 1800), activity: (r.activity || []).slice(-6), eta: memory.estimate(job.attempts) });
 
       if (p.done) {
         if (passed) return finish(p, r);

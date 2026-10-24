@@ -1352,6 +1352,7 @@ span.mention { cursor: default; }
 .ai-ev.ai-head { border: 0; padding-left: 0; margin-top: 6px; font-weight: 600; color: var(--head); }
 .ai-ev.ai-dim, .ai-ev.ai-hint { color: var(--muted); }
 .ai-ev.ai-end { font-weight: 600; }
+.ai-eta { padding: 2px 8px 2px 11px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .ai-ev pre, .ai-log > details pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: var(--field); border-radius: 8px; padding: 6px 8px; margin: 4px 0 0; overflow: auto; max-height: 220px; white-space: pre-wrap; }
 .ai-ev summary { cursor: pointer; color: var(--muted); }
 .ai-jobs { display: flex; flex-direction: column; gap: 6px; }

@@ -15,6 +15,23 @@ const ago = (t) => { const m = Math.round((Date.now() - t) / 60000); return m < 
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 const clip = (s, n) => { s = String(s || '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '\u2026' : s; };
 
+// "20 s", "3 min", "1 h 10 min": rounded, because the estimate is rough anyway
+const dur = (ms) => {
+  const s = Math.max(5, Math.round(ms / 1000 / 5) * 5);
+  if (s < 90) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 90) return `${m} min`;
+  const h = Math.floor(m / 60), r = Math.round((m % 60) / 5) * 5;
+  return r >= 60 ? `${h + 1} h` : r ? `${h} h ${r} min` : `${h} h`;
+};
+// The guess after each attempt: a range of time left, or why none can be given.
+function Eta({ eta }) {
+  if (!eta) return null;
+  if (eta.unknown) return <div className="ai-eta">Time left: cannot tell, {eta.reason}. Attempts take about {dur(eta.avgMs)} each.</div>;
+  const range = dur(eta.lo) === dur(eta.hi) ? dur(eta.lo) : `${dur(eta.lo)} to ${dur(eta.hi)}`;
+  return <div className="ai-eta">Time left: about {range} (a rough guess: {eta.attemptsLo === eta.attemptsHi ? plural(eta.attemptsLo, 'more attempt', 'more attempts') : `${eta.attemptsLo} to ${plural(eta.attemptsHi, 'more attempt', 'more attempts')}`}, about {dur(eta.avgMs)} each)</div>;
+}
+
 // ---------- what the build is doing right now (rebuilt from the events the desktop app sends) ----------
 const EMPTY = { jobId: null, running: false, items: [], stream: '', waiting: null, done: null };
 function step(s, e) {
@@ -53,13 +70,16 @@ function Item({ e }) {
     return <div className="ai-ev">Wrote {bits.join(', ')}</div>;
   }
   if (e.k === 'result') {
-    if (e.passed) return <div className="ai-ev ok">{'\u2713'} Passed: {plural(e.testsPassed, 'test', 'tests')} of {e.testsTotal}, {plural(e.assertions, 'check', 'checks')}, every handler covered.</div>;
+    if (e.passed) return <><div className="ai-ev ok">{'\u2713'} Passed: {plural(e.testsPassed, 'test', 'tests')} of {e.testsTotal}, {plural(e.assertions, 'check', 'checks')}, every handler covered.</div><Eta eta={e.eta} /></>;
     const why = e.ok && e.gaps?.length ? 'The test passes but the bot is not finished: ' + e.gaps[0] : e.problem || 'The test failed.';
     return (
-      <div className={'ai-ev ' + (e.ok ? 'warn' : 'bad')}>
-        {e.ok ? '\u25D0' : '\u2717'} {why}
-        {e.detail ? <details><summary>What happened</summary><pre>{e.detail}</pre></details> : null}
-      </div>
+      <>
+        <div className={'ai-ev ' + (e.ok ? 'warn' : 'bad')}>
+          {e.ok ? '\u25D0' : '\u2717'} {why}
+          {e.detail ? <details><summary>What happened</summary><pre>{e.detail}</pre></details> : null}
+        </div>
+        <Eta eta={e.eta} />
+      </>
     );
   }
   if (e.k === 'finished') {

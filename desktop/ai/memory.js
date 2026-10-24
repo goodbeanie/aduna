@@ -159,6 +159,29 @@ function escalation(attempts) {
   return text;
 }
 
+// A rough guess of the time left, shown after every attempt. Nobody can know how many attempts a build still needs (there is no cap),
+// so this is a range from how long attempts have been taking (the middle of the last 5, so one slow first load does not skew it)
+// and how close the last attempt came. Returns null when no attempt has been timed yet.
+//   -> { avgMs, attemptsLo, attemptsHi, lo, hi }  or  { avgMs, unknown: true, reason }
+function estimate(attempts) {
+  const times = attempts.filter((a) => a.ms > 0).slice(-5).map((a) => a.ms).sort((x, y) => x - y);
+  if (!times.length) return null;
+  const avgMs = times.length % 2 ? times[(times.length - 1) / 2] : (times[times.length / 2 - 1] + times[times.length / 2]) / 2;
+  const real = attempts.filter((a) => a.outcome !== 'format' && a.outcome !== 'cutoff');
+  const last = real[real.length - 1] || attempts[attempts.length - 1];
+  const rep = repeats(attempts), st = stuck(attempts);
+  if (rep >= 5 || st >= 3) return { avgMs: Math.round(avgMs), unknown: true, reason: st >= 3 ? `the model sent the same files back ${st} times in a row` : `the same problem has come back ${rep} times in a row` };
+  let lo, hi;
+  if (last.outcome === 'passed') { lo = 1; hi = 1; }            // one more reply to confirm it is finished
+  else if (last.outcome === 'incomplete') { lo = 2; hi = 3; }    // extend the test, then confirm
+  else if (rep >= 3) { lo = 3; hi = 8; }
+  else {
+    const ratio = last.testsTotal ? last.testsPassed / last.testsTotal : 0;
+    if (ratio >= 0.5) { lo = 1; hi = 3; } else { lo = 2; hi = 5; }
+  }
+  return { avgMs: Math.round(avgMs), attemptsLo: lo, attemptsHi: hi, lo: Math.round(lo * avgMs), hi: Math.round(hi * avgMs) };
+}
+
 // Fewer tests or fewer assertions than the attempt before, which had failed: the test may have been made easier instead of fixing the bot.
 function weakened(prev, cur) {
   if (!prev || prev.outcome === 'passed' || prev.outcome === 'format' || prev.outcome === 'cutoff') return null;
@@ -193,4 +216,4 @@ function render(attempts) {
   return parts.join('\n\n');
 }
 
-module.exports = { signature, gapsOf, problemOf, stageOf, detailOf, diagnose, repeats, stuck, escalation, weakened, render, HELPER };
+module.exports = { signature, gapsOf, problemOf, stageOf, detailOf, diagnose, repeats, stuck, escalation, estimate, weakened, render, HELPER };

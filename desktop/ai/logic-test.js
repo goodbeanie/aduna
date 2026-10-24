@@ -73,6 +73,18 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'aduna-ai-logic-'));
     assert.match(memory.diagnose({ tests: [{ ok: false, error: 'AssertionError: Expected values to be strictly deep-equal.\nfirst difference at .length: actual 0, expected 1' }] }), /produced none[\s\S]*WHAT THE BOT DID/);
     assert.match(memory.diagnose({ tests: [{ ok: false, error: 'AssertionError: x\nfirst difference at .length: actual 2, expected 0' }] }), /expected nothing/);
   });
+  await t('estimate gives a range from how long attempts take, and says so when it cannot tell', () => {
+    assert.strictEqual(memory.estimate([{ n: 1, outcome: 'failed', wrote: ['bot.js'] }]), null);
+    const one = (o) => ({ n: 1, outcome: 'failed', sig: 's' + Math.random(), ms: 60000, wrote: ['bot.js'], unchanged: false, testsTotal: 2, testsPassed: 1, ...o });
+    const near = memory.estimate([one()]);
+    assert.deepStrictEqual([near.attemptsLo, near.attemptsHi, near.lo, near.hi], [1, 3, 60000, 180000]);
+    assert.strictEqual(memory.estimate([one({ testsPassed: 0 })]).attemptsHi, 5);
+    assert.deepStrictEqual(memory.estimate([one({ outcome: 'passed', sig: '' })]).attemptsHi, 1);
+    const slowStart = memory.estimate([one({ ms: 300000 }), one({ ms: 60000 }), one({ ms: 70000 })]);
+    assert.strictEqual(slowStart.avgMs, 70000);   // the middle one: a slow first load does not skew it
+    const same = Array.from({ length: 5 }, (_, i) => one({ n: i + 1, sig: 'same' }));
+    const lost = memory.estimate(same); assert.strictEqual(lost.unknown, true); assert.match(lost.reason, /5 times/);
+  });
   await t('weakened notices a test that got easier after a failure', () => {
     assert.ok(memory.weakened({ outcome: 'failed', assertions: 5, testsTotal: 3 }, { assertions: 2, testsTotal: 3 }));
     assert.ok(memory.weakened({ outcome: 'failed', assertions: 5, testsTotal: 3 }, { assertions: 5, testsTotal: 1 }));
