@@ -115,7 +115,8 @@ async function runBuild(o) {
       ];
       carry = [];
 
-      const meta = {};
+      // after cut-off replies the model is allowed a longer reply next time (the service reads meta.cutoffs)
+      const meta = { cutoffs: job.attempts.slice(-3).filter((a) => a.outcome === 'cutoff' || (a.notes || []).includes('reply was cut off')).length };
       const text = await chatRetry(messages, meta);
       if (aborted()) throw STOPPED;
       const p = botMode.parseReply(text, meta);
@@ -137,7 +138,7 @@ async function runBuild(o) {
         const problem = p.cutOff ? 'the reply was cut off before any file was complete' : 'the reply did not follow the required format';
         record({ outcome: why, stage: 'format', problem, sig: memory.signature(problem), detail: problem });
         if (!p.cutOff) carry.push('Your reply did not follow the format. Reply only with <file path="bot.js">...</file> and <file path="test.js">...</file> blocks (and <name> and <done> once the test passes).');
-        lastDetail = ''; lastHint = ''; lastProblem = problem; lastPassedCovered = false;
+        lastProblem = lastProblem || problem; // keep showing the error that was being fixed: a cut-off or badly formatted reply did not change it
         const formats = job.attempts.slice(-3).filter((a) => a.outcome === 'format').length;
         if (formats >= 3) emit({ kind: 'hint', text: 'The model keeps ignoring the reply format. A larger model usually follows it better.' });
         emit({ kind: 'result', n, ok: false, passed: false, problem, gaps: [] });

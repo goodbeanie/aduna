@@ -111,12 +111,14 @@ function diagnose(r) {
   return '';
 }
 
-// How many of the latest attempts in a row failed with the same problem (0 when the last one passed or had no problem).
+// How many of the latest real attempts in a row failed with the same problem (0 when the last one passed or had no problem).
+// A reply that was cut off or in the wrong format says nothing about the error, so it neither counts nor breaks the streak.
 function repeats(attempts) {
-  const last = attempts[attempts.length - 1];
+  const real = attempts.filter((a) => a.outcome !== 'format' && a.outcome !== 'cutoff');
+  const last = real[real.length - 1];
   if (!last || last.outcome === 'passed' || !last.sig) return 0;
   let n = 0;
-  for (let i = attempts.length - 1; i >= 0 && attempts[i].outcome !== 'passed' && attempts[i].sig === last.sig; i--) n++;
+  for (let i = real.length - 1; i >= 0 && real[i].outcome !== 'passed' && real[i].sig === last.sig; i--) n++;
   return n;
 }
 
@@ -124,13 +126,20 @@ function repeats(attempts) {
 function escalation(attempts) {
   const n = repeats(attempts);
   if (n < 2) return '';
-  const p = attempts[attempts.length - 1].problem;
+  const real = attempts.filter((a) => a.outcome !== 'format' && a.outcome !== 'cutoff');
+  const p = real[real.length - 1].problem;
   if (n === 2) return `WARNING: your last 2 attempts failed with the same problem ("${p}"). Repeating the same fix does not work. Read the error and the files again and find the real cause.`;
   const step = (n - 3) % 3;
   const head = `The same problem ("${p}") has now come back ${n} times in a row.`;
-  if (step === 0) return `STEP BACK: ${head} Write the SMALLEST possible bot.js that makes ONE failing assertion pass (one handler, nothing extra) and keep test.js as it is. Grow it again once that works.`;
-  if (step === 1) return `NEW APPROACH: ${head} Throw away your current design and rewrite bot.js from scratch with a different structure (for example parse the command another way, or keep state in bot.store instead of variables). Do not just edit the old code.`;
-  return `PROBE: ${head} Add bot.log(...) lines to bot.js that print the values that matter (the incoming text, the saved data, which branch ran). Their output comes back under "WHAT THE BOT DID". Use what it shows before you change the logic.`;
+  let text;
+  if (step === 0) text = `STEP BACK: ${head} Write the SMALLEST possible bot.js that makes ONE failing assertion pass (one handler, nothing extra). Grow it again once that works. Leave test.js alone unless it is the thing that is wrong (see below).`;
+  else if (step === 1) text = `NEW APPROACH: ${head} Throw away your current design and rewrite bot.js from scratch with a different structure (for example parse the command another way, or keep state in bot.store instead of variables). Do not just edit the old code.`;
+  else text = `PROBE: ${head} Add bot.log(...) lines to bot.js that print the values that matter (the incoming text, the saved data, which branch ran). Their output comes back under "WHAT THE BOT DID". Use what it shows before you change the logic.`;
+  // An assertion that fails again and again is often a wrong expectation in test.js, not a wrong bot: say so.
+  if (n >= 4 && real[real.length - 1].stage === 'assert') {
+    text += '\n\nCHECK THE TEST: an assertion that keeps failing may be wrong itself. Compare the EXPECTED value in test.js with what the bot actually sent (under "WHAT THE BOT DID") and with what the request really asks for. If the bot\'s output already does what the request says and only the expected text, order or wording in test.js differs, fix test.js and say so in a comment. Never loosen a test to hide a real bot bug.';
+  }
+  return text;
 }
 
 // Fewer tests or fewer assertions than the attempt before, which had failed: the test may have been made easier instead of fixing the bot.

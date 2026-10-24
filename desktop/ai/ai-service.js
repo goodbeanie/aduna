@@ -166,7 +166,7 @@ function create(deps) {
       const signal = claim.abort.signal;
       runBuild({
         job, jobs, lessons, runner: getRunner(), signal, snapshotCap: c.snapshotCap, emit: agentEmit(job.id), ensureServer: () => ollama.ensureServer(), sleep: deps.sleep,
-        chat: (messages, o) => ollama.chat({ model, messages, numCtx: c.numCtx, numPredict: c.numPredict, signal, onToken: o && o.onToken, meta: o && o.meta }),
+        chat: (messages, o) => ollama.chat({ model, messages, numCtx: c.numCtx, numPredict: Math.min(Math.floor(c.numCtx / 2), Math.round(c.numPredict * (1 + 0.5 * ((o && o.meta && o.meta.cutoffs) || 0)))), signal, onToken: o && o.onToken, meta: o && o.meta }),
       }).then((r) => r, (e) => ({ ok: false, status: 'error', summary: 'Something went wrong: ' + errMsg(e), attempts: job.attempts.length, name: job.name }))
         .then((r) => {
           flushTokens();

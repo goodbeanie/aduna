@@ -54,6 +54,15 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'aduna-ai-logic-'));
     assert.strictEqual(add('b'), '');
     assert.strictEqual(memory.repeats(at), 1);
   });
+  await t('a cut-off reply does not reset the escalation, and a repeating assertion makes the model check the test itself', () => {
+    const at = [];
+    const add = (o) => { at.push({ n: at.length + 1, outcome: 'failed', sig: 'deep', problem: 'values differ', stage: 'assert', wrote: ['bot.js'], botDiff: '', botAdded: 1, botRemoved: 0, testAdded: 0, testRemoved: 0, ...o }); return memory.escalation(at); };
+    add(); add(); add({ outcome: 'cutoff', sig: 'cut', stage: 'format' });
+    assert.strictEqual(memory.repeats(at), 2); assert.match(memory.escalation(at), /WARNING/);
+    assert.match(add(), /STEP BACK/); assert.doesNotMatch(memory.escalation(at), /CHECK THE TEST/);
+    assert.match(add(), /NEW APPROACH[\s\S]*CHECK THE TEST[\s\S]*EXPECTED value in test\.js/);
+    assert.doesNotMatch(add({ stage: 'bot' }), /CHECK THE TEST/);
+  });
   await t('weakened notices a test that got easier after a failure', () => {
     assert.ok(memory.weakened({ outcome: 'failed', assertions: 5, testsTotal: 3 }, { assertions: 2, testsTotal: 3 }));
     assert.ok(memory.weakened({ outcome: 'failed', assertions: 5, testsTotal: 3 }, { assertions: 5, testsTotal: 1 }));
