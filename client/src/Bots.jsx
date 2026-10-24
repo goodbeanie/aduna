@@ -139,47 +139,19 @@ function BotEditor({ bot, limits, fetchHosts, onSaved, onDeleted, onBack }) {
   const [tags, setTags] = useState((bot?.tags || []).join(', '));
   const [visibility, setVisibility] = useState(bot?.visibility || 'private');
   const [code, setCode] = useState(bot?.code ?? STARTER);
-  // A bot is built either with blocks (the editor makes the JavaScript from them; the layout is saved next to it) or with plain JavaScript.
-  // New bots start with blocks. What runs is always `code`.
-  const startMode = bot ? (bot.blocks ? 'blocks' : 'code') : null;
-  const [mode, setMode] = useState(startMode || 'blocks');
-  const [layout, setLayout] = useState(bot?.blocks || null); // the saved layout of the blocks on screen (null until the editor has loaded)
-  const [initialLayout, setInitialLayout] = useState(bot?.blocks || null); // what the editor opens with (null = the starting blocks)
-  const [blockKey, setBlockKey] = useState(0); // bumps to rebuild the editor from `initialLayout`
-  const [touched, setTouched] = useState(false); // the blocks were changed by hand since they were opened or saved
-  const [ask, setAsk] = useState(null); // 'toCode' | 'toBlocks' | 'reset': a confirmation that is open
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   const [confirmDel, setConfirmDel] = useState(false);
   const held = !!bot?.review; // a listing under review or removed cannot be edited by its developer
   const removed = bot?.review === 'removed';
-  const blocksMode = mode === 'blocks';
-  const codeChanged = blocksMode ? touched : code !== bot?.code; // in block mode `code` is regenerated on every load, so only real edits count
-  const dirty = !bot || name !== bot.name || description !== bot.description || tags !== (bot.tags || []).join(', ') || visibility !== bot.visibility || mode !== startMode || codeChanged;
-  const noEvents = blocksMode && !!layout && !code.trim(); // blocks on screen but none under an event block: nothing would run
-  const tooBig = new Blob([code]).size > limits.code;
-  const layoutTooBig = blocksMode && !!layout && !!limits.blocks && new Blob([layout]).size > limits.blocks;
-
-  const onBlocks = useCallback((s) => { // the block editor reports its blocks and the JavaScript they make
-    setLayout(s.layout); setCode(s.code);
-    if (s.user || s.reset) setTouched(true);
-  }, []);
-
-  function change(kind) { // the confirmed switches between blocks and JavaScript
-    setAsk(null); setNote(''); setErr('');
-    if (kind === 'toCode') { setMode('code'); setLayout(null); setTouched(true); } // keeps the JavaScript the blocks made, to edit by hand
-    else { setMode('blocks'); setInitialLayout(null); setLayout(null); setBlockKey((k) => k + 1); setTouched(true); } // toBlocks and reset: the starting blocks
-  }
+  const dirty = !bot || name !== bot.name || description !== bot.description || tags !== (bot.tags || []).join(', ') || visibility !== bot.visibility || code !== bot.code;
 
   async function save() {
     setErr(''); setNote(''); setBusy(true);
     try {
       const body = { name, description, tags: tagsOf(tags), visibility, code };
-      if (blocksMode) body.blocks = layout;
-      else if (bot?.blocks) body.blocks = null; // converted to JavaScript: the layout is dropped
       const r = bot ? await api(`/bots/${bot.id}`, { method: 'PATCH', body }) : await api('/bots', { method: 'POST', body });
-      setTouched(false);
       onSaved(r.bot);
       setNote('Saved.');
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
@@ -220,55 +192,19 @@ function BotEditor({ bot, limits, fetchHosts, onSaved, onDeleted, onBack }) {
       </select>
       {visibility === 'public' && <p className="muted small hint">Public bots are checked like public servers (no links or blocked words in the name, description or tags) and can be reported. Making a public bot private again removes it from servers you do not manage.</p>}
 
-      <div className="bot-mode-head">
-        <label>{blocksMode ? 'BLOCKS' : 'CODE'}</label>
-        {!held && (blocksMode ? (
-          <div className="bot-mode-btns">
-            <button type="button" className="link-btn" onClick={() => setAsk('reset')}>Start over</button>
-            <button type="button" className="link-btn" onClick={() => setAsk('toCode')}>Convert to JavaScript</button>
-          </div>
-        ) : (
-          <button type="button" className="link-btn" onClick={() => setAsk('toBlocks')}>Build with blocks instead</button>
-        ))}
-      </div>
-      {blocksMode ? (
-        <>
-          <BlockPane key={blockKey} initial={initialLayout} readOnly={held} onChange={onBlocks} />
-          <p className="muted small hint">Drag blocks from the left into the area, and snap them under a yellow event block. A block that is not under an event block is greyed out and never runs.</p>
-          {noEvents && <div className="error">None of the blocks are under an event block yet. Put some under one, like &ldquo;when a message is posted&rdquo;, so your bot has something to do.</div>}
-          <details className="bot-panel bot-help">
-            <summary>See the JavaScript these blocks make</summary>
-            <textarea className="code-box" rows={10} value={code} readOnly spellCheck={false} aria-label="JavaScript made from the blocks" />
-          </details>
-          <p className="muted small hint">{new Blob([code]).size.toLocaleString()} of {(limits.code / 1024)} KB of JavaScript.{layoutTooBig ? ` The blocks themselves are too big to save (max ${limits.blocks / 1024} KB).` : ''}</p>
-        </>
-      ) : (
-        <>
-          <textarea className="code-box" rows={16} value={code} spellCheck={false} autoCapitalize="off" autoCorrect="off" onKeyDown={onTab} onChange={(e) => setCode(e.target.value)} aria-label="Bot code" disabled={held} />
-          <p className="muted small hint">{new Blob([code]).size.toLocaleString()} of {(limits.code / 1024)} KB. Press Escape, then Tab, to leave the code box with the keyboard.</p>
-        </>
-      )}
+      <label>CODE</label>
+      <textarea className="code-box" rows={16} value={code} spellCheck={false} autoCapitalize="off" autoCorrect="off" onKeyDown={onTab} onChange={(e) => setCode(e.target.value)} aria-label="Bot code" disabled={held} />
+      <p className="muted small hint">{new Blob([code]).size.toLocaleString()} of {(limits.code / 1024)} KB. Press Escape, then Tab, to leave the code box with the keyboard.</p>
       {err && <div className="error">{err}</div>}
       {note && !err && <div className="ok-note">{note}</div>}
       <div className="bot-actions">
-        <button className="btn primary" disabled={busy || held || !dirty || tooBig || layoutTooBig || (blocksMode && (!layout || noEvents))} onClick={save}>{bot ? 'Save changes' : 'Create bot'}</button>
+        <button className="btn primary" disabled={busy || held || !dirty} onClick={save}>{bot ? 'Save changes' : 'Create bot'}</button>
         {bot && <button className="btn danger" disabled={busy} onClick={() => setConfirmDel(true)}>Delete bot</button>}
       </div>
 
       <BotSim code={code} fetchHosts={fetchHosts} />
       {bot && <RunLog botId={bot.id} limits={limits} />}
       <ApiHelp limits={limits} fetchHosts={fetchHosts} />
-      {ask && (
-        <Modal title={ask === 'toCode' ? 'Convert to JavaScript' : ask === 'toBlocks' ? 'Build with blocks instead' : 'Start over'} onClose={() => setAsk(null)}>
-          <p className="muted">
-            {ask === 'toCode' && 'Your bot becomes plain JavaScript, the code the blocks made. You can edit it by hand from then on, but it cannot be turned back into blocks.'}
-            {ask === 'toBlocks' && 'Your JavaScript is replaced by the starting blocks. Code cannot be turned into blocks, so copy anything you want to keep first. Nothing is saved until you press Save.'}
-            {ask === 'reset' && 'All your blocks are replaced by the starting blocks. Nothing is saved until you press Save.'}
-          </p>
-          <div className="modal-foot"><button className="btn" onClick={() => setAsk(null)}>Cancel</button>
-            <button className="btn primary" autoFocus onClick={() => change(ask)}>{ask === 'toCode' ? 'Convert' : 'Replace'}</button></div>
-        </Modal>
-      )}
       {confirmDel && (
         <Modal title="Delete bot" onClose={() => setConfirmDel(false)}>
           <p className="muted">Delete <b>{bot.name}</b>? It leaves {bot.installs} server{bot.installs === 1 ? '' : 's'} at once. Messages it already sent stay.</p>
@@ -276,30 +212,6 @@ function BotEditor({ bot, limits, fetchHosts, onSaved, onDeleted, onBack }) {
             <button className="btn primary danger-fill" autoFocus disabled={busy} onClick={del}>Delete</button></div>
         </Modal>
       )}
-    </div>
-  );
-}
-
-// The block editor. Blockly is big, so it is only loaded (as its own file) when someone opens a block bot; everything about it lives in blocks.js.
-function BlockPane({ initial, readOnly, onChange }) {
-  const box = useRef(null);
-  const cb = useRef(onChange);
-  cb.current = onChange;
-  const [state, setState] = useState('loading'); // loading | ready | error
-  useEffect(() => {
-    let dead = false, editor = null;
-    import('./blocks.js').then((m) => {
-      if (dead || !box.current) return;
-      editor = m.injectEditor(box.current, { initial, readOnly, onChange: (s) => cb.current(s) });
-      setState('ready');
-    }).catch(() => { if (!dead) setState('error'); });
-    return () => { dead = true; editor?.dispose(); };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- the editor is built once; the parent rebuilds it with a new key
-  return (
-    <div className="block-pane">
-      {state === 'loading' && <p className="muted small">Loading the block editor…</p>}
-      {state === 'error' && <div className="error">The block editor could not load. Check your connection and reload the page, or convert this bot to JavaScript.</div>}
-      <div ref={box} className="block-canvas" />
     </div>
   );
 }

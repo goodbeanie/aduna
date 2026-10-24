@@ -1308,14 +1308,6 @@ span.mention { cursor: default; }
 .bot-test-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .bot-test-row select { width: auto; flex: none; }
 .bot-test-row input { flex: 1 1 160px; width: auto; min-width: 0; }
-/* block editor for bots (BlockPane in Bots.jsx, blocks.js) */
-.bot-mode-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 14px; flex-wrap: wrap; margin-top: 10px; }
-.bot-mode-head label { margin: 0; }
-.bot-mode-btns { display: flex; gap: 6px 16px; flex-wrap: wrap; }
-.block-pane { position: relative; }
-.block-pane > p, .block-pane > .error { position: absolute; z-index: 1; margin: 14px; }
-.block-canvas { height: 520px; border: 1px solid var(--line); border-radius: 12px; background: var(--field); overflow: hidden; position: relative; }
-@media (max-width: 720px) { .block-canvas { height: min(460px, 64vh); } }
 /* the chat simulator in the bot editor (BotSim.jsx) */
 .sim-chat { border: 1px solid var(--line); border-radius: 12px; background: var(--field); min-height: 120px; max-height: 340px; overflow: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .sim-empty { margin: auto; text-align: center; padding: 14px; }
