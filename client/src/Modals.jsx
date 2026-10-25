@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, BadgeIcons, Banner, Icon, Modal, STATUS_LABEL, useCardTheme } from './ui.jsx';
-import { useProfileThemes, setProfileThemes, themeGradient, CUSTOM_THEME_ID } from './profilethemes.js';
+import { useProfileThemes, loadProfileThemes, themeGradient, CUSTOM_THEME_ID } from './profilethemes.js';
 import { processImage, uploadImage, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
@@ -242,23 +242,15 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const [saving, setSaving] = useState(false);
   const set = (k) => (v) => setF((s) => ({ ...s, [k]: v }));
 
-  // Gradient profile themes: a few are free, the rest are bought with credits. The choice is saved with "Save changes".
+  // Gradient profile themes: all free. The choice is saved with "Save changes". Pick a preset, or design your own with Custom.
+  // (Animated presets are added on the server later; they will show up in this same list, tagged "Animated".)
   const ptList = useProfileThemes();
   const [theme, setTheme] = useState(me.profileTheme || null);
   const [customG, setCustomG] = useState(() => (me.profileGradient && Array.isArray(me.profileGradient.colors) ? me.profileGradient : { colors: ['#ff9a8b', '#6a88ff'], angle: 135 })); // the person's own gradient
   const setStop = (i, c) => setCustomG((g) => ({ ...g, colors: g.colors.map((x, j) => (j === i ? c : x)) }));
   const addStop = () => setCustomG((g) => (g.colors.length >= 4 ? g : { ...g, colors: [...g.colors, g.colors[g.colors.length - 1]] }));
   const removeStop = (i) => setCustomG((g) => (g.colors.length <= 2 ? g : { ...g, colors: g.colors.filter((_, j) => j !== i) }));
-  const [credits, setCredits] = useState(null);
-  const [ptBusy, setPtBusy] = useState('');
-  useEffect(() => { api('/profile-themes').then((r) => { setProfileThemes(r.themes); setCredits(r.balance); }).catch(() => {}); }, []);
-  async function buyTheme(th) {
-    if (!window.confirm(`Buy the ${th.name} profile theme for ${th.price} credits?`)) return;
-    setPtBusy(th.id); setErr('');
-    try { const r = await api(`/profile-themes/${th.id}/buy`, { method: 'POST' }); setProfileThemes(r.themes); setCredits(r.balance); setTheme(th.id); }
-    catch (ex) { setErr(ex.message); }
-    setPtBusy('');
-  }
+  useEffect(() => { loadProfileThemes(true); }, []);
 
   // Badges: everything the person owns, each worn or taken off. Saved with the rest of the profile; the preview card follows the toggles.
   const ownedBadges = Array.isArray(me.ownedBadges) ? me.ownedBadges : [];
@@ -414,11 +406,10 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
               <span className="pt-swatch pt-none" /><span className="pt-name">None</span><span className="pt-price">Plain card</span>
             </button>
             {(ptList || []).map((th) => (
-              <button type="button" role="radio" aria-checked={theme === th.id} key={th.id} className={'pt-tile' + (theme === th.id ? ' on' : '')} disabled={ptBusy === th.id}
-                onClick={() => (th.owned ? setTheme(th.id) : buyTheme(th))}>
+              <button type="button" role="radio" aria-checked={theme === th.id} key={th.id} className={'pt-tile' + (theme === th.id ? ' on' : '')} onClick={() => setTheme(th.id)}>
                 <span className={'pt-swatch' + (th.animated ? ' pt-anim' : '')} style={{ backgroundImage: themeGradient(th), backgroundSize: th.animated ? '300% 300%' : undefined }} />
                 <span className="pt-name">{th.name}</span>
-                <span className="pt-price">{th.owned ? (th.price ? 'Owned' : 'Free') : <><Icon name="coin" size={12} />{th.price}</>}</span>
+                <span className="pt-price">Free</span>
                 {th.animated && <span className="pt-tag">Animated</span>}
               </button>
             ))}
@@ -444,7 +435,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
               </label>
             </div>
           )}
-          <p className="muted small hint">A gradient theme fills your profile card under the banner; your banner stays as you set it. Make your own with Custom.{credits !== null ? ` You have ${credits.toLocaleString()} credits; earn more on the Quests tab.` : ''}</p>
+          <p className="muted small hint">A gradient theme fills your profile card under the banner; your banner stays as you set it. Everything here is free. Pick one, or make your own with Custom. More themes, including animated ones, are coming.</p>
 
           <ColorRow label={t('nameColor')} value={f.accentColor} onChange={set('accentColor')} />
           <label>{t('statusLbl')}</label>

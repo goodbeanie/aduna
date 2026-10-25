@@ -15,7 +15,7 @@
 const crypto = require('crypto');
 const events = require('./events'); // the Halloween / Christmas quests, the Advent calendar and the developer test mode
 const shop = require('./shop');     // what credits can be spent on (profile badges)
-const pthemes = require('./profilethemes'); // gradient profile themes: a few free, the rest bought with credits
+const pthemes = require('./profilethemes'); // gradient profile themes: free for everybody (animated ones can be switched on later)
 
 // ---------- tunables ----------
 const EARN = {
@@ -582,15 +582,8 @@ function register(app, d) {
     res.json({ ...fullView(req.user), bought: r.item.name });
   });
 
-  // ----- profile themes: the picker's list (with what this person owns) and buying one with credits -----
-  app.get('/api/profile-themes', d.auth, (req, res) => res.json({ themes: pthemes.view(req.user), balance: acct(req.user).balance }));
-  app.post('/api/profile-themes/:id/buy', d.auth, (req, res) => {
-    const r = pthemes.buy(req.user, req.params.id, spend);
-    if (!r.ok) return res.status(r.status).json({ error: r.error });
-    d.save();
-    push(req.user, -r.theme.price, 'shop');
-    res.json({ themes: pthemes.view(req.user), balance: acct(req.user).balance, bought: r.theme.name });
-  });
+  // ----- profile themes: the picker's list. They are all free, so there is nothing to buy -----
+  app.get('/api/profile-themes', d.auth, (req, res) => res.json({ themes: pthemes.view(req.user) }));
 
   // ----- seasonal events (Halloween / Christmas) -----
   const seasonPay = (req, res, r) => {
