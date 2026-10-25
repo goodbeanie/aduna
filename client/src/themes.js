@@ -31,6 +31,13 @@ const readableOn = (bg) => (contrast(bg, '#14110d') >= contrast(bg, '#fbf8f1') ?
 const alpha = (h, a) => h + Math.round(a * 255).toString(16).padStart(2, '0');
 
 // ---------- palette generation ----------
+// The palette is made from three seeds (bg, accent, dark). New CSS should reach for these ROLES, not the individual variables:
+//   background  --bg (page), --bg2 (sidebar), --bg3 (server bar)       raised surface  --raised (menus, popovers), --field (inputs)
+//   line        --line, --line2 (stronger)                              text            --text, --head (headings), --muted, --placeholder
+//   accent      --ink (+ --on-ink for text on it)                       states          --hover, --sel (selected)
+//   danger      --danger, --err-bg/--err-fg                             success         --green, --ok-bg/--ok-fg
+//   mention     --gold                                                  presence        --idle, --dnd, --offline (status dots only)
+// Everything else (--ink-h, --danger-h, --green-h, --ok-bg-h, --chip-on, --msg-hover, --tile, --scrim*, --shadow) is a shade of one of the roles above.
 export function buildPalette({ dark, bg, accent, grad, angle = 135 }) {
   const text = dark ? mix(bg, '#ffffff', 0.88) : mix(bg, '#000000', 0.84);
   const head = dark ? mix(bg, '#ffffff', 0.97) : mix(bg, '#000000', 0.93);

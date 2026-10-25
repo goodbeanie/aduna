@@ -15,15 +15,60 @@ import { getDraft, setDraft } from './drafts.js';
 import { getSeen, markSeen } from './seen.js';
 import VoiceRecorder, { voiceSupported } from './VoiceRecorder.jsx';
 import ReactorsModal from './Reactors.jsx';
+import { useContextMenu, wantsNative } from './ContextMenu.jsx';
+import { api } from './api.js';
+import { EmptyState, ListSkeleton, kbd } from './ShellBits.jsx';
 
 const QUICK_REACTION = '\u2764\uFE0F'; // what a double-tap / double-click on a message reacts with
 
-function Picker({ onPick, onClose }) {
+// "Today", "Yesterday", or the date: the line between messages from different days.
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+function dayLabel(ts) {
+  const d = new Date(ts), now = new Date();
+  if (sameDay(d, now)) return 'Today';
+  if (sameDay(d, now.getTime() - 86400000)) return 'Yesterday';
+  return d.toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', ...(d.getFullYear() !== now.getFullYear() ? { year: 'numeric' } : {}) });
+}
+
+// Grey placeholder rows while a conversation's history is on its way, so it never flashes "No messages yet".
+const SKELETON_ROWS = [[120, 2], [90, 1], [160, 3], [70, 1], [140, 2], [100, 1]];
+function MessageSkeleton() {
+  return (
+    <div className="skel-list" role="status" aria-busy="true" aria-label="Loading messages">
+      {SKELETON_ROWS.map(([w, lines], i) => (
+        <div className="skel-msg" key={i} aria-hidden="true">
+          <span className="skel skel-avatar" />
+          <div className="skel-body">
+            <span className="skel skel-line" style={{ width: w }} />
+            {Array.from({ length: lines }, (_, j) => <span key={j} className="skel skel-line" style={{ width: j === lines - 1 ? '45%' : '85%' }} />)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// A conversation with nothing in it yet.
+function EmptyChat({ title, subtitle }) {
+  const dm = subtitle === '@';
+  return (
+    <EmptyState icon="message" title={dm ? `This is the start of your conversation with ${title}` : `This is the start of ${subtitle === '#' ? '#' : ''}${title}`}>
+      {dm ? 'Say hello. Only the two of you can read what is said here.' : 'Nothing has been said here yet. Say hello.'}
+    </EmptyState>
+  );
+}
+
+function Picker({ onPick, onClose, at }) {
   const ref = useRef(null);
   const [place, setPlace] = useState(null); // null until measured; 'sheet' on phones
   useLayoutEffect(() => {
-    const anchor = ref.current?.parentElement?.getBoundingClientRect();
     const W = 340, H = 380, vw = window.innerWidth, vh = window.innerHeight;
+    if (at && vw > 720) { // opened from the right-click menu: sit where the pointer was (the toolbar is hidden then, so it can't be the anchor)
+      const left = Math.min(Math.max(8, at.x), vw - W - 8);
+      const top = at.y + 6 + H > vh - 8 ? Math.max(8, vh - H - 8) : at.y + 6;
+      return setPlace({ left, top });
+    }
+    const anchor = ref.current?.parentElement?.getBoundingClientRect();
     if (!anchor || vw <= 720) return setPlace('sheet');
     const left = Math.min(Math.max(8, anchor.right - W), vw - W - 8);
     let top = anchor.bottom + 6;
@@ -42,7 +87,7 @@ function Picker({ onPick, onClose }) {
   return (
     <>
       {sheet && <div className="sheet-backdrop" onClick={onClose} />}
-      <div className={'picker' + (sheet ? ' sheet' : '')} ref={ref} style={place && !sheet ? { left: place.left, top: place.top } : place ? undefined : { visibility: 'hidden' }}>
+      <div className={'picker' + (sheet ? ' sheet' : '')} ref={ref} onContextMenu={(e) => e.stopPropagation()} style={place && !sheet ? { left: place.left, top: place.top } : place ? undefined : { visibility: 'hidden' }}>
         <EmojiPicker onPick={(e) => { onPick(e); onClose(); }} onCustom={(e) => { onPick('c:' + e.id); onClose(); }} />
       </div>
     </>
@@ -94,11 +139,13 @@ function CallEntry({ m, users, me }) {
   );
 }
 
-function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onEdit, onDelete, editing, setEditing, grouped, canDelete, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone }) {
+function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onUserMenu, onEdit, onDelete, editing, setEditing, grouped, canDelete, canPin, onPin, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone }) {
   const [picker, setPicker] = useState(false);
+  const [ctxPicker, setCtxPicker] = useState(null); // { x, y }: the emoji picker opened from the right-click menu, placed where you clicked
   const [who, setWho] = useState(null); // the reaction chip that was clicked: opens the "who reacted" list on that emoji
   const lastTap = useRef(0);
   const { lib, openMenu } = useEmoji();
+  const ctx = useContextMenu();
   const mine = m.authorId === me.id;
   const author = users[m.authorId];
   const ref = m.replyTo ? byId[m.replyTo] : null;
@@ -122,9 +169,31 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
     onTap?.();
   }
 
+  // Right-click (or long-press on a phone) on the message. Links, pictures, video, text boxes and selected text keep the browser's own menu.
+  function messageMenu(e, at) { // `at` is given when the "more" button opens it: a point under the button instead of the pointer
+    if (editing || (!at && wantsNative(e))) return;
+    const text = m.content ? decode(m.content) : '';
+    const { clientX: x, clientY: y } = at || e;
+    ctx.open(at ? { preventDefault() {}, stopPropagation() {}, clientX: x, clientY: y } : e, {
+      items: [
+        { label: 'Add reaction', icon: 'smile', onClick: () => setCtxPicker({ x, y }) },
+        { label: 'Reply', icon: 'reply', onClick: () => onReply(m) },
+        canPin && { label: m.pinnedAt ? 'Unpin message' : 'Pin message', icon: 'pushpin', onClick: () => onPin(m, !m.pinnedAt) },
+        mine && { label: 'Edit message', icon: 'edit', onClick: () => setEditing(m.id) },
+        'sep',
+        text && text !== '\u2026' && { label: 'Copy text', icon: 'copy', onClick: () => ctx.copy(text) },
+        { label: 'View profile', icon: 'user', onClick: () => onUser(m.authorId) },
+        canDelete && 'sep',
+        canDelete && { label: 'Delete message', icon: 'trash', danger: true, onClick: () => onDelete(m) },
+      ],
+    });
+  }
+  // Right-click on the author's name or picture opens the person's menu instead (App supplies it); without one the message menu shows.
+  const authorMenu = (e) => { if (onUserMenu) onUserMenu(e, m.authorId); };
+
   return (
     <div className={'msg' + (grouped ? ' grouped' : '') + (mine ? ' mine' : '') + (editing ? ' editing' : '') + (tapped ? ' tapped' : '') + (pinged ? ' pinged' : '')} id={'m-' + m.id}
-      onClick={tapMessage}>
+      onClick={tapMessage} onContextMenu={messageMenu}>
       {m.replyTo && (
         <div className="reply-ref" onClick={() => document.getElementById('m-' + m.replyTo)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
           <span className="reply-line" />
@@ -139,11 +208,12 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
       )}
       <div className="msg-row">
         {grouped ? <div className="gutter"><span className="hover-time">{new Date(m.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
-          : <button className="avatar-btn" onClick={() => onUser(m.authorId)}><Avatar user={author} size={40} presence={presence[m.authorId] && presence[m.authorId] !== 'offline' ? presence[m.authorId] : undefined} /></button>}
+          : <button className="avatar-btn" onClick={() => onUser(m.authorId)} onContextMenu={authorMenu}><Avatar user={author} size={40} presence={presence[m.authorId] && presence[m.authorId] !== 'offline' ? presence[m.authorId] : undefined} /></button>}
         <div className="msg-body">
+          {m.pinnedAt && <div className="pin-flag"><Icon name="pushpin" size={12} /> Pinned</div>}
           {!grouped && (
             <div className="msg-head">
-              <button className="name" data-nc style={{ '--nc': roleColors?.[m.authorId] || author?.accentColor }} onClick={() => onUser(m.authorId)}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
+              <button className="name" data-nc style={{ '--nc': roleColors?.[m.authorId] || author?.accentColor }} onClick={() => onUser(m.authorId)} onContextMenu={authorMenu}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
               {(author?.bot || m.bot) && <BotTag />}
               <span className="time">{timeLabel(m.createdAt)}</span>
             </div>
@@ -159,11 +229,12 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
             <div className="reactions">
               {Object.entries(m.reactions).map(([emoji, ids]) => (
                 <button key={emoji} className={'chip' + (ids.includes(me.id) ? ' on' : '')} onClick={() => setWho(emoji)} aria-haspopup="dialog"
-                  onContextMenu={emoji.startsWith('c:') ? (e) => { e.preventDefault(); openMenu(emoji.slice(2), lib.find((x) => x.id === emoji.slice(2))?.name || 'emoji', e.clientX, e.clientY); } : undefined}
+                  onContextMenu={emoji.startsWith('c:') ? (e) => { e.preventDefault(); e.stopPropagation(); openMenu(emoji.slice(2), lib.find((x) => x.id === emoji.slice(2))?.name || 'emoji', e.clientX, e.clientY); } : undefined}
                   title={(emoji.startsWith('c:') ? ':' + (lib.find((x) => x.id === emoji.slice(2))?.name || 'custom emoji') + ': (right-click to save or report)\n' : '') + ids.map((i) => users[i]?.displayName || '?').join(', ')}>
                   {emoji.startsWith('c:') ? <img className="cemoji" src={`/api/emoji/${emoji.slice(2)}/image`} alt="" /> : emoji} <span>{ids.length}</span>
                 </button>
               ))}
+              <button className="chip add" title="Add reaction" aria-label="Add reaction" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setCtxPicker({ x: r.left, y: r.bottom }); }}><Icon name="plus" size={14} /></button>
             </div>
           )}
         </div>
@@ -172,18 +243,27 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           <button title="Reply" onClick={() => onReply(m)}><Icon name="reply" size={17} /></button>
           {mine && <button title="Edit" onClick={() => setEditing(m.id)}><Icon name="edit" size={17} /></button>}
           {canDelete && <button title="Delete" className="del" onClick={() => onDelete(m)}><Icon name="trash" size={17} /></button>}
+          <button title="More" aria-label="More actions" aria-haspopup="menu" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); messageMenu(e, { clientX: r.right, clientY: r.bottom + 4 }); }}><Icon name="more" size={17} /></button>
           {picker && !editing && <Picker onPick={(e) => onReact(m.id, e)} onClose={() => setPicker(false)} />}
         </div>
       </div>
       {who && <ReactorsModal reactions={m.reactions} start={who} users={users} me={me} onToggle={(e) => onReact(m.id, e)} onUser={onUser} onClose={() => setWho(null)} />}
+      {ctxPicker && !editing && <Picker at={ctxPicker} onPick={(e) => onReact(m.id, e)} onClose={() => setCtxPicker(null)} />}
     </div>
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, users, me, presence, onSend, onPoll, onVote, onClosePoll, onReact, onEdit, onDelete, canModerate, roleColors, onTyping, typingNames, placeholder, notice, onUser, files, gifEnabled, readOnly, mentionables, canEveryone, draftKey, unreadCount, unreadExact }) {
+export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, draftKey, unreadCount, unreadExact }) {
   const convoKey = draftKey || title; // which conversation this composer belongs to (titles can repeat, so App passes a real key)
   const [text, setText] = useState(() => getDraft(convoKey));
   const [replyTo, setReplyTo] = useState(null);
+  const [searching, setSearching] = useState(false); // the search bar under the header: finds text in the messages loaded here
+  const [query, setQuery] = useState('');
+  const searchRef = useRef(null);
+  const [pinsOpen, setPinsOpen] = useState(false); // the pinned messages panel under the header (server channels only)
+  const [pinned, setPinned] = useState(null); // pins as the server last sent them (null until the panel was opened once)
+  const [pinsErr, setPinsErr] = useState(false);
+  const pinsRef = useRef(null);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState(null);
   const [confirmDel, setConfirmDel] = useState(null);
@@ -224,6 +304,55 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const typed = useTypingProof(inputRef, !!readOnly); // how this message was written, sent along so the server can decide if it earns credits
 
   const byId = Object.fromEntries(messages.map((m) => [m.id, m]));
+  const q = searching ? query.trim().toLowerCase() : '';
+  const shownMessages = q ? messages.filter((m) => !m.system && decode(m.content || '').toLowerCase().includes(q)) : messages;
+
+  // ---- search (Ctrl/Cmd+F while no dialog is open) ----
+  const openSearch = () => { setSearching(true); setPinsOpen(false); setTimeout(() => { searchRef.current?.focus(); searchRef.current?.select(); }, 0); };
+  const closeSearch = () => { setSearching(false); setQuery(''); };
+  useEffect(() => {
+    const k = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey || e.key.toLowerCase() !== 'f' || document.querySelector('.overlay')) return;
+      e.preventDefault();
+      openSearch();
+    };
+    document.addEventListener('keydown', k);
+    return () => document.removeEventListener('keydown', k);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- pinned messages: fetched when the panel opens and again (a moment after) whenever the messages change while it is open ----
+  useEffect(() => {
+    if (!pinsOpen || !pinsFor) return undefined;
+    let live = true;
+    const t = setTimeout(() => {
+      api(`/channels/${pinsFor}/pins`).then((r) => { if (live) { setPinned(r.messages); setPinsErr(false); } }).catch(() => { if (live) setPinsErr(true); });
+    }, pinned === null ? 0 : 800);
+    return () => { live = false; clearTimeout(t); };
+  }, [pinsOpen, pinsFor, messages]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { // Escape or a click outside closes the panel (the button that opens it toggles it)
+    if (!pinsOpen) return undefined;
+    const away = (e) => { if (pinsRef.current && !pinsRef.current.contains(e.target) && !e.target.closest?.('.pins-btn')) setPinsOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setPinsOpen(false); };
+    document.addEventListener('pointerdown', away, true);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('pointerdown', away, true); document.removeEventListener('keydown', esc); };
+  }, [pinsOpen]);
+  // what the server sent, corrected by the messages we hold live (a pin or unpin arrives as an edit, a deletion as a removal)
+  const pinList = (() => {
+    const livePins = new Map(messages.filter((m) => m.pinnedAt).map((m) => [m.id, m]));
+    const notPinned = new Set(messages.filter((m) => !m.pinnedAt).map((m) => m.id));
+    return [...(pinned || []).filter((m) => !livePins.has(m.id) && !notPinned.has(m.id)), ...livePins.values()].sort((a, b) => b.pinnedAt - a.pinnedAt);
+  })();
+  function jumpTo(id) {
+    const go = () => {
+      const el = document.getElementById('m-' + id);
+      if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1800);
+    };
+    setPinsOpen(false);
+    if (searching) { closeSearch(); setTimeout(go, 60); } else go();
+  }
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -245,7 +374,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     el.scrollTop = el.scrollHeight;
   }
 
-  useEffect(() => { setReplyTo(null); setEditing(null); setConfirmDel(null); setPop(null); clearPending(true); setText(getDraft(convoKey)); typed.reset(); stick.current = true; setTapped(null); setFresh(0); setAway(false); lastMsgId.current = messages[messages.length - 1]?.id ?? null; setDivider(null); openInfo.current = unreadCount > 0 ? { since: getSeen(convoKey), count: unreadCount, exact: !!unreadExact } : null; if (window.matchMedia?.('(hover: hover)').matches) inputRef.current?.focus(); }, [convoKey]); // switching chats brings back what you had typed there
+  useEffect(() => { setReplyTo(null); setEditing(null); setConfirmDel(null); setPop(null); setSearching(false); setQuery(''); setPinsOpen(false); setPinned(null); setPinsErr(false); clearPending(true); setText(getDraft(convoKey)); typed.reset(); stick.current = true; setTapped(null); setFresh(0); setAway(false); lastMsgId.current = messages[messages.length - 1]?.id ?? null; setDivider(null); openInfo.current = unreadCount > 0 ? { since: getSeen(convoKey), count: unreadCount, exact: !!unreadExact } : null; if (window.matchMedia?.('(hover: hover)').matches) inputRef.current?.focus(); }, [convoKey]); // switching chats brings back what you had typed there
 
   // every change to the composer is saved as that conversation's draft (sending clears the text, which clears the draft)
   useEffect(() => { if (!readOnly) setDraft(convoKey, text); }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -415,20 +544,59 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
         <span className="hash">{subtitle}</span>
         <h3>{title}</h3>
         <div className="spacer" />
+        <button className={'icon-btn' + (searching ? ' on' : '')} title="Search messages" data-kbd={kbd('F')} aria-label="Search messages" aria-pressed={searching} onClick={() => (searching ? closeSearch() : openSearch())}><Icon name="search" size={18} /></button>
+        {pinsFor && <button className={'icon-btn pins-btn' + (pinsOpen ? ' on' : '')} title="Pinned messages" aria-label="Pinned messages" aria-haspopup="dialog" aria-expanded={pinsOpen} onClick={() => { setPinsOpen((o) => !o); closeSearch(); }}><Icon name="pushpin" size={18} /></button>}
+        {bell && <button className={'icon-btn hide-sm' + (bell.muted ? ' bell-muted' : '')} title={bell.muted ? 'Notification settings (muted)' : 'Notification settings'} aria-label="Notification settings" onClick={bell.onClick}><Icon name={bell.muted ? 'belloff' : 'bell'} size={18} /></button>}
         {headerExtra}
+        {pinsOpen && pinsFor && (
+          <div className="pins-pop" role="dialog" aria-label="Pinned messages" ref={pinsRef}>
+            <div className="pins-head"><b>Pinned messages</b><button className="icon-btn" title="Close" aria-label="Close" onClick={() => setPinsOpen(false)}><Icon name="close" size={16} /></button></div>
+            <div className="pins-list">
+              {pinned === null && !pinsErr && <ListSkeleton rows={3} avatar={28} lines={2} label="Loading pinned messages" />}
+              {pinsErr && pinned === null && <EmptyState icon="alert" compact title="Could not load pins">Close this and try again.</EmptyState>}
+              {(pinned !== null || pinList.length > 0) && pinList.length === 0 && (
+                <EmptyState icon="pushpin" compact title="Nothing pinned yet">{canPin ? 'Pin a message from its “⋯” menu to keep it here.' : 'Messages pinned by moderators show up here.'}</EmptyState>
+              )}
+              {pinList.map((m) => (
+                <div className="pin-item" key={m.id}>
+                  <Avatar user={users[m.authorId]} size={28} />
+                  <div className="pin-main">
+                    <div className="pin-meta"><b data-nc style={{ '--nc': roleColors?.[m.authorId] || users[m.authorId]?.accentColor }}>{users[m.authorId]?.displayName || 'Unknown'}</b><span className="muted small">{timeLabel(m.createdAt)}</span></div>
+                    <div className="pin-text">{mentionPreview(previewText(m), users) || 'Sent an attachment'}</div>
+                  </div>
+                  <div className="pin-actions">
+                    {byId[m.id] ? <button className="btn small-btn" onClick={() => jumpTo(m.id)}>Jump</button> : <span className="muted small">Older</span>}
+                    {canPin && <button className="icon-btn" title="Unpin" aria-label="Unpin message" onClick={() => onPin(m, false)}><Icon name="close" size={15} /></button>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </header>
+      {searching && (
+        <div className="chat-search" role="search">
+          <Icon name="search" size={16} />
+          <input ref={searchRef} value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); closeSearch(); } }} placeholder={`Search ${subtitle === '@' ? 'this conversation' : '#' + title}`} aria-label="Search messages" maxLength={80} />
+          <span className="muted small">{q ? `${shownMessages.length} result${shownMessages.length === 1 ? '' : 's'}` : 'Messages loaded here'}</span>
+          <button className="icon-btn" title="Close search" aria-label="Close search" onClick={closeSearch}><Icon name="close" size={16} /></button>
+        </div>
+      )}
       {stage}
-      <div className="scroll" ref={scroller} onScroll={(e) => { const el = e.currentTarget; const gap = el.scrollHeight - el.scrollTop - el.clientHeight; stick.current = gap < 80; setAway(gap > 200); if (gap < 80) setFresh(0); }}>
+      <div className="scroll" ref={scroller} role="log" aria-live="polite" aria-relevant="additions" aria-label="Messages" onScroll={(e) => { const el = e.currentTarget; const gap = el.scrollHeight - el.scrollTop - el.clientHeight; stick.current = gap < 80; setAway(gap > 200); if (gap < 80) setFresh(0); }}>
         {notice && <div className="notice">{notice}</div>}
-        {!messages.some((m) => !m.system) && <div className="empty">No messages yet. Say hello.</div>}
-        {messages.map((m, i) => {
-          if (m.system === 'call') return <CallEntry key={m.id} m={m} users={users} me={me} />;
-          const prev = messages[i - 1];
+        {!messages.some((m) => !m.system) && (loading ? <MessageSkeleton /> : <EmptyChat title={title} subtitle={subtitle} />)}
+        {q && shownMessages.length === 0 && <EmptyState icon="search" title={`No messages match “${query.trim()}”`}>Only the messages loaded in this conversation are searched.</EmptyState>}
+        {shownMessages.map((m, i) => {
+          const before = shownMessages[i - 1];
+          const day = !before || !sameDay(before.createdAt, m.createdAt) ? <div key={'day-' + m.id} className="day-divider" role="separator"><span>{dayLabel(m.createdAt)}</span></div> : null;
+          if (m.system === 'call') return <React.Fragment key={m.id}>{day}<CallEntry m={m} users={users} me={me} /></React.Fragment>;
+          const prev = shownMessages[i - 1];
           const grouped = prev && !prev.system && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60000 && !m.replyTo;
-          return <React.Fragment key={m.id}>{m.id === divider && <div className="new-divider" role="separator"><span>New messages</span></div>}<Message m={m} grouped={grouped && m.id !== divider} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence} onVote={onVote} onClosePoll={onClosePoll}
-            onReact={onReact} onReply={(x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }} onUser={onUser}
+          return <React.Fragment key={m.id}>{day}{m.id === divider && <div className="new-divider" role="separator"><span>New messages</span></div>}<Message m={m} grouped={grouped && m.id !== divider && !day} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence} onVote={onVote} onClosePoll={onClosePoll}
+            onReact={onReact} onReply={(x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }} onUser={onUser} onUserMenu={onUserMenu}
             onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone}
-            canDelete={m.authorId === me.id || !!canModerate} dm={files?.dm} onOpen={setLightbox}
+            canDelete={m.authorId === me.id || !!canModerate} canPin={!!canPin && !m.system} onPin={onPin} dm={files?.dm} onOpen={setLightbox}
             tapped={tapped === m.id} onTap={() => setTapped((t) => (t === m.id ? null : m.id))} /></React.Fragment>;
         })}
         {(away || fresh > 0) && (
@@ -446,7 +614,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           <div className="replying">
             Replying to <b>{users[replyTo.authorId]?.displayName || 'Unknown'}</b>
             <span className="reply-text">{mentionPreview(previewText(replyTo), users)}</span>
-            <button className="icon-btn" title="Cancel reply" onClick={() => setReplyTo(null)}><Icon name="close" size={15} /></button>
+            <button className="icon-btn" title="Cancel reply" data-kbd="Esc" onClick={() => setReplyTo(null)}><Icon name="close" size={15} /></button>
           </div>
         )}
         <MentionMenu mc={mc} />
@@ -473,6 +641,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           </div>
         )}
         {recording && <VoiceRecorder onSend={sendVoice} onCancel={stopVoice} />}
+        {err && <div className="composer-err" role="alert"><span>{err}</span><button className="icon-btn" aria-label="Dismiss" onClick={() => setErr('')}><Icon name="close" size={14} /></button></div>}
         <div className="composer-row" style={recording ? { display: 'none' } : undefined}>
           <div className="attach-wrap" ref={attachWrap}>
             <button className="icon-btn" title="Attach" aria-label="Attach" aria-haspopup="menu" aria-expanded={pop === 'attach'} disabled={!files?.scope && !onPoll} onClick={() => setPop(pop === 'attach' ? null : 'attach')}><Icon name="clip" size={20} /></button>
@@ -494,11 +663,11 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
             <button className="icon-btn" title="Emoji" onClick={() => setPop(pop === 'emoji' ? null : 'emoji')}><Icon name="smile" size={20} /></button>
             <button className="icon-btn gif-btn" title="GIF" onClick={() => setPop(pop === 'gif' ? null : 'gif')}>GIF</button>
           </div>
-          <button className="icon-btn send-btn" title="Send" aria-label="Send" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={uploading || (!text.trim() && !pending.some((p) => p.att))}><Icon name="send" size={19} /></button>
+          <button className="icon-btn send-btn" title="Send" data-kbd="Enter" aria-label="Send" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={uploading || (!text.trim() && !pending.some((p) => p.att))}><Icon name="send" size={19} /></button>
           {pop === 'emoji' && <EmojiPop onClose={() => setPop(null)} onPick={(e) => { setText((t) => t + e); setPop(null); inputRef.current?.focus(); }} />}
           {pop === 'gif' && <GifPop enabled={gifEnabled} onClose={() => setPop(null)} onPick={sendGif} />}
         </div>
-        <div className="typing">{err ? <span className="error-text">{err}</span> : typingNames.length ? `${typingNames.join(', ')} ${typingNames.length > 1 ? 'are' : 'is'} typing…` : ' '}</div>
+        <div className="typing" aria-live="polite">{typingNames.length ? `${typingNames.join(', ')} ${typingNames.length > 1 ? 'are' : 'is'} typing…` : ' '}</div>
       </div>}
       {dragging && <div className="drop-hint"><Icon name="clip" size={28} />Drop files to send</div>}
       {lightbox && <Lightbox view={lightbox} onClose={() => setLightbox(null)} />}

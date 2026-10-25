@@ -37,11 +37,11 @@ ready.then(() => httpServer.listen(0, async () => {
   assert.deepStrictEqual(rejoin.peers, [], 'someone who left the server is no longer in its voice call');
   console.log('✓ leaving a server removes you from its voice channel');
   await call('/servers/join', { method: 'POST', token: b.token, body: { code: s.server.inviteCode } });
-  const evs = ['call:accept','call:decline','call:hangup','call:invite','call:signal','dm:send','message:delete','message:edit','message:send','poll:vote','poll:close','reaction:toggle','typing','voice:join','voice:leave','voice:signal'];
+  const evs = ['call:accept','call:decline','call:hangup','call:invite','call:signal','dm:send','message:delete','message:edit','message:pin','message:send','poll:vote','poll:close','reaction:toggle','typing','voice:join','voice:leave','voice:signal'];
   const payloads = [undefined, null, 0, 'x', [], {}, { kind: 'channel' }, { kind: 'dm' }, { kind: 'channel', messageId: mid, emoji: 'toString' }, { kind: 'channel', messageId: mid, content: {} },
     { channelId: chan, content: 123, attachments: 'x' }, { channelId: chan, content: 'a', attachments: [null] }, { channelId: chan, content: 'a', attachments: {} }, { channelId: chan, content: 'a', replyTo: {} },
     { to: b.user.id, content: {} }, { to: b.user.id, ciphertext: 5 }, { to: 'x', iv: [] }, { userId: {}, signal: 1 }, { to: {}, kind: 'channel' }, { channelId: {}, kind: 'channel' }, { kind: 'channel', channelId: chan, typing: 1 }, { kind: 'dm', userId: b.user.id },
-    { channelId: chan, content: 'a', replyTo: '__proto__' }, { kind: 'channel', messageId: '__proto__', emoji: '👍' }, { kind: 'dm', messageId: 'constructor', emoji: '👍' }];
+    { channelId: chan, content: 'a', replyTo: '__proto__' }, { kind: 'channel', messageId: '__proto__', emoji: '👍' }, { kind: 'dm', messageId: 'constructor', emoji: '👍' }, { messageId: mid, pinned: true }, { messageId: '__proto__', pinned: true }];
   for (const ev of evs) for (const p of payloads) {
     await new Promise((r) => { let done = false; const fin = () => { if (!done) { done = true; r(); } }; sa.emit(ev, p, fin); setTimeout(fin, 15); });
     await new Promise((r) => { sa.emit(ev, p); setTimeout(r, 5); }); // no ack

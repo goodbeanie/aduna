@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { BadgeIcons } from './ui.jsx';
+import { askConfirm } from './Dialogs.jsx';
 import { ACCEPT_ATTR, processBadge, uploadImage } from './image.js';
 
 // Settings > Badges (creator accounts only): make badges, give them to people by username, take them back, delete them.
@@ -67,7 +68,7 @@ function BadgeCard({ badge, onChange, onDeleted, onError }) {
         }} />
         <button className="btn" onClick={() => file.current?.click()}>{badge.image ? 'Change picture' : 'Add picture'}</button>
         {badge.image && <button className="btn" onClick={() => run(async () => onChange((await api('/badges/' + badge.id + '/image', { method: 'DELETE' })).badge))}>Remove picture</button>}
-        <button className="btn danger" onClick={() => { if (window.confirm('Delete the "' + badge.name + '" badge? It disappears from everyone who has it.')) run(async () => { await api('/badges/' + badge.id, { method: 'DELETE' }); onDeleted(); }); }}>Delete</button>
+        <button className="btn danger" onClick={async () => { if (await askConfirm({ title: 'Delete badge', body: 'Delete the "' + badge.name + '" badge? It disappears from everyone who has it.', confirmLabel: 'Delete', danger: true })) run(async () => { await api('/badges/' + badge.id, { method: 'DELETE' }); onDeleted(); }); }}>Delete</button>
       </div>
       <div className="holders">
         {badge.holders.length === 0 && <span className="muted small">Nobody has this badge yet.</span>}

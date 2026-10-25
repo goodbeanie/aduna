@@ -1,0 +1,13 @@
+/* Density (Settings > Appearance > Chat density): Compact tightens the lists as well as the messages.
+   Desktop only: on phones every row keeps its 40px target. Chat messages are handled in redesign5.css. Loaded last. */
+
+@media (min-width: 721px) {
+  html[data-density=compact] .chan { min-height: 28px; padding-top: 3px; padding-bottom: 3px; }
+  html[data-density=compact] .chan.dm { min-height: 34px; }
+  html[data-density=compact] .member { min-height: 32px; padding-top: 3px; padding-bottom: 3px; }
+  html[data-density=compact] .frow-main { padding-top: 6px; padding-bottom: 6px; }
+  html[data-density=compact] .frow-actions .icon-btn { width: 32px; height: 32px; }
+  html[data-density=compact] .cmenu-item { min-height: 30px; padding-top: 4px; padding-bottom: 4px; }
+  html[data-density=compact] .result { min-height: 32px; }
+  html[data-density=compact] .settings-content .check-row, html[data-density=compact] .settings-content .custom-row { min-height: 40px; }
+}

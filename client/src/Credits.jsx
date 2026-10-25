@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
+import { askConfirm } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
@@ -32,7 +33,7 @@ function StreakCard({ s }) {
   return (
     <div className="streak-card">
       <div className="streak-top">
-        <span className="streak-flame" aria-hidden="true">🔥</span>
+        <span className="streak-flame" aria-hidden="true"><Icon name="flame" size={24} /></span>
         <span className="streak-num">{s.current}</span>
         <b>{s.current === 1 ? 'day streak' : 'days streak'}</b>
         <span className="muted small">Best: {days(s.best)}</span>
@@ -289,7 +290,7 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
                 title={dr.state === 'locked' ? `Opens on ${dr.day} December` : dr.state === 'opened' ? `Door ${dr.day}: +${dr.reward} credits` : `Open door ${dr.day}`}
                 onClick={() => onDoor(dr)}>
                 <span className="door-n">{dr.day}</span>
-                <span className="door-r">{dr.state === 'opened' ? '✓' : dr.state === 'locked' ? '🔒' : <><Icon name="coin" size={11} />{dr.reward}</>}</span>
+                <span className="door-r">{dr.state === 'opened' ? <Icon name="check" size={13} /> : dr.state === 'locked' ? <Icon name="lock" size={13} /> : <><Icon name="coin" size={11} />{dr.reward}</>}</span>
               </button>
             ))}
           </div>
@@ -378,7 +379,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
     setBusy('');
   }
   async function takeOffSale(item) {
-    if (!window.confirm(`Take the ${item.name} badge off sale? People who already have it keep it.`)) return;
+    if (!(await askConfirm({ title: 'Take off sale', body: `Take the ${item.name} badge off sale? People who already have it keep it.`, confirmLabel: 'Take off sale' }))) return;
     setErr(''); setNote('');
     try { await api('/badges/' + item.id, { method: 'PATCH', body: { price: null } }); load(); setNote(`${item.name} is off sale.`); }
     catch (e) { setErr(e.message); }
@@ -453,7 +454,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
               <button className="btn primary small-btn buy-credits-btn" onClick={() => setBuying(true)}><Icon name="coin" size={14} /><span>Buy credits</span></button>
               <div className="credit-stats muted small">
                 <span>{d.lifetime.earned.toLocaleString()} earned</span><span>{d.lifetime.bought.toLocaleString()} bought</span><span>{d.lifetime.spent.toLocaleString()} spent</span>
-                {d.streak > 1 && <span>🔥 {d.streak}-day streak</span>}
+                {d.streak > 1 && <span><Icon name="flame" size={14} className="inline-icon" /> {d.streak}-day streak</span>}
               </div>
             </div>
             {locked && page === 'quests' && <p className="muted notice-line">New accounts can earn and claim rewards after 30 minutes. About {mins} min to go.</p>}

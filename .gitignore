@@ -15,3 +15,8 @@ mobile/google-services.json
 mobile/.versioncode
 *.keystore
 mobile/java-home.txt
+
+# local scratch files (not part of the app)
+tmp-*
+client/.css-backup
+client/styles.original.css.txt

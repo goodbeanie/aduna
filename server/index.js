@@ -32,6 +32,7 @@ const sandbox = require('./sandbox'); // starts its worker threads on first use,
 
 const PORT = process.env.PORT || 3000;
 const MAX_MSG = 2000;
+const MAX_PINS = 50; // pinned messages per channel
 const MAX_CIPHER = 12000;
 
 // ---------- secret ----------
@@ -2830,6 +2831,14 @@ app.get('/api/channels/:id/messages', auth, (req, res) => {
   res.json({ messages: list });
 });
 
+// Pinned messages of a channel, newest pin first. A separate list because a pin can be older than the last 100 messages the history sends.
+app.get('/api/channels/:id/pins', auth, (req, res) => {
+  const f = findChannel(req.params.id);
+  if (!f || !f.server.members.includes(req.user.id)) return res.status(403).json({ error: 'Forbidden' });
+  const pins = Object.values(db().messages).filter((m) => m.channelId === f.channel.id && m.pinnedAt).sort((a, b) => b.pinnedAt - a.pinnedAt);
+  res.json({ messages: pins });
+});
+
 app.get('/api/dms', auth, (req, res) => {
   const me = req.user.id;
   const latest = new Map();
@@ -3361,6 +3370,28 @@ io.on('connection', (socket) => {
     if (r.error) return reply({ error: r.error });
     store.save();
     io.to('channel:' + hit.msg.channelId).emit('poll:update', { channelId: hit.msg.channelId, messageId: hit.msg.id, poll: hit.msg.poll });
+    reply({ ok: true });
+  });
+
+  // Pin / unpin a channel message (whoever may manage messages in the server). Everyone in the channel gets the change as an edit.
+  // DMs are end-to-end encrypted, so there are no pins there.
+  socket.on('message:pin', (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    if (!allowed()) return reply({ error: 'Slow down' });
+    const msg = typeof p?.messageId === 'string' ? db().messages[p.messageId] : null;
+    const f = msg && findChannel(msg.channelId);
+    if (!f || !f.server.members.includes(uid) || !can(f.server, uid, 'manageMessages')) return reply({ error: 'Forbidden' });
+    if (p.pinned === true) {
+      if (msg.pinnedAt) return reply({ ok: true });
+      const count = Object.values(db().messages).filter((m) => m.channelId === msg.channelId && m.pinnedAt).length;
+      if (count >= MAX_PINS) return reply({ error: `A channel can have up to ${MAX_PINS} pinned messages. Unpin one first.` });
+      msg.pinnedAt = now(); msg.pinnedBy = uid;
+    } else {
+      if (!msg.pinnedAt) return reply({ ok: true });
+      msg.pinnedAt = null; msg.pinnedBy = null; // null (not deleted) so the clients' merge of the edit clears it
+    }
+    store.save();
+    io.to('channel:' + msg.channelId).emit('message:edited', { kind: 'channel', message: msg });
     reply({ ok: true });
   });
 

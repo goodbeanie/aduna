@@ -1,0 +1,10 @@
+/* App shell and sidebar. Loaded after settings.css. */
+
+/* unread channel: the name turns to full ink and a small dot sits at the right edge; the count is in the tooltip.
+   (@mentions keep their gold badge, they are the only thing that needs a number.) */
+.chan.unread { color: var(--head); }
+.chan .unread-dot { margin-left: auto; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--ink); }
+.chan.unread:not(.on) .hash { opacity: 1; }
+.chan.muted .unread-dot { background: var(--muted); }
+.chan .badge.inline.at { margin-left: auto; }
+.chan .badge.inline.at + .unread-dot { margin-left: 8px; }

@@ -147,11 +147,30 @@ export function useVoice({ socketRef, ready }) {
     },
     leave() { socketRef.current?.emit('voice:leave'); reset(); },
     toggleMute() {
-      const muted = !sRef.current.muted;
+      const s = sRef.current;
+      if (s.deafened) { // like in calls: unmuting while deafened lets you hear again too
+        rt.current.local?.getAudioTracks().forEach((t) => { t.enabled = true; });
+        set({ deafened: false, muted: false });
+        return;
+      }
+      const muted = !s.muted;
       rt.current.local?.getAudioTracks().forEach((t) => { t.enabled = !muted; });
       set({ muted });
     },
-    toggleDeafen() { set({ deafened: !sRef.current.deafened }); },
+    // Deafening also mutes your microphone (nobody should hear you while you cannot hear them); undeafening puts the mic back as it was.
+    toggleDeafen() {
+      const s = sRef.current;
+      const tracks = rt.current.local?.getAudioTracks() || [];
+      if (s.deafened) {
+        const muted = !!rt.current.mutedBeforeDeafen;
+        tracks.forEach((t) => { t.enabled = !muted; });
+        set({ deafened: false, muted });
+      } else {
+        rt.current.mutedBeforeDeafen = s.muted;
+        tracks.forEach((t) => { t.enabled = false; });
+        set({ deafened: true, muted: true });
+      }
+    },
   };
   return { state, members, remote, actions };
 }

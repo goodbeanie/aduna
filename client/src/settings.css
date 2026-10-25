@@ -1,0 +1,60 @@
+/* Settings, one layout for every tab: tabs on the left, content on the right.
+   Inside a tab: a section label (quiet), then plain rows divided by hairlines. Each row is a label, short helper text, and a control.
+   Everything is scoped to .settings-content so nothing else in the app changes. Loaded after redesign5.css. */
+
+.settings-content { max-width: 720px; }
+.settings-content h1 { font-size: 24px; padding-bottom: 14px; margin-bottom: 18px; border-bottom: 1px solid var(--line); }
+
+/* section label: small, muted, with space above */
+.settings-content :is(.appearance, .notify-settings, .whatsnew-settings, .editor-form, .bot-panel) > label:not(.check-row):not(.custom-row) {
+  display: block; margin: 28px 0 8px; padding: 0; font-size: 13px; letter-spacing: .02em; text-transform: none; color: var(--muted);
+}
+.settings-content :is(.appearance, .notify-settings, .whatsnew-settings) > label:not(.check-row):first-child { margin-top: 0; }
+
+/* helper text under a label or control: one size, one colour */
+.settings-content .hint { font-size: 13px; line-height: 1.45; color: var(--muted); margin: 4px 0 0; }
+
+/* a plain row: hairline above, 48px tall at least, label on the left and control on the right */
+.settings-content .check-row, .settings-content .custom-row {
+  min-height: 48px; margin: 0; padding: 8px 0; border-top: 1px solid var(--line); font-size: 15px; color: var(--text);
+}
+.settings-content .check-row:first-of-type { border-top: 0; }
+.settings-content .check-row input { width: 20px; height: 20px; }
+.settings-content .custom-row { display: flex; align-items: center; gap: 12px; }
+.settings-content .custom-row > span:first-child { flex: 1; }
+.settings-content .custom-row code { color: var(--muted); font-size: 13px; }
+
+/* custom theme box: no nested card, just a ruled block */
+.settings-content .custom-theme { background: none; border: 0; border-top: 1px solid var(--line); border-radius: 0; box-shadow: none; padding: 12px 0 0; }
+.settings-content .custom-theme.on { border-top-color: var(--ink); }
+
+/* option buttons (Cozy / Compact, light / dark base): one outlined choice, the selected one has an ink border, nothing is filled */
+.settings-content .mode-pick button { background: transparent; border: 0; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line2); font-size: 15px; min-height: 40px; }
+.settings-content .mode-pick button:hover { background: var(--hover); }
+.settings-content .mode-pick button.on { outline: none; font-weight: inherit; box-shadow: inset 0 0 0 2px var(--ink); background: var(--bg); color: var(--head); }
+
+/* theme choices: same ink border for the chosen one */
+.settings-content .theme-card { box-shadow: inset 0 0 0 1px var(--line); border: 0; }
+.settings-content .theme-card:hover { background: var(--hover); }
+.settings-content .theme-card.on { box-shadow: inset 0 0 0 2px var(--ink); }
+
+/* the log out tab in the left list: quiet danger text, not a button */
+.settings-nav .settings-tab.danger-text { color: var(--danger); }
+.settings-nav .settings-tab.danger-text:hover { background: var(--err-bg); }
+
+/* tabs that used boxes inside boxes: flatten to ruled rows */
+.settings-content .bot-panel { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 16px 0 0; margin-top: 20px; background: none; box-shadow: none; }
+.settings-content .bot-panel h3 { font-size: 17px; }
+.settings-content .note-chan { border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: 10px 0; background: none; }
+.settings-content .note-chan.muted { background: none; opacity: .7; }
+.settings-content .sec-section h2 { font-size: 17px; }
+.settings-content .whatsnew-release li { border-left: 2px solid var(--line2); }
+.settings-content .whatsnew-release h3 { color: var(--head); }
+
+/* save bars at the bottom of forms: one filled button, aligned to the right */
+.settings-content .modal-foot, .settings-content .form-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 16px 0 28px; border-top: 1px solid var(--line); margin-top: 20px; }
+
+@media (max-width: 720px) {
+  .settings-content h1 { font-size: 20px; }
+  .settings-content .check-row, .settings-content .custom-row { min-height: 52px; }
+}

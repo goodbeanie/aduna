@@ -33,9 +33,22 @@ export function AppearancePicker() {
   const light = THEMES.filter((t) => !t.dark);
   const dark = THEMES.filter((t) => t.dark);
   const limited = seasonalNow();
+  const [density, setDensityState] = useState(() => document.documentElement.dataset.density === 'compact' ? 'compact' : 'cozy');
+  const setDensity = (d) => {
+    setDensityState(d);
+    document.documentElement.dataset.density = d;
+    try { localStorage.setItem('aduna-density', d); } catch { /* storage blocked: applies until reload */ }
+  };
 
   return (
     <div className="appearance">
+      <label>Chat density</label>
+      <div className="mode-pick" role="radiogroup" aria-label="Chat density">
+        {[['cozy', 'Cozy'], ['compact', 'Compact']].map(([id, label]) => (
+          <button type="button" role="radio" key={id} aria-checked={density === id} className={density === id ? 'on' : ''} onClick={() => setDensity(id)}>{label}</button>
+        ))}
+      </div>
+
       <label>{tr('automatic')}</label>
       <div className="mode-pick" role="radiogroup" aria-label={tr('themeMode')}>
         <button type="button" role="radio" aria-checked={s.id === 'system'} className={s.id === 'system' ? 'on' : ''} onClick={() => pick('system')}>{tr('matchDevice')}</button>

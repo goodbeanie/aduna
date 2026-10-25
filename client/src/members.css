@@ -1,0 +1,32 @@
+/* Members and people: member list, friends, profile card actions, right-click menu. Loaded after shell.css. */
+
+/* member list: plain rows, one hover style, offline people are quieter */
+.members { padding: 10px 8px; }
+.member { border-radius: var(--r-sm); min-height: 40px; }
+.member:hover { background: var(--hover); }
+.member:active { background: var(--sel); }
+.member.off { opacity: .6; }
+.members .side-label { padding: 12px 8px 6px; }
+
+/* friends: rows with a hairline, actions are outlined squares, not grey circles */
+.frow { border-radius: 0; }
+.frow:hover { background: var(--hover); border-color: var(--line); }
+.frow-actions .icon-btn { width: 40px; height: 40px; border-radius: var(--r-md); background: transparent; box-shadow: inset 0 0 0 1px var(--line2); }
+.frow-actions .icon-btn:hover { background: var(--hover); }
+.frow-actions .icon-btn:active { background: var(--sel); }
+.frow-actions .icon-btn.ok { color: var(--ok-fg); }
+.frow-actions .icon-btn.ok:hover { background: var(--ok-bg); color: var(--ok-fg); }
+.friends-empty { gap: 10px; padding: 40px 16px; }
+
+/* right-click menu: hairline border, flat hover, danger shows as a tinted row rather than a solid red block */
+.cmenu { border-radius: var(--r-md); box-shadow: 0 6px 18px var(--shadow); padding: 4px; }
+.cmenu-item { border-radius: var(--r-sm); min-height: 36px; }
+.cmenu-item:hover:not(:disabled), .cmenu-item:focus-visible { background: var(--hover); }
+.cmenu-item:active:not(:disabled) { background: var(--sel); }
+.cmenu-item.danger:hover:not(:disabled), .cmenu-item.danger:focus-visible { background: var(--err-bg); color: var(--err-fg); }
+.cmenu-head { padding: 6px 8px 8px; }
+.cmenu-toast { border-radius: var(--r-md); box-shadow: none; border: 1px solid var(--line2); }
+
+@media (max-width: 720px) {
+  .cmenu-item { min-height: 44px; }
+}

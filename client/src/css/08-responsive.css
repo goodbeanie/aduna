@@ -1,0 +1,176 @@
+/* =====================================================================
+   Responsive layout
+   >1500px  wide: members list and call bar sit side by side
+   1051-1500 laptop: the members list steps aside while a call is open
+   <=1050   tablet: members become a slide-over drawer
+   <=720    phone: list and chat are separate screens, call goes full screen
+   ===================================================================== */
+:root { --rail-h: 68px; }
+html { -webkit-text-size-adjust: 100%; }
+body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+button { touch-action: manipulation; }
+.app { height: 100%; height: 100dvh; }
+.rail { height: var(--rail-h); }
+.back-btn, .members-toggle, .send-btn, .drawer-backdrop { display: none; }
+.chat-head h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.chat-head { min-width: 0; }
+.composer-row .composer { overflow-y: auto; }
+.scroll, .side-list, .members, .friends-body { overscroll-behavior: contain; }
+
+/* big screens */
+@media (min-width: 1800px) {
+  body { font-size: 16px; }
+  .side, .members { width: 280px; }
+  .msg { padding-left: 24px; padding-right: 24px; }
+  .composer-wrap { padding: 0 24px; }
+}
+
+/* ultrawide: keep message lines a readable length by centering the column */
+@media (min-width: 1800px) {
+  .scroll { padding-left: max(0px, calc((100% - 1180px) / 2)); padding-right: max(0px, calc((100% - 1180px) / 2)); }
+  .composer-wrap { padding-left: max(24px, calc((100% - 1180px) / 2 + 24px)); padding-right: max(24px, calc((100% - 1180px) / 2 + 24px)); }
+}
+
+/* short screens (landscape phones): GIF picker must fit above the composer */
+
+/* tablet and small laptop */
+@media (max-width: 1050px) {
+  .members-toggle { display: grid; }
+  .members { display: block; position: fixed; top: var(--rail-h); right: 0; bottom: 0; width: min(280px, 85vw); z-index: 40; transform: translateX(105%); visibility: hidden; transition: transform .2s ease, visibility 0s .2s; box-shadow: -10px 0 30px #2a1f0f26; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+  .members.open { transform: none; visibility: visible; transition: transform .2s ease; }
+  .drawer-backdrop { display: block; position: fixed; inset: var(--rail-h) 0 0 0; z-index: 39; background: var(--scrim-soft); }
+}
+@media (max-width: 900px) { .side { width: 220px; } }
+
+/* touch screens: bigger targets, no hover-only controls */
+@media (pointer: coarse) {
+  .icon-btn { width: 40px; height: 40px; }
+  .composer-row .icon-btn { width: 40px; height: 40px; }
+  .chan { padding: 10px 12px; } .chan.dm { padding: 8px 10px; }
+  .member { padding: 8px; }
+  .ftab { padding: 8px 14px; }
+  .btn { padding: 10px 20px; }
+  .frow-actions .icon-btn { width: 42px; height: 42px; }
+  .toolbar button { width: 42px; height: 38px; }
+  .stage-btn { width: 52px; height: 52px; } .stage-btn.hangup { width: 68px; }
+  .cd-btn { height: 40px; } .cd-btn.hang { width: 40px; }
+}
+@media (hover: none) {
+  .msg:hover { background: none; } .msg:hover .toolbar { display: none; } .msg:hover .hover-time { visibility: hidden; }
+  .msg.tapped { background: var(--msg-hover); }
+  .msg.tapped .toolbar { display: flex; } .msg.tapped .hover-time { visibility: visible; }
+  .em-del { opacity: 1; }
+  .rail-btn:hover { border-radius: 50%; background: var(--bg); color: var(--head); }
+  .rail-btn.on, .rail-btn.on:hover { border-radius: 16px; background: var(--ink); color: var(--on-ink); }
+  .rail-btn.dm-home:hover img { filter: none; } .rail-btn.dm-home.on img { filter: invert(1); }
+}
+@media (pointer: coarse), (max-width: 720px) {
+  .send-btn { display: grid; background: var(--ink); color: var(--on-ink); border-radius: 50% !important; align-self: center; margin-left: 2px; }
+  .send-btn:disabled { background: var(--sel); color: var(--muted); opacity: 1; }
+  .send-btn:not(:disabled):hover { background: var(--ink-h); color: var(--on-ink); }
+  input, textarea, select { font-size: 16px; } /* stops iOS zooming into the field */
+}
+
+/* phones */
+@media (max-width: 720px) {
+  :root { --rail-h: calc(60px + env(safe-area-inset-top, 0px)); }
+  .rail { padding: env(safe-area-inset-top, 0px) max(12px, env(safe-area-inset-right, 0px)) 0 max(12px, env(safe-area-inset-left, 0px)); gap: 8px; }
+  .rail-btn { width: 44px; height: 44px; }
+  .rail-list { padding: 8px 4px; }
+
+  /* the list and the chat are two screens; the back arrow returns to the list */
+  .side { width: 100%; border-right: 0; }
+  .body:not(.list-open) .side { display: none; }
+  .body.list-open .chat { display: none; }
+  .side-head, .chat-head { height: 52px; }
+  .user-panel { height: auto; min-height: 60px; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .back-btn { display: grid; margin-left: -8px; color: var(--head); }
+  .hide-sm { display: none; }
+  .small-btn { padding: 6px 10px; }
+  .chat-head { padding: 0 8px 0 12px; gap: 4px; }
+  .chat-head .hash { margin-left: 2px; }
+  .chat-head h3 { flex: 0 1 auto; }
+
+  /* messages */
+  .msg { padding: 2px 12px; } .msg-row { gap: 10px; }
+  .toolbar { right: 8px; }
+  .reply-text { max-width: 55vw; }
+  .reply-ref { margin-left: 8px; }
+  .att-file { width: 100%; }
+  .att-img, .att-video { max-width: 100%; }
+  .composer-wrap { padding: 0 8px env(safe-area-inset-bottom, 0px); }
+  .composer-row { padding: 2px 4px; }
+  .typing { height: 18px; }
+  .emoji-pop { right: 0; max-width: calc(100vw - 16px); }
+  .emenu { max-width: calc(100vw - 16px); }
+  .lightbox { padding: 12px 12px 64px; } .lightbox img { max-width: 100vw; }
+
+  /* friends */
+  .ftabs { margin-left: 4px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: none; }
+  .ftabs::-webkit-scrollbar { display: none; }
+  .ftab { white-space: nowrap; padding: 6px 10px; }
+  .friends-body { padding: 4px 8px 24px; }
+  .frow-actions { padding-right: 0; gap: 6px; }
+  .add-row { flex-direction: column; } .add-row .btn { width: 100%; }
+
+  /* dialogs become bottom sheets */
+  .overlay { padding: 0; place-items: end center; }
+  .modal, .modal.wide { max-width: none; width: 100%; border-radius: 20px 20px 0 0; max-height: 92vh; max-height: 92dvh; padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
+  .modal-foot.spread { bottom: calc(-18px - env(safe-area-inset-bottom, 0px)); }
+  .modal.bare { padding: 0 10px calc(10px + env(safe-area-inset-bottom, 0px)); background: none; border-radius: 0; overflow: visible; }
+  .modal.bare .modal-x { right: 20px; }
+  .editor, .em-layout { grid-template-columns: 1fr; }
+  .em-grid { grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); max-height: 40vh; }
+  .invite code { font-size: 17px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .safety { font-size: 18px; letter-spacing: .06em; padding: 12px; }
+  .auth-card { padding: 28px 20px 24px; }
+  .call-toast { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+
+  .fh { display: none; }
+  /* call: the stage is shorter, an expanded call takes the whole chat screen, a strip follows you into other chats, an incoming call is full screen */
+  .call-stage { height: clamp(200px, 36vh, 320px); }
+  .call-stage.big { height: auto; }
+  .stage-tiles { gap: 8px; padding: 8px; }
+  .stage-controls { gap: 8px; padding: 4px 8px 12px; }
+  .call-stage.big .stage-controls { padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .stage-btn { width: 46px; height: 46px; } .stage-btn.hangup { width: 60px; }
+  .call-strip { display: flex; align-items: center; gap: 6px; position: fixed; z-index: 90; top: var(--rail-h); left: 0; right: 0; height: 52px; padding: 0 8px 0 12px; background: var(--bg2); border-bottom: 1px solid var(--line); box-shadow: 0 6px 20px #2a1f0f26; animation: strip-in .2s ease-out; }
+  @keyframes strip-in { from { transform: translateY(-100%); opacity: 0; } }
+  .cs-who { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; text-align: left; color: var(--head); background: none; }
+  .cs-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cs-who .muted { flex: none; }
+  .call-strip .cd-btn { flex: none; width: 40px; height: 40px; border-radius: 50%; }
+  .body.list-open .call-strip { display: none; }
+  .body:not(.list-open):has(.call-strip) { padding-top: 52px; }
+  .call-incoming { inset: 0; top: 0; left: 0; width: auto; transform: none; border-radius: 0; flex-direction: column; justify-content: center; gap: 12px; text-align: center; padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); box-shadow: none; animation: ci-fade .2s ease-out; }
+  @keyframes ci-fade { from { opacity: 0; } }
+  .call-incoming .call-pulse { margin: 0 0 10px; }
+  .ci-text { flex: none; }
+  .ci-name { font-size: 28px; }
+  .ci-sub { font-size: 15px; }
+  .ci-actions { gap: 16px; margin-top: 26px; }
+  .ci-btn { width: 150px; height: 56px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+  .ci-btn span { display: inline; font-size: 17px; }
+}
+
+/* short landscape screens: tighten the chrome, lay call tiles side by side */
+@media (max-height: 480px) {
+  :root { --rail-h: calc(50px + env(safe-area-inset-top, 0px)); }
+  .rail { gap: 8px; } .rail-btn { width: 38px; height: 38px; } .rail-btn.dm-home img { height: 24px; }
+  .side-head, .chat-head { height: 42px; } .user-panel { min-height: 48px; } .typing { height: 14px; }
+  .call-stage { height: clamp(150px, 56vh, 260px); } .call-stage.big { height: auto; }
+  .stage-top { padding-top: 6px; } .stage-controls { padding-bottom: 8px; }
+}
+@media (max-width: 720px) and (max-aspect-ratio: 1/1) { /* phone held upright: an expanded call stacks the two tiles */
+  .call-stage.big .stage-tiles { grid-template-columns: 1fr; grid-auto-rows: minmax(0, 1fr); }
+}
+
+/* very small phones */
+@media (max-width: 360px) {
+  .fh { display: none; }
+  .ftab { padding: 6px 8px; font-size: 13px; }
+  .stage-controls { gap: 6px; }
+  .stage-btn { width: 42px; height: 42px; } .stage-btn.hangup { width: 54px; }
+}
+
+

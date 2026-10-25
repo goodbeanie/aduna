@@ -1,0 +1,129 @@
+/* Aduna look, pass 1. Loaded after styles.css, so it only changes how things look, never the layout sizes.
+   It uses the same colour variables as every theme, so Parchment, dark, seasonal, gradient and server themes all keep working.
+
+   The idea: paper and ink.
+     - rounded squares instead of circles (avatars, server tiles), so nothing here reads as a circle-and-pill chat app
+     - the active thing is marked with an ink bar, not a filled pill
+     - hairline borders instead of shadows
+     - unread is quiet ink, @mentions are gold, red is kept for "do not disturb" and danger
+   To go back to the old look, remove the import of this file in main.jsx. */
+
+:root { --r-sm: 6px; --r-md: 10px; --r-lg: 14px; }
+
+/* ---------- people ---------- */
+.avatar { border-radius: 26%; }
+
+/* ---------- server bar ---------- */
+.rail { gap: 6px; }
+.rail-btn { width: 44px; height: 44px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line); transition: background .15s, color .15s, box-shadow .15s; }
+.rail-btn:hover { border-radius: var(--r-md); background: var(--hover); color: var(--head); }
+.rail-btn.on, .rail-btn.on:hover { border-radius: var(--r-md); background: var(--bg); color: var(--head); box-shadow: inset 0 0 0 2px var(--ink); }
+.rail-btn.has-icon.on, .rail-btn.has-icon.on:hover { box-shadow: none; }
+.rail-btn.on::after { content: ''; position: absolute; left: 22%; right: 22%; bottom: -7px; height: 3px; border-radius: 3px 3px 0 0; background: var(--ink); }
+.rail-btn.dm-home:hover img, .rail-btn.dm-home.on img { filter: none; }
+.rail-btn.add { box-shadow: inset 0 0 0 1px var(--line2); border-style: none; }
+.rail-btn.add:hover { border-radius: var(--r-md); }
+
+/* ---------- badges: ink for unread, gold for @mentions ---------- */
+.badge { background: var(--ink); color: var(--on-ink); border-radius: var(--r-sm); }
+.badge.at { background: var(--gold); color: #1c1812; }
+
+/* ---------- sidebar ---------- */
+.side-head { box-shadow: none; border-bottom: 1px solid var(--line); height: 52px; font-size: 17px; }
+.side-head.has-banner { border-bottom: 0; }
+.side-label, .cat-name { letter-spacing: .02em; font-size: 12px; }
+.chan { border-radius: var(--r-sm); padding-left: 12px; }
+.chan:hover { background: var(--hover); }
+.chan.on { color: var(--head); background: linear-gradient(var(--ink), var(--ink)) no-repeat left center / 3px 60%; }
+.chan .hash { opacity: .5; }
+.user-panel { border-top: 1px solid var(--line); }
+.menu { border-radius: var(--r-md); box-shadow: 0 8px 20px var(--shadow); }
+.menu button { border-radius: var(--r-sm); }
+
+/* ---------- chat ---------- */
+.chat-head { box-shadow: none; border-bottom: 1px solid var(--line); height: 52px; }
+.chat-head h3 { font-size: 18px; }
+.msg { margin-top: 14px; }
+.msg:not(.pinged):not(.editing):hover { background: none; box-shadow: inset 2px 0 0 var(--line2); }
+
+
+.toolbar { border-radius: var(--r-md); box-shadow: none; }
+.toolbar button { border-radius: var(--r-sm); }
+.chip { border-radius: var(--r-sm); border-color: var(--line); background: transparent; }
+.composer-row { background: var(--raised); border: 1px solid var(--line2); border-radius: var(--r-md); }
+.composer-row:focus-within { border-color: var(--ink); }
+.replying { border-radius: var(--r-md) var(--r-md) 0 0; }
+
+/* ---------- buttons, tabs, panels ---------- */
+.btn { background: transparent; box-shadow: inset 0 0 0 1px var(--line2); border-radius: var(--r-md); }
+.btn:hover { background: var(--hover); }
+.btn.primary { background: var(--ink); box-shadow: none; }
+.btn.primary:hover { background: var(--ink-h); }
+.small-btn { background: var(--ok-bg); box-shadow: none; }
+.small-btn:hover { background: var(--ok-bg-h); }
+.tabs { background: none; border-radius: 0; padding: 0; gap: 0; border-bottom: 1px solid var(--line); }
+.tabs button { border-radius: 0; margin-bottom: -1px; border-bottom: 2px solid transparent; }
+.tabs button.on { background: none; color: var(--head); border-bottom-color: var(--ink); }
+.modal { border-radius: var(--r-lg); box-shadow: 0 12px 32px var(--shadow); }
+.auth-card { border-radius: var(--r-lg); box-shadow: none; }
+
+/* ---------- pass 2: sign in, people, shop, quests, explorer ---------- */
+/* sign in: a sheet of paper with an ink tab along the top */
+.auth-bg { background: var(--bg3); }
+.auth-card { background: var(--raised); border: 1px solid var(--line2); border-top: 4px solid var(--ink); }
+.auth-card h1 { font-size: 26px; }
+
+/* profile card and friends */
+.card { border-radius: var(--r-lg); }
+.card-avatar { border-radius: 22%; }
+.card-body h4 { letter-spacing: .02em; }
+
+
+
+/* shared cards (shop, quests, credits, streaks): same radius, no pills, calmer hover */
+.credit-balance, .credit-pack, .quest, .shop-item, .shop-empty, .streak-card, .pt-tile, .shop-tile { border-radius: var(--r-md); }
+.streak-step { border-radius: var(--r-sm); }
+.shop-badge { border-radius: var(--r-sm); }
+.shop-price, .shop-chip, .credit-chip { border-radius: var(--r-sm); }
+.shop-tile.can:hover { transform: none; box-shadow: inset 0 0 0 2px var(--ink); }
+.shop-tile.can:active { transform: none; }
+.shop-tile.can .badge-art { animation: none; }
+.quest-bar, .quest-bar i { border-radius: 2px; }
+.credit-h { font-size: 17px; letter-spacing: 0; }
+
+/* explorer */
+.explore-search { border-radius: var(--r-md); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line2); }
+.explore-sort select { border-radius: var(--r-md); }
+.invite-card { border-radius: var(--r-md); box-shadow: none; }
+
+/* ---------- pass 3: settings, themes, voice messages, calls ---------- */
+.settings-tab { border-radius: var(--r-sm); }
+.settings-tab.on { background: linear-gradient(var(--ink), var(--ink)) no-repeat left center / 3px 60%; }
+.settings-close { border-radius: var(--r-md); }
+.theme-card { border-radius: var(--r-md); }
+.theme-prev { border-radius: var(--r-sm); }
+.theme-prev b { border-radius: 3px; }
+.swatch { border-radius: 6px; }
+
+.voice-msg, .voice-rec { border-radius: var(--r-md); }
+.voice-msg .icon-btn { border-radius: var(--r-sm); }
+
+/* calls: flat dark stage (no gold glow), rounded-square tiles and buttons; the avatar halos follow the new avatar shape */
+.call-stage { background: var(--tile); }
+.call-tile { border-radius: var(--r-md); }
+.stage-pill { border-radius: var(--r-md); }
+.stage-btn, .stage-btn.hangup { border-radius: var(--r-md); }
+.call-toast { border-radius: var(--r-md); }
+.call-pulse, .tile-halo { border-radius: 30%; }
+.call-pulse::before, .call-pulse::after,
+.call-tile.waiting .tile-avatar::before, .call-tile.waiting .tile-avatar::after { border-radius: 30%; }
+
+/* ---------- pass 4: readable text, notices ---------- */
+/* Bree Serif stays for the brand, headings, names and buttons. Text you read or type a lot is plain sans (system font, nothing to download).
+   To go back to all-serif, delete the --font-read line and the rule below it. */
+:root { --font-read: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+.content, .bio, .reply-text, textarea, input, select { font-family: var(--font-read); }
+.content { line-height: 1.5; }
+
+.notice, .error { border-radius: var(--r-md); }
+.invite code, .safety { border-radius: var(--r-md); }

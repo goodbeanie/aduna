@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Avatar, BadgeIcons, Icon, STATUS_LABEL } from './ui.jsx';
 import { useLang } from './i18n.js';
+import { PopMenu } from './ShellBits.jsx';
+import { askConfirm } from './Dialogs.jsx';
 
 const TABS = [['all', 'fAll'], ['online', 'fOnline'], ['pending', 'fPending'], ['add', 'fAdd']];
 
@@ -8,18 +10,23 @@ const TABS = [['all', 'fAll'], ['online', 'fOnline'], ['pending', 'fPending'], [
 const STATUS_ORDER = { online: 0, idle: 1, offline: 2, dnd: 3 };
 const rankOf = (st) => (st in STATUS_ORDER ? STATUS_ORDER[st] : STATUS_ORDER.offline);
 
-export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, onAccept, onRemove, onBack }) {
+export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, onRequest, onAccept, onRemove, onBack }) {
   const { t } = useLang();
   const [tab, setTab] = useState('all');
   const [name, setName] = useState('');
   const [msg, setMsg] = useState(null); // { ok, text }
   const [busy, setBusy] = useState(false);
+  const [moreId, setMoreId] = useState(null); // the friend whose "more" menu is open
+  const [q, setQ] = useState(''); // the filter box on the All and Online lists
 
+  async function removeFriend(u) {
+    if (await askConfirm({ title: t('removeFriend'), body: t('confirmRemove', { name: u.displayName }), confirmLabel: t('removeFriend'), danger: true })) onRemove(u.id);
+  }
   const byStatus = (a, b) =>
     rankOf(statusOf(a.id)) - rankOf(statusOf(b.id)) || a.displayName.localeCompare(b.displayName, undefined, { sensitivity: 'base' });
   const sorted = [...fr.friends].sort(byStatus);
   const online = sorted.filter((u) => statusOf(u.id) !== 'offline');
-  const shown = tab === 'online' ? online : sorted;
+  const shown = (tab === 'online' ? online : sorted).filter((u) => !q.trim() || (u.displayName + ' ' + u.username).toLowerCase().includes(q.trim().toLowerCase()));
   const pending = fr.incoming.length + fr.outgoing.length;
 
   async function add(e) {
@@ -35,7 +42,7 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, on
   }
 
   const row = (u, sub, actions, onMain = () => onUser(u.id)) => (
-    <div className="frow" key={u.id}>
+    <div className="frow" key={u.id} onContextMenu={onUserMenu ? (e) => onUserMenu(e, u.id) : undefined}>
       <button className="frow-main" onClick={onMain}>
         <Avatar user={u} size={36} presence={statusOf(u.id)} />
         <div className="frow-text">
@@ -77,16 +84,29 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onRequest, on
 
         {(tab === 'online' || tab === 'all') && (
           <>
+            {fr.friends.length > 0 && (
+              <div className="friend-filter">
+                <Icon name="search" size={16} />
+                <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter friends" aria-label="Filter friends" maxLength={40} />
+              </div>
+            )}
             <div className="side-label">{tab === 'online' ? t('lblOnline') : t('lblAllFriends')} — {shown.length}</div>
             {shown.map((u) => row(u, STATUS_LABEL[statusOf(u.id)],
               <>
-                <button className="icon-btn" title={t('message')} onClick={() => onMessage(u)}><Icon name="message" size={17} /></button>
-                <button className="icon-btn" title={t('removeFriend')} onClick={() => confirm(t('confirmRemove', { name: u.displayName })) && onRemove(u.id)}><Icon name="close" size={16} /></button>
+                <button className="icon-btn" title={t('message')} aria-label={t('message')} onClick={() => onMessage(u)}><Icon name="message" size={17} /></button>
+                <div className="frow-more">
+                  <button className="icon-btn more-btn" title={t('more')} aria-label={t('more')} aria-haspopup="menu" aria-expanded={moreId === u.id} onClick={() => setMoreId(moreId === u.id ? null : u.id)}><Icon name="more" size={17} /></button>
+                  {moreId === u.id && (
+                    <PopMenu className="menu frow-menu" ignore=".more-btn" onClose={() => setMoreId(null)}>
+                      <button role="menuitem" className="danger-text" onClick={() => { setMoreId(null); removeFriend(u); }}>{t('removeFriend')}</button>
+                    </PopMenu>
+                  )}
+                </div>
               </>,
               () => onMessage(u)))}
             {shown.length === 0 && (
               <div className="friends-empty">
-                <p className="muted">{fr.friends.length === 0 ? t('noFriends') : t('noOneOnline')}</p>
+                <p className="muted">{q.trim() && fr.friends.length > 0 ? `No friends match “${q.trim()}”.` : fr.friends.length === 0 ? t('noFriends') : t('noOneOnline')}</p>
                 {fr.friends.length === 0 && <button className="btn primary" onClick={() => setTab('add')}>{t('fAdd')}</button>}
               </div>
             )}

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { askConfirm } from './Dialogs.jsx';
 
 // "Build with AI on this PC": a panel in the bot editor, only in the Aduna desktop app (window.adunaDesktop.ai, see desktop/ai/ai-service.js).
 // A coding model that runs on this PC (through Ollama) writes bot.js and a test, runs both in the same sandbox the Aduna server uses, and keeps
@@ -235,7 +236,7 @@ export default function AiBuilder({ fetchHosts, defaultOpen, onUse }) {
 
       {jobs.length > 0 && (
         <div className="ai-jobs">
-          <label>YOUR AI BUILDS</label>
+          <label className="keep-case">Your AI builds</label>
           {jobs.map((j) => {
             const running = st?.jobId === j.id && busy;
             return (
@@ -270,7 +271,7 @@ export default function AiBuilder({ fetchHosts, defaultOpen, onUse }) {
                 <div className="ai-job-act">
                   {p ? <><span className="muted small">{pct(p.pct) == null ? p.status : pct(p.pct) + '%'}</span><button type="button" className="btn small-btn" onClick={() => desk().cancelPull()}>Cancel</button></>
                     : isInstalled(m.tag) ? <>{model === m.tag ? <span className="muted small">In use</span> : <button type="button" className="btn small-btn" onClick={() => pick(m.tag)}>Use</button>}
-                      <button type="button" className="btn small-btn danger" disabled={busy} onClick={guard(async () => { if (window.confirm(`Remove ${m.tag} from this PC?`)) { const r = await desk().remove(m.tag); if (!r?.ok) setErr(r?.error); refresh(); } })}>Remove</button></>
+                      <button type="button" className="btn small-btn danger" disabled={busy} onClick={guard(async () => { if (await askConfirm({ title: 'Remove model', body: `Remove ${m.tag} from this PC?`, confirmLabel: 'Remove', danger: true })) { const r = await desk().remove(m.tag); if (!r?.ok) setErr(r?.error); refresh(); } })}>Remove</button></>
                       : <button type="button" className="btn small-btn primary" disabled={anyPull || !ollamaOk} onClick={() => pullModel(m.tag)}>Install</button>}
                 </div>
               </div>

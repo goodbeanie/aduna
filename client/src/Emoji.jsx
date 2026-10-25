@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon, Modal } from './ui.jsx';
 import { api } from './api.js';
+import { askConfirm, toast } from './Dialogs.jsx';
 import { EveryoneMention, Mention } from './Mentions.jsx';
 import { renderMarkdown } from './Markdown.jsx';
 
@@ -128,7 +129,7 @@ function EmojiMenu({ menu, setMenu, ctx }) {
   const mine = ctx.lib.find((x) => x.id === menu.id);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
-    const close = (e) => { if (!ref.current || !ref.current.contains(e.target)) setMenu(null); };
+    const close = (e) => { if (e.target.closest?.('.dlg-layer')) return; /* answering the confirm dialog is not a click away from this menu */ if (!ref.current || !ref.current.contains(e.target)) setMenu(null); };
     const key = (e) => e.key === 'Escape' && setMenu(null);
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', key);
@@ -147,7 +148,7 @@ function EmojiMenu({ menu, setMenu, ctx }) {
       {mine
         ? <div className="emenu-item muted"><Icon name="check" size={15} /> In your emoji</div>
         : <button className="emenu-item" disabled={busy} onClick={() => run(() => ctx.save(menu.id), 'Saved to your emoji')}><Icon name="plus" size={15} /> Save to my emoji</button>}
-      {!mine?.mine && <button className="emenu-item danger-text" disabled={busy} onClick={() => confirm('Report this emoji as inappropriate? Enough reports remove it for everyone.') && run(() => ctx.report(menu.id), 'Reported. Thank you.')}><Icon name="flag" size={15} /> Report emoji</button>}
+      {!mine?.mine && <button className="emenu-item danger-text" disabled={busy} onClick={async () => { if (await askConfirm({ title: 'Report emoji', body: 'Report this emoji as inappropriate? Enough reports remove it for everyone.', confirmLabel: 'Report', danger: true })) run(() => ctx.report(menu.id), 'Reported. Thank you.'); }}><Icon name="flag" size={15} /> Report emoji</button>}
       {menu.note && <div className="emenu-note">{menu.note}</div>}
     </div>
   );
@@ -239,7 +240,12 @@ function EmojiManager({ ctx, onClose }) {
                 <div className="em-name" title={':' + e.name + ':'}>:{e.name}:</div>
                 <div className="muted small">{e.mine ? 'Yours' : 'Saved'}{e.animated ? ' · GIF' : ''}</div>
                 <button className="icon-btn em-del" title={e.mine ? 'Delete for everyone' : 'Remove from my list'}
-                  onClick={() => confirm(e.mine ? `Delete :${e.name}: for everyone? Messages that use it will show :${e.name}: instead.` : `Remove :${e.name}: from your list?`) && ctx.remove(e.id).catch((x) => alert(x.message))}><Icon name="trash" size={15} /></button>
+                  onClick={async () => {
+                    const ok = await askConfirm(e.mine
+                      ? { title: 'Delete emoji', body: `Delete :${e.name}: for everyone? Messages that use it will show :${e.name}: instead.`, confirmLabel: 'Delete', danger: true }
+                      : { title: 'Remove emoji', body: `Remove :${e.name}: from your list?`, confirmLabel: 'Remove', danger: true });
+                    if (ok) ctx.remove(e.id).catch((x) => toast(x.message, 'error'));
+                  }}><Icon name="trash" size={15} /></button>
               </div>
             ))}
           </div>

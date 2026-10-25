@@ -5,18 +5,19 @@ import ResetPassword, { resetTokenFromLocation } from './ResetPassword.jsx';
 import Chat from './Chat.jsx';
 import Friends from './Friends.jsx';
 import { Avatar, BadgeIcons, Icon, ServerIcon, STATUS_LABEL } from './ui.jsx';
+import { ContextMenuProvider, useContextMenu } from './ContextMenu.jsx';
 import { imageUrl } from './image.js';
 import { applyTheme, loadTheme, setServerTheme } from './themes.js';
 import { forceSeason, forcedSeason } from './ringtones.js';
 import { ServerSettings } from './ServerSettings.jsx';
-import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, UserCard, ProfileEditor, SafetyModal } from './Modals.jsx';
+import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, UserCard, ProfileEditor, SafetyModal, KickModal } from './Modals.jsx';
 import { api, connectSocket, emitAck, markSignedIn, endSession, adoptLegacyToken } from './api.js';
 import { SettingsScreen } from './Settings.jsx';
 import { BotTag } from './Bots.jsx';
 import { InviteContext, INVITE_CODE_RE, InvitePage } from './Invite.jsx';
 import * as np from './notifprefs.js';
 import { ServerNotifications } from './ServerNotifications.jsx';
-import { can, canManageAny, roleColorOf } from './perms.js';
+import { can, canManageAny, roleColorOf, rankOf, heldRoles, memberGroups } from './perms.js';
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
@@ -37,6 +38,8 @@ import { WhatsNewPopup } from './WhatsNew.jsx';
 import { withCalls, mergeRecords } from './callhistory.js';
 import { clearDrafts, hasDraft, useDrafts } from './drafts.js';
 import { clearSeen } from './seen.js';
+import { DialogHost, toast as showToast, askConfirm } from './Dialogs.jsx';
+import { RailList, PopMenu, EmptyState, ListSkeleton, Tooltips } from './ShellBits.jsx';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
 // Older messages are plain strings.
@@ -72,14 +75,16 @@ function BootSplash() {
 }
 
 // The loading screen stays up for at least this long from the moment the page opened, even if the app is ready sooner.
+// It plays in full once per browser session; after that (a reload, coming back to the tab) it only shows while the app is really loading.
 // The desktop and Android apps load this same page, so they get it too.
-const MIN_SPLASH_MS = 5000;
+const MIN_SPLASH_MS = 1800;
+const splashSeen = () => { try { return sessionStorage.getItem('aduna-splash') === '1'; } catch { return false; } };
 
 export default function App() {
   const { t: tr } = useLang(); // redraws the whole app when the language changes
-  const [splashDone, setSplashDone] = useState(() => typeof performance === 'undefined' || performance.now() >= MIN_SPLASH_MS);
+  const [splashDone, setSplashDone] = useState(() => typeof performance === 'undefined' || performance.now() >= MIN_SPLASH_MS || splashSeen());
   useEffect(() => {
-    if (splashDone) return undefined;
+    if (splashDone) { try { sessionStorage.setItem('aduna-splash', '1'); } catch { /* storage blocked: it just plays again next time */ } return undefined; }
     const id = setTimeout(() => setSplashDone(true), Math.max(0, MIN_SPLASH_MS - performance.now()));
     return () => clearTimeout(id);
   }, [splashDone]);
@@ -140,7 +145,7 @@ export default function App() {
     return <VerifyEmail me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
   }
   if (invite) return <InvitePage code={invite} signedIn onJoined={(sv) => { setOpenId(sv.id); leaveInvite(); }} onClose={leaveInvite} />;
-  return <EmojiProvider><Main me={me} setMe={setMe} privKey={privKey} openServerId={openId} /></EmojiProvider>;
+  return <EmojiProvider><ContextMenuProvider><Main me={me} setMe={setMe} privKey={privKey} openServerId={openId} /></ContextMenuProvider></EmojiProvider>;
 }
 
 function Main({ me, setMe, privKey, openServerId }) {
@@ -173,8 +178,12 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [collapsed, setCollapsed] = useState({}); // category id -> true while folded
   const [showList, setShowList] = useState(true); // phones: the channel / DM list is a screen of its own
   const [membersOpen, setMembersOpen] = useState(false); // narrow screens: the member list is a slide-over
+  const [membersHidden, setMembersHidden] = useState(() => { try { return localStorage.getItem('aduna.members') === 'off'; } catch { return false; } }); // wide screens: hide the member list to give chat more room
   const [, tick] = useState(0);
+  const [memberQ, setMemberQ] = useState(''); // the search box at the top of the member list
+  const [friendsLoaded, setFriendsLoaded] = useState(false); // the friends list has come back at least once (Friends shows a skeleton until then)
   const { openManager } = useEmoji();
+  const ctxMenu = useContextMenu();
   const [gifEnabled, setGifEnabled] = useState(false);
   const [balance, setBalance] = useState(null);   // your credits (private; arrives from /api/credits and the credits:update event)
   const [creditsRev, setCreditsRev] = useState(0); // goes up when the balance changes so the Credits page refreshes
@@ -278,11 +287,11 @@ function Main({ me, setMe, privKey, openServerId }) {
       const r = await api(`/servers/${serverId}/notifprefs`, { method: 'PUT', body });
       put(r.prefs);
       applyCounts(r.counts || {}, new Set((sv?.channels || []).map((c) => 'c:' + c.id)));
-    } catch (e) { put(before); alert(e.message || 'Could not save that. Try again.'); }
+    } catch (e) { put(before); showToast(e.message || 'Could not save that. Try again.', 'error'); }
   };
   const markServerRead = async (sv) => {
     try { await api(`/servers/${sv.id}/read`, { method: 'POST', body: {} }); applyCounts({}, new Set(sv.channels.map((c) => 'c:' + c.id))); }
-    catch (e) { alert(e.message); }
+    catch (e) { showToast(e.message, 'error'); }
   };
   useEffect(() => { if (loaded) loadNotes().catch(() => {}); }, [loaded, loadNotes]);
 
@@ -318,7 +327,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     })().catch((e) => { if (e.status === 401) logout(); });
   }, [addUsers, logout]);
 
-  useEffect(() => { loadFriends().catch(() => {}); }, [loadFriends]);
+  useEffect(() => { loadFriends().catch(() => {}).finally(() => setFriendsLoaded(true)); }, [loadFriends]);
 
   // ---------- decrypt DMs ----------
   const decryptMsg = useCallback(async (m) => {
@@ -475,7 +484,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('server:removed', ({ serverId, reason, name }) => { // you were kicked, or the owner deleted the server
       setServers((prev) => prev.filter((x) => x.id !== serverId));
       setModal((m) => (m && ['serverSettings', 'invite', 'notes', 'onboarding', 'channel', 'category'].includes(m.type) ? null : m));
-      if (reason === 'deleted') setTimeout(() => alert(`${name || 'A server'} was deleted by its owner.`), 0);
+      if (reason === 'deleted') showToast(`${name || 'A server'} was deleted by its owner.`);
       setView((v) => (v?.kind === 'server' && v.serverId === serverId ? { kind: 'dm', userId: null } : v));
       setShowList(true);
     });
@@ -492,14 +501,16 @@ function Main({ me, setMe, privKey, openServerId }) {
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
 
   // ---------- load history when the view changes ----------
+  const [loadedKeys, setLoadedKeys] = useState({}); // 'c:<channel>' / 'd:<user>' whose history has come back at least once (so the chat shows a skeleton, not "No messages yet", until then)
+  const markLoaded = (key) => setLoadedKeys((p) => (p[key] ? p : { ...p, [key]: true }));
   useEffect(() => {
     if (!view) return;
     if (view.kind === 'server') {
       clearUnread('c:' + view.channelId); markRead(view.channelId);
-      api(`/channels/${view.channelId}/messages`).then((r) => setChan((p) => ({ ...p, [view.channelId]: mergeById(p[view.channelId] || [], r.messages) }))).catch(() => {});
+      api(`/channels/${view.channelId}/messages`).then((r) => setChan((p) => ({ ...p, [view.channelId]: mergeById(p[view.channelId] || [], r.messages) }))).catch(() => {}).finally(() => markLoaded('c:' + view.channelId));
     } else if (view.userId) {
       clearUnread('d:' + view.userId);
-      api(`/dms/${view.userId}/messages`).then((r) => setDmRaw((p) => ({ ...p, [view.userId]: mergeById(p[view.userId] || [], r.messages) }))).catch(() => {});
+      api(`/dms/${view.userId}/messages`).then((r) => setDmRaw((p) => ({ ...p, [view.userId]: mergeById(p[view.userId] || [], r.messages) }))).catch(() => {}).finally(() => markLoaded('d:' + view.userId));
       api(`/dms/${view.userId}/calls`).then((r) => setCallsRaw((p) => ({ ...p, [view.userId]: mergeRecords(p[view.userId], r.calls) }))).catch(() => {});
     }
   }, [view?.kind, view?.channelId, view?.userId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -586,7 +597,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     }).catch(() => {});
     return () => { live = false; };
   }, [server?.id, onbOn]); // eslint-disable-line react-hooks/exhaustive-deps
-  const openOnboarding = () => api(`/servers/${server.id}/onboarding`).then((st) => setModal({ type: 'onboarding', serverId: server.id, state: st })).catch((e) => alert(e.message));
+  const openOnboarding = () => api(`/servers/${server.id}/onboarding`).then((st) => setModal({ type: 'onboarding', serverId: server.id, state: st })).catch((e) => showToast(e.message, 'error'));
   const channel = server?.channels.find((c) => c.id === view.channelId);
   const dmUser = view?.kind === 'dm' && view.userId ? users[view.userId] : null;
   const stageHere = !!dmUser && inCall(call.call) && call.call.peerId === dmUser.id; // the call is drawn in this conversation
@@ -630,6 +641,37 @@ function Main({ me, setMe, privKey, openServerId }) {
     setModal({ type: 'user', id });
   };
 
+  // ---------- right-click menus (ContextMenu.jsx) ----------
+  // A person: on a message's name or picture, a member in the list, a row in Friends. Kick only shows when the server would allow it.
+  const userMenu = (e, id) => {
+    const u = users[id] || server?.members.find((x) => x.id === id);
+    if (!u) return;
+    const rel = relationOf(id);
+    const isMe = id === me.id;
+    const canKickThem = !!server && !isMe && !u.bot && server.members.some((x) => x.id === id) && id !== server.ownerId
+      && can(server, me.id, 'kickMembers') && (server.ownerId === me.id || rankOf(server, id) > rankOf(server, me.id));
+    ctxMenu.open(e, {
+      header: <><Avatar user={u} size={32} /><div className="cmenu-who"><b>{u.displayName}</b>{u.username && <span className="small muted">@{u.username}</span>}</div></>,
+      items: [
+        { label: 'View profile', icon: 'user', onClick: () => { setMembersOpen(false); showUser(id); } },
+        !isMe && !u.bot && { label: 'Message', icon: 'message', onClick: () => openDm(users[id] || u) },
+        rel === 'none' && !u.bot && { label: 'Add friend', icon: 'plus', onClick: () => requestFriend(u.username).catch((err) => showToast(err.message, 'error')) },
+        rel === 'incoming' && { label: 'Accept friend request', icon: 'check', onClick: () => acceptFriend(id) },
+        rel === 'friend' && { label: 'Remove friend', icon: 'close', onClick: async () => { if (await askConfirm({ title: 'Remove friend', body: `Remove ${u.displayName} from your friends?`, confirmLabel: 'Remove', danger: true })) removeFriend(id); } },
+        u.username && { label: 'Copy username', icon: 'copy', onClick: () => ctxMenu.copy('@' + u.username) },
+        canKickThem && 'sep',
+        canKickThem && { label: 'Kick from server', icon: 'close', danger: true, onClick: () => setModal({ type: 'kick', id }) },
+      ],
+    });
+  };
+  const channelMenu = (e, c) => ctxMenu.open(e, {
+    items: [
+      { label: 'Mark all as read', icon: 'check', onClick: () => markServerRead(server) },
+      { label: 'Notification settings', icon: 'bell', onClick: () => setModal({ type: 'notes', channelId: c.id }) },
+      { label: 'Copy channel name', icon: 'copy', onClick: () => ctxMenu.copy(c.name) },
+    ],
+  });
+
   // ---------- actions ----------
   const send = async (text, replyTo, atts = [], typing) => {
     const s = socketRef.current;
@@ -650,28 +692,35 @@ function Main({ me, setMe, privKey, openServerId }) {
     return emitAck(s, 'message:edit', { kind: 'dm', messageId, ...enc });
   };
   const deleteMsg = (messageId) => emitAck(socketRef.current, 'message:delete', { kind: view.kind === 'server' ? 'channel' : 'dm', messageId });
+  const pinMsg = (m, pinned) => emitAck(socketRef.current, 'message:pin', { messageId: m.id, pinned }).catch((e) => showToast(e.message || 'Could not do that. Try again.', 'error'));
   const onTyping = () => socketRef.current?.emit('typing', view.kind === 'server' ? { channelId: view.channelId } : { to: dmUser.id });
 
   const requestFriend = async (username) => { const r = await api('/friends/request', { method: 'POST', body: { username } }); await loadFriends(); return r; };
-  const acceptFriend = (id) => api(`/friends/${id}/accept`, { method: 'POST' }).then(loadFriends).catch((e) => alert(e.message));
-  const removeFriend = (id) => api(`/friends/${id}`, { method: 'DELETE' }).then(loadFriends).catch((e) => alert(e.message));
+  const acceptFriend = (id) => api(`/friends/${id}/accept`, { method: 'POST' }).then(loadFriends).catch((e) => showToast(e.message, 'error'));
+  const removeFriend = (id) => api(`/friends/${id}`, { method: 'DELETE' }).then(loadFriends).catch((e) => showToast(e.message, 'error'));
   const relationOf = (id) => id === me.id ? 'self' : fr.friends.some((u) => u.id === id) ? 'friend'
     : fr.incoming.some((x) => x.user.id === id) ? 'incoming' : fr.outgoing.some((x) => x.user.id === id) ? 'outgoing' : 'none';
 
   const leaveServer = async () => {
     const iOwn = server.ownerId === me.id;
     if (iOwn && server.members.length > 1) { // the owner must hand the server over (or delete it) first
-      alert('You own this server. Transfer ownership to another member, or delete the server, before you leave.');
+      showToast('You own this server. Transfer ownership to another member, or delete the server, before you leave.', 'error');
       setModal({ type: 'serverSettings', tab: 'ownership' });
       return;
     }
-    if (!confirm(iOwn ? `You are the only member, so leaving deletes ${server.name}. Continue?` : `Leave ${server.name}?`)) return;
+    const sure = await askConfirm({
+      title: iOwn ? 'Delete server' : 'Leave server',
+      body: iOwn ? `You are the only member, so leaving deletes ${server.name}. Continue?` : `Leave ${server.name}?`,
+      confirmLabel: iOwn ? 'Delete server' : 'Leave',
+      danger: true,
+    });
+    if (!sure) return;
     try {
       await api(`/servers/${server.id}/leave`, { method: 'POST' });
       const rest = servers.filter((s) => s.id !== server.id);
       setServers(rest);
       rest[0] ? openServer(rest[0]) : (setView({ kind: 'dm', userId: null }), setShowList(true));
-    } catch (e) { alert(e.message); }
+    } catch (e) { showToast(e.message, 'error'); }
   };
 
   // Direct invite: a normal end-to-end encrypted DM containing the invite link; the receiver's client draws the join box.
@@ -707,7 +756,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       channels: next.chans.map((x) => { const { categoryId, ...c } = byId.get(x.id); return x.categoryId ? { ...c, categoryId: x.categoryId } : c; }) };
     setServers((p) => p.map((x) => (x.id === server.id ? optimistic : x)));
     try { const { server: sv } = await saveLayout(api, server.id, next); setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); }
-    catch (e) { setServers((p) => p.map((x) => (x.id === before.id ? before : x))); alert(e.message); }
+    catch (e) { setServers((p) => p.map((x) => (x.id === before.id ? before : x))); showToast(e.message, 'error'); }
   };
   const endDrag = () => { dragRef.current = null; setMark(null); setDragging(false); };
   const startDrag = (kind, id, e) => { dragRef.current = { kind, id }; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); setTimeout(() => dragRef.current && setDragging(true), 0); };
@@ -760,13 +809,19 @@ function Main({ me, setMe, privKey, openServerId }) {
     }
   }, [server, channel]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const membersToggle = <button className="icon-btn members-toggle" title="Members" aria-label="Show members" onClick={() => setMembersOpen((o) => !o)}><Icon name="users" size={18} /></button>;
+  const toggleMembersPane = () => { const next = !membersHidden; setMembersHidden(next); try { localStorage.setItem('aduna.members', next ? 'off' : 'on'); } catch { /* storage blocked: it just resets next time */ } };
+  const membersToggle = (
+    <>
+      <button className="icon-btn members-toggle" title="Members" aria-label="Show members" onClick={() => setMembersOpen((o) => !o)}><Icon name="users" size={18} /></button>
+      <button className={'icon-btn members-collapse' + (membersHidden ? '' : ' on')} title={membersHidden ? 'Show member list' : 'Hide member list'} aria-label={membersHidden ? 'Show member list' : 'Hide member list'} aria-pressed={!membersHidden} onClick={toggleMembersPane}><Icon name="users" size={18} /></button>
+    </>
+  );
 
   if (!view) return <BootSplash />;
 
   const roleColors = server ? Object.fromEntries(server.members.map((m) => [m.id, roleColorOf(server, m.id)]).filter(([, c]) => c)) : {};
   const memberRow = (u) => (
-    <button key={u.id} className={'member' + (statusOf(u.id) === 'offline' ? ' off' : '')} onClick={() => { setMembersOpen(false); showUser(u.id); }}>
+    <button key={u.id} className={'member' + (statusOf(u.id) === 'offline' ? ' off' : '')} onClick={() => { setMembersOpen(false); showUser(u.id); }} onContextMenu={(e) => userMenu(e, u.id)}>
       <Avatar user={users[u.id] || u} size={32} presence={statusOf(u.id)} />
       <span data-nc style={{ '--nc': (server && roleColorOf(server, u.id)) || (users[u.id] || u).accentColor }}>{(users[u.id] || u).displayName}</span>
       <BadgeIcons user={users[u.id] || u} size={16} />
@@ -784,7 +839,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           <img src="/aduna-icon.png" alt="" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
         <div className="rail-sep" />
-        <div className="rail-list">
+        <RailList>
           {servers.map((s) => (
             <button key={s.id} className={'rail-btn' + (s.iconImage ? ' has-icon' : '') + (server?.id === s.id ? ' on' : '') + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' muted' : '')} title={s.name + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' (muted)' : '')} onClick={() => openServer(s)}>
               <ServerIcon server={s} fill />
@@ -793,7 +848,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             </button>
           ))}
           <button className="rail-btn add" title="Create or join a server" onClick={() => setModal({ type: 'server' })}><Icon name="plus" size={22} /></button>
-        </div>
+        </RailList>
         <RailUpdateChip />
       </nav>
 
@@ -808,7 +863,7 @@ function Main({ me, setMe, privKey, openServerId }) {
               <Icon name={menu ? 'close' : 'chevron'} size={16} />
             </button>
             {menu && (
-              <div className="menu" onMouseLeave={() => setMenu(false)}>
+              <PopMenu onClose={() => setMenu(false)}>
                 <button onClick={() => { setMenu(false); setModal({ type: 'invite' }); }}>Invite people</button>
                 <div className="menu-sep" role="separator" />
                 <div className="menu-label">Notifications</div>
@@ -821,7 +876,7 @@ function Main({ me, setMe, privKey, openServerId }) {
                 {onbOn && <button onClick={() => { setMenu(false); openOnboarding(); }}>Server questions</button>}
                 {canManageAny(server, me.id) && <button onClick={() => { setMenu(false); setModal({ type: 'serverSettings' }); }}>Server settings</button>}
                 <button className="danger-text" onClick={() => { setMenu(false); leaveServer(); }}>Leave server</button>
-              </div>
+              </PopMenu>
             )}
             <div className="side-list">
               {(() => {
@@ -831,8 +886,8 @@ function Main({ me, setMe, privKey, openServerId }) {
                 const loose = server.channels.filter((c) => !c.categoryId || !catIds.has(c.categoryId));
                 const row = (c) => (
                   <React.Fragment key={c.id}>
-                    <button className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] || mentions['c:' + c.id] ? ' unread' : '') + (np.effective(notePrefs[server.id], c.id, Date.now()).muted ? ' muted' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} onContextMenu={(e) => { e.preventDefault(); setModal({ type: 'notes', channelId: c.id }); }} title={np.effective(notePrefs[server.id], c.id, Date.now()).muted ? 'Muted \u00b7 right-click for notification settings' : undefined} {...chanDnd(c, isOwner)}>
-                      <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{mentions['c:' + c.id] > 0 && <span className="badge inline at" title="You were mentioned">@{fmtN(mentions['c:' + c.id])}</span>}{unread['c:' + c.id] > 0 && <span className={'badge inline' + (mentions['c:' + c.id] ? ' after-at' : '')}>{fmtN(unread['c:' + c.id])}</span>}
+                    <button className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] || mentions['c:' + c.id] ? ' unread' : '') + (np.effective(notePrefs[server.id], c.id, Date.now()).muted ? ' muted' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} onContextMenu={(e) => channelMenu(e, c)} title={np.effective(notePrefs[server.id], c.id, Date.now()).muted ? 'Muted \u00b7 right-click for notification settings' : undefined} {...chanDnd(c, isOwner)}>
+                      <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{mentions['c:' + c.id] > 0 && <span className="badge inline at" title="You were mentioned">@{fmtN(mentions['c:' + c.id])}</span>}{unread['c:' + c.id] > 0 && <span className="unread-dot" title={`${fmtN(unread['c:' + c.id])} unread`} aria-label={`${fmtN(unread['c:' + c.id])} unread`} />}
                     </button>
                     {c.type === 'voice' && (voice.members[c.id] || []).map((id) => users[id] && (
                       <div key={id} className="voice-member"><Avatar user={users[id]} size={20} /><span>{users[id].displayName}</span>{id === me.id && voice.state.channelId === c.id && voice.state.muted && <Icon name="micoff" size={13} />}</div>
@@ -842,7 +897,7 @@ function Main({ me, setMe, privKey, openServerId }) {
                 return (
                   <>
                     {(loose.length > 0 || cats.length === 0 || (isOwner && dragging)) && (
-                      <div className={'cat-head' + markClass('cat', '_loose')} {...headDnd(null, isOwner)}><span className="cat-name static">CHANNELS</span>
+                      <div className={'cat-head' + markClass('cat', '_loose')} {...headDnd(null, isOwner)}><span className="cat-name static">Channels</span>
                         {isOwner && <button className="icon-btn cat-add" title="Create channel" aria-label="Create channel" onClick={() => setModal({ type: 'channel' })}><Icon name="plus" size={16} /></button>}
                       </div>
                     )}
@@ -855,7 +910,7 @@ function Main({ me, setMe, privKey, openServerId }) {
                         <div key={cat.id} className="cat">
                           <div className={'cat-head' + markClass('cat', cat.id)} {...headDnd(cat, isOwner)}>
                             <button className={'cat-name' + (folded ? ' folded' : '')} aria-expanded={!folded} onClick={() => setCollapsed((p) => ({ ...p, [cat.id]: !p[cat.id] }))}>
-                              <Icon name="chevron" size={12} /><span>{cat.name.toUpperCase()}</span>
+                              <Icon name="chevron" size={12} /><span>{cat.name}</span>
                             </button>
                             {isOwner && <button className="icon-btn cat-add" title={`Create channel in ${cat.name}`} aria-label={`Create channel in ${cat.name}`} onClick={() => setModal({ type: 'channel', categoryId: cat.id })}><Icon name="plus" size={16} /></button>}
                           </div>
@@ -906,6 +961,12 @@ function Main({ me, setMe, privKey, openServerId }) {
             <Avatar user={me} size={34} presence={myPresence} />
             <div><div className="me-name">{me.displayName}<BadgeIcons user={me} size={16} /></div><div className="muted small">{STATUS_LABEL[myPresence]}</div></div>
           </button>
+          {voice.state.channelId && (
+            <>
+              <button className={'icon-btn vc-btn' + (voice.state.muted ? ' off' : '')} title={voice.state.muted ? 'Unmute' : 'Mute'} aria-label={voice.state.muted ? 'Unmute' : 'Mute'} aria-pressed={voice.state.muted} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={18} /></button>
+              <button className={'icon-btn vc-btn' + (voice.state.deafened ? ' off' : '')} title={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-label={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-pressed={voice.state.deafened} onClick={voice.actions.toggleDeafen}><Icon name={voice.state.deafened ? 'headphonesoff' : 'headphones'} size={18} /></button>
+            </>
+          )}
           <button className="credit-chip" title={tr('shopTab')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
           <button className="icon-btn" title={tr('customEmoji')} onClick={openManager}><Icon name="smile" size={18} /></button>
           <button className="icon-btn" title={tr('settings')} onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
@@ -921,9 +982,10 @@ function Main({ me, setMe, privKey, openServerId }) {
           onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
       )}
       {server && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
-        <Chat title={channel.name} draftKey={'c:' + channel.id} unreadCount={unread['c:' + channel.id] || 0} unreadExact={unreadCountsAll(server, channel)} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
+        <Chat title={channel.name} draftKey={'c:' + channel.id} loading={!loadedKeys['c:' + channel.id]} unreadCount={unread['c:' + channel.id] || 0} unreadExact={unreadCountsAll(server, channel)} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onPoll={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
-          onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={can(server, me.id, 'manageMessages')} roleColors={roleColors} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
+          onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={can(server, me.id, 'manageMessages')} canPin={can(server, me.id, 'manageMessages')} onPin={pinMsg} pinsFor={channel.id}
+          bell={{ muted: np.effective(notePrefs[server.id], channel.id, Date.now()).muted, onClick: () => setModal({ type: 'notes', channelId: channel.id }) }} roleColors={roleColors} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
           mentionables={server.members} canEveryone={can(server, me.id, 'mentionEveryone') && channel.type !== 'announcements'}
           placeholder={channel.type === 'announcements' ? `Announce to everyone in ${server.name}` : `Message #${channel.name}`}
@@ -933,8 +995,8 @@ function Main({ me, setMe, privKey, openServerId }) {
           headerExtra={membersToggle} />
       )}
       {dmUser && (
-        <Chat title={dmUser.displayName} draftKey={'d:' + dmUser.id} unreadCount={unread['d:' + dmUser.id] || 0} unreadExact subtitle="@" onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
-          onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={false} onTyping={onTyping} typingNames={typingNames} onUser={showUser}
+        <Chat title={dmUser.displayName} draftKey={'d:' + dmUser.id} loading={!loadedKeys['d:' + dmUser.id]} unreadCount={unread['d:' + dmUser.id] || 0} unreadExact subtitle="@" onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
+          onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={false} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
           files={{ scope: relationOf(dmUser.id) === 'friend' ? { kind: 'dm', target: dmUser.id, privKey, theirPublic: dmUser.publicKey } : null, dm: { privKey, theirPublic: dmUser.publicKey } }} gifEnabled={gifEnabled}
           placeholder={`Message @${dmUser.displayName}`} mentionables={[me, dmUser]}
           stage={stageHere ? <CallStage call={call.call} actions={call.actions} users={users} me={me} /> : null}
@@ -948,7 +1010,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
       {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} />}
       {view.kind === 'dm' && !dmUser && !view.explore && !view.shop && !view.quests && (
-        <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
+        <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
       )}
 
       {/* members */}
@@ -956,9 +1018,9 @@ function Main({ me, setMe, privKey, openServerId }) {
         <>
         {membersOpen && <div className="drawer-backdrop" onClick={() => setMembersOpen(false)} />}
         <aside className={'members' + (membersOpen ? ' open' : '')}>
-          {onlineMembers.length > 0 && <div className="side-label">ONLINE — {onlineMembers.length}</div>}
+          {onlineMembers.length > 0 && <div className="side-label">Online · {onlineMembers.length}</div>}
           {onlineMembers.map(memberRow)}
-          {offlineMembers.length > 0 && <div className="side-label">OFFLINE — {offlineMembers.length}</div>}
+          {offlineMembers.length > 0 && <div className="side-label">Offline · {offlineMembers.length}</div>}
           {offlineMembers.map(memberRow)}
         </aside>
         </>
@@ -991,12 +1053,17 @@ function Main({ me, setMe, privKey, openServerId }) {
       {modal?.type === 'invite' && server && <InviteModal server={server} friends={fr.friends} isOwner={can(server, me.id, 'manageServer')} onSend={sendInvite} onClose={() => setModal(null)} />}
       {modal?.type === 'dm' && <NewDmModal friends={fr.friends} onClose={() => setModal(null)} onPick={openDm} />}
       {modal?.type === 'safety' && dmUser && <SafetyModal me={me} other={dmUser} onClose={() => setModal(null)} />}
+      {modal?.type === 'kick' && server && users[modal.id] && (
+        <KickModal server={server} user={users[modal.id]} onClose={() => setModal(null)}
+          onDone={(sv) => { if (sv) setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); setModal(null); }} />
+      )}
       {modal?.type === 'user' && users[modal.id] && (
         <UserCard user={users[modal.id]} relation={relationOf(modal.id)} presence={statusOf(modal.id)} onClose={() => setModal(null)}
           onMessage={() => openDm(users[modal.id])} onEdit={() => setModal({ type: 'edit' })}
-          onAddFriend={() => requestFriend(users[modal.id].username).catch((e) => alert(e.message))} onAccept={() => acceptFriend(modal.id)} />
+          onAddFriend={() => requestFriend(users[modal.id].username).catch((e) => showToast(e.message, 'error'))} onAccept={() => acceptFriend(modal.id)} />
       )}
       {modal?.type === 'edit' && <SettingsScreen key={modal.ai || 0} initialTab={modal.tab} aiFocus={modal.ai} me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} getSocketId={() => socketRef.current?.id} />}
+      <DialogHost />
     </div>
     </InviteContext.Provider>
   );

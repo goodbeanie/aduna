@@ -1,0 +1,90 @@
+/* Aduna look, pass 5. Loaded after redesign.css. Same rules as before: it only changes how things look, uses the theme colour variables,
+   and can be removed (the import in main.jsx) to go back one step.
+
+   What it finishes from the design plan:
+     - no gradients or glow left in the app, no pills, no decorative motion
+     - one quiet "muted" style and one body size
+     - clear hover, focus and pressed states everywhere
+     - 40px click targets on phones
+     - a chat density setting (cozy / compact), switched by html[data-density] */
+
+/* ---------- flat: no gradient, glow or pill left ---------- */
+.call-tile { background: var(--tile); box-shadow: inset 0 0 0 1px #ffffff1f; }
+.call-tile[role=button]:hover { box-shadow: inset 0 0 0 2px #ffffff55; }
+.tile-halo { background: none; border: 2px solid var(--green); }
+.celebrate-card { border-radius: var(--r-lg); box-shadow: none; border: 1px solid var(--line2); }
+.celebrate-art { background: none; animation: none; border-radius: var(--r-md); }
+.confetti { display: none; }
+.rail-upd, .credit-gain, .toast, .update-box, .call-toast { border-radius: var(--r-md); box-shadow: none; border: 1px solid var(--line2); }
+.rail-upd { border-radius: var(--r-md); }
+.side-head.has-banner::before { background: #0000008c; }
+.credit-num.bump { animation: none; }
+.badge-art { animation: none; }
+
+/* ---------- type: one body size, one quiet style ---------- */
+body { font-size: 15px; }
+.content { font-size: 15px; }
+.time, .muted { color: var(--muted); }
+
+.side-label, .cat-name { color: var(--muted); text-transform: none; }
+::placeholder { color: var(--placeholder); }
+
+/* ---------- states: hover, focus, pressed ---------- */
+:where(button, a, input, select, textarea, [role=button], [tabindex]):focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.composer-row :where(textarea, input):focus-visible { outline: none; }
+.btn:active, .icon-btn:active, .chan:active, .settings-tab:active, .rail-btn:active, .toolbar button:active { background: var(--sel); transform: none; }
+.btn.primary:active { background: var(--ink-h); }
+.btn.danger:active { background: var(--danger-h); color: var(--bg); }
+.btn.danger-fill:active { background: var(--danger-h); }
+.btn:disabled, .btn:disabled:hover { opacity: .5; }
+.btn.primary:disabled, .btn.primary:disabled:hover { background: var(--ink); }
+.icon-btn { border-radius: var(--r-sm); }
+
+/* ---------- one highlight style for "selected" ---------- */
+.chan.on, .settings-tab.on { background-color: var(--sel); }
+
+.chan.muted, .chan.muted.unread { opacity: .6; }
+
+/* ---------- chat density ---------- */
+html[data-density=compact] .msg { margin-top: 6px; padding-top: 1px; padding-bottom: 1px; }
+html[data-density=compact] .msg.grouped { margin-top: 0; }
+html[data-density=compact] .msg-row { gap: 10px; }
+html[data-density=compact] .content { line-height: 1.35; }
+html[data-density=compact] .msg .avatar { width: 28px; height: 28px; }
+html:not([data-density=compact]) .content { line-height: 1.55; }
+
+/* ---------- phones: big, obvious targets ---------- */
+@media (max-width: 720px) {
+  .btn, .small-btn { min-height: 40px; }
+  .icon-btn { width: 40px; height: 40px; }
+  .chan { min-height: 40px; }
+  .chan.dm { min-height: 44px; }
+  .toolbar button { width: 40px; height: 40px; }
+  .settings-tab { min-height: 44px; }
+  .settings-navclose, .cat-add { width: 40px; height: 40px; }
+  .rail-btn { width: 44px; height: 44px; }
+  .cmenu-item, .menu button { min-height: 40px; }
+  .tabs button { min-height: 40px; }
+  input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]), select { min-height: 40px; }
+  body, .content { font-size: 16px; }
+}
+
+/* ---------- pass 6: shapes and shadows follow the system ---------- */
+/* rounded squares, not circles or pills (status dots stay round: they are dots, not buttons) */
+.send-btn, .rec-send { border-radius: var(--r-md) !important; }
+.ap-play, .vp-big, .ci-btn, .call-strip .cd-btn { border-radius: var(--r-md); }
+.pend-x { border-radius: var(--r-sm); }
+.jump-btn { border-radius: var(--r-md); box-shadow: none; }
+.drop-hint { border-radius: var(--r-lg); }
+@media (hover: none) {
+  .rail-btn:hover, .rail-btn.on, .rail-btn.on:hover { border-radius: var(--r-md); }
+}
+
+/* shadows use the theme's own shadow colour, so they are not brown on dark themes */
+.pop, .emenu { box-shadow: 0 8px 20px var(--shadow); }
+@media (max-width: 1050px) { .members { box-shadow: -10px 0 30px var(--shadow); } }
+@media (max-width: 720px) { .call-strip { box-shadow: 0 6px 20px var(--shadow); } }
+
+/* "new messages" line: quiet ink, red is kept for do-not-disturb and danger */
+.new-divider { color: var(--head); }
+.new-divider::before { background: var(--ink); opacity: .45; }

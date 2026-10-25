@@ -41,3 +41,24 @@ export const roleColorOf = (server, uid) => heldRoles(server, uid).find((r) => r
 
 // does this person have any server-management power at all (shows "Server settings")?
 export const canManageAny = (server, uid) => ['manageServer', 'manageRoles', 'manageChannels', 'kickMembers'].some((p) => can(server, uid, p)) || uid === server.ownerId;
+
+// The member list, grouped like Discord: the owner and then each role (highest first) list their members who are online,
+// then everyone else who is online, then everyone offline (offline people keep their role colour on their name).
+// `textOf(member)` is what `q` is matched against (name and username).
+export function memberGroups(server, members, isOnline, textOf, q) {
+  const needle = String(q || '').trim().toLowerCase();
+  const list = needle ? members.filter((m) => textOf(m).toLowerCase().includes(needle)) : members;
+  const groups = [], placed = new Set();
+  const take = (key, label, color, pick) => {
+    const items = list.filter((m) => !placed.has(m.id) && isOnline(m.id) && pick(m));
+    if (!items.length) return;
+    items.forEach((m) => placed.add(m.id));
+    groups.push({ key, label, color, items });
+  };
+  take('owner', 'Owner', null, (m) => m.id === server.ownerId);
+  (server.roles || []).forEach((r, i) => take('r:' + r.id, r.name, r.color || null, (m) => rankOf(server, m.id) === i));
+  take('online', 'Online', null, () => true);
+  const off = list.filter((m) => !placed.has(m.id));
+  if (off.length) groups.push({ key: 'offline', label: 'Offline', color: null, items: off, off: true });
+  return { groups, total: list.length };
+}

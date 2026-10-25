@@ -1,0 +1,20 @@
+/* Forms: one label style everywhere. Loaded after voice.css.
+   Many labels are typed in capitals in the code (NAME, YOUR PASSWORD). Here they are shown as plain sentence case:
+   all lower case, first letter up. Add class "keep-case" to a label that holds a name or acronym (AI, URL) to leave it alone. */
+
+label:not(.check-row):not(.keep-case):not(.daily-check):not(.ma-check) { text-transform: lowercase; letter-spacing: 0; font-size: 13px; }
+label:not(.check-row):not(.keep-case):not(.daily-check):not(.ma-check)::first-letter { text-transform: uppercase; }
+
+/* small headings in menus and pickers: quiet sentence case instead of spaced capitals */
+.menu-label, .ic-label, .ch-head .ch-name { text-transform: none; letter-spacing: 0; }
+.menu-label, .ic-label { font-size: 12px; }
+.side-label, .pop-label, .ep-label, .cat-name { letter-spacing: .01em; }
+
+/* the sticky save bar in settings and server settings: hairline above it, one filled button */
+.settings-foot { border-top: 1px solid var(--line); }
+
+/* inputs: one look, ink border when focused */
+input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]), select, textarea { border-radius: var(--r-md); }
+input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=color]):not([type=file]):focus, select:focus, textarea:focus { border-color: var(--ink); outline: none; box-shadow: 0 0 0 1px var(--ink); }
+/* inputs that live inside a bordered box (composer, search) keep the box's own focus style */
+.composer-row :is(input, textarea):focus, .composer :is(input, textarea):focus, .explore-search input:focus, .ep-search input:focus { box-shadow: none; border-color: transparent; }

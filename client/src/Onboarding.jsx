@@ -68,7 +68,7 @@ export function OnboardingTab({ server, onChange }) {
           {q.options.map((o, k) => (
             <div className="onb-opt" key={o.key}>
               <div className="onb-opt-head">
-                <input className="onb-emoji" value={o.emoji} maxLength={8} placeholder="🙂" aria-label="Emoji (optional)" onChange={(e) => setO(i, k, { emoji: e.target.value })} />
+                <input className="onb-emoji" value={o.emoji} maxLength={8} placeholder="Emoji" aria-label="Emoji (optional)" onChange={(e) => setO(i, k, { emoji: e.target.value })} />
                 <input className="grow" value={o.label} maxLength={60} placeholder="Answer" aria-label={`Answer ${k + 1}`} onChange={(e) => setO(i, k, { label: e.target.value })} />
                 <button className="icon-btn" title="Remove answer" aria-label="Remove answer" disabled={q.options.length <= 1} onClick={() => setQ(i, { options: q.options.filter((_, m) => m !== k) })}><Icon name="close" size={16} /></button>
               </div>

@@ -1,0 +1,29 @@
+/* the right-click menu (ContextMenu.jsx) */
+.cmenu { position: fixed; z-index: 75; min-width: 190px; max-width: min(280px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow-y: auto; background: var(--raised); border: 1px solid var(--line); outline: none; }
+.cmenu-head { display: flex; align-items: center; gap: 10px; min-width: 0; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+.cmenu-who { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.cmenu-who b { font-weight: 400; color: var(--head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmenu-who .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmenu-sep { height: 1px; background: var(--line); margin: 4px 6px; }
+.cmenu-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 10px; text-align: left; color: var(--text); }
+.cmenu-item span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmenu-item:hover:not(:disabled), .cmenu-item:focus-visible { outline: none; }
+.cmenu-item.danger { color: var(--danger); }
+
+.cmenu-item:disabled { opacity: .5; cursor: default; }
+.cmenu-toast { position: fixed; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 90; padding: 8px 16px; background: var(--raised); color: var(--head); pointer-events: none; }
+.em-layout { display: grid; grid-template-columns: 1fr 1.1fr; gap: 24px; }
+.em-h { font-size: 12px; color: var(--muted); letter-spacing: .08em; margin: 0 0 6px; }
+.em-preview { width: 64px; height: 64px; object-fit: contain; background: repeating-conic-gradient(var(--sel) 0 25%, var(--msg-hover) 0 50%) 0 0 / 14px 14px; border-radius: 10px; border: 1px solid var(--line); }
+.em-checks { list-style: none; padding: 0; margin: 10px 0 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.em-checks li { display: flex; align-items: center; gap: 6px; } .em-checks .ok { color: var(--green); } .em-checks .bad { color: var(--danger); }
+.em-dup { display: flex; gap: 10px; align-items: center; background: var(--field); border-radius: 10px; padding: 10px; margin-top: 12px; font-size: 14px; } .em-dup img { width: 40px; height: 40px; object-fit: contain; }
+.em-dup .btn { margin-top: 6px; }
+.em-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; max-height: 360px; overflow-y: auto; }
+.em-card { position: relative; background: var(--field); border-radius: 12px; padding: 10px 6px 8px; text-align: center; }
+.em-card img { width: 40px; height: 40px; object-fit: contain; display: block; margin: 0 auto 4px; }
+.em-name { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--head); }
+.em-del { position: absolute; top: 2px; right: 2px; width: 24px; height: 24px; opacity: 0; } .em-card:hover .em-del { opacity: 1; } .em-del:hover { color: var(--danger); }
+.modal code { background: var(--field); padding: 1px 6px; border-radius: 6px; font: inherit; }
+@media (max-width: 720px) { .em-layout { grid-template-columns: 1fr; } }
+

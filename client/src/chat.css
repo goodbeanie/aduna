@@ -1,0 +1,43 @@
+/* Chat: the message row first, then the composer, then the header. Loaded after members.css. */
+
+/* message row: name and time on one quiet line, text with room to breathe */
+.msg { padding: 3px 16px; }
+.msg-row { gap: 14px; }
+.msg-head { gap: 8px; align-items: baseline; }
+.name { font-size: 15px; }
+.time { font-size: 12px; color: var(--muted); }
+.gutter { font-size: 11px; color: var(--muted); }
+.msg .content { color: var(--text); }
+.reply-ref { font-size: 13px; }
+.reply-line { border-radius: 0; border-top-left-radius: 4px; }
+.reactions { gap: 6px; margin-top: 6px; }
+.chip { padding: 2px 8px; min-height: 26px; }
+.chip.on { background: transparent; border-color: var(--ink); }
+
+/* hover actions: they float over the row (no layout shift); square buttons, one hover style */
+.toolbar { top: -16px; background: var(--raised); border: 1px solid var(--line2); }
+.toolbar button { width: 34px; height: 30px; }
+.toolbar button:active { background: var(--sel); }
+
+/* composer: one outlined box that gets an ink border when you type in it */
+.composer { border-radius: var(--r-md); }
+.replying { background: var(--bg2); border: 1px solid var(--line2); border-bottom: 0; }
+.typing { font-size: 13px; color: var(--muted); }
+
+/* header: one line, hairline under it (set in redesign.css); channel type icon stays muted */
+.chat-head .hash { color: var(--muted); }
+
+/* empty states: one plain line and one action, left quiet */
+.empty, .home p { color: var(--muted); }
+.home { gap: 8px; }
+.home h2 { font-size: 20px; }
+
+/* dialogs opened from chat */
+.modal-x { border-radius: var(--r-md); }
+.modal-head h2 { font-size: 20px; }
+.result { border-radius: var(--r-sm); min-height: 40px; }
+
+@media (max-width: 720px) {
+  .msg { padding: 3px 12px; }
+  .msg-row { gap: 10px; }
+}

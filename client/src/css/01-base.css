@@ -1,0 +1,166 @@
+@import '@fontsource/bree-serif/latin-400.css';
+@import '@fontsource/bree-serif/latin-ext-400.css';
+
+/* Registering the palette variables as real colours lets the browser animate them. themes.js swaps the variables on <html>
+   (your theme, or a server's theme while you are on that server) and every surface fades to the new colours at once.
+   Browsers without @property support just switch instantly. */
+@property --bg { syntax: '<color>'; inherits: true; initial-value: #fbf8f1; }
+@property --bg2 { syntax: '<color>'; inherits: true; initial-value: #f4efe3; }
+@property --bg3 { syntax: '<color>'; inherits: true; initial-value: #ebe4d4; }
+@property --field { syntax: '<color>'; inherits: true; initial-value: #f0eadb; }
+@property --line { syntax: '<color>'; inherits: true; initial-value: #e2d9c4; }
+@property --line2 { syntax: '<color>'; inherits: true; initial-value: #cfc5ac; }
+@property --text { syntax: '<color>'; inherits: true; initial-value: #2a251e; }
+@property --muted { syntax: '<color>'; inherits: true; initial-value: #857b6a; }
+@property --head { syntax: '<color>'; inherits: true; initial-value: #14110d; }
+@property --ink { syntax: '<color>'; inherits: true; initial-value: #1c1812; }
+@property --ink-h { syntax: '<color>'; inherits: true; initial-value: #3b342a; }
+@property --on-ink { syntax: '<color>'; inherits: true; initial-value: #fbf8f1; }
+@property --hover { syntax: '<color>'; inherits: true; initial-value: #eee7d6; }
+@property --sel { syntax: '<color>'; inherits: true; initial-value: #e5ddc8; }
+@property --msg-hover { syntax: '<color>'; inherits: true; initial-value: #f6f1e5; }
+@property --raised { syntax: '<color>'; inherits: true; initial-value: #fffdf8; }
+@property --chip-on { syntax: '<color>'; inherits: true; initial-value: #e3dac3; }
+@property --placeholder { syntax: '<color>'; inherits: true; initial-value: #a99f8c; }
+@property --link { syntax: '<color>'; inherits: true; initial-value: #2d5f8a; }
+@property --danger { syntax: '<color>'; inherits: true; initial-value: #b8442f; }
+@property --danger-h { syntax: '<color>'; inherits: true; initial-value: #9c3825; }
+@property --green { syntax: '<color>'; inherits: true; initial-value: #3f8f5b; }
+@property --green-h { syntax: '<color>'; inherits: true; initial-value: #327a4b; }
+@property --ok-bg { syntax: '<color>'; inherits: true; initial-value: #e3eedf; }
+@property --ok-bg-h { syntax: '<color>'; inherits: true; initial-value: #d3e5cf; }
+@property --ok-fg { syntax: '<color>'; inherits: true; initial-value: #2f6b45; }
+@property --err-bg { syntax: '<color>'; inherits: true; initial-value: #f8e4de; }
+@property --err-fg { syntax: '<color>'; inherits: true; initial-value: #9b3623; }
+@property --idle { syntax: '<color>'; inherits: true; initial-value: #d9a22b; }
+@property --dnd { syntax: '<color>'; inherits: true; initial-value: #c9473a; }
+@property --offline { syntax: '<color>'; inherits: true; initial-value: #a39a88; }
+@property --gold { syntax: '<color>'; inherits: true; initial-value: #c9953a; }
+@property --tile { syntax: '<color>'; inherits: true; initial-value: #2a251e; }
+@property --scrim { syntax: '<color>'; inherits: true; initial-value: #2a1f0f73; }
+@property --scrim-soft { syntax: '<color>'; inherits: true; initial-value: #2a1f0f55; }
+@property --shadow { syntax: '<color>'; inherits: true; initial-value: #5a4a2a1a; }
+:root { transition: --bg .6s ease, --bg2 .6s ease, --bg3 .6s ease, --field .6s ease, --line .6s ease, --line2 .6s ease, --text .6s ease, --muted .6s ease, --head .6s ease, --ink .6s ease, --ink-h .6s ease, --on-ink .6s ease, --hover .6s ease, --sel .6s ease, --msg-hover .6s ease, --raised .6s ease, --chip-on .6s ease, --placeholder .6s ease, --link .6s ease, --danger .6s ease, --danger-h .6s ease, --green .6s ease, --green-h .6s ease, --ok-bg .6s ease, --ok-bg-h .6s ease, --ok-fg .6s ease, --err-bg .6s ease, --err-fg .6s ease, --idle .6s ease, --dnd .6s ease, --offline .6s ease, --gold .6s ease, --tile .6s ease, --scrim .6s ease, --scrim-soft .6s ease, --shadow .6s ease; }
+@media (prefers-reduced-motion: reduce) { :root { transition: none; } }
+
+:root {
+  /* Default (Parchment) palette. themes.js overrides these on <html> for every other theme. */
+  --bg: #fbf8f1;        /* main surface: light beige, almost white */
+  --bg2: #f4efe3;       /* sidebars, cards */
+  --bg3: #ebe4d4;       /* server rail */
+  --field: #f0eadb;     /* inputs, composer */
+  --line: #e2d9c4;
+  --line2: #cfc5ac;     /* stronger borders / hover borders */
+  --text: #2a251e;
+  --muted: #857b6a;
+  --head: #14110d;
+  --ink: #1c1812;       /* primary actions, matches the black logo */
+  --ink-h: #3b342a;
+  --on-ink: #fbf8f1;    /* text on top of --ink */
+  --hover: #eee7d6;
+  --sel: #e5ddc8;
+  --msg-hover: #f6f1e5;
+  --raised: #fffdf8;    /* popovers, pickers, menus */
+  --chip-on: #e3dac3;
+  --placeholder: #a99f8c;
+  --link: #2d5f8a;
+  --danger: #b8442f;
+  --danger-h: #9c3825;
+  --green: #3f8f5b;
+  --green-h: #327a4b;
+  --ok-bg: #e3eedf; --ok-bg-h: #d3e5cf; --ok-fg: #2f6b45;
+  --err-bg: #f8e4de; --err-fg: #9b3623;
+  --idle: #d9a22b; --dnd: #c9473a; --offline: #a39a88; --gold: #c9953a;
+  --tile: #2a251e;      /* call video tiles */
+  --scrim: #2a1f0f73; --scrim-soft: #2a1f0f55;
+  --shadow: #5a4a2a1a;
+  --name-lift: 0%;      /* dark themes lighten dark profile name colours so they stay readable */
+  --font: "Bree Serif", Georgia, "Times New Roman", serif;
+  color-scheme: light;
+}
+[data-nc] { color: var(--nc) !important; color: color-mix(in srgb, var(--nc), var(--head) var(--name-lift)) !important; }
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body { background: var(--bg); background-image: var(--app-grad, none); background-attachment: fixed; color: var(--text); font: 15px/1.4 var(--font); font-synthesis: none; -webkit-font-smoothing: antialiased; }
+/* gradient themes: the panels are see-through so the page gradient shows behind them */
+html[data-grad] .chat { background: transparent; }
+html[data-grad] .side, html[data-grad] .members { background: color-mix(in srgb, var(--bg2) 62%, transparent); }
+html[data-grad] .rail, html[data-grad] .user-panel { background: color-mix(in srgb, var(--bg3) 70%, transparent); }
+html[data-grad] .chat-head { background: color-mix(in srgb, var(--bg) 35%, transparent); }
+html[data-grad] .composer { background: color-mix(in srgb, var(--field) 80%, transparent); }
+/* gradient profile themes (server/profilethemes.js): the gradient fills the card under the banner, for some it moves slowly */
+.card.pt-card { border-color: transparent; }
+.card.pt-anim { background-size: 300% 300%; animation: pt-move 9s ease-in-out infinite; }
+@keyframes pt-move { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@media (prefers-reduced-motion: reduce) { .card.pt-anim { animation: none; background-size: cover; } }
+.pt-swatch.pt-none { background: var(--bg2); border: 1px dashed var(--line2); }
+.custom-grad { margin-top: 10px; display: grid; gap: 10px; }
+.cg-stops { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.cg-stop { display: inline-flex; align-items: center; gap: 2px; }
+.cg-stop input[type=color] { width: 44px; height: 34px; padding: 2px; }
+.cg-angle { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.cg-angle input[type=range] { padding: 0; border: 0; background: none; }
+.pt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.pt-tile { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 6px; border-radius: 12px; border: 1px solid var(--line); background: var(--field); text-align: left; }
+.pt-tile:hover { border-color: var(--line2); } .pt-tile.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.pt-swatch { display: block; height: 38px; border-radius: 8px; }
+.pt-name { font-size: 12px; color: var(--head); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pt-price { font-size: 11px; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.pt-tag { position: absolute; top: 10px; right: 10px; font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--scrim); color: #fff; }
+/* check-in streak card on the Quests page */
+.streak-card { background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; margin-bottom: 14px; }
+.streak-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.streak-num { font-size: 28px; color: var(--head); line-height: 1; } .streak-flame { font-size: 22px; }
+.streak-warn { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--err-bg); color: var(--err-fg); font-size: 13px; }
+.streak-track { display: flex; gap: 6px; margin-top: 12px; overflow-x: auto; padding-bottom: 2px; }
+.streak-step { flex: 1 0 64px; text-align: center; padding: 8px 4px; background: var(--field); border: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.streak-step b { display: block; font-size: 14px; color: var(--head); font-weight: 400; }
+.streak-step.reached { background: var(--ok-bg); border-color: transparent; color: var(--ok-fg); } .streak-step.reached b { color: var(--ok-fg); }
+.streak-step.next { border-color: var(--ink); }
+button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; }
+input, textarea, select { font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; width: 100%; outline: none; }
+input::placeholder, textarea::placeholder { color: var(--placeholder); }
+input:focus, textarea:focus, select:focus { border-color: var(--ink); }
+textarea { resize: none; }
+a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+label { display: block; font-size: 12px; color: var(--muted); margin: 14px 0 6px; letter-spacing: .06em; }
+h1, h2, h3, h4, p { margin: 0; font-weight: 400; }
+.muted { color: var(--muted); } .small { font-size: 12px; } .center { text-align: center; } .pad { padding: 8px 12px; }
+.spacer { flex: 1; } .grow { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* buttons */
+.btn { padding: 8px 18px; }
+
+.btn.primary { color: var(--on-ink); } 
+.btn.danger { background: transparent; color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); } .btn.danger:hover { background: var(--danger); color: var(--bg); }
+.btn.full { width: 100%; margin-top: 18px; padding: 12px; }
+.btn:disabled { opacity: .55; cursor: default; }
+.small-btn { font-size: 12px; padding: 4px 12px; color: var(--ok-fg); }
+
+.icon { display: block; flex: none; } .icon.inline-icon { display: inline-block; vertical-align: -2px; }
+.icon-btn { width: 28px; height: 28px; color: var(--muted); display: grid; place-items: center; }
+.icon-btn:hover { background: var(--hover); color: var(--head); }
+.danger-text { color: var(--danger) !important; }
+
+/* avatars */
+.avatar-wrap { position: relative; flex: none; }
+.avatar { display: grid; place-items: center; color: #fffaf0; user-select: none; overflow: hidden; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.dot { position: absolute; right: -2px; bottom: -2px; border-radius: 50%; border: 3px solid var(--bg2); background: var(--offline); }
+.msg .dot { border-color: var(--bg); } .msg:hover .dot { border-color: var(--msg-hover); }
+.dot.online { background: var(--green); } .dot.idle { background: var(--idle); } .dot.dnd { background: var(--dnd); } .dot.offline { background: var(--offline); }
+
+/* logos */
+img.wordmark { display: block; margin: 0 auto; height: auto; }
+img.mark { display: block; height: auto; }
+img.mark.big { height: 96px; width: auto; margin-bottom: 6px; }
+
+/* auth */
+.auth-bg { min-height: 100%; display: grid; place-items: center; padding: 16px; }
+.auth-card { width: 100%; max-width: 440px; padding: 36px 32px 30px; }
+.auth-card img.wordmark { width: 190px; margin-bottom: 22px; }
+.auth-card h1 { text-align: center; color: var(--head); margin-bottom: 6px; }
+.hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+.error { background: var(--err-bg); color: var(--err-fg); padding: 8px 12px; border-radius: 8px; margin-top: 12px; font-size: 14px; }
+.error-text { color: var(--err-fg); }
+

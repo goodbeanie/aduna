@@ -1,0 +1,40 @@
+/* Voice and calls: the call stage, tiles, controls, the "voice connected" panel and the incoming-call card. Loaded after chat.css.
+   Motion is kept only where it explains something: ringing, speaking, a card arriving. */
+
+/* tiles: flat, a plain green ring while someone talks (no inner glow), labels without blur */
+.call-tile::after { box-shadow: inset 0 0 0 3px var(--green); }
+.tile-name { backdrop-filter: none; background: #000000b3; border-radius: var(--r-sm); padding: 3px 8px; }
+.tile-badge { border-radius: var(--r-sm); box-shadow: none; }
+.stage-tiles.spot .call-tile.small { border-radius: var(--r-md); box-shadow: 0 0 0 1px #ffffff2e; }
+
+/* stage controls: square buttons, no press-shrink */
+.stage-icon { width: 36px; height: 36px; border-radius: var(--r-sm); }
+.stage-btn:active:not(:disabled) { transform: none; background: #ffffff4d; }
+.stage-btn.hangup { width: 64px; border-radius: var(--r-md); }
+.stage-btn.hangup:active { background: var(--danger-h); }
+.stage-btn.on { background: var(--green); }
+.stage-btn:focus-visible, .cd-btn:focus-visible, .ci-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* "voice connected" panel above your name: 40px buttons, outlined, the active one is filled green */
+.call-dock { background: var(--bg2); }
+.cd-btn { height: 40px; border-radius: var(--r-sm); background: transparent; box-shadow: inset 0 0 0 1px var(--line2); }
+.cd-btn:hover:not(:disabled) { background: var(--hover); }
+.cd-btn:active:not(:disabled) { background: var(--sel); }
+.cd-btn.off { background: var(--ink); box-shadow: none; }
+.cd-btn.on { background: var(--green); box-shadow: none; }
+.cd-btn.hang { width: 40px; box-shadow: none; }
+.cd-who { border-radius: var(--r-sm); }
+
+/* incoming call card on desktop: flat dark panel with a hairline, no glow or gradient (the phone layout keeps its own full-screen style) */
+@media (min-width: 721px) {
+  .call-incoming { background: var(--tile); border-radius: var(--r-lg); box-shadow: 0 8px 24px var(--scrim-soft); border: 1px solid #ffffff2e; }
+}
+.ci-btn { border-radius: var(--r-md); }
+.ci-btn:active { transform: none; filter: brightness(.9); }
+.ci-season { border-radius: var(--r-sm); background: #ffffff1f; }
+
+@media (max-width: 720px) {
+  .cd-btn { height: 44px; }
+  .cd-btn.hang { width: 44px; }
+  .stage-icon { width: 40px; height: 40px; }
+}

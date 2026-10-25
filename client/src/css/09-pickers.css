@@ -1,0 +1,62 @@
+/* ===== emoji picker + GIF picker ===== */
+.pop.emoji-pop, .pop.gif-pop { padding: 0; overflow: hidden; }
+.pop.emoji-pop { width: min(340px, calc(100vw - 32px)); }
+.ep { display: flex; flex-direction: column; width: 100%; height: min(380px, calc(100dvh - 200px)); min-height: 240px; background: var(--raised); }
+.picker { position: fixed; z-index: 60; width: 340px; max-width: calc(100vw - 16px); background: var(--raised); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 8px 28px #5a4a2a33; overflow: hidden; }
+.picker .ep { height: min(380px, calc(100dvh - 16px)); }
+.ep-top, .gif-search { position: relative; padding: 8px 8px 4px; }
+.ep-search-ic { position: absolute; left: 18px; top: 50%; margin-top: -6px; color: var(--muted); pointer-events: none; }
+.ep-search, .gif-search input { width: 100%; padding: 8px 10px 8px 32px; border-radius: 10px; background: var(--field); }
+.ep-tabs { display: flex; gap: 2px; padding: 2px 8px 6px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.ep-tabs::-webkit-scrollbar { display: none; }
+.ep-recent { display: flex; gap: 0; padding: 4px 8px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+.ep-recent::-webkit-scrollbar { display: none; }
+.ep-recent .ep-e { flex: 0 0 36px; width: 36px; }
+/* who reacted (Reactors.jsx) */
+.who-tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.who-tabs .chip { cursor: pointer; }
+.who-sub { margin: -2px 2px 6px; }
+.who-list { list-style: none; margin: 0; padding: 0; max-height: min(320px, 48vh); overflow-y: auto; border-radius: 12px; box-shadow: inset 0 0 0 1px var(--line); }
+.who-list li + li { border-top: 1px solid var(--line); }
+.who-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; text-align: left; background: none; border: 0; font: inherit; color: inherit; cursor: pointer; }
+.who-row:hover { background: var(--hover); }
+.who-name { flex: 1; min-width: 0; color: var(--head); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ep-tab { flex: 1 1 0; min-width: 28px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+.ep-tab:hover { background: var(--hover); color: var(--head); } .ep-tab.on { background: var(--sel); color: var(--head); }
+.ep-scroll { flex: 1; overflow-y: auto; padding: 0 8px 8px; overscroll-behavior: contain; position: relative; }
+.ep-label { position: sticky; top: 0; z-index: 1; background: var(--raised); font-size: 11px; color: var(--muted); letter-spacing: .08em; padding: 8px 2px 4px; }
+.ep-sec { content-visibility: auto; contain-intrinsic-size: auto 240px; }
+.ep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); }
+.ep-e { height: 36px; font-size: 22px; line-height: 1; border-radius: 8px; display: grid; place-items: center; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+.ep-e:hover, .ep-e:focus-visible { background: var(--hover); }
+.ep-e img { width: 26px; height: 26px; object-fit: contain; }
+.ep-scroll .pop-add { margin: 6px 0 2px; }
+.ep-foot { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line); min-height: 38px; }
+.ep-hover { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ep-tone { display: flex; gap: 4px; align-items: center; }
+.ep-sw { width: 18px; height: 18px; border-radius: 50%; border: 2px solid transparent; box-shadow: inset 0 0 0 1px #0002; }
+.ep-sw.on { border-color: var(--ink); }
+
+.pop.gif-pop { width: min(400px, calc(100vw - 32px)); padding-bottom: 6px; }
+.gif-label { padding: 2px 14px 4px; }
+.gif-grid { height: min(360px, calc(100dvh - 290px)); min-height: 140px; overflow-y: auto; padding: 0 8px; overscroll-behavior: contain; }
+.gif-cols { display: flex; gap: 6px; align-items: flex-start; }
+.gif-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.gif-col > button { display: block; width: 100%; padding: 0; border-radius: 8px; overflow: hidden; background: var(--field); }
+.gif-col > button:hover, .gif-col > button:focus-visible { outline: 2px solid var(--ink); }
+.gif-col img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.gif-credit { padding: 6px 14px 0; }
+.gif-setup { padding: 16px 16px 12px; max-width: 340px; } .gif-setup p { margin: 6px 0 0; line-height: 1.45; } .gif-setup code { background: var(--field); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+
+@media (pointer: coarse) { .ep-e { height: 42px; } .ep-tab { min-width: 30px; height: 38px; } .ep-sw { width: 24px; height: 24px; } }
+
+/* phones: the reaction picker is a bottom sheet */
+.sheet-backdrop { position: fixed; inset: 0; z-index: 59; background: var(--scrim-soft); }
+@media (max-width: 720px) {
+  .picker.sheet { left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none; border-radius: 18px 18px 0 0; padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .picker.sheet .ep { height: min(440px, 62dvh); }
+}
+@media (max-height: 480px) { .ep { min-height: 200px; } }
+
+.att-expired { opacity: .75; border-style: dashed; }
+

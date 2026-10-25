@@ -69,6 +69,8 @@ const PATHS = {
   music: <><path d="M9 17.5V6l10-2v11.5" /><circle cx="6.8" cy="17.5" r="2.2" /><circle cx="16.8" cy="15.5" r="2.2" /></>,
   rules: <><path d="M5.5 4.5h11a2 2 0 012 2v13h-11a2 2 0 01-2-2v-11a2 2 0 012-2z" /><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" /></>,
   bell: <><path d="M6 16.5V11a6 6 0 1112 0v5.5l1.5 1.5h-15z" /><path d="M10 20.5a2 2 0 004 0" /></>,
+  belloff: <><path d="M6 16.5V11a6 6 0 1112 0v5.5l1.5 1.5h-15z" /><path d="M10 20.5a2 2 0 004 0" /><path d="M4 4l16 16" /></>,
+  pushpin: <><path d="M9.5 4h5M10 4v5.3L7.5 13h9L14 9.3V4" /><path d="M12 13v7" /></>,
   megaphone: <><path d="M4 10v4h3l8 4.5v-13L7 10z" /><path d="M18.5 9.5a3.5 3.5 0 010 5M7 14l1.2 5h2.3L9.5 15" /></>,
   hash: <path d="M9 4.5L7.5 19.5M16.5 4.5L15 19.5M4.5 9h15M4 15h15" />,
   close: <><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>,
@@ -78,6 +80,8 @@ const PATHS = {
   lock: <><rect x="5" y="10.5" width="14" height="9.5" rx="2.2" /><path d="M8 10.5V8a4 4 0 018 0v2.5" /></>,
   users: <><circle cx="9" cy="8.5" r="3.2" /><path d="M3 19c.5-3.2 3-5 6-5s5.5 1.8 6 5" /><path d="M16 5.6a3.2 3.2 0 010 5.8M18 14.4c1.8.6 2.8 2.2 3 4.6" /></>,
   message: <path d="M4 5.5h16v10.5H10l-4.5 3.5V16H4z" />,
+  copy: <><rect x="8.5" y="8.5" width="11" height="11" rx="2" /><path d="M15.5 8.5V6.5a2 2 0 00-2-2h-7a2 2 0 00-2 2v7a2 2 0 002 2h2" /></>,
+  user: <><circle cx="12" cy="8.5" r="3.6" /><path d="M5 20c.6-3.7 3.4-5.8 7-5.8s6.4 2.1 7 5.8" /></>,
   palette: <><path d="M12 3.5a8.5 8.5 0 000 17c1.4 0 2-.9 2-1.8 0-1.2-1-1.5-1-2.6 0-.9.7-1.6 1.6-1.6H17a3.5 3.5 0 003.5-3.5C20.5 6.7 16.7 3.5 12 3.5z" /><circle cx="7.8" cy="11.2" r=".9" /><circle cx="10.2" cy="7.6" r=".9" /><circle cx="14.6" cy="7.6" r=".9" /></>,
   smile: <><circle cx="12" cy="12" r="8.5" /><path d="M8.5 14c.9 1.3 2 2 3.5 2s2.6-.7 3.5-2" /><path d="M9.2 9.6v.2M14.8 9.6v.2" /></>,
   reply: <><path d="M9.5 6L4 11.5 9.5 17" /><path d="M4 11.5h9a7 7 0 017 7" /></>,
@@ -108,6 +112,8 @@ const PATHS = {
   shrink: <path d="M20 10h-6V4M4 14h6v6M14 10l7-7M10 14l-7 7" />,
   code: <><path d="M9 7l-5 5 5 5" /><path d="M15 7l5 5-5 5" /><path d="M13.5 5l-3 14" /></>,
   bot: <><rect x="5" y="8.5" width="14" height="10" rx="3" /><path d="M12 8.5V5M10 4.5h4" /><circle cx="9.3" cy="13.3" r=".9" /><circle cx="14.7" cy="13.3" r=".9" /><path d="M9.5 16h5" /></>,
+  more: <><circle cx="5.5" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="18.5" cy="12" r="1.2" /></>,
+  flame: <path d="M12 3.5c.6 3-1.2 4.4-2.6 6.2C8.1 11.4 7 13 7 15a5 5 0 0010 0c0-1.7-.8-3-1.7-4-.3 1-1 1.6-1.8 1.7.4-3-.2-6.4-1.5-9.2z" />,
   hand: <><path d="M8 12V6.5a1.5 1.5 0 013 0V11M11 10.5V5a1.5 1.5 0 013 0v5.5M14 10.5V6.5a1.5 1.5 0 013 0V13" /><path d="M8 12l-1.7-1.8a1.4 1.4 0 00-2 2L8 17c1.3 2.5 3 3.5 5 3.5 3.3 0 5-2.4 5-6" /></>,
 };
 export function Icon({ name, size = 18, className = '', ...rest }) {
@@ -120,16 +126,42 @@ export function Icon({ name, size = 18, className = '', ...rest }) {
 
 export const EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '😢', '🔥', '👀', '🙏', '✅', '❌', '💯'];
 
-// `bare` shows only the content with a round close button in its corner: no frame, no title (the title is still read out to screen readers).
+const modalStack = []; // open dialogs, newest last: only the newest one answers Escape and keeps Tab inside
+const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled):not([type=hidden]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+// A dialog: announced as modal, takes focus when it opens (unless something inside already has it), keeps Tab inside,
+// closes on Escape (only the topmost one), and gives focus back to what opened it.
+// `bare` shows only the content with a close button in its corner: no frame, no title (the title is still read out to screen readers).
 export function Modal({ title, onClose, children, wide, bare }) {
+  const box = React.useRef(null);
+  const token = React.useRef({});
+  const close = React.useRef(onClose);
+  close.current = onClose;
   React.useEffect(() => {
-    const h = (e) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
+    const me = token.current, el = box.current, before = document.activeElement;
+    modalStack.push(me);
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    const onKey = (e) => {
+      if (modalStack[modalStack.length - 1] !== me) return;
+      if (e.key === 'Escape') { close.current(); return; }
+      if (e.key !== 'Tab' || !el) return;
+      const f = [...el.querySelectorAll(FOCUSABLE)].filter((n) => n.getClientRects().length);
+      if (!f.length) { e.preventDefault(); return; }
+      const first = f[0], last = f[f.length - 1], a = document.activeElement;
+      if (e.shiftKey && (a === first || a === el)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && a === last) { e.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      const i = modalStack.indexOf(me);
+      if (i >= 0) modalStack.splice(i, 1);
+      if (before && before.isConnected) before.focus?.({ preventScroll: true });
+    };
+  }, []);
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={'modal' + (wide ? ' wide' : '') + (bare ? ' bare' : '')} role="dialog" aria-label={title}>
+      <div className={'modal' + (wide ? ' wide' : '') + (bare ? ' bare' : '')} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={box}>
         {bare
           ? <button className="icon-btn modal-x" onClick={onClose} aria-label="Close"><Icon name="close" size={16} /></button>
           : (

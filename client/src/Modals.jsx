@@ -167,6 +167,27 @@ export function NewDmModal({ friends, onClose, onPick }) {
   );
 }
 
+// Asks before removing a member (opened from the right-click menu). The server checks the rank rules again, so a refusal is shown here.
+export function KickModal({ server, user, onClose, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  async function kick() {
+    setBusy(true); setErr('');
+    try { const r = await api(`/servers/${server.id}/members/${user.id}/kick`, { method: 'POST' }); onDone(r.server); }
+    catch (e) { setErr(e.message); setBusy(false); }
+  }
+  return (
+    <Modal title="Kick member" onClose={onClose}>
+      <p className="muted">Remove <b>{user.displayName}</b> from {server.name}? They can join again with the invite link{server.visibility === 'private' ? ', unless the server is private and you do not add them back to its list' : ''}.</p>
+      {err && <div className="error">{err}</div>}
+      <div className="modal-foot">
+        <button className="btn" onClick={onClose}>Cancel</button>
+        <button className="btn primary danger-fill" autoFocus disabled={busy} onClick={kick}>Kick</button>
+      </div>
+    </Modal>
+  );
+}
+
 export function ProfileLinks({ links }) {
   const safe = (links || []).filter((l) => /^https?:\/\//i.test(l.url));
   if (!safe.length) return null;

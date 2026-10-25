@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
+import { askConfirm } from './Dialogs.jsx';
 import { previewColors } from './themes.js';
 
 // The theme gallery: themes other people published. A theme is only { dark, bg, accent } (rules and limits: server/themegallery.js),
@@ -64,12 +65,12 @@ export function ThemeGallery({ current, onPick }) {
 
   const pick = (t) => { onPick(t.seed, t); api(`/themes/${t.id}/use`, { method: 'POST' }).then((r) => setRows((p) => p.map((x) => (x.id === t.id ? { ...x, uses: r.theme.uses } : x)))).catch(() => {}); };
   const del = async (t) => {
-    if (!confirm(`Delete "${t.name}" from the gallery? People already using its colours keep them.`)) return;
+    if (!(await askConfirm({ title: 'Delete theme', body: `Delete "${t.name}" from the gallery? People already using its colours keep them.`, confirmLabel: 'Delete', danger: true }))) return;
     setBusy(true); setNote('');
     try { await api(`/themes/${t.id}`, { method: 'DELETE' }); setRows((p) => p.filter((x) => x.id !== t.id)); } catch (e) { setNote(e.message || 'Could not delete that.'); } finally { setBusy(false); }
   };
   const report = async (t) => {
-    if (!confirm(`Report "${t.name}"? Themes with enough reports from established accounts are hidden.`)) return;
+    if (!(await askConfirm({ title: 'Report theme', body: `Report "${t.name}"? Themes with enough reports from established accounts are hidden.`, confirmLabel: 'Report', danger: true }))) return;
     setBusy(true); setNote('');
     try { await api(`/themes/${t.id}/report`, { method: 'POST' }); setRows((p) => p.filter((x) => x.id !== t.id)); setNote('Thanks, it was reported and is hidden for you.'); } catch (e) { setNote(e.message || 'Could not report that.'); } finally { setBusy(false); }
   };

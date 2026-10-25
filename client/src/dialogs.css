@@ -1,0 +1,63 @@
+/* Improvements pass: dialogs and toasts (Dialogs.jsx), the server bar fade (ShellBits.jsx), composer errors, small fixes. Loaded last. */
+
+/* ---------- confirm dialogs and toasts ---------- */
+.dlg-layer .overlay { z-index: 110; } /* above full-screen settings (55) */
+.modal:focus { outline: none; }
+
+.dlg-toasts { position: fixed; z-index: 120; right: 14px; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; width: min(380px, calc(100vw - 28px)); pointer-events: none; }
+.dlg-toast { pointer-events: auto; display: flex; align-items: flex-start; gap: 6px; max-width: 100%; padding: 8px 6px 8px 14px; background: var(--raised); color: var(--text); border: 1px solid var(--line2); border-radius: var(--r-md); font-size: 14px; animation: dlg-in .15s ease-out; }
+.dlg-toast span { flex: 1; min-width: 0; padding-top: 5px; overflow-wrap: anywhere; }
+.dlg-toast .icon-btn { flex: none; width: 28px; height: 28px; }
+.dlg-toast.error { background: var(--err-bg); color: var(--err-fg); border-color: transparent; }
+.dlg-toast.error .icon-btn { color: var(--err-fg); }
+@keyframes dlg-in { from { opacity: 0; transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .dlg-toast { animation: none; } }
+@media (max-width: 720px) { .dlg-toasts { left: 12px; right: 12px; width: auto; align-items: stretch; } }
+
+/* ---------- composer: errors get their own line, the typing line stays for typing ---------- */
+.composer-err { display: flex; align-items: flex-start; gap: 6px; margin-bottom: 6px; padding: 6px 6px 6px 12px; background: var(--err-bg); color: var(--err-fg); border-radius: var(--r-md); font-size: 14px; }
+.composer-err span { flex: 1; min-width: 0; padding-top: 4px; overflow-wrap: anywhere; }
+.composer-err .icon-btn { flex: none; width: 28px; height: 28px; color: var(--err-fg); }
+.composer-err .icon-btn:hover { background: var(--err-bg); color: var(--err-fg); box-shadow: inset 0 0 0 1px var(--err-fg); }
+
+/* ---------- server bar: soft fade on the side that has more servers ---------- */
+.rail-list.fade-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.rail-list.fade-l { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 28px), transparent); }
+.rail-list.fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+
+/* ---------- friends: the Add tab uses ink like every other primary action ---------- */
+.ftab.add { background: var(--ink); color: var(--on-ink); }
+.ftab.add:hover { background: var(--ink-h); color: var(--on-ink); opacity: 1; }
+.ftab.add.on { background: none; color: var(--head); box-shadow: inset 0 0 0 1px var(--ink); }
+
+/* ---------- friends: remove lives in a "more" menu, away from Message ---------- */
+.frow-more { position: relative; }
+.frow-menu.menu { top: calc(100% + 4px); left: auto; right: 0; min-width: 170px; white-space: nowrap; }
+.friends-body .frow-menu { z-index: 20; }
+
+/* ---------- chat: day dividers, loading skeleton, empty state, reaction "+" chip ---------- */
+.day-divider { display: flex; align-items: center; gap: 12px; margin: 14px 16px 6px; color: var(--muted); font-size: 12px; font-weight: 600; }
+.day-divider::before, .day-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+.skel-list { display: flex; flex-direction: column; gap: 18px; padding: 16px; }
+.skel-msg { display: flex; gap: 12px; align-items: flex-start; }
+.skel-body { display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 0; padding-top: 4px; }
+.skel { display: block; background: var(--hover); border-radius: var(--r-sm); animation: skel-pulse 1.4s ease-in-out infinite; }
+.skel-avatar { width: 40px; height: 40px; border-radius: 50%; flex: none; }
+.skel-line { height: 12px; max-width: 100%; }
+@keyframes skel-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+
+.empty-state { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 48px 20px; text-align: center; }
+.empty-state h4 { margin: 4px 0 0; font-size: 16px; color: var(--head); overflow-wrap: anywhere; }
+.empty-state p { margin: 0; max-width: 32ch; }
+.empty-ico { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 50%; background: var(--hover); color: var(--muted); }
+
+.chip.add { opacity: 0; padding-inline: 8px; }
+.msg:hover .chip.add, .msg.tapped .chip.add, .chip.add:focus-visible { opacity: 1; }
+@media (hover: none) { .chip.add { opacity: 1; } }
+
+/* ---------- friends: filter box ---------- */
+.friend-filter { display: flex; align-items: center; gap: 8px; margin: 8px 12px 4px; padding: 0 10px; border: 1px solid var(--line2); border-radius: var(--r-md); color: var(--muted); }
+.friend-filter:focus-within { border-color: var(--ink); }
+.friend-filter input { flex: 1; min-width: 0; border: 0; background: none; box-shadow: none; padding: 9px 0; color: var(--text); outline: none; }
