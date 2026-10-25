@@ -1,7 +1,7 @@
 // Aduna desktop app: a window that opens https://aduna.onrender.com/app and nothing else.
 // All secrets and settings live on the server, so nothing sensitive is stored in this app.
 // Updates are fetched from https://aduna.onrender.com/updates/ (see the publish setting in package.json).
-const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, nativeTheme, screen, shell, session, ipcMain, Notification } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, nativeTheme, screen, shell, session, ipcMain, Notification, desktopCapturer } = require('electron');
 const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
@@ -341,6 +341,41 @@ function buildTray() {
   ]));
 }
 
+// ----- screen sharing -----
+// Electron has no built-in screen picker: without a handler, getDisplayMedia() simply fails. So the page shows its own picker
+// (client/src/ScreenShare.jsx), asks for the list here ('screen:sources'), and tells us which one was chosen ('screen:choose').
+// The handler below then answers the page's getDisplayMedia() call with exactly that source, once, within a few seconds.
+let pendingShare = null;
+function setupScreenShare() {
+  const fromAduna = (wc) => !!wc && !wc.isDestroyed() && wc.getURL().startsWith(ORIGIN);
+  ipcMain.handle('screen:sources', async (e) => {
+    if (!fromAduna(e.sender)) return [];
+    try {
+      const list = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 360, height: 220 }, fetchWindowIcons: true });
+      return list.map((s) => ({
+        id: s.id,
+        name: s.name,
+        kind: s.id.startsWith('screen:') ? 'screen' : 'window',
+        thumb: s.thumbnail && !s.thumbnail.isEmpty() ? s.thumbnail.toDataURL() : '',
+        icon: s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.toDataURL() : '',
+      }));
+    } catch { return []; }
+  });
+  ipcMain.handle('screen:choose', (e, id) => {
+    if (!fromAduna(e.sender)) return false;
+    pendingShare = typeof id === 'string' && /^(screen|window):[\w:.-]+$/.test(id) ? { id, at: Date.now() } : null;
+    return !!pendingShare;
+  });
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    const pick = pendingShare; pendingShare = null;
+    const deny = () => { try { callback({}); } catch { /* already answered */ } };
+    if (!pick || Date.now() - pick.at > 15000 || !request.frame || !request.frame.url.startsWith(ORIGIN)) return deny();
+    desktopCapturer.getSources({ types: ['screen', 'window'] })
+      .then((list) => { const s = list.find((x) => x.id === pick.id); if (s) callback({ video: s }); else deny(); }) // video only: sharing system audio would feed the other person's voice back to them
+      .catch(deny);
+  }, { useSystemPicker: false });
+}
+
 app.setAppUserModelId('app.aduna.desktop'); // same as build.appId: Windows needs it to show notifications from the app
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
@@ -351,6 +386,7 @@ else {
     const ok = (wc, perm) => ['media', 'notifications', 'fullscreen', 'clipboard-sanitized-write'].includes(perm) && !!wc && wc.getURL().startsWith(ORIGIN);
     session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(ok(wc, perm)));
     session.defaultSession.setPermissionCheckHandler((wc, perm) => ok(wc, perm));
+    setupScreenShare();
     // No visible menu any more (the window is frameless), but the shortcuts still work.
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'Aduna', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => page && page.webContents.loadURL(APP_URL) }, { label: 'Check for updates\u2026', accelerator: 'CmdOrCtrl+Shift+U', click: () => runCheck(true) }, { label: 'AI Coder\u2026', accelerator: 'CmdOrCtrl+Shift+A', click: openAiPanel }, { type: 'separator' }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }] },

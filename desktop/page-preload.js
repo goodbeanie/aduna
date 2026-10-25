@@ -15,6 +15,11 @@ if (location.protocol === 'https:') {
     dismiss: (tag) => ipcRenderer.send('notify-dismiss', String(tag || '')),
     onClick: (cb) => { onClick = typeof cb === 'function' ? cb : null; return () => { onClick = null; }; },
     isActive: () => active,
+    // Screen sharing: the page draws its own picker from these two calls (see main.js setupScreenShare).
+    screen: {
+      sources: () => ipcRenderer.invoke('screen:sources'),
+      choose: (id) => ipcRenderer.invoke('screen:choose', String(id || '')),
+    },
     // The AI bot builder (desktop/ai/ai-service.js). A fixed list of actions: the page cannot reach Node, files or any other channel.
     ai: Object.assign(
       Object.fromEntries(['status', 'startOllama', 'installOllama', 'autoSetup', 'pull', 'cancelPull', 'remove', 'run', 'resume', 'stop', 'jobs', 'job', 'deleteJob', 'panel']

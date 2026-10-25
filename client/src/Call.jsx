@@ -8,6 +8,7 @@ import * as snd from './callsound.js';
 import { levelOf, SpeakingGate } from './speaking.js';
 import { ringtoneFor } from './ringtones.js';
 import { loadDevices, micConstraint, camConstraint, applyOutput, EVENT as DEVICES_EVENT } from './devices.js';
+import { ScreenSharePicker, ShareBar, QUALITY, desktopScreen } from './ScreenShare.jsx';
 
 // While a call is ringing the tab title flashes, and a desktop notification shows if the tab is hidden.
 let titleTimer = null, titleBase = '';
@@ -31,7 +32,7 @@ function stopRing() { snd.stopRing(); clearAlert(); }
 export const IN_CALL = ['starting', 'outgoing', 'connecting', 'active'];
 export const inCall = (call) => IN_CALL.includes(call.phase);
 
-const IDLE = { phase: 'idle', callId: null, peerId: null, video: false, startedAt: 0, muted: false, deafened: false, camOn: false, sharing: false, preview: null, local: null, remote: null, peerState: {}, rev: 0, notice: '' };
+const IDLE = { phase: 'idle', callId: null, peerId: null, video: false, startedAt: 0, muted: false, deafened: false, camOn: false, sharing: false, picker: false, preview: null, local: null, remote: null, peerState: {}, rev: 0, notice: '' };
 
 async function getMedia(video) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Calls need a secure page (https or localhost) and a modern browser');
@@ -258,17 +259,44 @@ export function useCall({ socketRef, privKey, getUser }) {
     announce();
   }
 
-  async function toggleShare() {
+  // The Share button opens the sheet (ScreenShare.jsx); the sheet calls startShare() with what the person chose.
+  function toggleShare() {
     const r = rt.current;
     if (r.screen) return stopShare();
-    if (!navigator.mediaDevices?.getDisplayMedia) return set({ notice: 'Screen sharing is not supported in this browser' });
+    if (cRef.current.phase !== 'active') return undefined;
+    set({ picker: !cRef.current.picker });
+    return undefined;
+  }
+  const closePicker = () => set({ picker: false });
+
+  async function startShare({ sourceId, quality } = {}) {
+    const r = rt.current;
+    set({ picker: false });
+    if (cRef.current.phase !== 'active' || r.screen || !r.pc) return;
+    const q = QUALITY[quality] || QUALITY.balanced;
     try {
-      const t = (await navigator.mediaDevices.getDisplayMedia({ video: true })).getVideoTracks()[0];
-      r.screen = t; t.onended = () => stopShare();
+      // Aduna desktop: tell the app which screen or window was picked, so its handler can answer the request below.
+      if (sourceId && desktopScreen()) {
+        if (!(await desktopScreen().choose(sourceId))) throw Object.assign(new Error('bad source'), { name: 'SourceError' });
+      }
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: { ideal: q.fps, max: q.fps }, width: { max: q.w }, height: { max: q.h } },
+        audio: false,
+      });
+      const t = stream.getVideoTracks()[0];
+      if (!t) throw Object.assign(new Error('no video'), { name: 'SourceError' });
+      try { t.contentHint = q.content; } catch { /* older browsers: the default is fine */ }
+      if (cRef.current.phase !== 'active' || !r.pc) { t.stop(); return; } // the call ended while the picker was open
+      r.screen = t; t.onended = () => stopShare(); // the browser's own "Stop sharing" button ends it too
       if (r.vsender) await r.vsender.replaceTrack(t); else r.vsender = r.pc.addTrack(t, r.local);
       set({ sharing: true });
       announce();
-    } catch { /* the picker was cancelled */ }
+    } catch (e) {
+      // Cancelling the browser's chooser is a normal "no thanks"; on desktop a refusal means the chosen source could not be captured.
+      if (e.name === 'NotAllowedError' && !desktopScreen()) return;
+      if (e.name === 'AbortError') return;
+      set({ notice: e.name === 'NotAllowedError' ? 'Aduna is not allowed to capture the screen. Check your system privacy settings.' : 'Could not start screen sharing' });
+    }
   }
 
   // ----- socket events -----
@@ -310,7 +338,7 @@ export function useCall({ socketRef, privKey, getUser }) {
   const handle = useCallback((ev, p) => handleRef.current(ev, p), []);
   useEffect(() => { snd.preloadRingtone(); return () => { teardown(); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { call, handle, actions: { startCall, accept, hangup: () => hangup(), toggleMute, toggleDeafen, toggleCamera, toggleShare, clearNotice: () => set({ notice: '' }) } };
+  return { call, handle, actions: { startCall, accept, hangup: () => hangup(), toggleMute, toggleDeafen, toggleCamera, toggleShare, startShare, closePicker, stopShare, clearNotice: () => set({ notice: '' }) } };
 }
 
 // =====================================================================================================
@@ -447,6 +475,8 @@ export function CallStage({ call, actions, users, me }) {
         <button className="stage-icon" title={big ? 'Show chat' : 'Expand call'} aria-label={big ? 'Show chat' : 'Expand call'} onClick={() => setBig(!big)}><Icon name={big ? 'shrink' : 'expand'} size={16} /></button>
       </div>
 
+      {call.sharing && <ShareBar onStop={actions.stopShare} />}
+
       <div className={'stage-tiles' + (focus ? ' spot' : '')}>
         <Tile user={peer} label={callName(peer)} size={av} stream={call.remote} showVideo={remoteVideo} contain={peerSharing}
           speaking={peerTalking} waiting={!live} muted={live && call.peerState.mic === false} deaf={live && !!call.peerState.deaf}
@@ -549,6 +579,7 @@ export function CallUI({ call, actions, users, onOpen, showStrip }) {
     <>
       <CallAudio call={call} />
       {call.notice && <div className="call-toast" role="status">{call.notice}</div>}
+      {call.picker && call.phase === 'active' && <ScreenSharePicker onStart={actions.startShare} onClose={actions.closePicker} />}
       {call.phase === 'incoming' && <Incoming call={call} actions={actions} users={users} />}
       {showStrip && inCall(call) && <CallStrip call={call} actions={actions} users={users} onOpen={onOpen} />}
     </>
