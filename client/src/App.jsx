@@ -253,6 +253,8 @@ function Main({ me, setMe, privKey, openServerId }) {
   // counts and what alerts are in notifprefs.js (the same file the server uses).
   const readTimers = useRef({});
   const markRead = (channelId) => { // told to the server a moment later; it uses its own clock, so no message you have seen is left unread
+    const type = serversRef.current.flatMap((x) => x.channels).find((c) => c.id === channelId)?.type;
+    if (type === 'voice' || type === 'rules') return; // nothing to read there (the server refuses it)
     clearTimeout(readTimers.current[channelId]);
     readTimers.current[channelId] = setTimeout(() => { api(`/channels/${channelId}/read`, { method: 'POST', body: {} }).catch(() => {}); }, 600);
   };
@@ -740,8 +742,8 @@ function Main({ me, setMe, privKey, openServerId }) {
   const statusOf = (id) => presence[id] || 'offline';
 
   const members = server ? [...server.members].sort((a, b) => a.displayName.localeCompare(b.displayName)) : [];
-  const onlineMembers = members.filter((m) => statusOf(m.id) !== 'offline');
-  const offlineMembers = members.filter((m) => statusOf(m.id) === 'offline');
+  // the member list: owner, then each role (highest first) for people who are online, then everyone else online, then offline; the search box narrows it
+  const memberView = server ? memberGroups(server, members, (id) => statusOf(id) !== 'offline', (m) => ((users[m.id] || m).displayName || '') + ' ' + ((users[m.id] || m).username || ''), memberQ) : { groups: [], total: 0 };
 
   // ---------- drag and drop (owner): reorder channels and categories, move channels between categories ----------
   const dragRef = useRef(null);
@@ -1017,11 +1019,19 @@ function Main({ me, setMe, privKey, openServerId }) {
       {server && (
         <>
         {membersOpen && <div className="drawer-backdrop" onClick={() => setMembersOpen(false)} />}
-        <aside className={'members' + (membersOpen ? ' open' : '')}>
-          {onlineMembers.length > 0 && <div className="side-label">Online · {onlineMembers.length}</div>}
-          {onlineMembers.map(memberRow)}
-          {offlineMembers.length > 0 && <div className="side-label">Offline · {offlineMembers.length}</div>}
-          {offlineMembers.map(memberRow)}
+        <aside className={'members' + (membersOpen ? ' open' : '') + (membersHidden ? ' collapsed' : '')} aria-label="Members">
+          <div className="member-search">
+            <Icon name="search" size={15} />
+            <input type="search" value={memberQ} onChange={(e) => setMemberQ(e.target.value)} placeholder="Search members" aria-label="Search members" maxLength={40} />
+          </div>
+          {!loaded && <ListSkeleton rows={6} avatar={32} label="Loading members" />}
+          {loaded && memberView.groups.map((g) => (
+            <React.Fragment key={g.key}>
+              <div className="side-label member-group">{g.color && <span className="role-dot" style={{ background: g.color }} />}{g.label} · {g.items.length}</div>
+              {g.items.map(memberRow)}
+            </React.Fragment>
+          ))}
+          {loaded && memberView.total === 0 && memberQ.trim() && <EmptyState icon="search" compact title="No members found">Nobody here matches “{memberQ.trim()}”.</EmptyState>}
         </aside>
         </>
       )}
@@ -1031,6 +1041,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         return ch && <div className="voice-dock"><Icon name="speaker" size={16} /><button className="link-btn" onClick={() => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }}>Voice connected · {ch.name}</button><button className="icon-btn" title={voice.state.muted ? 'Unmute' : 'Mute'} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={16} /></button><button className="icon-btn" title="Leave voice" onClick={voice.actions.leave}><Icon name="phone" size={16} /></button></div>;
       })()}
       {toast && <button className="toast" onClick={() => { const sv = servers.find((x) => x.id === toast.serverId); if (sv) { lastChan.current[sv.id] = toast.channelId; setView({ kind: 'server', serverId: sv.id, channelId: toast.channelId }); setShowList(false); } setToast(null); }}><Icon name="megaphone" size={18} /><span><b>{toast.title}</b><br />{toast.body}</span></button>}
+      <Tooltips />
       <NotifyPrompt />
       <UpdatePrompt />
       <SiteUpdateNotice />
