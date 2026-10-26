@@ -28,6 +28,13 @@ export function luminance(h) {
 const isDark = (h) => luminance(h) < 0.35;
 const contrast = (a, b) => { const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
 const readableOn = (bg) => (contrast(bg, '#14110d') >= contrast(bg, '#fbf8f1') ? '#14110d' : '#fbf8f1');
+// Quiet text (--muted, --placeholder): start from the usual mix of bg toward `to`, and move only as far as needed for `min` contrast
+// on every surface the text can sit on (gradient stops included). `cap` keeps it visibly quieter than body text.
+function readableMix(bg, to, t0, surfaces, min, cap = 0.75) {
+  let t = t0;
+  while (t < cap && !surfaces.every((s) => contrast(mix(bg, to, t), s) >= min)) t += 0.01;
+  return mix(bg, to, t);
+}
 const alpha = (h, a) => h + Math.round(a * 255).toString(16).padStart(2, '0');
 
 // ---------- palette generation ----------
@@ -84,6 +91,11 @@ export function buildPalette({ dark, bg, accent, grad, angle = 135 }) {
     '--name-lift': dark ? '45%' : '0%',
   };
   v.__scheme = dark ? 'dark' : 'light';
+  // Muted text and placeholders are checked against every surface they sit on, including each stop of a gradient background.
+  const stops = Array.isArray(grad) && grad.length >= 2 && grad.every((c) => /^#[0-9a-fA-F]{6}$/.test(c)) ? grad : [];
+  const surfaces = [bg, v['--bg2'], v['--bg3'], v['--field'], v['--sel'], ...stops];
+  v['--muted'] = readableMix(bg, t, dark ? 0.55 : 0.52, surfaces, 4.5);
+  v['--placeholder'] = readableMix(bg, t, dark ? 0.42 : 0.4, [v['--field']], 3);
   // A gradient theme also paints the page background with a gradient (styles.css lets it show through the side panels).
   if (Array.isArray(grad) && grad.length >= 2 && grad.every((c) => /^#[0-9a-fA-F]{6}$/.test(c))) v['--app-grad'] = gradientCss(grad, angle);
   return v;

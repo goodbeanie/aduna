@@ -11,7 +11,7 @@
 @property --line { syntax: '<color>'; inherits: true; initial-value: #e2d9c4; }
 @property --line2 { syntax: '<color>'; inherits: true; initial-value: #cfc5ac; }
 @property --text { syntax: '<color>'; inherits: true; initial-value: #2a251e; }
-@property --muted { syntax: '<color>'; inherits: true; initial-value: #857b6a; }
+@property --muted { syntax: '<color>'; inherits: true; initial-value: #696052; }
 @property --head { syntax: '<color>'; inherits: true; initial-value: #14110d; }
 @property --ink { syntax: '<color>'; inherits: true; initial-value: #1c1812; }
 @property --ink-h { syntax: '<color>'; inherits: true; initial-value: #3b342a; }
@@ -21,7 +21,7 @@
 @property --msg-hover { syntax: '<color>'; inherits: true; initial-value: #f6f1e5; }
 @property --raised { syntax: '<color>'; inherits: true; initial-value: #fffdf8; }
 @property --chip-on { syntax: '<color>'; inherits: true; initial-value: #e3dac3; }
-@property --placeholder { syntax: '<color>'; inherits: true; initial-value: #a99f8c; }
+@property --placeholder { syntax: '<color>'; inherits: true; initial-value: #8e8575; }
 @property --link { syntax: '<color>'; inherits: true; initial-value: #2d5f8a; }
 @property --danger { syntax: '<color>'; inherits: true; initial-value: #b8442f; }
 @property --danger-h { syntax: '<color>'; inherits: true; initial-value: #9c3825; }
@@ -52,7 +52,7 @@
   --line: #e2d9c4;
   --line2: #cfc5ac;     /* stronger borders / hover borders */
   --text: #2a251e;
-  --muted: #857b6a;
+  --muted: #696052;     /* quiet text: 4.5:1 or better on every Parchment surface (was #857b6a, 3.4 to 4.2) */
   --head: #14110d;
   --ink: #1c1812;       /* primary actions, matches the black logo */
   --ink-h: #3b342a;
@@ -62,7 +62,7 @@
   --msg-hover: #f6f1e5;
   --raised: #fffdf8;    /* popovers, pickers, menus */
   --chip-on: #e3dac3;
-  --placeholder: #a99f8c;
+  --placeholder: #8e8575;
   --link: #2d5f8a;
   --danger: #b8442f;
   --danger-h: #9c3825;

@@ -195,3 +195,11 @@
   .send-btn:not(:disabled):hover { background: var(--ink-h); color: var(--on-ink); }
 }
 
+/* ---------- Theme check: contrast ----------
+   The default name colour is ink (#2a251e). Dark themes lift every name colour only 45% toward --head, which left the default at 3.2 to 4.5:1,
+   dimmer than the message text beside it. A name nobody coloured simply follows --head: 11 to 17:1 in every theme. Chosen colours are untouched. */
+[data-nc][style*="#2a251e" i] { color: var(--head) !important; }
+
+/* the one-time notification prompt covered the theme tiles in Settings (polish.css only hides it for .overlay modals) */
+body:has(.settings-screen) .notify-prompt { display: none; }
+
