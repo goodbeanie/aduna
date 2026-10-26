@@ -835,7 +835,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   return (
     <InviteContext.Provider value={inviteCtx}>
-    <div className="app">
+    <div className="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
       {/* server bar (top) */}
       <nav className="rail">
         <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>

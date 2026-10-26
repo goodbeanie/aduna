@@ -127,6 +127,20 @@
 .credit-num, .co-total { letter-spacing: .01em; }
 .shop-price, .shop-chip, .event-test, .bot-tag { letter-spacing: .04em; }
 
+/* ---------- Part 7: accent per person ----------
+   The colour a person picks for their name (--me-nc, set on .app from their profile) tints their own focus ring, composer focus and send button.
+   Ink stays the base: the accent is mixed with ink, and lifted toward --head in dark themes (the same --name-lift names use), so text on it stays readable in every theme.
+   Only the person's OWN accent is used, never someone else's. With no accent chosen the variables fall back to plain ink. */
+.app {
+  --me-accent: color-mix(in srgb, var(--me-nc, var(--ink)), var(--head) var(--name-lift, 0%));
+  --me-ring: color-mix(in srgb, var(--me-accent) 55%, var(--ink));
+  --me-fill: color-mix(in srgb, var(--me-accent) 40%, var(--ink));
+}
+.app :where(button, a, input, select, textarea, [role=button], [tabindex]):focus-visible { outline-color: var(--me-ring); }
+.app .composer-row:focus-within { border-color: var(--me-ring); }
+.app .send-btn:not(:disabled) { background: var(--me-fill); color: var(--on-ink); }
+.app .send-btn:not(:disabled):hover { background: color-mix(in srgb, var(--me-fill) 85%, var(--head)); color: var(--on-ink); }
+
 /* ---------- Part 5: phone bottom bar (Servers, DMs, Search, You) ---------- */
 
 .tabbar { display: none; }
