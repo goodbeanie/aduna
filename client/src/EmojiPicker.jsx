@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EMOJIS, Icon } from './ui.jsx';
+import { TileSkeleton } from './ShellBits.jsx';
 import { useEmoji } from './Emoji.jsx';
 
 // The full Unicode emoji set lives in its own chunk and is only fetched the first time a picker opens.
@@ -128,7 +129,7 @@ export default function EmojiPicker({ onPick, onCustom, onManage }) {
         </div>
       )}
       <div className="ep-scroll" ref={scroller} onScroll={results ? undefined : onScroll}>
-        {!groups && <div className="muted pad center">Loading emoji…</div>}
+        {!groups && <TileSkeleton tiles={40} size={32} label="Loading emoji" />}
         {groups && results && (
           <>
             {results.custom.length > 0 && <><div className="ep-label">YOUR EMOJI</div><div className="ep-grid">{results.custom.map(custom)}</div></>}

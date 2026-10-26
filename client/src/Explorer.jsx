@@ -113,7 +113,7 @@ function ServerList() {
         {state === 'error' && <div className="error">{err}</div>}
         {state === 'ready' && <p className="muted small explore-count">{total === 0 ? '' : `${total} server${total === 1 ? '' : 's'}${q.trim() ? ` matching “${q.trim()}”` : ''}`}</p>}
         {state === 'ready' && items.length === 0 && (
-          <div className="empty">{q.trim() ? `No public servers match “${q.trim()}”.` : 'No public servers yet. Owners can publish theirs from Server settings > Publish.'}</div>
+          <div className="empty">{q.trim() ? <>{`No public servers match “${q.trim()}”.`} <button className="btn" onClick={() => setQ('')}>Clear search</button></> : 'No public servers yet. Owners can publish theirs from Server settings > Publish.'}</div>
         )}
         <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>
           {items.map((info) => (
@@ -181,7 +181,7 @@ function BotList({ servers, me, onServerUpdate }) {
           </label>
         </div>
         {state === 'error' && <div className="error">{err}</div>}
-        {state === 'ready' && items.length === 0 && <div className="empty">{q.trim() ? `No public bots match “${q.trim()}”.` : 'No public bots yet.'}</div>}
+        {state === 'ready' && items.length === 0 && <div className="empty">{q.trim() ? <>{`No public bots match “${q.trim()}”.`} <button className="btn" onClick={() => setQ('')}>Clear search</button></> : 'No public bots yet.'}</div>}
         {state === 'ready' && total > 0 && <p className="muted small explore-count">{total} bot{total === 1 ? '' : 's'}</p>}
         <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>
           {items.map((b) => (

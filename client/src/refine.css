@@ -218,3 +218,10 @@ html[data-grad] .composer-row .composer { background: none; }
 .skel-title { height: 22px; width: 38%; }
 .skel-card { height: 84px; border-radius: 14px; border: 1px solid var(--line); }
 
+/* picker grids (emoji, GIFs): rounded-square tiles in the same grid rhythm as the real thing */
+.skel-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(var(--tile, 32px), 1fr)); gap: 8px; padding: 8px; }
+.skel-tile { aspect-ratio: 1; border-radius: 26%; }
+
+/* an action beside an empty-state sentence (Explorer "Clear search") */
+.empty .btn { margin-left: 8px; }
+

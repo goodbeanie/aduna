@@ -962,7 +962,7 @@ function Main({ me, setMe, privKey, openServerId }) {
                 <span className="hash"><Icon name="users" size={20} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
               <div className="side-label">{tr('lblDMs')}</div>
-              {convos.length === 0 && <p className="muted pad">{tr('noConvos')}</p>}
+              {convos.length === 0 && <div className="pad"><p className="muted">{tr('noConvos')}</p>{(view.userId || view.explore || view.shop || view.quests) && <button className="btn" onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>{tr('friends')}</button>}</div>}
               {convos.map((id) => users[id] && (
                 <button key={id} className={'chan dm' + (id === view.userId ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: id }); setShowList(false); }}>
                   <Avatar user={users[id]} size={32} presence={statusOf(id)} />

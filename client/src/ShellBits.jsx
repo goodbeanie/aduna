@@ -93,6 +93,15 @@ export function PanelSkeleton({ cards = 3, label = 'Loading' }) {
   );
 }
 
+// Grey placeholder tiles for a picker grid (emoji, GIFs) that is still on its way.
+export function TileSkeleton({ tiles = 24, size = 32, label = 'Loading' }) {
+  return (
+    <div className="skel-tiles" role="status" aria-busy="true" aria-label={label} style={{ '--tile': size + 'px' }}>
+      {Array.from({ length: tiles }, (_, i) => <span key={i} className="skel skel-tile" aria-hidden="true" />)}
+    </div>
+  );
+}
+
 // ---------- tooltips ----------
 // Replaces the browser's own title bubble on the server bar and on icon buttons: the same text, drawn by us, with an optional shortcut
 // hint (data-kbd="Ctrl+F"). Anything with data-tip gets one too. Mouse and keyboard focus only: a tap on a phone must not leave one behind.

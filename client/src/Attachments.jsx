@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './ui.jsx';
+import { TileSkeleton } from './ShellBits.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import { api } from './api.js';
 import { useEmoji } from './Emoji.jsx';
@@ -449,7 +450,7 @@ export function GifPop({ onPick, onClose, enabled }) {
                 ))}
               </div>
             )}
-            {loading && <div className="muted pad center">Loading…</div>}
+            {loading && <TileSkeleton tiles={list.length ? 4 : 12} size={96} label="Loading GIFs" />}
             {err && <div className="error-text pad center">{err}</div>}
             {!loading && !err && list.length === 0 && <div className="muted pad center">No GIFs found.</div>}
             {!loading && !more && list.length > 0 && <div className="muted small pad center">That’s everything.</div>}
