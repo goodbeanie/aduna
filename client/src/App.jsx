@@ -32,6 +32,7 @@ import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './l
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 import * as notify from './notify.js';
 import { NotifyPrompt } from './NotifyPrompt.jsx';
+import { CommandPalette } from './CommandPalette.jsx';
 import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
 import { RailUpdateChip } from './RailUpdate.jsx';
 import { WhatsNewPopup } from './WhatsNew.jsx';
@@ -850,6 +851,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             </button>
           ))}
           <button className="rail-btn add" title="Create or join a server" onClick={() => setModal({ type: 'server' })}><Icon name="plus" size={22} /></button>
+          <button className="rail-btn add rail-jump" title="Jump to…" data-kbd="Ctrl+K" aria-label="Jump to a channel, person or setting" onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={20} /></button>
         </RailList>
         <RailUpdateChip />
       </nav>
@@ -1043,6 +1045,9 @@ function Main({ me, setMe, privKey, openServerId }) {
       {toast && <button className="toast" onClick={() => { const sv = servers.find((x) => x.id === toast.serverId); if (sv) { lastChan.current[sv.id] = toast.channelId; setView({ kind: 'server', serverId: sv.id, channelId: toast.channelId }); setShowList(false); } setToast(null); }}><Icon name="megaphone" size={18} /><span><b>{toast.title}</b><br />{toast.body}</span></button>}
       <Tooltips />
       <NotifyPrompt />
+      <CommandPalette servers={servers} users={users} convos={convos} meId={me.id}
+        onChannel={(sv, c) => { lastChan.current[sv.id] = c.id; setView({ kind: 'server', serverId: sv.id, channelId: c.id }); setShowList(false); setMembersOpen(false); setModal(null); }}
+        onDm={openDm} onSettings={(tab) => setModal({ type: 'edit', tab })} />
       <UpdatePrompt />
       <SiteUpdateNotice />
       <WhatsNewPopup />
