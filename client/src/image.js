@@ -93,7 +93,7 @@ export function removeBackground(canvas) {
 
   let removed = 0;
   for (let p = 0; p < gone.length; p++) removed += gone[p];
-  if (removed < gone.length * 0.005 || removed > gone.length * 0.92) return false; // nothing to cut, or nothing would be left
+  if (removed < gone.length * 0.005 || removed > gone.length * 0.75) return false; // nothing to cut, or too little would be left (the art is probably the same colour as its background)
 
   // soften the rim: a pixel touching the background fades out the closer its colour is to the background
   for (let p = 0; p < gone.length; p++) {
