@@ -113,7 +113,8 @@
 .settings-search::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; height: 14px; width: 14px; cursor: pointer; opacity: .6;
   background: currentColor; -webkit-mask: linear-gradient(45deg, transparent 45%, #000 45% 55%, transparent 55%), linear-gradient(-45deg, transparent 45%, #000 45% 55%, transparent 55%); mask: linear-gradient(45deg, transparent 45%, #000 45% 55%, transparent 55%), linear-gradient(-45deg, transparent 45%, #000 45% 55%, transparent 55%); }
 .settings-nomatch { padding: var(--s-2) var(--s-3); }
-@media (max-width: 720px) { .settings-search { font-size: 16px; min-height: 44px; } }
+/* on phones the section list is a scrolling row of tabs, so the search is one fixed-width item in that row (it was squeezed to a sliver) */
+@media (max-width: 720px) { .settings-search { font-size: 16px; min-height: 44px; flex: 0 0 176px; width: 176px; margin: 0 var(--s-2) 0 0; } .settings-nomatch { white-space: nowrap; } }
 
 /* badge art follows the avatar's rounded square instead of a circle (inner radius = outer minus padding stays concentric) */
 .badge-art { border-radius: 26%; }
