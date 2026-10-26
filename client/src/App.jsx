@@ -33,6 +33,7 @@ import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 import * as notify from './notify.js';
 import { NotifyPrompt } from './NotifyPrompt.jsx';
 import { CommandPalette } from './CommandPalette.jsx';
+import { FirstRun } from './FirstRun.jsx';
 import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
 import { RailUpdateChip } from './RailUpdate.jsx';
 import { WhatsNewPopup } from './WhatsNew.jsx';
@@ -974,6 +975,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           </>
         )}
         <CallDock call={call.call} actions={call.actions} users={users} onOpen={goToCall} />
+        <FirstRun me={me} serverCount={servers.length} onTheme={() => setModal({ type: 'edit', tab: 'appearance' })} onPicture={() => setModal({ type: 'edit', tab: 'profile' })} onServer={() => setModal({ type: 'server' })} />
         <div className="user-panel">
           <button className="me" onClick={() => setModal({ type: 'user', id: me.id })}>
             <Avatar user={me} size={34} presence={myPresence} />

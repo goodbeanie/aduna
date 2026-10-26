@@ -141,6 +141,20 @@
 .app .send-btn:not(:disabled) { background: var(--me-fill); color: var(--on-ink); }
 .app .send-btn:not(:disabled):hover { background: color-mix(in srgb, var(--me-fill) 85%, var(--head)); color: var(--on-ink); }
 
+/* ---------- Part 8: first-run checklist ---------- */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.firstrun { flex: none; margin: var(--s-2) var(--s-2) 0; padding: var(--s-2) var(--s-3) var(--s-2); border: 1px solid var(--line2); border-radius: var(--r-md); background: var(--raised, var(--bg)); box-shadow: var(--lift-1); }
+.firstrun-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-2); color: var(--muted); font-size: var(--fs-xs); letter-spacing: .06em; text-transform: uppercase; }
+.firstrun-x { width: 28px; height: 28px; margin-right: -6px; }
+.firstrun-list { list-style: none; margin: var(--s-1) 0 0; padding: 0; }
+.firstrun-step { display: flex; align-items: center; gap: var(--s-3); width: 100%; min-height: 36px; padding: var(--s-1) var(--s-1); border: 0; border-radius: var(--r-sm); background: none; color: var(--text); font: inherit; font-size: var(--fs-sm); text-align: left; cursor: pointer; transition: background var(--t-hover) var(--ease); }
+.firstrun-step:hover:not(:disabled) { background: var(--hover); }
+.firstrun-step:disabled { cursor: default; color: var(--muted); }
+.firstrun-step.done span:nth-child(2) { text-decoration: line-through; text-decoration-thickness: 1px; }
+.firstrun-box { flex: none; display: grid; place-items: center; width: 18px; height: 18px; border-radius: var(--s-1); box-shadow: inset 0 0 0 1.5px var(--line2); color: var(--on-ink); }
+.firstrun-step.done .firstrun-box { background: var(--ink); box-shadow: none; animation: rf-pop var(--t-celebrate) var(--ease) both; }
+@media (max-width: 720px) { .firstrun-step { min-height: 44px; } .firstrun-x { width: 36px; height: 36px; } }
+
 /* ---------- Part 5: phone bottom bar (Servers, DMs, Search, You) ---------- */
 
 .tabbar { display: none; }
