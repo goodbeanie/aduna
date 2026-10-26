@@ -108,7 +108,8 @@ export const gradientCss = (stops, angle = 135) => `linear-gradient(${Math.round
 const PARCHMENT = { id: 'parchment', name: 'Parchment', dark: false, bg: '#fbf8f1', accent: '#1c1812', vars: null };
 
 export const THEMES = [
-  { id: 'linear',   name: 'Linear',   dark: true,  bg: '#121214', accent: '#5e6ad2' },
+  { id: 'zen',      name: 'Zen',      dark: true,  bg: '#1d1a17', accent: '#ecd5b6' },
+  { id: 'zen-light', name: 'Zen Light', dark: false, bg: '#f6f0e4', accent: '#6f5233' },
   PARCHMENT,
   { id: 'ocean',    name: 'Ocean',    dark: false, bg: '#f3f8fb', accent: '#1f5f8b' },
   { id: 'forest',   name: 'Forest',   dark: false, bg: '#f4f8f1', accent: '#2f6b45' },
@@ -146,7 +147,7 @@ export function customStops(c) {
 }
 export const THEME_LS_KEY = STORE;
 // What someone gets before they pick a theme. Anyone who already chose one keeps it. Set to 'parchment' to bring the old default back.
-const DEFAULT_THEME_ID = 'linear';
+const DEFAULT_THEME_ID = 'zen';
 
 function parchmentVars() {
   // Clear overrides: the defaults in styles.css :root are the Parchment look.

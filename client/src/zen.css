@@ -1,0 +1,113 @@
+/* Aduna look, pass 8: "zen". Loaded after refine.css in main.jsx.
+   Calm and warm: soft corners, room to breathe, one light-sand accent (--ink), squircle server tiles, a filled sand tint for the selected row,
+   sentence-case labels. Inter for type. Everything uses the theme variables, so every theme keeps working; the new default theme is "Zen"
+   (dark, warm, sand) with "Zen Light" beside it, both in themes.js.
+   To go back one step, remove the import of this file in main.jsx (and set DEFAULT_THEME_ID in themes.js to 'parchment'). */
+
+/* ---------- 1. tokens: soft radii, calm type ---------- */
+:root {
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 22px;
+  --lift-2: 0 6px 18px var(--shadow);
+  --lift-3: 0 12px 36px var(--shadow);
+  --t-hover: 140ms;
+  --font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  scrollbar-width: thin; scrollbar-color: var(--line2) transparent;
+}
+* { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+body { font-size: 14px; line-height: 1.55; letter-spacing: 0; }
+.side-head, .chat-head h3, .modal-head h2, .settings-h, .credit-h { font-weight: 600; letter-spacing: -.005em; }
+.chan, .settings-tab, .menu button, .btn, .name, .me-name, .tabs button, .tabbar button, .cp-label { font-weight: 500; }
+
+/* sand links and mentions in the two Zen themes (important, because themes.js sets --link on the page itself) */
+html[data-theme=zen] { --link: #e8c593 !important; }
+html[data-theme=zen-light] { --link: #8a5a2b !important; }
+
+/* ---------- 2. shell: roomy bars, one page colour, the chat is a soft panel set into it ---------- */
+.side-head, .chat-head { height: 56px; }
+.side-head { font-size: 15px; }
+.chat-head h3 { font-size: 16px; }
+.menu { top: 56px; }
+.side-head.has-banner + .menu { top: 100px; }
+
+.rail, .side, .members, .user-panel { background: var(--bg2); border: 0; }
+.rail { border-bottom: 0; }
+.chat { margin: 0 10px 10px 0; border: 1px solid var(--line); border-radius: var(--r-xl); background: var(--bg); overflow: hidden; }
+@media (max-width: 720px) { .chat { margin: 0; border: 0; border-radius: 0; } }
+
+/* servers are squircles, the active one wears a sand ring */
+.rail-list { gap: 10px; padding: 8px 6px; }
+.rail-btn, .rail-btn:hover, .rail-btn.on, .rail-btn.on:hover { border-radius: 32%; }
+.rail-btn.on::after { border-radius: 2px; }
+.rail-sep { width: 1px; }
+
+.chan { padding: 6px 10px; font-size: 14px; border-radius: var(--r-sm); }
+.chan.dm { padding: 5px 10px; }
+.chan .hash { font-size: 17px; opacity: .55; }
+.chan:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); color: var(--text); }
+/* selected rows: a soft sand tint, no bar */
+.chan.on, .settings-tab.on { background: color-mix(in srgb, var(--ink) 16%, transparent); color: var(--head); }
+.cp-row.on { box-shadow: none; background: color-mix(in srgb, var(--ink) 16%, transparent); }
+.settings-tab { padding: 8px 12px; border-radius: var(--r-sm); }
+.member { padding: 5px 8px; border-radius: var(--r-sm); }
+.member:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.user-panel { height: 58px; }
+
+/* labels in sentence case, quiet */
+.side-label, .cat-name, .firstrun-head, .cp-kind, .menu-label { text-transform: none; letter-spacing: 0; font-size: 12px; }
+
+/* ---------- 3. menus, modals, cards ---------- */
+.menu, .pop, .emenu { background: var(--raised); border: 1px solid var(--line2); border-radius: var(--r-md); box-shadow: var(--lift-3); padding: 6px; }
+.menu button { padding: 8px 10px; font-size: 14px; border-radius: var(--r-sm); }
+.menu button:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); color: var(--head); }
+.menu button.danger-text:hover { background: var(--err-bg); color: var(--err-fg) !important; }
+
+.modal { padding: 24px; border: 1px solid var(--line); border-radius: var(--r-xl); box-shadow: var(--lift-3); }
+.modal-head h2 { font-size: 18px; }
+.modal-foot { margin-top: 20px; }
+.modal.bare .card { box-shadow: var(--lift-3); }
+.card { border-radius: var(--r-xl); }
+.auth-card { border-radius: var(--r-xl); }
+.modal-x, .settings-close { border-radius: var(--r-md); }
+.notice, .error, .event-card, .invite-card, .safety { border-radius: var(--r-md); }
+
+/* ---------- 4. buttons and fields ---------- */
+.btn { padding: 8px 16px; font-size: 14px; border-radius: var(--r-md); }
+.btn.full { padding: 11px 16px; margin-top: 16px; }
+.btn.primary:hover { background: var(--ink-h); }
+.send-btn:active:not(:disabled), .btn.primary:active:not(:disabled) { transform: scale(.97); }
+.small-btn { border-radius: var(--r-sm); }
+input, textarea, select { border-radius: var(--r-md); }
+.tabs button { padding: 10px 14px; }
+
+/* ---------- 5. messages: room to breathe, a quiet hover, sand mentions ---------- */
+.msg { margin-top: 12px; padding: 3px 24px; }
+.msg.grouped { margin-top: 0; }
+.msg-row { gap: 16px; }
+.msg:not(.pinged):not(.editing):hover { background: var(--msg-hover); box-shadow: none; }
+.content { font-size: 14.5px; line-height: 1.55; }
+.toolbar { border-radius: var(--r-md); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line2); }
+.chip { border-radius: var(--r-sm); }
+.mention { border-radius: var(--r-sm); background: color-mix(in srgb, var(--ink) 18%, transparent); color: var(--head); }
+.mention:hover { background: color-mix(in srgb, var(--ink) 28%, transparent); }
+
+/* dividers: quiet italic date on the line; "new" is a small sand label */
+.day-divider > span { background: var(--bg); box-shadow: none; padding: 0 var(--s-3); text-transform: none; letter-spacing: 0; font-size: 12px; font-style: italic; border-radius: 0; }
+.new-divider > span { border-radius: var(--r-sm); text-transform: none; letter-spacing: 0; font-size: 12px; padding: 2px var(--s-3); }
+
+/* ---------- 6. composer ---------- */
+.composer-wrap { padding: 0 20px 16px; }
+.composer-row { border-radius: 18px; border-color: var(--line); background: var(--field); }
+.composer-row .composer::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.composer-row .icon-btn { border-radius: var(--r-md); }
+.replying { border-radius: 18px 18px 0 0; }
+.replying + .composer-row, .replying + .pending { border-radius: 0 0 18px 18px; }
+/* the send button is solid sand with dark ink, and a rounded square (never a circle) */
+.send-btn { border-radius: 14px !important; }
+html[data-theme^=zen] .app .send-btn:not(:disabled) { background: var(--ink); color: var(--on-ink); }
+html[data-theme^=zen] .app .send-btn:not(:disabled):hover { background: var(--ink-h); color: var(--on-ink); }
+@media (max-width: 720px) { .composer-wrap { padding: 0 12px 12px; } .msg { padding-left: 16px; padding-right: 16px; } }
+
+/* ---------- 7. cards and lists elsewhere (shop, quests, themes, settings) ---------- */
+.credit-balance, .credit-pack, .quest, .shop-item, .shop-empty, .streak-card, .pt-tile, .shop-tile, .theme-card, .firstrun, .explore-search { border-radius: var(--r-md); }
+.pt-swatch, .theme-prev { border-radius: var(--r-sm); }
+.event-card { padding: 4px 16px 16px; }
