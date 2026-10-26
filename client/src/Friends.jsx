@@ -37,7 +37,10 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
       const r = await onRequest(name.trim());
       setMsg({ ok: true, text: r.result === 'friends' ? t('nowFriends', { name: r.user.displayName }) : t('requestSent', { name: r.user.displayName }) });
       setName('');
-    } catch (err) { setMsg({ ok: false, text: err.message }); }
+    } catch (err) {
+      setMsg({ ok: false, text: err.message });
+      setTimeout(() => document.getElementById('add-friend-name')?.focus(), 0);
+    }
     setBusy(false);
   }
 
@@ -75,10 +78,10 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
             <h3>{t('fAdd')}</h3>
             <p className="muted">{t('addFriendSub')}</p>
             <div className="add-row">
-              <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={t('enterUsername')} maxLength={21} />
+              <input id="add-friend-name" autoFocus value={name} onChange={(e) => { setName(e.target.value); setMsg(null); }} placeholder={t('enterUsername')} aria-label={t('enterUsername')} maxLength={21} aria-invalid={msg && !msg.ok ? 'true' : undefined} aria-describedby={msg ? 'add-friend-msg' : undefined} />
               <button className="btn primary" disabled={busy || !name.trim()}>{t('sendRequest')}</button>
             </div>
-            {msg && <p className={msg.ok ? 'ok-text' : 'error-text'}>{msg.text}</p>}
+            {msg && <p id="add-friend-msg" className={(msg.ok ? 'ok-text' : 'error-text field-error')} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p>}
           </form>
         )}
 

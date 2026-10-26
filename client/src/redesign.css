@@ -43,7 +43,7 @@
 /* ---------- chat ---------- */
 .chat-head { box-shadow: none; border-bottom: 1px solid var(--line); height: 52px; }
 .chat-head h3 { font-size: 18px; }
-.msg { margin-top: 14px; }
+.msg { margin-top: 8px; }
 .msg:not(.pinged):not(.editing):hover { background: none; box-shadow: inset 2px 0 0 var(--line2); }
 
 
@@ -119,11 +119,9 @@
 .call-tile.waiting .tile-avatar::before, .call-tile.waiting .tile-avatar::after { border-radius: 30%; }
 
 /* ---------- pass 4: readable text, notices ---------- */
-/* Bree Serif stays for the brand, headings, names and buttons. Text you read or type a lot is plain sans (system font, nothing to download).
-   To go back to all-serif, delete the --font-read line and the rule below it. */
-:root { --font-read: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-.content, .bio, .reply-text, textarea, input, select { font-family: var(--font-read); }
-.content { line-height: 1.5; }
+/* Bree Serif everywhere, including messages, bios and the fields you type in (the plain-sans override is gone). */
+.content, .bio, .reply-text, textarea, input, select { font-family: var(--font); }
+.content { line-height: 1.4; }
 
 .notice, .error { border-radius: var(--r-md); }
 .invite code, .safety { border-radius: var(--r-md); }

@@ -33,14 +33,11 @@
 @media (min-width: 721px) { .notify-prompt { top: 132px; bottom: auto; } }
 @media (max-width: 720px) { .notify-prompt { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); } }
 
-/* ---------- 3. folded tab: the sign-in card's ink tab, in small, on every modal and profile card ---------- */
-.modal:not(.bare), .card { position: relative; }
-.modal:not(.bare)::before, .card::before {
-  content: ''; position: absolute; top: 0; left: var(--s-5); width: 36px; height: 5px; z-index: 2;
-  background: var(--ink); border-radius: 0 0 var(--s-1) var(--s-1); pointer-events: none;
-}
-/* the little tab must not sit on top of the profile card's close button */
-.card::before { left: var(--s-4); }
+/* ---------- 3. no wedges ----------
+   The small ink "folded tab" on modals and profile cards is gone, and so are the thick coloured top borders on rounded cards:
+   a border-top on a rounded box tapers into a wedge at the corners. Those cards get a plain hairline instead. */
+.auth-card { border-top: 1px solid var(--line2); }
+.event-card { border-top: 0; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--gold) 45%, var(--line)); }
 
 /* ---------- 4. stamped dividers: a printed label on the line, not just a line ---------- */
 .day-divider, .new-divider { font-weight: 400; }
@@ -175,7 +172,7 @@
   .tabbar button:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
   .tabbar button.on { color: var(--head); }
   /* ink bar on the active item, like the sidebar */
-  .tabbar button.on::before { content: ''; position: absolute; top: 0; left: 28%; right: 28%; height: 3px; background: var(--ink); border-radius: 0 0 var(--s-1) var(--s-1); }
+  .tabbar button.on::before { content: ''; position: absolute; top: 0; left: 28%; right: 28%; height: 3px; background: var(--ink); border-radius: 2px; }
   /* unread count: a small ink square */
   .tab-badge { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; display: grid; place-items: center;
     font-size: 11px; line-height: 1; color: var(--on-ink); background: var(--ink); border-radius: var(--s-1); }
