@@ -10,10 +10,15 @@
   --lift-2: 0 4px 12px var(--shadow);
   --lift-3: 0 8px 24px var(--shadow);
   --t-hover: 100ms;
+  /* Inter, the face Linear uses (bundled by @fontsource-variable/inter in main.jsx). It has real weights, so 500 and 600 are not faux bold here. */
+  --font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   scrollbar-width: thin; scrollbar-color: var(--line2) transparent;
 }
 * { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
-body { font-size: 14px; line-height: 1.45; letter-spacing: 0; }
+body { font-size: 13px; line-height: 1.5; letter-spacing: 0; font-feature-settings: "cv11", "ss03"; }
+.side-head, .chat-head h3, .modal-head h2, .settings-h, .credit-h { font-weight: 600; letter-spacing: -.01em; }
+.chan, .settings-tab, .menu button, .btn, .name, .me-name, .member, .tabs button, .rail-btn, .tabbar button, .cp-label { font-weight: 500; }
+.chan:not(.on):not(.unread), .member { font-weight: 450; }
 
 /* ---------- 2. shell: 44px bars, flat sidebar rows ---------- */
 .side-head, .chat-head { height: 44px; }
@@ -22,7 +27,12 @@ body { font-size: 14px; line-height: 1.45; letter-spacing: 0; }
 .menu { top: 44px; }
 .side-head.has-banner + .menu { top: 100px; }
 
-.rail { border-bottom: 1px solid var(--line); }
+/* the page is one dark colour: server bar, sidebar, members and user panel share it, and the chat is a bordered panel set into it */
+.rail, .side, .members, .user-panel { background: var(--bg3); border: 0; }
+.rail { border-bottom: 0; }
+.chat { margin: 0 8px 8px 0; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--bg); overflow: hidden; }
+.members { padding-right: 0; }
+@media (max-width: 720px) { .chat { margin: 0; border: 0; border-radius: 0; } }
 .rail-list { gap: 6px; padding: 6px; }
 .rail-btn, .rail-btn:hover, .rail-btn.on { border-radius: var(--r-md); }
 .rail-sep { width: 1px; }
@@ -30,9 +40,9 @@ body { font-size: 14px; line-height: 1.45; letter-spacing: 0; }
 .chan { padding: 4px 8px; font-size: 14px; border-radius: var(--r-sm); }
 .chan.dm { padding: 3px 8px; }
 .chan .hash { font-size: 16px; opacity: .6; }
-.chan:hover { background: var(--hover); color: var(--text); }
+.chan:hover { background: color-mix(in srgb, var(--hover) 55%, transparent); color: var(--text); }
 /* selected rows are filled, not barred */
-.chan.on, .settings-tab.on { background: var(--sel); color: var(--head); }
+.chan.on, .settings-tab.on { background: var(--hover); color: var(--head); }
 .cp-row.on { box-shadow: none; }
 .settings-tab { padding: 6px 10px; border-radius: var(--r-sm); }
 .member { padding: 4px 8px; border-radius: var(--r-sm); }
@@ -83,6 +93,8 @@ input, textarea, select { border-radius: var(--r-md); }
 .new-divider > span { border-radius: var(--r-sm); text-transform: none; letter-spacing: 0; font-size: 12px; padding: 1px var(--s-2); }
 
 /* ---------- 6. composer ---------- */
+/* Inter is wider than the old face: keep the placeholder on one line (it wrapped and clipped on phones) */
+.composer-row .composer::placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer-row { border-radius: var(--r-lg); }
 .composer-row .icon-btn { border-radius: var(--r-md); }
 .replying { border-radius: var(--r-lg) var(--r-lg) 0 0; }
