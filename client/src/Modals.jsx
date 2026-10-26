@@ -13,6 +13,7 @@ export function ServerModal({ onClose, onDone }) {
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [err, setErr] = useState('');
+  const fieldRef = useRef(null);
 
   async function go(e) {
     e.preventDefault();
@@ -22,19 +23,20 @@ export function ServerModal({ onClose, onDone }) {
         ? await api('/servers', { method: 'POST', body: { name } })
         : await api('/servers/join', { method: 'POST', body: { code: codeFromInput(code) } });
       onDone(server);
-    } catch (e2) { setErr(e2.message); }
+    } catch (e2) { setErr(e2.message); setTimeout(() => fieldRef.current?.focus(), 0); }
   }
+  const switchTab = (t) => { setTab(t); setErr(''); };
 
   return (
     <Modal title={tab === 'create' ? 'Create a server' : 'Join a server'} onClose={onClose}>
       <div className="tabs">
-        <button className={tab === 'create' ? 'on' : ''} onClick={() => setTab('create')}>Create</button>
-        <button className={tab === 'join' ? 'on' : ''} onClick={() => setTab('join')}>Join with invite</button>
+        <button type="button" className={tab === 'create' ? 'on' : ''} onClick={() => switchTab('create')}>Create</button>
+        <button type="button" className={tab === 'join' ? 'on' : ''} onClick={() => switchTab('join')}>Join with invite</button>
       </div>
       <form onSubmit={go}>
-        {tab === 'create' ? (<><label>SERVER NAME</label><input autoFocus value={name} onChange={(e) => setName(e.target.value)} maxLength={40} required placeholder="My awesome server" /></>)
-          : (<><label>INVITE LINK OR CODE</label><input autoFocus value={code} onChange={(e) => setCode(e.target.value)} required placeholder="aduna.onrender.com/invite/aduna" /></>)}
-        {err && <div className="error">{err}</div>}
+        {tab === 'create' ? (<><label htmlFor="srv-name">SERVER NAME</label><input id="srv-name" ref={fieldRef} autoFocus value={name} onChange={(e) => { setName(e.target.value); setErr(''); }} maxLength={40} required placeholder="My awesome server" aria-invalid={err ? 'true' : undefined} aria-describedby={err ? 'srv-err' : undefined} /></>)
+          : (<><label htmlFor="srv-code">INVITE LINK OR CODE</label><input id="srv-code" ref={fieldRef} autoFocus value={code} onChange={(e) => { setCode(e.target.value); setErr(''); }} required placeholder="aduna.onrender.com/invite/aduna" aria-invalid={err ? 'true' : undefined} aria-describedby={err ? 'srv-err' : undefined} /></>)}
+        {err && <p className="error-text field-error" id="srv-err" role="alert">{err}</p>}
         <div className="modal-foot"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">{tab === 'create' ? 'Create' : 'Join'}</button></div>
       </form>
     </Modal>
@@ -44,17 +46,19 @@ export function ServerModal({ onClose, onDone }) {
 export function CategoryModal({ server, onClose, onDone }) {
   const [name, setName] = useState('');
   const [err, setErr] = useState('');
+  const fieldRef = useRef(null);
   async function go(e) {
     e.preventDefault();
+    setErr('');
     try { const { server: s } = await api(`/servers/${server.id}/categories`, { method: 'POST', body: { name } }); onDone(s); }
-    catch (e2) { setErr(e2.message); }
+    catch (e2) { setErr(e2.message); setTimeout(() => fieldRef.current?.focus(), 0); }
   }
   return (
     <Modal title="Add category" onClose={onClose}>
       <form onSubmit={go}>
-        <label>CATEGORY NAME</label>
-        <input autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="New category" maxLength={30} required />
-        {err && <div className="error">{err}</div>}
+        <label htmlFor="cat-name">CATEGORY NAME</label>
+        <input id="cat-name" ref={fieldRef} autoFocus value={name} onChange={(e) => { setName(e.target.value); setErr(''); }} placeholder="New category" maxLength={30} required aria-invalid={err ? 'true' : undefined} aria-describedby={err ? 'cat-err' : undefined} />
+        {err && <p className="error-text field-error" id="cat-err" role="alert">{err}</p>}
         <div className="modal-foot"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Add category</button></div>
       </form>
     </Modal>
@@ -72,11 +76,13 @@ export function ChannelModal({ server, category, onClose, onDone }) {
   const [name, setName] = useState('');
   const [touched, setTouched] = useState(false); // once you type a name, picking a preset stops overwriting it
   const [err, setErr] = useState('');
+  const fieldRef = useRef(null);
   const pick = (p) => { setType(p.type); if (!touched) setName(p.name); };
   async function go(e) {
     e.preventDefault();
+    setErr('');
     try { const { server: s } = await api(`/servers/${server.id}/channels`, { method: 'POST', body: { name, type, categoryId: category?.id } }); onDone(s); }
-    catch (e2) { setErr(e2.message); }
+    catch (e2) { setErr(e2.message); setTimeout(() => fieldRef.current?.focus(), 0); }
   }
   return (
     <Modal title={category ? `Create channel in ${category.name}` : 'Create channel'} onClose={onClose}>
@@ -90,9 +96,9 @@ export function ChannelModal({ server, category, onClose, onDone }) {
             </button>
           ))}
         </div>
-        <label>CHANNEL NAME</label>
-        <input autoFocus value={name} onChange={(e) => { setName(e.target.value); setTouched(true); }} placeholder="new-channel" maxLength={30} required />
-        {err && <div className="error">{err}</div>}
+        <label htmlFor="chan-name">CHANNEL NAME</label>
+        <input id="chan-name" ref={fieldRef} autoFocus value={name} onChange={(e) => { setName(e.target.value); setTouched(true); setErr(''); }} placeholder="new-channel" maxLength={30} required aria-invalid={err ? 'true' : undefined} aria-describedby={err ? 'chan-err' : undefined} />
+        {err && <p className="error-text field-error" id="chan-err" role="alert">{err}</p>}
         <div className="modal-foot"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">Create</button></div>
       </form>
     </Modal>
