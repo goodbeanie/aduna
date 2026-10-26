@@ -206,3 +206,8 @@ body:has(.settings-screen) .notify-prompt { display: none; }
 /* gradient themes: html[data-grad] .composer paints a translucent field on the text area, which showed as a square patch inside the rounded composer row */
 html[data-grad] .composer-row .composer { background: none; }
 
+/* ---------- Part 9b: empty and loading states ----------
+   Skeleton avatars and the empty-state icon tile were circles; every real avatar is a rounded square, so the placeholder matches what replaces it. */
+.skel-avatar, .skel-circle, .empty-ico { border-radius: 26%; }
+.empty-state h4 { font-weight: 400; } /* one-weight type: no faux bold */
+
