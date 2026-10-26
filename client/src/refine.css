@@ -239,3 +239,7 @@ html[data-grad] .composer-row .composer { background: none; }
    The card steps aside until the prompt is answered. */
 @media (max-width: 720px) { body:has(.notify-prompt) .firstrun { display: none; } }
 
+/* seasonal themes draw a candy / presents picture in the sidebar's bottom-left corner, the same spot as the "Getting started" card and
+   over its labels. It steps aside while the card is showing. */
+html[data-season]:has(.firstrun)::after { display: none; }
+
