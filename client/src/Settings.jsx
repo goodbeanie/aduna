@@ -14,13 +14,31 @@ import { useLang } from './i18n.js';
 
 const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['whatsnew', 'tabWhatsNew', 'bulb'], ['developer', 'tabDeveloper', 'code'], ['artist', 'tabArtist', 'palette']];
 
+// Extra words the settings search also matches, so "password" finds Security and "theme" finds Appearance.
+const KEYWORDS = {
+  profile: 'avatar picture name bio banner frame status',
+  appearance: 'theme colour color dark light font accent',
+  language: 'translate locale',
+  notifications: 'sound alerts mute desktop',
+  voice: 'microphone mic camera audio input output',
+  security: 'password two factor 2fa sessions login email',
+  whatsnew: 'updates changelog release',
+  developer: 'bots api token ai coder',
+  artist: 'shop sell art',
+  badges: 'creator shop',
+};
+
 // Full-screen settings: a section list on the left (a tab bar on phones) and the chosen section on the right.
 // aiFocus: opened by the desktop app's AI Coder button/menu/notification: show Developer with the AI panel.
 export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, onSaved, onPrefs, onLogout, getSocketId }) {
   const { t } = useLang();
   const [tab, setTab] = useState(initialTab);
+  const [q, setQ] = useState('');
+  const all = [...TABS, ...(me.creator ? [['badges', 'tabBadges', 'star']] : [])];
+  const needle = q.trim().toLowerCase();
+  const shown = needle ? all.filter(([id, label]) => (t(label) + ' ' + id + ' ' + (KEYWORDS[id] || '')).toLowerCase().includes(needle)) : all;
   useEffect(() => {
-    const h = (e) => e.key === 'Escape' && onClose();
+    const h = (e) => e.key === 'Escape' && !e.defaultPrevented && onClose();
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
@@ -30,11 +48,24 @@ export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, o
       <nav className="settings-nav">
         <button className="icon-btn settings-navclose" onClick={onClose} aria-label={t('closeSettings')}><Icon name="close" size={20} /></button>
         <h2>{t('settings')}</h2>
-        {[...TABS, ...(me.creator ? [['badges', 'tabBadges', 'star']] : [])].map(([id, label, icon]) => (
+        <input
+          type="search"
+          className="settings-search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && shown.length) { setTab(shown[0][0]); }
+            if (e.key === 'Escape' && q) { e.stopPropagation(); setQ(''); }
+          }}
+          placeholder={t('search') === 'search' ? 'Search settings' : t('search')}
+          aria-label="Search settings"
+        />
+        {shown.map(([id, label, icon]) => (
           <button key={id} className={'settings-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>
             <Icon name={icon} size={18} /><span>{t(label)}</span>
           </button>
         ))}
+        {!shown.length && <p className="muted small settings-nomatch">No settings match “{q}”.</p>}
         <div className="spacer" />
         <button className="settings-tab danger-text" onClick={onLogout}><span>{t('logOut')}</span></button>
       </nav>
