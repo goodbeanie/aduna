@@ -75,3 +75,11 @@
 @keyframes rf-pop { from { opacity: 0; transform: translateY(var(--s-1)) scale(.985); } to { opacity: 1; transform: none; } }
 .modal, .menu, .pop, .emenu { animation: rf-pop var(--t-panel) var(--ease) both; }
 
+/* ---------- Part 3: composer and messages ---------- */
+
+/* desktop: the send button appears once there is something to send (it was phone-only). Enter still sends. */
+@media (min-width: 721px) {
+  .send-btn:not(:disabled) { display: grid; background: var(--ink); color: var(--on-ink); align-self: center; margin-left: var(--s-1); animation: rf-pop var(--t-hover) var(--ease) both; }
+  .send-btn:not(:disabled):hover { background: var(--ink-h); color: var(--on-ink); }
+}
+
