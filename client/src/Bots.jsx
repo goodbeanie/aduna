@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
-import { PanelSkeleton } from './ShellBits.jsx';
+import { PanelSkeleton, EmptyState } from './ShellBits.jsx';
 import { can } from './perms.js';
 import BotSim from './BotSim.jsx';
 import AiBuilder, { hasAiBuilder } from './AiBuilder.jsx';
@@ -98,14 +98,14 @@ export function DeveloperSettings({ me, onSaved, aiFocus }) {
   return (
     <div className="dev-list">
       <p className="muted small hint">Signed in as <b>@{me.username}</b>. You can have up to {dev.limits.perDeveloper} bots.</p>
-      {dev.bots.length === 0 && <div className="empty">You have no bots yet.</div>}
+      {dev.bots.length === 0 && <EmptyState icon="plus" title="You have no bots yet" action={<button className="btn primary" disabled={full} onClick={() => open('new')}>New bot</button>}>A bot is a small program that answers messages in your servers. Start with a blank one.</EmptyState>}
       {dev.bots.map((b) => (
         <button key={b.id} className="bot-row" onClick={() => open(b)}>
           <div className="bot-head"><b className="bot-name">{b.name}</b><BotTag /><StatusChips bot={b} /></div>
           <div className="muted small">{b.installs} server{b.installs === 1 ? '' : 's'}{b.description ? ' · ' + b.description : ''}</div>
         </button>
       ))}
-      <button className="btn primary" disabled={full} onClick={() => open('new')}><Icon name="plus" size={16} className="inline-icon" /> New bot</button>
+      {dev.bots.length > 0 && <button className="btn primary" disabled={full} onClick={() => open('new')}><Icon name="plus" size={16} className="inline-icon" /> New bot</button>}
       {hasAiBuilder() && <button className="btn" disabled={full} onClick={() => open('new', true)}>Build a bot with AI</button>}
       {full && <p className="muted small hint">You have reached the limit. Delete a bot to make a new one.</p>}
       <SeasonTest me={me} onSaved={onSaved} />

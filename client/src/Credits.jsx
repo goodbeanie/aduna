@@ -494,7 +494,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
               })()}
 
             <h4 className="credit-h">Recent activity</h4>
-            {d.ledger.length === 0 && <p className="muted small">Nothing yet.</p>}
+            {d.ledger.length === 0 && <p className="muted small">Nothing yet. Credits you earn, buy or spend will show up here.</p>}
             <div className="ledger">
               {d.ledger.map((l, i) => (
                 <div key={i} className="ledger-row">
