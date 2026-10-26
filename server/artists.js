@@ -14,7 +14,7 @@
 //      only the price can change, and a price of null takes it off sale.
 //   4. Sales. When someone buys an artist item the artist gets `cutFor(price)` credits (CUT_PERCENT of the price, rounded down) in the same
 //      synchronous step as the purchase (credits.js), with an "artist" line in their ledger.
-//   5. Badge. The Artist badge (rec.badge) is switched on when the artist's first item is approved.
+//   5. Badge. An approved artist wears the Artist badge (shown from the moment their application is approved).
 
 const { MAX_PRICE } = require('./shop');
 

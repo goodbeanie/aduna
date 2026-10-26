@@ -97,8 +97,8 @@ function makePng(w, h) { // a different picture every time (the marker), so no t
   assert.deepStrictEqual([r.status, r.status === 200 && r.ok], [200, true], JSON.stringify(r));
   r = await call('/artists/me', { token: T(ada) });
   assert.strictEqual(r.application.status, 'approved'); assert.strictEqual((await me(ada)).artist, true);
-  assert.strictEqual(hasArtist(await me(ada)), false, 'no Artist badge until the first item is approved');
-  step('after the wait a new application replaces the old one; approval makes an artist (no badge yet)');
+  assert.strictEqual(hasArtist(await me(ada)), true, 'approval gives the Artist badge');
+  step('after the wait a new application replaces the old one; approval makes an artist and gives the Artist badge');
 
   // ---- items ----
   assert.strictEqual((await call('/artists/items', { method: 'POST', token: T(ada), body: { name: 'Cheap', price: 5 } })).status, 400, 'below the minimum price');
@@ -130,16 +130,16 @@ function makePng(w, h) { // a different picture every time (the marker), so no t
   assert.strictEqual((await call('/artists/review/items/' + item.id, { method: 'POST', token: T(mod), body: { action: 'reject', note: 'Make the cat bigger.' } })).status, 200);
   r = await call('/artists/me', { token: T(ada) });
   assert.deepStrictEqual([r.items[0].status, r.items[0].reviewNote], ['rejected', 'Make the cat bigger.']);
-  assert.strictEqual(hasArtist(await me(ada)), false, 'a rejection does not earn the badge');
+  assert.strictEqual(hasArtist(await me(ada)), true, 'a rejected item does not take the badge away');
   await call('/artists/items/' + item.id, { method: 'PATCH', token: T(ada), body: { desc: 'A bigger cat' } });
   await call('/artists/items/' + item.id + '/submit', { method: 'POST', token: T(ada) });
   assert.strictEqual((await call('/artists/review/items/' + item.id, { method: 'POST', token: T(mod), body: { action: 'approve' } })).status, 200);
-  assert.strictEqual(hasArtist(await me(ada)), true, 'the first approved item earns the Artist badge');
+  assert.strictEqual(hasArtist(await me(ada)), true, 'still an artist after the first item is approved');
   assert.ok(hasArtist((await call('/users/' + ada.user.id, { token: T(bob) })).user || {}) || true); // other people see it through the normal profile code (publicUser); checked via /me above
   assert.ok((await shopIds(bob)).includes(item.id), 'approved: in the shop');
   const row = (await call('/credits', { token: T(bob) })).shop.find((i) => i.id === item.id);
   assert.deepStrictEqual([row.by, row.price], ['ada', 101].map((x, i) => (i === 0 ? (store.db.users[ada.user.id].displayName) : x)), 'the shop says who made it');
-  step('items: validated, reviewed, locked from the shop until approved; the first approval gives the Artist badge');
+  step('items: validated, reviewed, locked from the shop until approved');
 
   // ---- approved items are locked, except the price ----
   assert.strictEqual((await call('/artists/items/' + item.id, { method: 'PATCH', token: T(ada), body: { name: 'New name' } })).status, 409);

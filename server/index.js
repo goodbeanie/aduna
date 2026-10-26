@@ -158,7 +158,7 @@ const ARTIST_BADGE = { id: 'artist', name: 'Artist', glyph: 'artist', image: nul
 function allBadgeViews(u) {
   const out = [];
   if (isCreator(u)) out.push(CREATOR_BADGE);
-  if (!u.bot && db().artists && db().artists[u.id] && db().artists[u.id].badge === true) out.push(ARTIST_BADGE);
+  if (!u.bot && artistsLib.isArtist(db().artists && db().artists[u.id])) out.push(ARTIST_BADGE); // an approved artist wears the Artist badge
   for (const id of Array.isArray(u.badges) ? u.badges : []) {
     const b = db().badges && db().badges[id];
     if (b && b.kind !== 'frame') out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' }); // frames are worn around the avatar, not next to the name (see wornFrame)
@@ -2517,6 +2517,7 @@ app.post('/api/artists/review/applications/:uid', auth, reviewerOnly, (req, res)
   const r = artistsLib.decide(rec, req.body && req.body.action, req.body && req.body.note, req.user.id, now());
   if (!r.ok) return res.status(r.status).json({ error: r.error });
   store.save();
+  if (rec.status === 'approved') { const au = db().users[req.params.uid]; if (au) emitUserUpdate(au); } // the Artist badge shows as soon as they are approved
   res.json({ ok: true, status: rec.status });
 });
 app.post('/api/artists/review/items/:id', auth, reviewerOnly, (req, res) => {
