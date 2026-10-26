@@ -33,8 +33,12 @@ export function ServerIcon({ server, size = 48, fill = false, preview }) {
   const src = preview !== undefined ? preview : imageUrl(server?.iconImage);
   const [failed, setFailed] = React.useState(null);
   const showImg = src && failed !== src;
+  // no picture: a stable hue per server (from its id) so two initials tiles never look the same; the tint itself is mixed with the theme in refine.css
+  const seed = String(server?.id || server?.name || '');
+  let hue = 0; for (let i = 0; i < seed.length; i++) hue = (hue * 31 + seed.charCodeAt(i)) % 360;
+  const style = { ...(fill ? null : { width: size, height: size, fontSize: Math.max(10, size * 0.34) }), ...(showImg ? null : { '--sh': hue }) };
   return (
-    <span className={'server-icon' + (fill ? ' fill' : '')} style={fill ? undefined : { width: size, height: size, fontSize: Math.max(10, size * 0.34) }}>
+    <span className={'server-icon' + (fill ? ' fill' : '') + (showImg ? '' : ' no-img')} style={style}>
       {showImg ? <img src={src} alt="" draggable={false} onError={() => setFailed(src)} /> : serverInitials(server?.name)}
     </span>
   );

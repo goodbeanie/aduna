@@ -54,3 +54,24 @@
 /* ---------- 5. stamp press: sending and primary actions press down 2px and settle ---------- */
 .send-btn, .btn.primary { transition: transform var(--t-hover) var(--ease), background var(--t-hover) var(--ease); }
 .send-btn:active:not(:disabled), .btn.primary:active:not(:disabled) { transform: translateY(2px) scale(.97); }
+
+/* ---------- Part 2: shell ---------- */
+
+/* server tiles without a picture get a quiet tint of their own (hue set in ServerIcon), mixed with the theme paper so every theme stays readable */
+.server-icon.no-img { background: color-mix(in srgb, hsl(var(--sh, 30) 38% 46%) 20%, var(--bg)); color: var(--head); }
+.rail-btn:hover .server-icon.no-img { background: color-mix(in srgb, hsl(var(--sh, 30) 38% 46%) 30%, var(--bg)); }
+/* the tint covers the button's own inset ring, so the hairline and the active ink ring are drawn on the icon */
+.rail-btn .server-icon.no-img { box-shadow: inset 0 0 0 1px var(--line); }
+.rail-btn.on .server-icon.no-img { box-shadow: inset 0 0 0 2px var(--ink); }
+
+/* "Add category" sits quietly until you reach for it */
+.add-cat { border-style: none; background: none; font-size: var(--fs-sm); opacity: .7; transition: opacity var(--t-hover) var(--ease), background var(--t-hover) var(--ease); }
+.add-cat:hover, .add-cat:focus-visible { opacity: 1; }
+
+/* sidebar headers: small label, one weight, ink-or-muted only */
+.side-label, .cat-name { font-size: var(--fs-xs); letter-spacing: .06em; text-transform: uppercase; }
+
+/* menus and modals open in 200ms with one gentle ease */
+@keyframes rf-pop { from { opacity: 0; transform: translateY(var(--s-1)) scale(.985); } to { opacity: 1; transform: none; } }
+.modal, .menu, .pop, .emenu { animation: rf-pop var(--t-panel) var(--ease) both; }
+
