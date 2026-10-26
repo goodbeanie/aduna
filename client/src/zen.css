@@ -111,3 +111,62 @@ html[data-theme^=zen] .app .send-btn:not(:disabled):hover { background: var(--in
 .credit-balance, .credit-pack, .quest, .shop-item, .shop-empty, .streak-card, .pt-tile, .shop-tile, .theme-card, .firstrun, .explore-search { border-radius: var(--r-md); }
 .pt-swatch, .theme-prev { border-radius: var(--r-sm); }
 .event-card { padding: 4px 16px 16px; }
+
+/* ---------- 8. more zen: quieter lines and text, more air, slower motion ---------- */
+/* Lines almost disappear and body text sits a little softer than headings. (important: themes.js sets these on the page itself, only in the Zen themes) */
+html[data-theme^=zen] {
+  --line: color-mix(in srgb, var(--head) 7%, transparent) !important;
+  --line2: color-mix(in srgb, var(--head) 13%, transparent) !important;
+  --text: color-mix(in srgb, var(--head) 82%, var(--bg)) !important;
+  --msg-hover: color-mix(in srgb, var(--head) 3%, transparent) !important;
+}
+:root { --t-hover: 200ms; --t-panel: 280ms; --ease: cubic-bezier(.3, .6, .2, 1); }
+
+/* bars lose their rules; space does the separating */
+.chat-head { height: 64px; padding: 0 28px; border-bottom-color: transparent; }
+.side-head { height: 64px; padding: 0 20px; border-bottom-color: transparent; }
+.menu { top: 64px; }
+.user-panel { border-top-color: transparent; height: 64px; }
+.chat { margin: 0 12px 12px 0; }
+.side-list { padding: 8px 12px; }
+.chan { padding: 8px 12px; }
+.chan.dm { padding: 7px 12px; }
+.member { padding: 7px 10px; }
+.side-label, .cat-name { padding-top: 20px; opacity: .8; }
+
+/* servers: soft tinted squircles with no outline, only the active one is ringed */
+.rail-btn { box-shadow: none; }
+.rail .rail-btn:not(.on):not(.add):hover { background: color-mix(in srgb, var(--ink) 10%, var(--bg2)); }
+.rail-list { gap: 14px; padding: 10px 8px; }
+.rail-sep { opacity: 0; }
+
+/* messages: more room, names a touch quieter, the date divider is just a whisper */
+.msg { margin-top: 18px; padding: 4px 32px; }
+.msg-row { gap: 18px; }
+.content { line-height: 1.65; }
+.day-divider, .new-divider { margin: 28px 32px 10px; }
+.day-divider > span { opacity: .75; }
+.chip { border-color: transparent; background: color-mix(in srgb, var(--head) 6%, transparent); }
+.chip.on { background: color-mix(in srgb, var(--ink) 18%, transparent); }
+
+/* composer: no outline at rest, a soft sand glow when you write */
+.composer-wrap { padding: 0 32px 24px; }
+.composer-row { border-color: transparent; border-radius: 22px; padding: 6px 10px; }
+.composer-row .composer { padding: 11px 10px; }
+.app .composer-row:focus-within { border-color: color-mix(in srgb, var(--ink) 45%, transparent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 10%, transparent); }
+.replying { border-radius: 22px 22px 0 0; }
+.replying + .composer-row, .replying + .pending { border-radius: 0 0 22px 22px; }
+
+/* cards, menus and modals: air inside, hairline barely there */
+.modal { padding: 28px; }
+.menu, .pop, .emenu { padding: 8px; }
+.firstrun { border-color: transparent; background: color-mix(in srgb, var(--head) 5%, transparent); box-shadow: none; }
+.btn { padding: 9px 18px; }
+
+@media (max-width: 720px) {
+  .chat-head, .side-head { height: 56px; padding: 0 16px; }
+  .msg { padding: 3px 16px; margin-top: 14px; }
+  .day-divider, .new-divider { margin: 20px 16px 8px; }
+  .composer-wrap { padding: 0 12px 12px; }
+  .chat { margin: 0; }
+}
