@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
+import { PanelSkeleton } from './ShellBits.jsx';
 import { can } from './perms.js';
 import BotSim from './BotSim.jsx';
 import AiBuilder, { hasAiBuilder } from './AiBuilder.jsx';
@@ -72,7 +73,7 @@ export function DeveloperSettings({ me, onSaved, aiFocus }) {
   const upsert = (bot) => setDev((d) => ({ ...d, bots: d.bots.some((b) => b.id === bot.id) ? d.bots.map((b) => (b.id === bot.id ? bot : b)) : [...d.bots, bot] }));
   const drop = (id) => setDev((d) => ({ ...d, bots: d.bots.filter((b) => b.id !== id) }));
 
-  if (state === 'loading') return <p className="muted">Loading…</p>;
+  if (state === 'loading') return <PanelSkeleton cards={2} label="Loading" />;
   if (state === 'error') return <div className="error">{err}</div>;
   if (!dev.developer) {
     return (

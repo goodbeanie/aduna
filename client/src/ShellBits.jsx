@@ -82,6 +82,17 @@ export function ListSkeleton({ rows = 6, avatar = 36, lines = 1, label = 'Loadin
   );
 }
 
+// Grey placeholder blocks for a page or panel that is still on its way: a heading, a line of text and a few cards.
+export function PanelSkeleton({ cards = 3, label = 'Loading' }) {
+  return (
+    <div className="skel-panel" role="status" aria-busy="true" aria-label={label}>
+      <span className="skel skel-title" aria-hidden="true" />
+      <span className="skel skel-line" aria-hidden="true" style={{ width: '55%' }} />
+      {Array.from({ length: cards }, (_, i) => <span key={i} className="skel skel-card" aria-hidden="true" />)}
+    </div>
+  );
+}
+
 // ---------- tooltips ----------
 // Replaces the browser's own title bubble on the server bar and on icon buttons: the same text, drawn by us, with an optional shortcut
 // hint (data-kbd="Ctrl+F"). Anything with data-tip gets one too. Mouse and keyboard focus only: a tap on a phone must not leave one behind.

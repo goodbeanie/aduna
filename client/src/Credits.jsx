@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
+import { PanelSkeleton } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
 
@@ -424,7 +425,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
         <h3>{page === 'quests' ? 'Quests' : 'Shop'}</h3>
       </header>
       <div className="credits-body">
-        {!d && !err && <p className="muted">Loading…</p>}
+        {!d && !err && <PanelSkeleton label="Loading" />}
         {err && <p className="error-text">{err}</p>}
         {justPaid && <p className="ok-text">Thank you! Your credits are added as soon as the payment is confirmed, usually within seconds.</p>}
         {note && <p className="ok-text">{note}</p>}

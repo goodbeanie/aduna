@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, Icon, Modal, ServerIcon } from './ui.jsx';
+import { PanelSkeleton } from './ShellBits.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout } from './layout.js';
 import { processImage, uploadImage, imageUrl, ACCEPT_ATTR, SERVER_ICON_SIZE, SERVER_BANNER_SIZE } from './image.js';
 import { THEMES, DEFAULT_CUSTOM, setServerTheme } from './themes.js';
@@ -367,7 +368,7 @@ function PublishTab({ server, onChange, goChannels }) {
     api(`/servers/${server.id}/publish`).then((r) => { if (live) { setInfo(r.publish); setPick((p) => p || r.publish.visibility); } }).catch((e) => live && setErr(e.message));
     return () => { live = false; };
   }, [server.id, chanKey]);
-  if (!info) return <><h1>Publish</h1>{err ? <div className="error">{err}</div> : <p className="muted">Loading…</p>}</>;
+  if (!info) return <><h1>Publish</h1>{err ? <div className="error">{err}</div> : <PanelSkeleton cards={2} label="Loading" />}</>;
 
   const review = info.review === 'removed'
     ? 'This server was removed from the public listing after reports. You can still use it as private or unlisted.'

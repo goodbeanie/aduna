@@ -211,3 +211,10 @@ html[data-grad] .composer-row .composer { background: none; }
 .skel-avatar, .skel-circle, .empty-ico { border-radius: 26%; }
 .empty-state h4 { font-weight: 400; } /* one-weight type: no faux bold */
 
+/* ---------- Part 10: panel skeletons ----------
+   The plain "Loading…" lines on Artist, Badges, Bots, Credits and Server settings > Publish are now a heading, a line and a few cards,
+   so the page keeps its shape while it loads. Same pulse as the list skeletons; the reduced-motion rule already covers .skel. */
+.skel-panel { display: flex; flex-direction: column; gap: 12px; padding: 4px 0; }
+.skel-title { height: 22px; width: 38%; }
+.skel-card { height: 84px; border-radius: 14px; border: 1px solid var(--line); }
+

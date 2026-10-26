@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { BadgeIcons } from './ui.jsx';
+import { PanelSkeleton } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import { ACCEPT_ATTR, processBadge, uploadImage } from './image.js';
 
@@ -24,7 +25,7 @@ export function BadgeSettings() {
     catch (x) { setErr(x.message); } finally { setBusy(false); }
   }
 
-  if (!badges) return <p className="muted">{err || 'Loading…'}</p>;
+  if (!badges) return err ? <p className="muted">{err}</p> : <PanelSkeleton label="Loading" />;
   return (
     <div className="badge-admin">
       <p className="muted">The <b>Creator</b> badge is added to your account automatically. Make your own badges here, then give them to people by username. A badge is a picture, or an emoji on a colour.</p>

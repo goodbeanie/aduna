@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { BadgeArt } from './Shop.jsx';
 import { Avatar } from './ui.jsx';
+import { PanelSkeleton } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import { ACCEPT_ATTR, imageUrl, makeFrameTemplate, processBadge, processFrame, processPiece, uploadImage } from './image.js';
 
@@ -33,7 +34,7 @@ export function ArtistSettings() {
   const load = () => api('/artists/me').then((x) => { setD(x); setErr(''); }).catch((e) => setErr(e.message));
   useEffect(() => { load(); }, []);
 
-  if (!d) return <p className="muted">{err || 'Loading…'}</p>;
+  if (!d) return err ? <p className="muted">{err}</p> : <PanelSkeleton label="Loading" />;
   const app = d.application;
   return (
     <div className="badge-admin artist-admin">
