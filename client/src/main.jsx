@@ -15,6 +15,7 @@ import './dialogs.css';
 import './polish.css';
 import './screenshare.css';
 import './refine.css';
+import './linear.css';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';
 import { initKeyboard } from './keyboard.js';

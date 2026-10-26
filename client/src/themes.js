@@ -108,6 +108,7 @@ export const gradientCss = (stops, angle = 135) => `linear-gradient(${Math.round
 const PARCHMENT = { id: 'parchment', name: 'Parchment', dark: false, bg: '#fbf8f1', accent: '#1c1812', vars: null };
 
 export const THEMES = [
+  { id: 'linear',   name: 'Linear',   dark: true,  bg: '#16171a', accent: '#5e6ad2' },
   PARCHMENT,
   { id: 'ocean',    name: 'Ocean',    dark: false, bg: '#f3f8fb', accent: '#1f5f8b' },
   { id: 'forest',   name: 'Forest',   dark: false, bg: '#f4f8f1', accent: '#2f6b45' },
@@ -144,6 +145,8 @@ export function customStops(c) {
   return hex.test(c.grad || '') ? [c.bg, c.grad] : null;
 }
 export const THEME_LS_KEY = STORE;
+// What someone gets before they pick a theme. Anyone who already chose one keeps it. Set to 'parchment' to bring the old default back.
+const DEFAULT_THEME_ID = 'linear';
 
 function parchmentVars() {
   // Clear overrides: the defaults in styles.css :root are the Parchment look.
@@ -155,7 +158,7 @@ export function loadTheme() {
     const s = JSON.parse(localStorage.getItem(STORE) || 'null');
     if (s && typeof s.id === 'string') return { id: s.id, custom: { ...DEFAULT_CUSTOM, ...(s.custom || {}) }, serverThemes: s.serverThemes !== false };
   } catch { /* ignore */ }
-  return { id: 'parchment', custom: { ...DEFAULT_CUSTOM }, serverThemes: true };
+  return { id: DEFAULT_THEME_ID, custom: { ...DEFAULT_CUSTOM }, serverThemes: true };
 }
 
 export function resolveVars(settings) {
