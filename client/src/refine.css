@@ -203,3 +203,6 @@
 /* the one-time notification prompt covered the theme tiles in Settings (polish.css only hides it for .overlay modals) */
 body:has(.settings-screen) .notify-prompt { display: none; }
 
+/* gradient themes: html[data-grad] .composer paints a translucent field on the text area, which showed as a square patch inside the rounded composer row */
+html[data-grad] .composer-row .composer { background: none; }
+
