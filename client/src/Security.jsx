@@ -24,18 +24,23 @@ function ChangePassword({ me, getSocketId }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [fe, setFe] = useState(null); // { f, m }: a problem with one field, shown under it
+  const bad = (f, m) => { setFe({ f, m }); setMsg(''); setTimeout(() => document.getElementById('sec-' + f)?.focus(), 0); };
+  const fp = (f) => ({ id: 'sec-' + f, 'aria-invalid': fe?.f === f ? true : undefined, 'aria-describedby': fe?.f === f ? 'sec-e-' + f : undefined });
+  const ferr = (f) => (fe?.f === f ? <p className="error-text field-error" id={'sec-e-' + f} role="alert">{fe.m}</p> : null);
+  const edit = (f, set) => (e) => { set(e.target.value); if (fe?.f === f) setFe(null); };
 
   const run = async () => {
     if (busy) return;
-    if (next.length < 8) return setMsg('The new password must be at least 8 characters.');
-    if (next !== again) return setMsg('The two new passwords do not match.');
-    if (next === cur) return setMsg('Choose a different password from the current one.');
-    setBusy(true); setMsg('');
+    if (next.length < 8) return bad('next', 'The new password must be at least 8 characters.');
+    if (next !== again) return bad('again', 'The two new passwords do not match.');
+    if (next === cur) return bad('next', 'Choose a different password from the current one.');
+    setBusy(true); setMsg(''); setFe(null);
     try {
       const { encPrivKey } = await api('/me');
       let blob;
       if (encPrivKey) {
-        try { blob = await rewrapIdentity(encPrivKey, cur, next); } catch { throw new Error('That current password is not right.'); }
+        try { blob = await rewrapIdentity(encPrivKey, cur, next); } catch { setBusy(false); return bad('cur', 'That current password is not right.'); }
       }
       await api('/me/password', { method: 'POST', body: { currentPassword: cur, newPassword: next, encPrivKey: blob, code: me.twoFactor ? code : undefined, socketId: getSocketId?.() || '' } });
       await resubscribe();
@@ -49,12 +54,15 @@ function ChangePassword({ me, getSocketId }) {
   return (
     <Section title="Change password">
       <p className="muted">Your password also protects your encryption key. It is re-locked here in your browser, so your messages stay readable. Every other device is signed out.</p>
-      <label>CURRENT PASSWORD</label>
-      <input type="password" value={cur} autoComplete="current-password" disabled={busy} onChange={(e) => setCur(e.target.value)} />
-      <label>NEW PASSWORD</label>
-      <input type="password" value={next} autoComplete="new-password" disabled={busy} onChange={(e) => setNext(e.target.value)} />
-      <label>NEW PASSWORD AGAIN</label>
-      <input type="password" value={again} autoComplete="new-password" disabled={busy} onChange={(e) => setAgain(e.target.value)} />
+      <label htmlFor="sec-cur">CURRENT PASSWORD</label>
+      <input {...fp('cur')} type="password" value={cur} autoComplete="current-password" disabled={busy} onChange={edit('cur', setCur)} />
+      {ferr('cur')}
+      <label htmlFor="sec-next">NEW PASSWORD</label>
+      <input {...fp('next')} type="password" value={next} autoComplete="new-password" disabled={busy} onChange={edit('next', setNext)} />
+      {ferr('next')}
+      <label htmlFor="sec-again">NEW PASSWORD AGAIN</label>
+      <input {...fp('again')} type="password" value={again} autoComplete="new-password" disabled={busy} onChange={edit('again', setAgain)} />
+      {ferr('again')}
       {me.twoFactor && <>
         <label>AUTHENTICATOR CODE</label>
         <input value={code} autoComplete="one-time-code" maxLength={20} disabled={busy} placeholder="123456" onChange={(e) => setCode(e.target.value)} />
@@ -63,7 +71,7 @@ function ChangePassword({ me, getSocketId }) {
       <div className="notify-actions">
         <button className="btn primary" disabled={busy || !cur || !next || !again || (me.twoFactor && !code)} onClick={run}>{busy ? 'Changing…' : 'Change password'}</button>
       </div>
-      {msg && <p className="muted small hint">{msg}</p>}
+      {msg && <p className="error-text small" role="alert">{msg}</p>}
     </Section>
   );
 }
@@ -75,16 +83,17 @@ function RecoveryKey({ me, onSaved }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [badPw, setBadPw] = useState(false); // the password was wrong: say so under the field
   const [made, setMade] = useState(null); // the key, while it is on screen
 
   const run = async () => {
     if (busy) return;
-    setBusy(true); setMsg('');
+    setBusy(true); setMsg(''); setBadPw(false);
     try {
       const { encPrivKey } = await api('/me');
       if (!encPrivKey) throw new Error('This account has no encryption key yet. Log out and back in once, then try again.');
       let rec;
-      try { rec = await makeRecoveryFromPassword(encPrivKey, password); } catch { throw new Error('That password is not right.'); }
+      try { rec = await makeRecoveryFromPassword(encPrivKey, password); } catch { setBadPw(true); setBusy(false); setTimeout(() => document.getElementById('sec-rk-pw')?.focus(), 0); return; }
       const r = await api('/me/recovery', { method: 'PUT', body: { password, code: me.twoFactor ? code : undefined, recovery: { blob: rec.blob, auth: rec.auth } } });
       setMade(rec.key); setPassword(''); setCode('');
       onSaved?.(r.user);
@@ -105,8 +114,9 @@ function RecoveryKey({ me, onSaved }) {
       {me.recoveryKey
         ? <p className="muted">You have a recovery key. If you forget your password, use <strong>Forgot your password?</strong> on the login screen with it. Making a new key replaces the old one, which then stops working.</p>
         : <p className="muted"><strong>You do not have one yet.</strong> Without a recovery key, a forgotten password means losing the account, because your password also locks your encryption key. Make one now and keep it somewhere safe.</p>}
-      <label>YOUR PASSWORD</label>
-      <input type="password" value={password} autoComplete="current-password" disabled={busy} onChange={(e) => setPassword(e.target.value)} />
+      <label htmlFor="sec-rk-pw">YOUR PASSWORD</label>
+      <input id="sec-rk-pw" aria-invalid={badPw || undefined} aria-describedby={badPw ? 'sec-e-rk-pw' : undefined} type="password" value={password} autoComplete="current-password" disabled={busy} onChange={(e) => { setPassword(e.target.value); setBadPw(false); }} />
+      {badPw && <p className="error-text field-error" id="sec-e-rk-pw" role="alert">That password is not right.</p>}
       {me.twoFactor && <>
         <label>AUTHENTICATOR CODE</label>
         <input value={code} autoComplete="one-time-code" maxLength={20} disabled={busy} placeholder="123456" onChange={(e) => setCode(e.target.value)} />
@@ -114,7 +124,7 @@ function RecoveryKey({ me, onSaved }) {
       <div className="notify-actions">
         <button className="btn primary" disabled={busy || !password || (me.twoFactor && !code)} onClick={run}>{busy ? 'Working…' : me.recoveryKey ? 'Make a new recovery key' : 'Make a recovery key'}</button>
       </div>
-      {msg && <p className="muted small hint">{msg}</p>}
+      {msg && <p className="error-text small" role="alert">{msg}</p>}
     </Section>
   );
 }
@@ -126,16 +136,17 @@ function EmailRecovery({ me, onSaved }) {
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [ok, setOk] = useState(false); // msg is a confirmation, not a problem
   const on = !!me.emailRecovery;
 
   const run = async () => {
     if (busy) return;
-    setBusy(true); setMsg('');
+    setBusy(true); setMsg(''); setOk(false);
     try {
       const r = await api('/me/email-recovery', { method: 'PUT', body: { enabled: !on, password, code: me.twoFactor ? code : undefined } });
       setPassword(''); setCode('');
       onSaved?.(r.user);
-      setMsg(on ? 'Email recovery is off.' : 'Email recovery is on.');
+      setMsg(on ? 'Email recovery is off.' : 'Email recovery is on.'); setOk(true);
     } catch (e) { setMsg(e.message || 'Could not change that. Try again.'); }
     setBusy(false);
   };
@@ -161,7 +172,7 @@ function EmailRecovery({ me, onSaved }) {
               <button className={'btn ' + (on ? 'danger' : 'primary')} disabled={busy || !password || (me.twoFactor && !code)} onClick={run}>{busy ? 'Working…' : on ? 'Turn off email recovery' : 'Turn on email recovery'}</button>
             </div>
           </>}
-      {msg && <p className="muted small hint">{msg}</p>}
+      {msg && <p className={(ok ? 'ok-text' : 'error-text') + ' small'} role="alert">{msg}</p>}
     </Section>
   );
 }
@@ -203,7 +214,7 @@ function TwoFactor({ me, onSaved }) {
         <button className="btn" onClick={copy}>Copy codes</button>
         <button className="btn primary" onClick={done}>I saved them</button>
       </div>
-      {msg && <p className="muted small hint">{msg}</p>}
+      {msg && <p className={(msg === 'Copied.' ? 'ok-text' : 'error-text') + ' small'} role="alert">{msg}</p>}
     </Section>
   );
 
@@ -219,7 +230,7 @@ function TwoFactor({ me, onSaved }) {
         <button className="btn primary" disabled={busy || !code} onClick={enable}>{busy ? 'Checking…' : 'Turn on'}</button>
         <button className="btn" disabled={busy} onClick={() => { setStage('idle'); setSetup(null); setMsg(''); }}>Cancel</button>
       </div>
-      {msg && <p className="muted small hint">{msg}</p>}
+      {msg && <p className="error-text small" role="alert">{msg}</p>}
     </Section>
   );
 
@@ -247,7 +258,7 @@ function TwoFactor({ me, onSaved }) {
           </div>
         </>
       )}
-      {msg && <p className="muted small hint">{msg}</p>}
+      {msg && <p className="error-text small" role="alert">{msg}</p>}
     </Section>
   );
 }
@@ -281,7 +292,7 @@ function LogoutEverywhere({ getSocketId }) {
       <div className="notify-actions">
         <button className="btn danger" disabled={busy || !password} onClick={run}>{busy ? 'Signing out…' : 'Log out of all devices'}</button>
       </div>
-      {msg && <p className="muted small hint">{msg}</p>}
+      {msg && <p className="error-text small" role="alert">{msg}</p>}
     </Section>
   );
 }
