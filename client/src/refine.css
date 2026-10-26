@@ -225,3 +225,17 @@ html[data-grad] .composer-row .composer { background: none; }
 /* an action beside an empty-state sentence (Explorer "Clear search") */
 .empty .btn { margin-left: 8px; }
 
+/* ---------- Part 11: touch targets ----------
+   Touch screens only, so the desktop layout is untouched. Everything a thumb can press is at least 44px in one direction. */
+@media (pointer: coarse) {
+  .icon-btn, .composer-row .icon-btn { width: 44px; height: 44px; }
+  .btn, select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]) { min-height: 44px; }
+  .check-row { min-height: 44px; }
+  .check-row input { width: 22px; height: 22px; }
+  .auth-lang, .ftab, .toolbar button { min-height: 44px; }
+}
+
+/* phones: the one-time notification prompt floats over the same corner as the "Getting started" card and hid its steps.
+   The card steps aside until the prompt is answered. */
+@media (max-width: 720px) { body:has(.notify-prompt) .firstrun { display: none; } }
+
