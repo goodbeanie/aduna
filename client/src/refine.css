@@ -251,3 +251,7 @@ html[data-season]:has(.firstrun)::after { display: none; }
   html[data-season=halloween]::before { height: 64px; }
 }
 
+/* ---------- inline field errors: the message sits under the field it is about, and the field itself is marked ---------- */
+.field-error { margin: var(--s-1) 0 0; font-size: 13px; line-height: 1.4; }
+input[aria-invalid=true], select[aria-invalid=true], textarea[aria-invalid=true] { border-color: var(--danger); }
+

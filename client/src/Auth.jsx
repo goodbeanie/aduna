@@ -4,6 +4,9 @@ import { createIdentity, unlockIdentity, saveKey, hasCrypto, recoverIdentity, is
 import { RecoveryKeyCard } from './Recovery.jsx';
 import { LANGS, getLang, setLang, useLang } from './i18n.js';
 
+// A problem with one field: submit() shows it under that field and moves focus there, instead of in the general box above the button.
+const fieldError = (field, msg) => Object.assign(new Error(msg), { field });
+
 export default function Auth({ onAuthed }) {
   const { lang, t } = useLang();
   const [mode, setMode] = useState(typeof location !== 'undefined' && location.hash === '#signup' ? 'register' : 'login');
@@ -11,6 +14,7 @@ export default function Auth({ onAuthed }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [fe, setFe] = useState(null); // an error that belongs to one field: { field, msg }, shown under that field
   const [busy, setBusy] = useState(false);
   const [needCode, setNeedCode] = useState(false); // the account has two-factor on: ask for the code
   const [code, setCode] = useState('');
@@ -27,7 +31,7 @@ export default function Auth({ onAuthed }) {
 
   async function submit(e) {
     e.preventDefault();
-    setError(''); setInfo('');
+    setError(''); setInfo(''); setFe(null);
     if (!hasCrypto()) {
       setError('Encryption needs a secure context. Open the app via http://localhost or HTTPS.');
       return;
@@ -35,7 +39,7 @@ export default function Auth({ onAuthed }) {
     setBusy(true);
     try {
       if (mode === 'register') {
-        if (!useKey && !(useMail && mailOk)) throw new Error('Pick at least one way to get back into your account.');
+        if (!useKey && !(useMail && mailOk)) throw fieldError('method', 'Pick at least one way to get back into your account.');
         const ident = await createIdentity(password);
         const { user } = await api('/register', {
           method: 'POST',
@@ -52,9 +56,9 @@ export default function Auth({ onAuthed }) {
         setMailed(true);
         setInfo('If that account has email recovery turned on, a reset link is on its way to its address. It works once and expires in 30 minutes. You can ask for another once a minute.');
       } else if (mode === 'recover') {
-        if (!isRecoveryKey(rkey)) throw new Error('A recovery key has 32 letters and numbers, like ABCD-EFGH-….');
-        if (password.length < 8) throw new Error('The new password must be at least 8 characters.');
-        if (password !== again) throw new Error('The two passwords do not match.');
+        if (!isRecoveryKey(rkey)) throw fieldError('rkey', 'A recovery key has 32 letters and numbers, like ABCD-EFGH-….');
+        if (password.length < 8) throw fieldError('password', 'The new password must be at least 8 characters.');
+        if (password !== again) throw fieldError('again', 'The two passwords do not match.');
         const { blob } = await api('/recover/start', { method: 'POST', body: { username } });
         const r = await recoverIdentity(blob, rkey, password); // fails here, on this device, if the key is wrong
         const out = await api('/recover/finish', { method: 'POST', body: { username, auth: r.auth, newPassword: password, encPrivKey: r.encPrivKey, ...(needCode ? { code: code.trim() } : {}) } });
@@ -77,6 +81,7 @@ export default function Auth({ onAuthed }) {
     } catch (err) {
       endSession(); // a login that did not finish must not leave a session behind
       if (err.code === '2fa_required') { setNeedCode(true); setError(''); return; } // password (or recovery key) was right: now the code
+      if (err.field) { setFe({ field: err.field, msg: err.message }); setTimeout(() => document.getElementById('f-' + err.field)?.focus(), 0); return; }
       setError(err.message || 'Something went wrong');
     } finally {
       setBusy(false);
@@ -91,7 +96,11 @@ export default function Auth({ onAuthed }) {
     </div>
   );
 
-  const switchMode = (m) => { setError(''); setNeedCode(false); setCode(''); setRkey(''); setAgain(''); setMethod('key'); setMailed(false); setInfo(''); setMode(m); };
+  const switchMode = (m) => { setError(''); setFe(null); setNeedCode(false); setCode(''); setRkey(''); setAgain(''); setMethod('key'); setMailed(false); setInfo(''); setMode(m); };
+  // props for a field that can carry its own error, and the message under it
+  const fp = (f) => ({ id: 'f-' + f, 'aria-invalid': fe?.field === f ? true : undefined, 'aria-describedby': fe?.field === f ? 'e-' + f : undefined });
+  const ferr = (f) => (fe?.field === f ? <p className="error-text field-error" id={'e-' + f} role="alert">{fe.msg}</p> : null);
+  const clear = (f, set) => (e) => { set(e.target.value); if (fe?.field === f) setFe(null); };
 
   return (
     <div className="auth-bg">
@@ -121,15 +130,17 @@ export default function Auth({ onAuthed }) {
         {mode === 'recover' && method === 'key' && (
           <>
             <label>{t('recoveryKeyLabel')}</label>
-            <input value={rkey} onChange={(e) => setRkey(e.target.value)} required autoComplete="off" spellCheck={false} maxLength={60} placeholder="ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789" />
+            <input {...fp('rkey')} value={rkey} onChange={clear('rkey', setRkey)} required autoComplete="off" spellCheck={false} maxLength={60} placeholder="ABCD-EFGH-JKLM-NPQR-STUV-WXYZ-2345-6789" />
+            {ferr('rkey')}
             <p className="hint">{t('recoveryHelp')}</p>
           </>
         )}
 
         {!(mode === 'recover' && method === 'email') && <>
         <label>{mode === 'recover' ? t('newPassword') : t('password')}</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={mode === 'login' ? 1 : 8}
+        <input {...fp('password')} type="password" value={password} onChange={clear('password', setPassword)} required minLength={mode === 'login' ? 1 : mode === 'recover' ? undefined : 8}
           autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
+        {ferr('password')}
         </>}
         {mode === 'register' && <p className="hint">{t('passwordHint')}</p>}
         {mode === 'register' && (
@@ -137,19 +148,21 @@ export default function Auth({ onAuthed }) {
             <label>{t('ifForget')}</label>
             <p className="hint">{t('chooseBack')}</p>
             <label className="check-row">
-              <input type="checkbox" checked={useKey} onChange={(e) => { if (!e.target.checked && !(useMail && mailOk)) return; setUseKey(e.target.checked); }} />
+              <input {...fp('method')} type="checkbox" checked={useKey} onChange={(e) => { if (!e.target.checked && !(useMail && mailOk)) return; setUseKey(e.target.checked); setFe(null); }} />
               <span><strong>{t('keyOptionB')}</strong>{t('keyOptionT')}</span>
             </label>
             <label className="check-row">
-              <input type="checkbox" checked={useMail && mailOk} disabled={!mailOk} onChange={(e) => { if (!e.target.checked && !useKey) return; setUseMail(e.target.checked); }} />
+              <input type="checkbox" checked={useMail && mailOk} disabled={!mailOk} onChange={(e) => { if (!e.target.checked && !useKey) return; setUseMail(e.target.checked); setFe(null); }} />
               <span><strong>{t('mailOptionB')}</strong>{t('mailOptionT')}{!mailOk && t('mailUnavailable')}</span>
             </label>
+            {ferr('method')}
           </>
         )}
         {mode === 'recover' && method === 'key' && (
           <>
             <label>{t('newPasswordAgain')}</label>
-            <input type="password" value={again} onChange={(e) => setAgain(e.target.value)} required autoComplete="new-password" />
+            <input {...fp('again')} type="password" value={again} onChange={clear('again', setAgain)} required autoComplete="new-password" />
+            {ferr('again')}
           </>
         )}
         {mode === 'login' && <p className="muted small"><a href="#" onClick={(e) => { e.preventDefault(); switchMode('recover'); }}>{t('forgot')}</a></p>}
