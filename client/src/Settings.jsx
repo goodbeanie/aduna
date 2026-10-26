@@ -7,11 +7,12 @@ import { VoiceSettings } from './VoiceSettings.jsx';
 import { SecuritySettings } from './Security.jsx';
 import { DeveloperSettings } from './Bots.jsx';
 import { BadgeSettings } from './Badges.jsx';
+import { ArtistSettings } from './Artist.jsx';
 import { WhatsNewSettings } from './WhatsNew.jsx';
 import { LanguageSettings } from './Setup.jsx';
 import { useLang } from './i18n.js';
 
-const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['whatsnew', 'tabWhatsNew', 'bulb'], ['developer', 'tabDeveloper', 'code']];
+const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['whatsnew', 'tabWhatsNew', 'bulb'], ['developer', 'tabDeveloper', 'code'], ['artist', 'tabArtist', 'palette']];
 
 // Full-screen settings: a section list on the left (a tab bar on phones) and the chosen section on the right.
 // aiFocus: opened by the desktop app's AI Coder button/menu/notification: show Developer with the AI panel.
@@ -47,6 +48,7 @@ export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, o
           {tab === 'whatsnew' && <><h1>{t('tabWhatsNew')}</h1><WhatsNewSettings /></>}
           {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} aiFocus={aiFocus} /></>}
           {tab === 'badges' && me.creator && <><h1>{t('tabBadges')}</h1><BadgeSettings /></>}
+          {tab === 'artist' && <><h1>{t('tabArtist')}</h1><ArtistSettings me={me} /></>}
           {tab === 'appearance' && <><h1>{t('tabAppearance')}</h1><AppearancePicker /></>}
           {tab === 'language' && <><h1>{t('tabLanguage')}</h1><LanguageSettings me={me} onSaved={onSaved} /></>}
         </div>

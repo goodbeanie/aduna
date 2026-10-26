@@ -45,6 +45,8 @@ const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n
 //   serverId / channelId / peerId / msgId   what the Mark as read and Reply buttons act on
 //   reply    'inline' (type the answer in the notification, sent through POST /api/channels/:id/quick-reply) | 'open' (opens the chat with the box focused)
 //   read     true: show a Mark as read button
+//   callId / declineToken / video / cancel   a ringing call (see index.js call:invite): the Android app's Answer and Decline buttons use them;
+//            declineToken is a signature over this call and this person, so the Decline button works without being signed in
 const ID = /^[A-Za-z0-9_-]{1,64}$/;
 const HEX = /^#[0-9a-fA-F]{6}$/;
 function cleanLook(p) {
@@ -52,9 +54,12 @@ function cleanLook(p) {
   if (typeof p.icon === 'string' && /^\/api\/images\/[A-Za-z0-9_-]{4,80}$/.test(p.icon)) out.icon = p.icon;
   if (typeof p.sender === 'string' && p.sender) out.sender = clip(p.sender, 40);
   if (p.theme && typeof p.theme.dark === 'boolean' && HEX.test(p.theme.bg) && HEX.test(p.theme.accent)) out.theme = { dark: p.theme.dark, bg: p.theme.bg, accent: p.theme.accent };
-  for (const k of ['serverId', 'channelId', 'peerId', 'msgId']) if (typeof p[k] === 'string' && ID.test(p[k])) out[k] = p[k];
+  for (const k of ['serverId', 'channelId', 'peerId', 'msgId', 'callId']) if (typeof p[k] === 'string' && ID.test(p[k])) out[k] = p[k];
+  if (typeof p.declineToken === 'string' && /^[0-9a-f]{16,64}$/.test(p.declineToken)) out.declineToken = p.declineToken;
   if (p.reply === 'inline' || p.reply === 'open') out.reply = p.reply;
   if (p.read === true) out.read = true;
+  if (p.video === true) out.video = true;
+  if (p.cancel === true) out.cancel = true;
   return out;
 }
 
@@ -75,14 +80,15 @@ function createPush(d) {
     d.save();
     return true;
   }
-  function addFcm(u, token, ua) {
+  // caps.callUi: the app says it can show the native call screen (Answer / Decline, ringtone). Only then does it get data-only call pushes.
+  function addFcm(u, token, ua, caps) {
     const t = cleanFcm(token);
     if (!t) return false;
     const endpoint = 'fcm:' + t;
     for (const other of Object.values(users())) {
       if (other.pushSubs?.some((x) => x.endpoint === endpoint)) other.pushSubs = other.pushSubs.filter((x) => x.endpoint !== endpoint);
     }
-    u.pushSubs = [...(u.pushSubs || []), { endpoint, fcm: t, ua: clip(ua, 120), createdAt: nowFn() }].slice(-MAX_SUBS);
+    u.pushSubs = [...(u.pushSubs || []), { endpoint, fcm: t, ...(caps && caps.callUi === true ? { callUi: true } : {}), ua: clip(ua, 120), createdAt: nowFn() }].slice(-MAX_SUBS);
     d.save();
     return true;
   }
@@ -120,6 +126,23 @@ function createPush(d) {
     return sent;
   }
 
+  // The call stopped ringing (answered, declined, cancelled, missed, or picked up on another device): tell the phones that are showing
+  // the ringing screen to take it down. Only apps with the native call screen get this; browsers close theirs on their own.
+  async function cancelCall(uid, callId) {
+    if (!d.enabled || !ID.test(String(callId))) return 0;
+    const u = users()[uid];
+    const subs = (u?.pushSubs || []).filter((s) => s.fcm && s.callUi);
+    if (!subs.length) return 0;
+    const body = JSON.stringify({ kind: 'call', cancel: true, callId: String(callId), tag: 'call', title: 'Call ended', body: '', url: '/app', ts: nowFn() });
+    let sent = 0; const dead = [];
+    await Promise.all(subs.map(async (sub) => {
+      try { await d.sender(sub, body, { TTL: 30, urgency: 'high' }); sent++; }
+      catch (e) { if (e && (e.statusCode === 404 || e.statusCode === 410)) dead.push(sub.endpoint); else if (d.onError) d.onError(e); }
+    }));
+    if (dead.length) { u.pushSubs = u.pushSubs.filter((x) => !dead.includes(x.endpoint)); d.save(); }
+    return sent;
+  }
+
   // Settings > Notifications > "Send a test push": goes to every device of the account, ignoring the per-kind switches, and says what happened
   // to each one so a broken device can be told apart from a broken server. `force` makes the service worker show it even if Aduna is open.
   async function test(uid) {
@@ -142,7 +165,7 @@ function createPush(d) {
     return res;
   }
 
-  return { add, addFcm, remove, send, test, prefsOf, get enabled() { return !!d.enabled; }, get publicKey() { return d.publicKey || null; } };
+  return { add, addFcm, remove, send, cancelCall, test, prefsOf, get enabled() { return !!d.enabled; }, get publicKey() { return d.publicKey || null; } };
 }
 
 module.exports = { createPush, cleanLook, cleanPrefs, cleanSub, cleanFcm, DEFAULT_PREFS };

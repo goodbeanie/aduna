@@ -18,7 +18,7 @@ const store = require('./db');
 // Every byte stored in every table, as one string: what someone with a copy of the database would see.
 async function rawDb() {
   let out = '';
-  for (const t of ['meta', 'users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments', 'bots', 'calllog', 'themes', 'groups', 'gmsgs', 'images', 'files']) {
+  for (const t of ['meta', 'users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments', 'bots', 'calllog', 'themes', 'groups', 'gmsgs', 'badges', 'artists', 'images', 'files']) {
     const { rows } = await store.query(`SELECT * FROM ${t}`);
     for (const r of rows) for (const [k, v] of Object.entries(r)) out += Buffer.isBuffer(v) ? v.toString('latin1') : `${k}=${v}`;
   }

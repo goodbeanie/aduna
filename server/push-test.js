@@ -111,6 +111,29 @@ assert.deepStrictEqual(cleanPrefs({ calls: false }, { ...DEFAULT_PREFS, dm: fals
     assert.ok(seen[0].body.includes('hello'), 'a two-line body is kept');
   }
 
+  // ringing calls on the Android app: details pass through the sanitizer, the cancel only reaches apps with the native call screen
+  {
+    const call = cleanLook({ callId: 'ab12cd34ef56ab78', declineToken: 'a1'.repeat(16), video: true, cancel: true });
+    assert.deepStrictEqual(call, { callId: 'ab12cd34ef56ab78', declineToken: 'a1'.repeat(16), video: true, cancel: true });
+    assert.deepStrictEqual(cleanLook({ callId: '../x', declineToken: 'NOT HEX!', video: 'yes', cancel: 1 }), {}, 'bad call id, bad token, non-true flags are dropped');
+    const sent = [];
+    const cu = { b: { status: 'online', pushSubs: [] } };
+    const cp = createPush({ users: () => cu, save() {}, enabled: true, sender: async (sub, body) => { sent.push({ sub: sub.endpoint, body: JSON.parse(body) }); } });
+    assert.ok(cp.addFcm(cu.b, 'F'.repeat(40), 'app', { callUi: true }), 'new app: native call screen');
+    assert.ok(cp.addFcm(cu.b, 'G'.repeat(40), 'app'), 'older app: no call screen');
+    assert.ok(cp.add(cu.b, goodSub(5), 'browser'));
+    assert.strictEqual(cu.b.pushSubs.find((s) => s.fcm === 'F'.repeat(40)).callUi, true);
+    assert.strictEqual(cu.b.pushSubs.find((s) => s.fcm === 'G'.repeat(40)).callUi, undefined);
+    assert.strictEqual(await cp.cancelCall('b', 'ab12cd34ef56ab78'), 1, 'only the app with the call screen is told');
+    assert.deepStrictEqual([sent[0].sub, sent[0].body.cancel, sent[0].body.callId], ['fcm:' + 'F'.repeat(40), true, 'ab12cd34ef56ab78']);
+    assert.strictEqual(await cp.cancelCall('b', '../bad'), 0, 'a malformed call id sends nothing');
+    assert.strictEqual(await cp.cancelCall('nobody', 'ab12cd34ef56ab78'), 0);
+    sent.length = 0;
+    await cp.send('b', 'call', { title: 'Sam is calling', body: 'Incoming voice call', tag: 'call', callId: 'ab12cd34ef56ab78', video: false, declineToken: 'a1'.repeat(16) });
+    assert.strictEqual(sent.length, 3, 'a ring goes to every device');
+    assert.ok(sent.every((s) => s.body.callId === 'ab12cd34ef56ab78' && s.body.declineToken === 'a1'.repeat(16)));
+  }
+
   // remove
   push.remove(users.a, goodSub(1).endpoint);
   assert.ok(!users.a.pushSubs.some((x) => x.endpoint === goodSub(1).endpoint));

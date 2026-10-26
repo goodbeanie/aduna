@@ -56,6 +56,27 @@ assert.strictEqual(createFcm({ raw: '' }).enabled, false);
   const cm = JSON.parse(calls[2].init.body).message;
   assert.deepStrictEqual([cm.android.notification.channel_id, cm.android.ttl, cm.android.notification.tag], ['calls', '45s', undefined]);
 
+  // an app with the native call screen gets a DATA-ONLY call (no notification block): its own service draws Answer / Decline and rings
+  await fcm.send(TOKEN, JSON.stringify({ kind: 'call', title: 'Sam is calling', body: 'Incoming video call', tag: 'call', sender: 'Sam', callId: 'ab12cd34ef56ab78', video: true, declineToken: 'f'.repeat(32) }), { TTL: 45, callUi: true });
+  const ring = JSON.parse(calls[calls.length - 1].init.body).message;
+  assert.strictEqual(ring.notification, undefined, 'data-only: nothing for the system to draw');
+  assert.deepStrictEqual(ring.data, { kind: 'call', url: '/app', tag: 'call', callId: 'ab12cd34ef56ab78', title: 'Sam is calling', body: 'Incoming video call', sender: 'Sam', video: '1', declineToken: 'f'.repeat(32) });
+  assert.deepStrictEqual([ring.android.priority, ring.android.ttl], ['HIGH', '45s']);
+  Object.values(ring.data).forEach((v) => assert.strictEqual(typeof v, 'string', 'FCM data values must be strings'));
+  // taking the ringing screen down
+  await fcm.send(TOKEN, JSON.stringify({ kind: 'call', cancel: true, callId: 'ab12cd34ef56ab78', tag: 'call' }), { TTL: 30, callUi: true });
+  const stop = JSON.parse(calls[calls.length - 1].init.body).message;
+  assert.strictEqual(stop.data.cancel, '1');
+  assert.strictEqual(stop.data.callId, 'ab12cd34ef56ab78');
+  // no callUi (an older app) or no call id: the plain system notification as before
+  await fcm.send(TOKEN, JSON.stringify({ kind: 'call', title: 'Sam is calling', body: 'Incoming voice call', callId: 'ab12cd34ef56ab78' }), { TTL: 45 });
+  assert.ok(JSON.parse(calls[calls.length - 1].init.body).message.notification, 'older apps keep the system notification');
+  await fcm.send(TOKEN, JSON.stringify({ kind: 'call', title: 'x', body: 'y', callId: '../bad' }), { TTL: 45, callUi: true });
+  assert.ok(JSON.parse(calls[calls.length - 1].init.body).message.notification, 'a malformed call id never becomes a ring');
+  await fcm.send(TOKEN, JSON.stringify({ kind: 'dm', title: 'x', body: 'y', callId: 'ab12cd34ef56ab78' }), { callUi: true });
+  assert.ok(JSON.parse(calls[calls.length - 1].init.body).message.notification, 'only calls are data-only');
+  calls.length = 3; // the checks below count requests from here
+
   // a new token is fetched after it expires
   t += 3_600_000;
   await fcm.send(TOKEN, JSON.stringify({ kind: 'dm', title: 'x', body: 'y' }));

@@ -9,6 +9,7 @@ const { Server } = require('socket.io');
 const store = require('./db');
 const { sniffImage, cleanGif } = require('./images');
 const credits = require('./credits');
+const artistsLib = require('./artists'); // artists: apply, get reviewed, sell badges in the shop (see the "artists" block below)
 const security = require('./security');
 const totp = require('./totp');
 const mailer = require('./mailer');
@@ -48,6 +49,8 @@ const referencedImages = () => new Set([
   ...Object.values(store.db.servers).flatMap((sv) => [sv.iconImage, sv.bannerImage]), // server icon + banner
   ...Object.values(store.db.bots || {}).map((b) => b.avatarImage), // bot pictures (the bot's account points at the same image)
   ...Object.values(store.db.emojis).map((e) => e.imageId), // custom emoji pictures live in the same table
+  ...Object.values(store.db.badges || {}).map((b) => b.image), // badge pictures (creator badges and artists' items); without this the startup cleanup deleted them
+  ...Object.values(store.db.artists || {}).flatMap((a) => (Array.isArray(a.pieces) ? a.pieces : [])), // the pieces of art in an artist application
 ].filter(Boolean));
 const now = () => Date.now();
 const MAX_FILE = 20 * 1024 * 1024;          // largest file a person can attach
@@ -148,10 +151,14 @@ const CREATOR_KEYS = new Set(String(process.env.CREATOR_EMAILS || 'adunachatapp@
 const isCreatorEmail = (email) => !!email && CREATOR_KEYS.has(security.emailKey(email));
 const isCreator = (u) => !!u && !u.bot && u.emailVerified === true && isCreatorEmail(u.email);
 const CREATOR_BADGE = { id: 'creator', name: 'Creator', builtin: true, image: null, emoji: '', color: '' };
-// Every badge a person owns (the Creator badge, ones a creator gave, event badges and shop badges).
+// The Artist badge: automatic once an artist's first item has been approved (db().artists[id].badge, see the artists block). The client draws it
+// from /badges/artist.png as a mask in the surrounding text colour (`glyph`), so it is white on dark themes and dark on light ones.
+const ARTIST_BADGE = { id: 'artist', name: 'Artist', glyph: 'artist', image: null, emoji: '', color: '' };
+// Every badge a person owns (the Creator badge, the Artist badge, ones a creator gave, event badges and shop badges).
 function allBadgeViews(u) {
   const out = [];
   if (isCreator(u)) out.push(CREATOR_BADGE);
+  if (!u.bot && db().artists && db().artists[u.id] && db().artists[u.id].badge === true) out.push(ARTIST_BADGE);
   for (const id of Array.isArray(u.badges) ? u.badges : []) {
     const b = db().badges && db().badges[id];
     if (b) out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' });
@@ -200,7 +207,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -2281,7 +2288,7 @@ function cleanBadgeFields(body, partial) {
   if (body.daily !== undefined) out.daily = body.daily === true;
   return { out };
 }
-const badgeNameTaken = (name, exceptId) => name.toLowerCase() === 'creator' || Object.values(db().badges).some((b) => b.id !== exceptId && b.name.toLowerCase() === name.toLowerCase());
+const badgeNameTaken = (name, exceptId) => ['creator', 'artist'].includes(name.toLowerCase()) || Object.values(db().badges).some((b) => b.id !== exceptId && b.name.toLowerCase() === name.toLowerCase());
 const tellHolders = (id) => { for (const u of Object.values(db().users)) if (Array.isArray(u.badges) && u.badges.includes(id)) emitUserUpdate(u); };
 app.get('/api/badges', auth, creatorOnly, (_req, res) => res.json({ badges: Object.values(db().badges).map(badgeOwnView), limits: BADGE_LIMITS }));
 app.post('/api/badges', auth, creatorOnly, (req, res) => {
@@ -2347,6 +2354,167 @@ app.delete('/api/badges/:id/give/:username', auth, creatorOnly, (req, res) => {
   const u = userByName(req.params.username); if (!u) return res.status(404).json({ error: 'No account with that username' });
   if (Array.isArray(u.badges) && u.badges.includes(b.id)) { u.badges = u.badges.filter((x) => x !== b.id); store.save(); emitUserUpdate(u); }
   res.json({ badge: badgeOwnView(b) });
+});
+
+// ----- artists: apply, get reviewed, sell badges in the shop -----
+// The rules (statuses, limits, the artist's cut) are in artists.js; read the flow at the top of that file. Routes:
+//   GET    /api/artists/me                          the person's application, their items, the limits, and whether they can review
+//   PUT    /api/artists/pieces/:slot  (0-3)         put a piece of art in the draft application (replaces what was in that slot)
+//   DELETE /api/artists/pieces/:slot                take one out of the draft
+//   POST   /api/artists/apply { note }              send the draft in (needs all four pieces)
+//   POST/PATCH/DELETE /api/artists/items[/:id]      an approved artist's shop items; PUT .../image; POST .../submit sends one for review
+//   GET    /api/artists/review                      moderators: the applications and items waiting
+//   POST   /api/artists/review/applications/:uid and /review/items/:id   { action: 'approve' | 'reject', note }
+// Moderators are creator accounts and the usernames in ADMIN_USERNAMES. Nobody can review their own application or items.
+const isReviewer = (u) => isCreator(u) || isAdmin(u);
+const reviewerOnly = (req, res, next) => (isReviewer(req.user) ? next() : res.status(404).json({ error: 'Not found' }));
+const artistSaves = new security.RateWindow(60, 3600_000);
+const artistRec = (uid) => (db().artists && db().artists[uid]) || null;
+const artistOnly = (req, res, next) => (!req.user.bot && artistsLib.isArtist(artistRec(req.user.id)) ? next() : res.status(403).json({ error: 'Only approved artists can do that', code: 'not_artist' }));
+const myItems = (uid) => Object.values(db().badges).filter((b) => b.artistId === uid);
+const ownersOf = (id) => Object.values(db().users).filter((u) => Array.isArray(u.badges) && u.badges.includes(id)).length;
+const itemView = (b) => ({
+  id: b.id, name: b.name, desc: b.desc || '', price: Number.isInteger(b.price) && b.price > 0 ? b.price : null, image: b.image || null,
+  status: b.status || 'draft', reviewNote: b.status === 'rejected' || b.status === 'approved' ? b.reviewNote || '' : '', sold: ownersOf(b.id),
+});
+const personOf = (uid) => { const u = db().users[uid]; return { userId: uid, username: u ? u.username : null, displayName: u ? u.displayName : null }; };
+const ownItem = (req, res) => {
+  const b = badgeById(req.params.id);
+  if (!b || b.artistId !== req.user.id) { res.status(404).json({ error: 'Item not found' }); return null; }
+  return b;
+};
+// a PNG, JPEG or WebP the browser sent, checked like the other pictures: { buf } or { error }
+function readPicture(req, maxSide) {
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) return { error: 'Choose a PNG, JPEG or WebP image' };
+  const info = sniffImage(buf);
+  if (!info) return { error: 'That file is not a valid PNG, JPEG or WebP image' };
+  if (info.width > maxSide || info.height > maxSide) return { error: `Image is too large (max ${maxSide}px per side)` };
+  return { buf };
+}
+
+app.get('/api/artists/me', auth, (req, res) => {
+  const rec = artistRec(req.user.id), reviewer = isReviewer(req.user);
+  res.json({
+    application: artistsLib.view(rec, now()),
+    items: artistsLib.isArtist(rec) ? myItems(req.user.id).map(itemView) : [],
+    limits: { ...artistsLib.LIMITS, cutPercent: artistsLib.CUT_PERCENT },
+    reviewer,
+    ...(reviewer ? { waiting: { applications: Object.values(db().artists).filter((r) => r.status === 'pending').length, items: Object.values(db().badges).filter((b) => artistsLib.isItem(b) && b.status === 'pending').length } } : {}),
+  });
+});
+
+app.put('/api/artists/pieces/:slot', auth, uploadLimiter, rawImage, ah(async (req, res) => {
+  const slot = artistsLib.validSlot(req.params.slot);
+  if (slot < 0) return res.status(400).json({ error: 'Pieces are numbered 0 to 3' });
+  const pic = readPicture(req, artistsLib.LIMITS.maxSide);
+  if (pic.error) return res.status(400).json({ error: pic.error });
+  const o = artistsLib.open(artistRec(req.user.id), req.user.id, now()); // a person who was rejected starts a fresh draft once the wait is over
+  if (!o.ok) return res.status(o.status).json({ error: o.error });
+  if (!artistSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving too fast. Try again later.' });
+  const rec = o.rec; db().artists[req.user.id] = rec;
+  const old = rec.pieces[slot] || null;
+  const id = await store.putImage(pic.buf);
+  if (rec.status !== 'draft') { await store.deleteImage(id); return res.status(409).json({ error: 'Your application was already sent' }); } // sent while the picture was uploading
+  rec.pieces[slot] = id;
+  await store.flush(); // the draft points at the new picture before the old ones are deleted
+  for (const gone of [...o.dropped, old]) if (gone && gone !== id) await store.deleteImage(gone);
+  res.json({ application: artistsLib.view(rec, now()) });
+}));
+app.delete('/api/artists/pieces/:slot', auth, ah(async (req, res) => {
+  const slot = artistsLib.validSlot(req.params.slot);
+  if (slot < 0) return res.status(400).json({ error: 'Pieces are numbered 0 to 3' });
+  const rec = artistRec(req.user.id);
+  if (!rec || rec.status !== 'draft') return res.status(409).json({ error: 'Only a draft can be changed' });
+  const old = rec.pieces[slot] || null; rec.pieces[slot] = null;
+  await store.flush();
+  if (old) await store.deleteImage(old);
+  res.json({ application: artistsLib.view(rec, now()) });
+}));
+app.post('/api/artists/apply', auth, (req, res) => {
+  if (req.user.bot) return res.status(403).json({ error: 'Bots cannot apply' });
+  const rec = artistRec(req.user.id);
+  const r = artistsLib.submit(rec, req.body && req.body.note, now());
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  store.save();
+  res.json({ application: artistsLib.view(rec, now()) });
+});
+
+app.post('/api/artists/items', auth, artistOnly, (req, res) => {
+  if (!artistsLib.itemRoom(myItems(req.user.id))) return res.status(400).json({ error: `You can have up to ${artistsLib.LIMITS.items} items` });
+  if (Object.keys(db().badges).length >= BADGE_LIMITS.total) return res.status(400).json({ error: 'The shop is full right now' });
+  const { out, error } = artistsLib.cleanItem(req.body, false);
+  if (error) return res.status(400).json({ error });
+  if (badgeNameTaken(out.name)) return res.status(409).json({ error: 'A badge with that name already exists' });
+  if (!artistSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving too fast. Try again later.' });
+  const b = { id: store.id(), name: out.name, emoji: '', color: '#8c6b4f', image: null, desc: out.desc || '', price: out.price, shopEnds: null, pinned: false, daily: false, artistId: req.user.id, status: 'draft', createdBy: req.user.id, createdAt: now() };
+  db().badges[b.id] = b; store.save();
+  res.json({ item: itemView(b) });
+});
+app.patch('/api/artists/items/:id', auth, artistOnly, (req, res) => {
+  const b = ownItem(req, res); if (!b) return;
+  const r = artistsLib.editItem(b, req.body);
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  if (r.out.name && badgeNameTaken(r.out.name, b.id)) return res.status(409).json({ error: 'A badge with that name already exists' });
+  if (!artistSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving too fast. Try again later.' });
+  artistsLib.applyEdit(b, r.out); store.save();
+  res.json({ item: itemView(b) });
+});
+app.put('/api/artists/items/:id/image', auth, artistOnly, uploadLimiter, rawImage, ah(async (req, res) => {
+  const b = ownItem(req, res); if (!b) return;
+  if (b.status === 'approved') return res.status(409).json({ error: 'An approved item’s picture cannot be changed. Make a new item instead.' });
+  const pic = readPicture(req, 512);
+  if (pic.error) return res.status(400).json({ error: pic.error });
+  const id = await store.putImage(pic.buf);
+  if (b.status === 'approved' || !badgeById(b.id)) { await store.deleteImage(id); return res.status(409).json({ error: 'This item can no longer be changed' }); } // approved or deleted while uploading
+  const old = b.image || null; b.image = id; artistsLib.applyEdit(b, {}); // a changed picture takes the item back to a draft
+  await store.flush();
+  if (old && old !== id) await store.deleteImage(old);
+  res.json({ item: itemView(b) });
+}));
+app.post('/api/artists/items/:id/submit', auth, artistOnly, (req, res) => {
+  const b = ownItem(req, res); if (!b) return;
+  const r = artistsLib.submitItem(b, now());
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  store.save();
+  res.json({ item: itemView(b) });
+});
+app.delete('/api/artists/items/:id', auth, artistOnly, ah(async (req, res) => {
+  const b = ownItem(req, res); if (!b) return;
+  if (ownersOf(b.id)) return res.status(409).json({ error: 'People own this badge, so it cannot be deleted. Set its price to nothing to take it off sale.' });
+  const img = b.image; delete db().badges[b.id];
+  await store.flush();
+  if (img) await store.deleteImage(img);
+  res.json({ ok: true });
+}));
+
+app.get('/api/artists/review', auth, reviewerOnly, (req, res) => {
+  const applications = Object.values(db().artists).filter((r) => r.status === 'pending').sort((a, b) => (a.appliedAt || 0) - (b.appliedAt || 0))
+    .map((r) => ({ ...personOf(r.id), note: r.note || '', pieces: artistsLib.pieceIds(r), appliedAt: r.appliedAt || null, own: r.id === req.user.id }));
+  const items = Object.values(db().badges).filter((b) => artistsLib.isItem(b) && b.status === 'pending').sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0))
+    .map((b) => ({ id: b.id, name: b.name, desc: b.desc || '', price: b.price, image: b.image || null, artist: personOf(b.artistId), submittedAt: b.submittedAt || null, own: b.artistId === req.user.id }));
+  res.json({ applications, items });
+});
+app.post('/api/artists/review/applications/:uid', auth, reviewerOnly, (req, res) => {
+  if (req.params.uid === req.user.id) return res.status(403).json({ error: 'Someone else has to review your own application' });
+  const rec = artistRec(req.params.uid);
+  const r = artistsLib.decide(rec, req.body && req.body.action, req.body && req.body.note, req.user.id, now());
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  store.save();
+  res.json({ ok: true, status: rec.status });
+});
+app.post('/api/artists/review/items/:id', auth, reviewerOnly, (req, res) => {
+  const b = badgeById(req.params.id);
+  if (b && b.artistId === req.user.id) return res.status(403).json({ error: 'Someone else has to review your own items' });
+  const r = artistsLib.decideItem(b, req.body && req.body.action, req.body && req.body.note, req.user.id, now());
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  const rec = artistRec(b.artistId);
+  if (b.status === 'approved' && artistsLib.isArtist(rec) && rec.badge !== true) { // their first approved item earns the Artist badge
+    rec.badge = true;
+    const u = db().users[b.artistId]; if (u) emitUserUpdate(u);
+  }
+  store.save();
+  res.json({ ok: true, status: b.status });
 });
 
 // Test run: the developer's own code (a saved bot's, or a draft sent as `code`) against a made-up event, so they can see what it would
@@ -2900,7 +3068,7 @@ const push = createPush({
   get enabled() { return !!store.vapid && process.env.PUSH !== 'off'; },
   get publicKey() { return store.vapid?.publicKey; },
   sender: (sub, body, opts) => {
-    if (sub.fcm) return fcm.send(sub.fcm, body, opts); // an Android app device
+    if (sub.fcm) return fcm.send(sub.fcm, body, { ...opts, callUi: !!sub.callUi }); // an Android app device
     if (!vapidReady) {
       webpush.setVapidDetails(process.env.VAPID_SUBJECT || (/^https:/.test(process.env.PUBLIC_URL || '') ? process.env.PUBLIC_URL : 'https://aduna.onrender.com'), store.vapid.publicKey, store.vapid.privateKey);
       vapidReady = true;
@@ -2909,6 +3077,10 @@ const push = createPush({
   },
 });
 const pushSafe = (uid, kind, payload) => { push.send(uid, kind, payload).catch((e) => console.error('push failed:', e.message)); };
+const cancelRing = (uid, callId) => { push.cancelCall(uid, callId).catch((e) => console.error('call cancel push failed:', e.message)); };
+// The Decline button on a phone's ringing screen works with the app closed, so it cannot be signed in: it carries this signature instead,
+// made for one call and one person, which only the server can produce.
+const declineTokenFor = (callId, uid) => crypto.createHmac('sha256', String(SECRET)).update(`call-decline:${callId}:${uid}`).digest('hex').slice(0, 32);
 
 app.get('/api/push/key', auth, (_req, res) => res.json({ enabled: push.enabled, publicKey: push.publicKey, fcm: fcm.enabled }));
 app.post('/api/push/subscribe', auth, (req, res) => {
@@ -2919,7 +3091,19 @@ app.post('/api/push/subscribe', auth, (req, res) => {
 // The Android app registers its Firebase token here (Web Push is not available inside an Android WebView).
 app.post('/api/push/fcm', auth, (req, res) => {
   if (!push.enabled || !fcm.enabled) return res.status(503).json({ error: 'Android push is not set up on this server' });
-  if (!push.addFcm(req.user, req.body?.token, req.headers['user-agent'])) return res.status(400).json({ error: 'Bad token' });
+  if (!push.addFcm(req.user, req.body?.token, req.headers['user-agent'], { callUi: req.body?.callUi === true })) return res.status(400).json({ error: 'Bad token' });
+  res.json({ ok: true });
+});
+// The Decline button on the Android ringing screen. Not signed in (the app may be closed), so it is proved by the signature the server put
+// in the push for this call and this person. Declining is all it can do.
+app.post('/api/call/decline-push', (req, res) => {
+  const callId = String(req.body?.callId || ''), tok = String(req.body?.token || '');
+  const c = calls.get(callId);
+  if (!c || c.state !== 'ringing') return res.json({ ok: true }); // already over: nothing to do
+  const want = Buffer.from(declineTokenFor(c.id, c.b)), got = Buffer.from(tok);
+  if (want.length !== got.length || !crypto.timingSafeEqual(want, got)) return res.status(403).json({ error: 'Not allowed' });
+  io.to('user:' + c.b).emit('call:handled', { callId: c.id }); // stop ringing on the person's other devices
+  endCall(c, 'declined');
   res.json({ ok: true });
 });
 const pushTestAt = new Map(); // user id -> last test time (a test is one request per 5 s)
@@ -3066,6 +3250,7 @@ const callOf = (uid) => [...calls.values()].find((c) => c.a === uid || c.b === u
 function endCall(c, reason) {
   if (!calls.delete(c.id)) return;
   clearTimeout(c.timer);
+  if (c.state === 'ringing') cancelRing(c.b, c.id); // a phone still showing the ringing screen takes it down
   io.to('user:' + c.a).to('user:' + c.b).emit('call:ended', { callId: c.id, reason });
   logCall(c, reason);
 }
@@ -3446,7 +3631,7 @@ io.on('connection', (socket) => {
     c.timer = setTimeout(() => { if (c.state === 'ringing') endCall(c, 'missed'); }, RING_MS);
     calls.set(c.id, c);
     io.to('user:' + to.id).emit('call:incoming', { callId: c.id, from: uid, video: c.video });
-    pushSafe(to.id, 'call', { title: `${db().users[uid]?.displayName || 'Someone'} is calling`, body: `Incoming ${c.video ? 'video' : 'voice'} call`, url: `/app?n=d:${uid}`, tag: 'call', sender: db().users[uid]?.displayName, icon: imgPath(db().users[uid]?.avatarImage) });
+    pushSafe(to.id, 'call', { title: `${db().users[uid]?.displayName || 'Someone'} is calling`, body: `Incoming ${c.video ? 'video' : 'voice'} call`, url: `/app?n=d:${uid}`, tag: 'call', sender: db().users[uid]?.displayName, icon: imgPath(db().users[uid]?.avatarImage), callId: c.id, video: c.video, declineToken: declineTokenFor(c.id, to.id) });
     reply({ ok: true, callId: c.id });
   });
 
@@ -3458,6 +3643,7 @@ io.on('connection', (socket) => {
     c.answeredAt = now();
     clearTimeout(c.timer);
     socket.to('user:' + uid).emit('call:handled', { callId: c.id }); // stop ringing on the callee's other devices
+    cancelRing(uid, c.id); // ...including a phone that is showing the ringing screen
     io.to('user:' + c.a).emit('call:accepted', { callId: c.id });
     reply({ ok: true });
   });
@@ -3559,7 +3745,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, ready, loginGuard, store, botHost, fetcher }; // loginGuard, store: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages: for the tests
 
 
 /* HANDOFF: see HANDOFF.md in the project root for what this server does, what is done, and what is left. */

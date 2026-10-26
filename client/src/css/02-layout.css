@@ -6,7 +6,7 @@
 .rail-list::-webkit-scrollbar { display: none; }
 .rail-btn { position: relative; background: var(--bg); display: grid; place-items: center; font-size: 16px; color: var(--head); flex: none; }
 .rail-btn:hover, .rail-btn.on { border-radius: 16px; background: var(--ink); color: var(--on-ink); }
-.rail-btn.dm-home img { height: 30px; width: auto; display: block; }
+.rail-btn.dm-home .dm-home-mark { height: 30px; aspect-ratio: 101 / 110; display: block; background: currentColor; -webkit-mask: url(/aduna-icon.png) center / contain no-repeat; mask: url(/aduna-icon.png) center / contain no-repeat; }
 
 .rail-btn.add { color: var(--green); padding: 0; line-height: 0; } .rail-btn.add:hover { background: var(--green); color: var(--bg); }
 .rail-sep { width: 2px; height: 32px; background: var(--line); border-radius: 1px; flex: none; }

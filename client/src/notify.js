@@ -31,7 +31,8 @@ function nativeInit() {
   if (!pn) return (nativeReady = Promise.resolve(false));
   nativeReady = (async () => {
     await pn.addListener('registration', async (t) => {
-      try { await api('/push/fcm', { method: 'POST', body: { token: t.value } }); fcmToken = t.value; store.set('aduna_fcm_token', t.value); lastError = ''; }
+      // callUi: this app build has the native call screen (Answer / Decline buttons, ringtone), so the server may send it data-only call pushes
+      try { await api('/push/fcm', { method: 'POST', body: { token: t.value, callUi: !!cap()?.Plugins?.AdunaCalls } }); fcmToken = t.value; store.set('aduna_fcm_token', t.value); lastError = ''; }
       catch (e) { lastError = e?.message || 'The server did not accept this device.'; }
     });
     await pn.addListener('registrationError', (e) => { lastError = (e && (e.error || e.message)) || 'Could not register with Firebase.'; });

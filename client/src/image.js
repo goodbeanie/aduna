@@ -118,6 +118,36 @@ export async function processBadge(file, { w, h }) {
   return blob;
 }
 
+// A piece of art for an artist application: scaled down to fit inside maxSide x maxSide, NOT cropped (a reviewer needs to see all of it).
+// WebP when the browser can make it, otherwise JPEG; re-encoding also strips EXIF data. Stays under the server's 1 MB upload limit.
+export async function processPiece(file, maxSide = 1600) {
+  if (!ACCEPT.includes(file.type)) throw new Error('Choose a PNG, JPEG, WebP or GIF image');
+  if (file.size > MAX_INPUT) throw new Error('That image is too big (max 15 MB)');
+  let bmp;
+  try { bmp = await createImageBitmap(file); }
+  catch { throw new Error("Couldn't read that image"); }
+  for (const side of [maxSide, Math.round(maxSide * 0.75), Math.round(maxSide * 0.55)]) { // a big, busy picture may need a smaller size to fit
+    const scale = Math.min(1, side / Math.max(bmp.width, bmp.height));
+    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bmp, 0, 0, w, h);
+    let blob = await toBlob(canvas, 'image/webp', 0.9);
+    if (!blob || blob.type !== 'image/webp') {
+      const flat = document.createElement('canvas');
+      flat.width = w; flat.height = h;
+      const fctx = flat.getContext('2d');
+      fctx.fillStyle = '#fff'; fctx.fillRect(0, 0, w, h); fctx.drawImage(canvas, 0, 0);
+      blob = await toBlob(flat, 'image/jpeg', 0.88);
+    }
+    if (blob && blob.size <= 1000 * 1024) { bmp.close?.(); return blob; }
+  }
+  bmp.close?.();
+  throw new Error('That image is still too large after resizing, try a different one');
+}
+
 // `base` is '/api/me' for profile pictures, or `/api/servers/<id>` for a server's icon and banner.
 export async function uploadImage(kind, blob, base = '/api/me') {
   const res = await fetch(`${base}/${kind}`, {

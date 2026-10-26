@@ -41,7 +41,9 @@ const held = (u) => (Array.isArray(u?.badges) ? u.badges : []);
 //             rest until a later day. Any number of badges can be daily. A pinned badge is always shown, so it never uses up a daily slot.
 const priced = (b) => !!b && Number.isInteger(b.price) && b.price > 0 && b.price <= MAX_PRICE;
 const ended = (b, now) => !!b && Number.isFinite(b.shopEnds) && b.shopEnds > 0 && b.shopEnds <= now;
-const forSale = (b, now = Date.now()) => priced(b) && !ended(b, now);
+// A badge an artist made (it has an `artistId`, see artists.js) is only listed once a moderator has approved it. Badges creators make have no artistId.
+const listed = (b) => !!b && (typeof b.artistId !== 'string' || !b.artistId || b.status === 'approved');
+const forSale = (b, now = Date.now()) => priced(b) && listed(b) && !ended(b, now);
 
 const DAILY_MAX = 5;
 const DAY_MS = 86_400_000;
@@ -68,8 +70,10 @@ const shown = (b, picks, now) => forSale(b, now) && (b.pinned === true || b.dail
 const info = (now = Date.now()) => ({ dailyMax: DAILY_MAX, resetsAt: (dayOf(now) + 1) * DAY_MS });
 
 // what the client sees: the badges on show (pinned first, then cheapest first), with what this person already owns marked.
-// `all` is for the creator: every badge that has a price, with a `state` of live, resting (daily, not picked today) or ended.
-function view(u, badges = {}, { now = Date.now(), all = false } = {}) {
+// `all` is for the creator: every badge that has a price, with a `state` of live, resting (daily, not picked today), ended, or review
+// (an artist's item a moderator has not approved yet).
+// `users` (optional, db().users) lets an artist's item carry `by`, the artist's display name.
+function view(u, badges = {}, { now = Date.now(), all = false, users = null } = {}) {
   const have = new Set(held(u));
   const picks = dailyPicks(badges, now);
   return Object.values(badges || {}).filter((b) => priced(b) && (all || shown(b, picks, now)))
@@ -78,7 +82,8 @@ function view(u, badges = {}, { now = Date.now(), all = false } = {}) {
         id: b.id, kind: 'badge', name: b.name, desc: b.desc || '', emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null, price: b.price, owned: have.has(b.id),
         pinned: b.pinned === true, daily: b.daily === true, ends: Number.isFinite(b.shopEnds) && b.shopEnds > 0 ? b.shopEnds : null,
       };
-      if (all) item.state = ended(b, now) ? 'ended' : shown(b, picks, now) ? 'live' : 'resting';
+      if (typeof b.artistId === 'string' && b.artistId) item.by = (users && users[b.artistId] && users[b.artistId].displayName) || null;
+      if (all) item.state = !listed(b) ? 'review' : ended(b, now) ? 'ended' : shown(b, picks, now) ? 'live' : 'resting';
       return item;
     })
     .sort((a, b) => (b.pinned - a.pinned) || a.price - b.price || a.name.localeCompare(b.name));
@@ -92,7 +97,8 @@ function buy(u, id, spend, { badges = {}, maxHeld = MAX_HELD, now = Date.now() }
   if (held(u).length >= maxHeld) return { status: 400, error: `Nobody can hold more than ${maxHeld} badges` };
   if (!spend(u, b.price, 'shop', { note: b.name, now })) return { status: 402, error: 'Not enough credits' };
   u.badges = [...held(u), b.id]; // paid in the same synchronous step
-  return { ok: true, item: { id: b.id, name: b.name, price: b.price } };
+  // an artist's item says who made it, so the caller can pay them their cut (credits.js) in the same synchronous step
+  return { ok: true, item: { id: b.id, name: b.name, price: b.price, ...(typeof b.artistId === 'string' && b.artistId ? { artistId: b.artistId } : {}) } };
 }
 
 // Old preset badges a person bought before creators took over the shop, in the same shape as other badges (see badgeViews in index.js)
@@ -101,4 +107,4 @@ function badgeViews(u) {
   return owned(u).map((id) => { const i = LEGACY_BY_ID.get(id); return { id: i.id, name: i.name, image: null, emoji: i.emoji, color: i.color }; });
 }
 
-module.exports = { MAX_PRICE, MAX_HELD, DAILY_MAX, LEGACY, owned, forSale, ended, dailyPicks, info, view, buy, badgeViews };
+module.exports = { MAX_PRICE, MAX_HELD, DAILY_MAX, LEGACY, owned, forSale, listed, ended, dailyPicks, info, view, buy, badgeViews };

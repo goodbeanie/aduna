@@ -460,7 +460,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     });
     s.on('credits:update', ({ balance: b, delta, reason }) => {
       setBalance(b); setCreditsRev((n) => n + 1);
-      if (delta > 0 && (reason === 'message' || reason === 'purchase')) setGain({ key: Date.now(), delta });
+      if (delta > 0 && (reason === 'message' || reason === 'purchase' || reason === 'artist')) setGain({ key: Date.now(), delta });
     });
     s.on('friends:changed', () => loadFriends().catch(() => {}));
     // your other devices: a change of settings, or a channel read there
@@ -838,7 +838,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {/* server bar (top) */}
       <nav className="rail">
         <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
-          <img src="/aduna-icon.png" alt="" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
+          <span className="dm-home-mark" aria-hidden="true" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
         <div className="rail-sep" />
         <RailList>

@@ -5,7 +5,7 @@ import { askConfirm } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
-const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed', shop: 'Shop' };
+const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed', shop: 'Shop', artist: 'Artist sale' };
 const when = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 function Quest({ q, locked, busy, onClaim }) {
@@ -497,7 +497,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
             <div className="ledger">
               {d.ledger.map((l, i) => (
                 <div key={i} className="ledger-row">
-                  <span className="grow">{l.reason === 'quest' ? l.note : l.reason === 'shop' ? `Shop: ${l.note || 'purchase'}` : REASON[l.reason] || l.reason}{l.reason === 'message' && l.n > 1 ? ` (${l.n})` : ''}<span className="muted small"> · {when(l.t)}</span></span>
+                  <span className="grow">{l.reason === 'quest' ? l.note : l.reason === 'shop' ? `Shop: ${l.note || 'purchase'}` : l.reason === 'artist' ? `Artist sale: ${l.note || 'badge'}` : REASON[l.reason] || l.reason}{l.reason === 'message' && l.n > 1 ? ` (${l.n})` : ''}<span className="muted small"> · {when(l.t)}</span></span>
                   <b className={l.amount > 0 ? 'plus' : 'minus'}>{l.amount > 0 ? '+' : '−'}{Math.abs(l.amount).toLocaleString()}</b>
                 </div>
               ))}

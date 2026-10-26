@@ -186,13 +186,15 @@ export const timeLabel = (ts) => {
   return d.toLocaleDateString() + ' ' + t;
 };
 
-// Small badges next to a name: the Creator badge, and any a creator gave the person. A badge is a picture or an emoji on a colour.
+// Small badges next to a name: the Creator badge, the Artist badge, and any a creator gave the person. A badge is a picture or an emoji on a colour.
+// The Artist badge (`glyph: 'artist'`) is a one-colour picture drawn as a mask in the surrounding text colour, so it follows light and dark themes.
 export function BadgeIcons({ user, size = 16 }) {
   const list = Array.isArray(user?.badges) ? user.badges : [];
   if (!list.length) return null;
   return (
     <span className="ubadges">
       {list.map((b) => {
+        if (b.glyph === 'artist') return <span key={b.id} className="ubadge glyph" role="img" aria-label={b.name} title={b.name} style={{ width: size, height: size, '--glyph': 'url(/badges/artist.png)' }} />;
         const src = b.builtin ? '/badges/creator.png' : imageUrl(b.image);
         return (
           <span key={b.id} className="ubadge" title={b.name} style={{ width: size, height: size, fontSize: size * 0.7, background: src ? 'transparent' : b.color }}>

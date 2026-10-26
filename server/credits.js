@@ -15,6 +15,7 @@
 const crypto = require('crypto');
 const events = require('./events'); // the Halloween / Christmas quests, the Advent calendar and the developer test mode
 const shop = require('./shop');     // what credits can be spent on (profile badges)
+const artists = require('./artists'); // artists sell badges in the shop and earn a share of each sale (cutFor)
 const pthemes = require('./profilethemes'); // gradient profile themes: free for everybody (animated ones can be switched on later)
 
 // ---------- tunables ----------
@@ -321,7 +322,7 @@ function view(u, db, { purchases, now = Date.now(), dev = false, creator = false
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
     quests: questList(u, db, now),
     event: events.view(u, { now, dev }), // the Halloween / Christmas quests and Advent calendar, or null when no event is on
-    shop: shop.view(u, db.badges, { now, all: creator }), // the creator-made badges on show today (the creator sees every priced badge, with its state), with what this person already owns marked
+    shop: shop.view(u, db.badges, { now, all: creator, users: db.users }), // the badges on show today (the creator sees every priced badge, with its state), with what this person already owns marked; an artist's item says who made it
     shopInfo: shop.info(now),                              // the daily shop: how many are shown at once and when today's picks change
     messaging: { reward: EARN.msgReward, cap: EARN.msgDailyCap, earnedToday: d.msg, cooldownMs: EARN.msgCooldownMs, nextAt: c.lastMsgAt + EARN.msgCooldownMs, minMembers: EARN.minServerMembers },
     lifetime: { earned: c.earned, bought: c.bought, spent: c.spent },
@@ -576,8 +577,14 @@ function register(app, d) {
   app.post('/api/credits/shop/:id/buy', d.auth, (req, res) => {
     const r = shop.buy(req.user, req.params.id, spend, { badges: d.db().badges });
     if (!r.ok) return res.status(r.status).json({ error: r.error });
+    // An artist's item pays the artist their share. Same synchronous step as the purchase, so a sale is never half done.
+    // Buying your own item pays nothing back (it would only turn credits into credits). A price too small to split pays 0 and is skipped.
+    const artist = r.item.artistId && r.item.artistId !== req.user.id ? d.db().users[r.item.artistId] : null;
+    const cut = artist ? artists.cutFor(r.item.price) : 0;
+    if (artist && cut > 0) grant(artist, cut, 'artist', { note: r.item.name });
     d.save();
     push(req.user, -r.item.price, 'shop');
+    if (artist && cut > 0) push(artist, cut, 'artist'); // their balance updates on every device at once
     if (d.userChanged) d.userChanged(req.user); // the new badge shows next to their name right away
     res.json({ ...fullView(req.user), bought: r.item.name });
   });

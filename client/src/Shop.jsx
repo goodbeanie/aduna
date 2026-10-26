@@ -56,6 +56,7 @@ export function ShopTile({ item, balance, busy, creator, onOpen, onOffSale, onPi
           {item.pinned && <span className="shop-chip pinned"><Icon name="pin" size={12} /> Pinned</span>}
           {item.state === 'ended' && <span className="shop-chip off">Ended</span>}
           {item.state === 'resting' && <span className="shop-chip off">Resting today</span>}
+          {item.state === 'review' && <span className="shop-chip off">Awaiting review</span>}
           {item.ends && item.state !== 'ended' && <span className="shop-chip" title={fmtEnds(item.ends)}><Icon name="clock" size={12} /> Ends {fmtEnds(item.ends)}</span>}
         </div>
       )}
@@ -64,6 +65,7 @@ export function ShopTile({ item, balance, busy, creator, onOpen, onOffSale, onPi
         <BadgeArt item={item} size={72} />
         <b>{item.name}</b>
         <span className="muted small shop-desc">{item.desc}</span>
+        {item.by && <span className="muted small shop-by">by {item.by}</span>}
       </button>
       {item.owned
         ? <span className="quest-done"><Icon name="check" size={16} /> Owned</span>
