@@ -856,6 +856,20 @@ function Main({ me, setMe, privKey, openServerId }) {
         <RailUpdateChip />
       </nav>
 
+      <nav className={'tabbar' + (showList ? ' show' : '')} aria-label="Main">
+        <button className={view.kind === 'server' ? 'on' : ''} aria-current={view.kind === 'server' ? 'page' : undefined}
+          onClick={() => { const s = server || servers[0]; if (s) openServer(s); else setModal({ type: 'server' }); }}>
+          <Icon name="users" size={22} /><span>Servers</span>
+        </button>
+        <button className={view.kind === 'dm' ? 'on' : ''} aria-current={view.kind === 'dm' ? 'page' : undefined}
+          onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(true); setMembersOpen(false); }}>
+          <Icon name="message" size={22} /><span>DMs</span>
+          {dmUnread + fr.incoming.length > 0 && <span className="tab-badge">{fmtN(dmUnread + fr.incoming.length)}</span>}
+        </button>
+        <button onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={22} /><span>Search</span></button>
+        <button onClick={() => setModal({ type: 'edit', tab: 'profile' })}><Icon name="user" size={22} /><span>You</span></button>
+      </nav>
+
       <div className={'body' + (call.call.phase !== 'idle' ? ' in-call' : '') + (showList ? ' list-open' : '')}>
       {/* sidebar */}
       <aside className="side">

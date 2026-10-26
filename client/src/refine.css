@@ -126,6 +126,40 @@
 .credit-num, .co-total { letter-spacing: .01em; }
 .shop-price, .shop-chip, .event-test, .bot-tag { letter-spacing: .04em; }
 
+/* ---------- Part 5: phone bottom bar (Servers, DMs, Search, You) ---------- */
+
+.tabbar { display: none; }
+@media (max-width: 720px) {
+  .tabbar.show {
+    display: grid; grid-template-columns: repeat(4, 1fr); order: 5; flex: none;
+    background: var(--panel, var(--bg)); border-top: 1px solid var(--line);
+    padding: 0 var(--s-2) env(safe-area-inset-bottom, 0px);
+  }
+  .tabbar button {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+    min-height: 56px; padding: var(--s-2) 0; border: 0; background: none; color: var(--muted); font: inherit; font-size: var(--fs-xs);
+    letter-spacing: .04em; cursor: pointer; border-radius: var(--r-md);
+    transition: color var(--t-hover) var(--ease), background var(--t-hover) var(--ease);
+  }
+  .tabbar button:active { background: var(--hover); }
+  .tabbar button:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+  .tabbar button.on { color: var(--head); }
+  /* ink bar on the active item, like the sidebar */
+  .tabbar button.on::before { content: ''; position: absolute; top: 0; left: 28%; right: 28%; height: 3px; background: var(--ink); border-radius: 0 0 var(--s-1) var(--s-1); }
+  /* unread count: a small ink square */
+  .tab-badge { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; display: grid; place-items: center;
+    font-size: 11px; line-height: 1; color: var(--on-ink); background: var(--ink); border-radius: var(--s-1); }
+  .tabbar button span { white-space: nowrap; }
+  .body.list-open .panel-jump { display: none; } /* the bar has Search now */
+  /* the notification banner was squeezed into half the screen (left: 50%); on phones it spans the width and clears the bar */
+  .notify-prompt { left: var(--s-3); right: var(--s-3); transform: none; max-width: none; }
+  body:has(.tabbar.show) .notify-prompt { bottom: calc(136px + env(safe-area-inset-bottom, 0px)); }
+  /* the bar carries the safe-area padding now, so the user panel above it doesn't need its own */
+  .body.list-open .user-panel { padding-bottom: 0; }
+  /* the send button is a rounded square on phones too (earlier rule used a circle with !important) */
+  .send-btn { border-radius: var(--r-md) !important; }
+}
+
 /* desktop: the send button appears once there is something to send (it was phone-only). Enter still sends. */
 @media (min-width: 721px) {
   .send-btn:not(:disabled) { display: grid; background: var(--ink); color: var(--on-ink); align-self: center; margin-left: var(--s-1); animation: rf-pop var(--t-hover) var(--ease) both; }
