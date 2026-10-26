@@ -973,6 +973,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           )}
           <button className="credit-chip" title={tr('shopTab')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
           <button className="icon-btn" title={tr('customEmoji')} onClick={openManager}><Icon name="smile" size={18} /></button>
+          <button className="icon-btn panel-jump" title="Jump to…" aria-label="Jump to a channel, person or setting" onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={18} /></button>
           <button className="icon-btn" title={tr('settings')} onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
         </div>
       </aside>

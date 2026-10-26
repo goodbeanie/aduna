@@ -75,6 +75,10 @@
 @keyframes rf-pop { from { opacity: 0; transform: translateY(var(--s-1)) scale(.985); } to { opacity: 1; transform: none; } }
 .modal, .menu, .pop, .emenu { animation: rf-pop var(--t-panel) var(--ease) both; }
 
+/* the jump button lives in the server bar on desktop and in the user panel on phones (where the server bar is already full) */
+.panel-jump { display: none; }
+@media (max-width: 720px) { .panel-jump { display: inline-grid; } .rail-jump { display: none; } }
+
 /* ---------- Part 4: command palette (Ctrl+K) ---------- */
 .cp-overlay { place-items: start center; padding-top: 12vh; }
 .modal.cp { max-width: 560px; padding: 0; display: flex; flex-direction: column; overflow: hidden; }
@@ -93,6 +97,10 @@
 @media (max-width: 720px) { .cp-overlay { padding-top: 8vh; } .cp-foot { display: none; } .cp-field input { font-size: 16px; } }
 
 /* ---------- Part 3: composer and messages ---------- */
+
+/* the message box is auto-sized from its scrollHeight; on a phone the chat pane can be hidden behind the channel list when that runs,
+   it measures 0 and the placeholder spills out under the row. A minimum height makes it immune. */
+.composer-row .composer { min-height: 40px; }
 
 /* desktop: the send button appears once there is something to send (it was phone-only). Enter still sends. */
 @media (min-width: 721px) {
