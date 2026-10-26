@@ -244,3 +244,10 @@ html[data-grad] .composer-row .composer { background: none; }
    over its labels. It steps aside while the card is showing. */
 html[data-season]:has(.firstrun)::after { display: none; }
 
+/* Halloween: on desktop the cobweb stays inside the empty top bar (it used to hang over "Search members"),
+   and the spider's thread stops above the channel header instead of touching the members button. */
+@media (min-width: 721px) {
+  html[data-season=halloween] body::before { width: 72px; height: 68px; }
+  html[data-season=halloween]::before { height: 64px; }
+}
+
