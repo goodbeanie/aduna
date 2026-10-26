@@ -155,7 +155,7 @@ function Items({ d, onChange, onError }) {
           </div>
           {draft.kind === 'frame' && (
             <div className="artist-note">
-              <p>A frame is a 512 x 512 PNG with a see-through middle. The profile picture sits in the circle in the centre, and your ring goes in the band around it.</p>
+              <p>A frame is a 512 x 512 PNG with a see-through middle. The profile picture sits in the rounded square in the centre, and your ring goes in the band around it.</p>
               <button type="button" className="btn" onClick={() => downloadTemplate(onError)}>Download template</button>
             </div>
           )}

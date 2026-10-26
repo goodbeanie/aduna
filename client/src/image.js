@@ -120,28 +120,37 @@ export async function processBadge(file, { w, h }) {
 
 // Profile frames (an artist's ring around the avatar). The picture is a 512px square PNG; the avatar fills a 384px circle in the middle of it
 // (the same numbers as FRAME in server/artists.js), so the artist draws the ring in the 64px band around that circle. The middle must be see-through.
-export const FRAME = { side: 512, hole: 384 };
+export const FRAME = { side: 512, hole: 384, corner: 0.26 }; // the avatar is a rounded square (corner = radius as a share of its side, as in .avatar in redesign.css)
 
-// The template an artist downloads: the see-through square with guides. Draw the ring in the blue band, keep the circle in the middle empty,
-// then hide or delete the guide layer in your art program and export a PNG. (The Settings page lets them check it before uploading.)
+// The avatar's shape inside the frame: a rounded square `hole` wide, centred. `shrink` makes it a little smaller (1 = exact).
+function holePath(ctx, shrink = 1) {
+  const S = FRAME.side, w = FRAME.hole * shrink, x = (S - w) / 2, rad = w * FRAME.corner;
+  ctx.moveTo(x + rad, x);
+  ctx.arcTo(x + w, x, x + w, x + w, rad); ctx.arcTo(x + w, x + w, x, x + w, rad);
+  ctx.arcTo(x, x + w, x, x, rad); ctx.arcTo(x, x, x + w, x, rad);
+  ctx.closePath();
+}
+
+// The template an artist downloads: a 512px square with guides. Draw the ring in the blue band, keep the rounded square in the middle empty.
+// Put it on a layer under your art and hide it before you export a PNG (the Settings page checks the picture before uploading).
 export async function makeFrameTemplate() {
-  const S = FRAME.side, c = S / 2, r = FRAME.hole / 2;
+  const S = FRAME.side, c = S / 2;
   const canvas = document.createElement('canvas');
   canvas.width = S; canvas.height = S;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, S, S);
-  ctx.fillStyle = 'rgba(70,140,255,0.28)'; // the ring band: from the avatar circle out to the edge of the square
-  ctx.beginPath(); ctx.rect(0, 0, S, S); ctx.arc(c, c, r, 0, Math.PI * 2, true); ctx.fill('evenodd');
+  ctx.fillStyle = 'rgba(70,140,255,0.28)'; // the ring band: from the avatar's edge out to the edge of the square
+  ctx.beginPath(); ctx.rect(0, 0, S, S); holePath(ctx); ctx.fill('evenodd');
   ctx.strokeStyle = 'rgba(70,140,255,0.9)'; ctx.lineWidth = 2; ctx.setLineDash([]);
   ctx.strokeRect(1, 1, S - 2, S - 2);
-  ctx.strokeStyle = 'rgba(235,60,60,0.95)'; ctx.setLineDash([10, 8]); ctx.lineWidth = 3; // the avatar circle: keep everything inside it empty
-  ctx.beginPath(); ctx.arc(c, c, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(235,60,60,0.95)'; ctx.setLineDash([10, 8]); ctx.lineWidth = 3; // the avatar: keep everything inside it empty
+  ctx.beginPath(); holePath(ctx); ctx.stroke();
   ctx.setLineDash([]); ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(235,60,60,0.95)'; ctx.font = '600 20px sans-serif';
   ctx.fillText('Profile picture goes here', c, c - 4);
-  ctx.font = '16px sans-serif'; ctx.fillText('keep this circle empty', c, c + 20);
+  ctx.font = '16px sans-serif'; ctx.fillText('keep this square empty', c, c + 20);
   ctx.fillStyle = 'rgba(40,100,220,0.95)'; ctx.font = '600 15px sans-serif';
   ctx.fillText('Draw your ring in the blue band', c, 30);
-  ctx.font = '13px sans-serif'; ctx.fillText('512 x 512 PNG. Hide or delete this guide layer before you export.', c, 50);
+  ctx.font = '13px sans-serif'; ctx.fillText('512 x 512 PNG. Keep this on its own layer and hide it before you export.', c, 50);
   const blob = await toBlob(canvas, 'image/png');
   if (!blob) throw new Error("Couldn't make the template");
   return blob;
@@ -165,13 +174,13 @@ export async function processFrame(file) {
   ctx.drawImage(bmp, (S - w) / 2, (S - h) / 2, w, h);
   bmp.close?.();
   const d = ctx.getImageData(0, 0, S, S).data;
-  const c = S / 2, rIn = (FRAME.hole / 2) * 0.96; // look at the avatar circle, a hair smaller so a ring that touches its edge is fine
+  ctx.beginPath(); holePath(ctx, 0.96); // look at the avatar's shape, a hair smaller so a ring that touches its edge is fine
   let inside = 0, filledIn = 0, ring = 0;
   for (let y = 0; y < S; y += 2) for (let x = 0; x < S; x += 2) {
-    const a = d[(y * S + x) * 4 + 3], dist = Math.hypot(x + 0.5 - c, y + 0.5 - c);
-    if (dist <= rIn) { inside++; if (a > 40) filledIn++; } else if (a > 40) ring++;
+    const a = d[(y * S + x) * 4 + 3];
+    if (ctx.isPointInPath(x + 0.5, y + 0.5)) { inside++; if (a > 40) filledIn++; } else if (a > 40) ring++;
   }
-  if (filledIn > inside * 0.04) throw new Error('The middle of a frame has to be see-through, so the profile picture shows. Download the template: the dashed circle is where the picture goes.');
+  if (filledIn > inside * 0.04) throw new Error('The middle of a frame has to be see-through, so the profile picture shows. Download the template: the dashed square is where the picture goes.');
   if (ring < 200) throw new Error('There is nothing drawn around the middle. Draw your ring in the blue band of the template.');
   const blob = await toBlob(canvas, 'image/png');
   if (!blob) throw new Error("Couldn't process that image");
