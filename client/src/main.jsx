@@ -14,6 +14,7 @@ import './density.css';
 import './dialogs.css';
 import './polish.css';
 import './screenshare.css';
+import './refine.css';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';
 import { initKeyboard } from './keyboard.js';

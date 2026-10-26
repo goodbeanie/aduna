@@ -1,0 +1,56 @@
+/* Aduna look, pass 7 ("paper and ink, but alive"). Loaded LAST in main.jsx, so it only refines what earlier passes set.
+   Everything uses the theme colour variables (--bg, --ink, --line ...), so every theme keeps working.
+   To go back one step, remove the import of this file in main.jsx.
+
+   Part 1: tokens, calmer first screen, folded tabs, stamped dividers, stamp press. */
+
+/* ---------- 1. tokens (the earlier passes already define --r-sm / --r-md / --r-lg) ---------- */
+:root {
+  --r-xl: 20px;
+
+  /* spacing: a 4px scale */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px;
+
+  /* type scale: Bree Serif has one weight, so hierarchy comes from size, spacing and colour */
+  --fs-xs: 12px; --fs-sm: 14px; --fs-md: 16px; --fs-lg: 18px; --fs-xl: 22px; --fs-2xl: 28px;
+
+  /* motion: hover, open/close, celebrate; one gentle ease */
+  --t-hover: 120ms; --t-panel: 200ms; --t-celebrate: 320ms;
+  --ease: cubic-bezier(.2, .7, .2, 1);
+
+  /* depth: flat (hairline only), raised, floating */
+  --lift-1: 0 1px 2px var(--shadow);
+  --lift-2: 0 8px 20px var(--shadow);
+  --lift-3: 0 12px 32px var(--shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+
+/* ---------- 2. first screen: the notification banner floats above the composer, not over it ---------- */
+.notify-prompt { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+@media (max-width: 720px) { .notify-prompt { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); } }
+
+/* ---------- 3. folded tab: the sign-in card's ink tab, in small, on every modal and profile card ---------- */
+.modal:not(.bare), .card { position: relative; }
+.modal:not(.bare)::before, .card::before {
+  content: ''; position: absolute; top: 0; left: var(--s-5); width: 36px; height: 5px; z-index: 2;
+  background: var(--ink); border-radius: 0 0 var(--s-1) var(--s-1); pointer-events: none;
+}
+/* the little tab must not sit on top of the profile card's close button */
+.card::before { left: var(--s-4); }
+
+/* ---------- 4. stamped dividers: a printed label on the line, not just a line ---------- */
+.day-divider, .new-divider { font-weight: 400; }
+.day-divider > span, .new-divider > span {
+  padding: 2px var(--s-3); border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: 400;
+  letter-spacing: .08em; text-transform: uppercase; white-space: nowrap;
+  background: var(--bg); box-shadow: inset 0 0 0 1px var(--line2);
+}
+.new-divider > span { color: var(--on-ink); background: var(--ink); box-shadow: none; }
+.day-divider > span { color: var(--muted); }
+
+/* ---------- 5. stamp press: sending and primary actions press down 2px and settle ---------- */
+.send-btn, .btn.primary { transition: transform var(--t-hover) var(--ease), background var(--t-hover) var(--ease); }
+.send-btn:active:not(:disabled), .btn.primary:active:not(:disabled) { transform: translateY(2px) scale(.97); }
