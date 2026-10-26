@@ -29,7 +29,8 @@
 }
 
 /* ---------- 2. first screen: the notification banner floats above the composer, not over it ---------- */
-.notify-prompt { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); }
+/* On desktop it sits just under the channel header, over older history, so the newest messages stay readable. Phones keep it above the composer. */
+@media (min-width: 721px) { .notify-prompt { top: 132px; bottom: auto; } }
 @media (max-width: 720px) { .notify-prompt { bottom: calc(92px + env(safe-area-inset-bottom, 0px)); } }
 
 /* ---------- 3. folded tab: the sign-in card's ink tab, in small, on every modal and profile card ---------- */
