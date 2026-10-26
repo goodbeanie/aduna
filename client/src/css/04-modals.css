@@ -21,7 +21,7 @@
 
 /* profile card + editor */
 .card { background: var(--bg2); overflow: hidden; position: relative; border: 1px solid var(--line); }
-.banner { height: 90px; background-size: cover; background-position: center; } .card-avatar { position: absolute; top: 50px; left: 16px; border: 6px solid var(--bg2); background: var(--bg2); }
+.banner { height: 90px; background-size: cover; background-position: center; } .card-avatar { position: absolute; top: 56px; left: 22px; border: 0; background: none; }
 .card-avatar .dot { border-color: var(--bg2); }
 .card-body { padding: 50px 16px 16px; }
 .card-body h3 { font-size: 22px; } .card-body h4 { font-size: 12px; color: var(--muted); margin: 14px 0 4px; } .bio { white-space: pre-wrap; overflow-wrap: anywhere; }
