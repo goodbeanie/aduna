@@ -1,5 +1,5 @@
 import React from 'react';
-import { imageUrl } from './image.js';
+import { imageUrl, FRAME } from './image.js';
 import { t } from './i18n.js';
 import { useUserTheme, themeCardStyle } from './profilethemes.js';
 
@@ -10,15 +10,18 @@ export const STATUS_LABEL = new Proxy({}, { get: (_, k) => (typeof k === 'string
 // `avatarPreview` is a temporary object URL used by the profile editor before saving.
 export function Avatar({ user, size = 40, presence }) {
   const src = user?.avatarPreview || imageUrl(user?.avatarImage);
+  const frame = size >= 24 ? user?.framePreview || imageUrl(user?.frame) : null; // an artist's ring around the picture (see FRAME in image.js); too small to read under 24px
   const [failed, setFailed] = React.useState(null); // the src that failed to load, if any
   if (!user) return <div className="avatar" style={{ width: size, height: size, background: '#cfc5ac' }} />;
   const showImg = src && failed !== src;
   const label = user.avatarEmoji || (user.displayName || user.username || '?').slice(0, 1).toUpperCase();
+  const ring = size * FRAME.side / FRAME.hole; // the frame picture is bigger than the avatar: the avatar fills its middle hole
   return (
     <div className="avatar-wrap" style={{ width: size, height: size }}>
       <div className="avatar" style={{ width: size, height: size, background: user.avatarColor, fontSize: size * (user.avatarEmoji ? 0.52 : 0.46) }}>
         {showImg ? <img src={src} alt="" draggable={false} onError={() => setFailed(src)} /> : user.avatarLogo ? <span className="logo-mark" aria-hidden="true" /> : label}
       </div>
+      {frame && <img className="avatar-frame" src={frame} alt="" draggable={false} style={{ width: ring, height: ring, left: (size - ring) / 2, top: (size - ring) / 2 }} />}
       {presence && <span className={'dot ' + presence} style={{ width: Math.max(10, size * 0.3), height: Math.max(10, size * 0.3) }} />}
     </div>
   );

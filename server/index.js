@@ -161,7 +161,7 @@ function allBadgeViews(u) {
   if (!u.bot && db().artists && db().artists[u.id] && db().artists[u.id].badge === true) out.push(ARTIST_BADGE);
   for (const id of Array.isArray(u.badges) ? u.badges : []) {
     const b = db().badges && db().badges[id];
-    if (b) out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' });
+    if (b && b.kind !== 'frame') out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' }); // frames are worn around the avatar, not next to the name (see wornFrame)
   }
   out.push(...credits.events.badgeViews(u)); // Trick or Treater, Santa's Helper (earned from the Halloween / Christmas events)
   out.push(...credits.shop.badgeViews(u));   // badges bought in the credits shop
@@ -178,11 +178,19 @@ function ownedBadgeViews(u) {
   const hide = hiddenBadgeIds(u);
   return allBadgeViews(u).map((b) => ({ ...b, worn: !hide.has(b.id) }));
 }
+// A profile frame (an artist's ring around the avatar) is bought like a badge (its id is in u.badges) and worn one at a time (u.frame).
+// What everybody sees is the picture id of the worn frame, or null when none is worn or it is not valid any more.
+const ownsBadge = (u, id) => Array.isArray(u.badges) && u.badges.includes(id);
+function frameOf(id) { const b = id && db().badges && Object.prototype.hasOwnProperty.call(db().badges, id) ? db().badges[id] : null; return b && b.kind === 'frame' && b.image && artistsLib.listed(b) ? b : null; }
+const wornFrame = (u) => { const b = u.frame && ownsBadge(u, u.frame) ? frameOf(u.frame) : null; return b ? b.image : null; };
+// the frames a person owns, for Settings: each marked worn or not
+const ownedFrameViews = (u) => (Array.isArray(u.badges) ? u.badges : []).map(frameOf).filter(Boolean).map((b) => ({ id: b.id, name: b.name, image: b.image, worn: u.frame === b.id && wornFrame(u) === b.image }));
 function publicUser(u) {
   return {
     id: u.id,
     creator: isCreator(u),
     badges: badgeViews(u),
+    frame: wornFrame(u),
     username: u.username,
     displayName: u.displayName,
     bio: u.bio,
@@ -207,7 +215,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -945,6 +953,12 @@ app.patch('/api/me', authAny, async (req, res) => {
     const mine = new Set(allBadgeViews(u).map((x) => x.id));
     newHidden = [...new Set(b.hiddenBadges.filter((id) => typeof id === 'string' && mine.has(id)))];
   }
+  let newFrame; // wear one of the profile frames the person owns (null or '' = take it off)
+  if (b.frame !== undefined) {
+    if (b.frame === null || b.frame === '') newFrame = null;
+    else if (typeof b.frame === 'string' && ownsBadge(u, b.frame) && frameOf(b.frame)) newFrame = b.frame;
+    else return res.status(400).json({ error: 'You can only wear a frame you own' });
+  }
   let newTheme, newGradient; // a gradient profile theme: a free one, one the person bought, or their own custom gradient (undefined = unchanged, null = take it off)
   if (b.profileTheme !== undefined) {
     const copy = { profileThemes: u.profileThemes, profileGradient: u.profileGradient };
@@ -985,6 +999,7 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (newTheme !== undefined) { if (newTheme) u.profileTheme = newTheme; else delete u.profileTheme; }
   if (newGradient) u.profileGradient = newGradient; // kept when they switch to a preset, so their own design is still there next time
   if (newHidden !== undefined) { if (newHidden.length) u.hiddenBadges = newHidden; else delete u.hiddenBadges; }
+  if (newFrame !== undefined) { if (newFrame) u.frame = newFrame; else delete u.frame; }
   if (b.avatarLogo !== undefined) u.avatarLogo = !!b.avatarLogo;
   if (b.displayName !== undefined) u.displayName = clip(b.displayName, 32).trim() || u.username;
   if (b.lang !== undefined && LANGS.includes(b.lang)) u.lang = b.lang;
@@ -2374,7 +2389,7 @@ const artistOnly = (req, res, next) => (!req.user.bot && artistsLib.isArtist(art
 const myItems = (uid) => Object.values(db().badges).filter((b) => b.artistId === uid);
 const ownersOf = (id) => Object.values(db().users).filter((u) => Array.isArray(u.badges) && u.badges.includes(id)).length;
 const itemView = (b) => ({
-  id: b.id, name: b.name, desc: b.desc || '', price: Number.isInteger(b.price) && b.price > 0 ? b.price : null, image: b.image || null,
+  id: b.id, kind: artistsLib.kindOf(b), name: b.name, desc: b.desc || '', price: Number.isInteger(b.price) && b.price > 0 ? b.price : null, image: b.image || null,
   status: b.status || 'draft', reviewNote: b.status === 'rejected' || b.status === 'approved' ? b.reviewNote || '' : '', sold: ownersOf(b.id),
 });
 const personOf = (uid) => { const u = db().users[uid]; return { userId: uid, username: u ? u.username : null, displayName: u ? u.displayName : null }; };
@@ -2390,7 +2405,7 @@ function readPicture(req, maxSide) {
   const info = sniffImage(buf);
   if (!info) return { error: 'That file is not a valid PNG, JPEG or WebP image' };
   if (info.width > maxSide || info.height > maxSide) return { error: `Image is too large (max ${maxSide}px per side)` };
-  return { buf };
+  return { buf, info };
 }
 
 app.get('/api/artists/me', auth, (req, res) => {
@@ -2447,7 +2462,7 @@ app.post('/api/artists/items', auth, artistOnly, (req, res) => {
   if (error) return res.status(400).json({ error });
   if (badgeNameTaken(out.name)) return res.status(409).json({ error: 'A badge with that name already exists' });
   if (!artistSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving too fast. Try again later.' });
-  const b = { id: store.id(), name: out.name, emoji: '', color: '#8c6b4f', image: null, desc: out.desc || '', price: out.price, shopEnds: null, pinned: false, daily: false, artistId: req.user.id, status: 'draft', createdBy: req.user.id, createdAt: now() };
+  const b = { id: store.id(), kind: out.kind, name: out.name, emoji: '', color: '#8c6b4f', image: null, desc: out.desc || '', price: out.price, shopEnds: null, pinned: false, daily: false, artistId: req.user.id, status: 'draft', createdBy: req.user.id, createdAt: now() };
   db().badges[b.id] = b; store.save();
   res.json({ item: itemView(b) });
 });
@@ -2465,6 +2480,7 @@ app.put('/api/artists/items/:id/image', auth, artistOnly, uploadLimiter, rawImag
   if (b.status === 'approved') return res.status(409).json({ error: 'An approved item’s picture cannot be changed. Make a new item instead.' });
   const pic = readPicture(req, 512);
   if (pic.error) return res.status(400).json({ error: pic.error });
+  if (artistsLib.isFrame(b) && (pic.info.width !== pic.info.height || pic.info.width < artistsLib.FRAME.minSide)) return res.status(400).json({ error: `A frame picture is a square, at least ${artistsLib.FRAME.minSide}px. Use the template.` });
   const id = await store.putImage(pic.buf);
   if (b.status === 'approved' || !badgeById(b.id)) { await store.deleteImage(id); return res.status(409).json({ error: 'This item can no longer be changed' }); } // approved or deleted while uploading
   const old = b.image || null; b.image = id; artistsLib.applyEdit(b, {}); // a changed picture takes the item back to a draft
@@ -2492,7 +2508,7 @@ app.get('/api/artists/review', auth, reviewerOnly, (req, res) => {
   const applications = Object.values(db().artists).filter((r) => r.status === 'pending').sort((a, b) => (a.appliedAt || 0) - (b.appliedAt || 0))
     .map((r) => ({ ...personOf(r.id), note: r.note || '', pieces: artistsLib.pieceIds(r), appliedAt: r.appliedAt || null, own: r.id === req.user.id }));
   const items = Object.values(db().badges).filter((b) => artistsLib.isItem(b) && b.status === 'pending').sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0))
-    .map((b) => ({ id: b.id, name: b.name, desc: b.desc || '', price: b.price, image: b.image || null, artist: personOf(b.artistId), submittedAt: b.submittedAt || null, own: b.artistId === req.user.id }));
+    .map((b) => ({ id: b.id, kind: artistsLib.kindOf(b), name: b.name, desc: b.desc || '', price: b.price, image: b.image || null, artist: personOf(b.artistId), submittedAt: b.submittedAt || null, own: b.artistId === req.user.id }));
   res.json({ applications, items });
 });
 app.post('/api/artists/review/applications/:uid', auth, reviewerOnly, (req, res) => {
@@ -3222,7 +3238,7 @@ function broadcastPresence(uid) {
 // The audience sees the public profile (Invisible shows as offline); the person's own devices get the real status.
 function emitUserUpdate(u) {
   toAudience(u.id).except('user:' + u.id).emit('user:update', publicUser(u));
-  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u) }); // their own devices also learn which badges they own and wear
+  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u) }); // their own devices also learn which badges they own and wear
 }
 // Two people just became able to see each other (friend request, joining a server): each learns the other's current presence.
 function introduce(a, b) {

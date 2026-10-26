@@ -79,7 +79,7 @@ function view(u, badges = {}, { now = Date.now(), all = false, users = null } = 
   return Object.values(badges || {}).filter((b) => priced(b) && (all || shown(b, picks, now)))
     .map((b) => {
       const item = {
-        id: b.id, kind: 'badge', name: b.name, desc: b.desc || '', emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null, price: b.price, owned: have.has(b.id),
+        id: b.id, kind: b.kind === 'frame' ? 'frame' : 'badge', name: b.name, desc: b.desc || '', emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null, price: b.price, owned: have.has(b.id),
         pinned: b.pinned === true, daily: b.daily === true, ends: Number.isFinite(b.shopEnds) && b.shopEnds > 0 ? b.shopEnds : null,
       };
       if (typeof b.artistId === 'string' && b.artistId) item.by = (users && users[b.artistId] && users[b.artistId].displayName) || null;
@@ -94,7 +94,9 @@ function buy(u, id, spend, { badges = {}, maxHeld = MAX_HELD, now = Date.now() }
   const b = typeof id === 'string' && has(badges, id) ? badges[id] : null;
   if (!b || !shown(b, dailyPicks(badges, now), now)) return { status: 404, error: 'That item is not in the shop' }; // off sale, ended, or a daily badge that is resting today
   if (held(u).includes(b.id)) return { status: 409, error: 'You already own this' };
-  if (held(u).length >= maxHeld) return { status: 400, error: `Nobody can hold more than ${maxHeld} badges` };
+  // frames (rings around the avatar) are worn one at a time and are not badges, so they neither use up nor are stopped by the badge limit
+  const isFrame = (x) => !!x && x.kind === 'frame';
+  if (!isFrame(b) && held(u).filter((x) => !isFrame(has(badges, x) ? badges[x] : null)).length >= maxHeld) return { status: 400, error: `Nobody can hold more than ${maxHeld} badges` };
   if (!spend(u, b.price, 'shop', { note: b.name, now })) return { status: 402, error: 'Not enough credits' };
   u.badges = [...held(u), b.id]; // paid in the same synchronous step
   // an artist's item says who made it, so the caller can pay them their cut (credits.js) in the same synchronous step

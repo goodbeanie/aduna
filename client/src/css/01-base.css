@@ -145,6 +145,8 @@ h1, h2, h3, h4, p { margin: 0; font-weight: 400; }
 /* avatars */
 .avatar-wrap { position: relative; flex: none; }
 .avatar { display: grid; place-items: center; color: #fffaf0; user-select: none; overflow: hidden; }
+.avatar-frame { position: absolute; max-width: none; pointer-events: none; user-select: none; object-fit: contain; z-index: 1; }
+.avatar-wrap .dot { z-index: 2; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .dot { position: absolute; right: -2px; bottom: -2px; border-radius: 50%; border: 3px solid var(--bg2); background: var(--offline); }
 .msg .dot { border-color: var(--bg); } .msg:hover .dot { border-color: var(--msg-hover); }

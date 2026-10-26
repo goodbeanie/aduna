@@ -466,7 +466,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
               <h4 className="credit-h">Badges</h4>
               {creator && <button className="btn primary small-btn" onClick={() => setAdding(true)}><Icon name="plus" size={14} /> Add a badge</button>}
             </div>
-            <p className="muted small shop-intro">Spend your credits on badges that show next to your name everywhere in Aduna. Each one is yours to keep.</p>
+            <p className="muted small shop-intro">Spend your credits on badges that show next to your name everywhere in Aduna, and on profile frames that go around your picture. Each one is yours to keep.</p>
             {d.shop.length === 0
               ? <div className="shop-empty muted">{creator ? 'No badges are for sale yet. Add one with a picture and a price.' : 'No badges are for sale right now. Check back soon.'}</div>
               : (() => {

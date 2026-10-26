@@ -1,14 +1,29 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { BadgeArt } from './Shop.jsx';
+import { Avatar } from './ui.jsx';
 import { askConfirm } from './Dialogs.jsx';
-import { ACCEPT_ATTR, imageUrl, processBadge, processPiece, uploadImage } from './image.js';
+import { ACCEPT_ATTR, imageUrl, makeFrameTemplate, processBadge, processFrame, processPiece, uploadImage } from './image.js';
 
 // Settings > Artist. Anyone can apply to sell their own badges in the credits shop: send exactly 4 pieces of your art and an optional note.
 // Moderators (creator accounts and the usernames in ADMIN_USERNAMES) review the applications and every item here too. Once approved, an artist
 // makes shop items (a picture, a name, a description and a price), which also go through review, and earns a share of each sale.
+// An item is a badge (worn next to a name) or a profile frame (a ring drawn around the avatar; the artist downloads a template for its shape).
 // The rules live in server/artists.js; this file is only what it draws.
 const BADGE_PX = { w: 128, h: 128 };
+const KIND_LABEL = { badge: 'Badge', frame: 'Profile frame' };
+// The picture of an item: a badge as the shop draws it, a frame as a ring around a sample avatar (the frame picture is bigger than the avatar, so it gets room)
+export function ItemArt({ item, size = 48 }) {
+  if (item.kind !== 'frame') return <BadgeArt item={{ ...item, color: '#8c6b4f' }} size={size} />;
+  return <span style={{ display: 'inline-block', margin: Math.round(size / 6), flex: 'none' }}><Avatar user={{ displayName: 'A', avatarColor: '#8c6b4f', framePreview: item.image ? imageUrl(item.image) : null }} size={size} /></span>;
+}
+async function downloadTemplate(onError) {
+  try {
+    const url = URL.createObjectURL(await makeFrameTemplate());
+    const a = document.createElement('a'); a.href = url; a.download = 'aduna-frame-template.png';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 5000);
+  } catch (e) { onError(e.message); }
+}
 const day = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 const STATUS = { draft: 'Draft', pending: 'In review', approved: 'In the shop', rejected: 'Needs changes' };
 
@@ -108,15 +123,15 @@ function Apply({ d, onApp, onError }) {
 // ---------- an approved artist's items ----------
 function Items({ d, onChange, onError }) {
   const L = d.limits;
-  const [draft, setDraft] = useState({ name: '', desc: '', price: '' });
+  const [draft, setDraft] = useState({ kind: 'badge', name: '', desc: '', price: '' });
   const [busy, setBusy] = useState(false);
   const replace = (item) => onChange(d.items.map((x) => (x.id === item.id ? item : x)));
 
   async function create(e) {
     e.preventDefault(); onError(''); setBusy(true);
     try {
-      const r = await api('/artists/items', { method: 'POST', body: { name: draft.name, desc: draft.desc, price: Number(draft.price) } });
-      onChange([...d.items, r.item]); setDraft({ name: '', desc: '', price: '' });
+      const r = await api('/artists/items', { method: 'POST', body: { kind: draft.kind, name: draft.name, desc: draft.desc, price: Number(draft.price) } });
+      onChange([...d.items, r.item]); setDraft({ kind: draft.kind, name: '', desc: '', price: '' });
     } catch (x) { onError(x.message); } finally { setBusy(false); }
   }
 
@@ -124,17 +139,26 @@ function Items({ d, onChange, onError }) {
     <>
       <div className="badge-card">
         <b>You are an artist</b>
-        <p className="muted small">Make badges for the shop. Add a picture, a name and a price, then send it for review. You earn {L.cutPercent}% of each sale, rounded down. Once an item is approved its picture, name and description are locked (people may already be wearing it); you can still change its price or take it off sale. Your first approved item earns you the Artist badge.</p>
+        <p className="muted small">Make badges and profile frames for the shop. A badge shows next to a name; a frame is a ring around the profile picture. Add a picture, a name and a price, then send it for review. You earn {L.cutPercent}% of each sale, rounded down. Once an item is approved its picture, name and description are locked (people may already be wearing it); you can still change its price or take it off sale. Your first approved item earns you the Artist badge.</p>
       </div>
       {d.items.length < L.items && (
         <form className="badge-card" onSubmit={create}>
           <b>New item</b>
           <div className="row">
+            <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })} aria-label="Kind of item">
+              {Object.entries(KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
             <input placeholder="Name" maxLength={L.name} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             <input placeholder="Description (optional)" maxLength={L.desc} style={{ flex: 1, minWidth: 160 }} value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} />
             <input type="number" min={L.minPrice} step="1" placeholder={'Price (min ' + L.minPrice + ')'} style={{ width: 140 }} value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} />
             <button className="btn primary" disabled={busy || !draft.name.trim() || !draft.price}>Create</button>
           </div>
+          {draft.kind === 'frame' && (
+            <div className="artist-note">
+              <p>A frame is a 512 x 512 PNG with a see-through middle. The profile picture sits in the circle in the centre, and your ring goes in the band around it.</p>
+              <button type="button" className="btn" onClick={() => downloadTemplate(onError)}>Download template</button>
+            </div>
+          )}
         </form>
       )}
       {d.items.length === 0 && <p className="muted">No items yet.</p>}
@@ -161,7 +185,7 @@ function ItemCard({ item, limits, onChange, onDeleted, onError }) {
   return (
     <div className="badge-card">
       <div className="badge-head">
-        <BadgeArt item={{ ...item, color: '#8c6b4f' }} size={48} />
+        <ItemArt item={item} size={48} />
         <input value={f.name} maxLength={limits.name} disabled={locked} onChange={(e) => setF({ ...f, name: e.target.value })} aria-label="Item name" />
         <input value={f.desc} maxLength={limits.desc} disabled={locked} placeholder="Description" style={{ flex: 1, minWidth: 140 }} onChange={(e) => setF({ ...f, desc: e.target.value })} aria-label="Description" />
         <input type="number" min={limits.minPrice} step="1" value={f.price} placeholder={locked ? 'Off sale' : 'Price'} style={{ width: 110 }} onChange={(e) => setF({ ...f, price: e.target.value })} aria-label="Price in credits" />
@@ -169,6 +193,7 @@ function ItemCard({ item, limits, onChange, onDeleted, onError }) {
       </div>
       <div className="row">
         <span className={'artist-chip ' + item.status}>{label}</span>
+        <span className="muted small">{KIND_LABEL[item.kind] || 'Badge'}</span>
         {item.status === 'approved' && <span className="muted small">{item.sold} {item.sold === 1 ? 'person owns' : 'people own'} this</span>}
         {item.status === 'approved' && item.price && <button className="btn" onClick={() => run(async () => onChange((await api('/artists/items/' + item.id, { method: 'PATCH', body: { price: null } })).item))}>Take off sale</button>}
       </div>
@@ -177,9 +202,10 @@ function ItemCard({ item, limits, onChange, onDeleted, onError }) {
         <div className="row">
           <input ref={file} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => {
             const picked = e.target.files?.[0]; e.target.value = '';
-            if (picked) run(async () => { const blob = await processBadge(picked, BADGE_PX); onChange((await uploadImage('image', blob, '/api/artists/items/' + item.id)).item); });
+            if (picked) run(async () => { const blob = item.kind === 'frame' ? await processFrame(picked) : await processBadge(picked, BADGE_PX); onChange((await uploadImage('image', blob, '/api/artists/items/' + item.id)).item); });
           }} />
           <button className="btn" onClick={() => file.current?.click()}>{item.image ? 'Change picture' : 'Add picture'}</button>
+          {item.kind === 'frame' && <button className="btn" onClick={() => downloadTemplate(onError)}>Download template</button>}
           {(item.status === 'draft') && <button className="btn primary" disabled={!item.image || dirty} title={!item.image ? 'Add a picture first' : dirty ? 'Save your changes first' : 'Send to the reviewers'} onClick={() => run(async () => onChange((await api('/artists/items/' + item.id + '/submit', { method: 'POST' })).item))}>Send for review</button>}
           {item.status === 'pending' && <span className="muted small">Waiting for a reviewer. Changing anything takes it back to a draft.</span>}
         </div>
@@ -220,8 +246,8 @@ function ReviewQueue({ waiting, onError }) {
       {q.items.map((it) => (
         <div key={'i' + it.id} className="artist-review">
           <div className="row">
-            <BadgeArt item={{ ...it, color: '#8c6b4f' }} size={72} />
-            <div><b>{it.name}</b> <span className="muted small">{it.price} credits · by @{it.artist.username}</span>{it.desc && <div className="muted small">{it.desc}</div>}</div>
+            <ItemArt item={it} size={72} />
+            <div><b>{it.name}</b> <span className="muted small">{KIND_LABEL[it.kind] || 'Badge'} · {it.price} credits · by @{it.artist.username}</span>{it.desc && <div className="muted small">{it.desc}</div>}</div>
           </div>
           <Decision own={it.own} onDecide={(action, note) => decide('/artists/review/items/' + it.id, action, note, (s) => ({ ...s, items: s.items.filter((x) => x.id !== it.id) }))} />
         </div>

@@ -240,4 +240,20 @@ const fill = (rec, n = 4) => { for (let i = 0; i < n; i++) rec.pieces[i] = 'img'
   step('route: no cut for your own item, a price too small to split, a missing artist, or a creator badge');
 }
 
+// ---- badge or profile frame ----
+{
+  assert.deepStrictEqual(A.KINDS, ['badge', 'frame']);
+  assert.strictEqual(A.cleanItem({ name: 'Ring', price: 50 }).out.kind, 'badge', 'no kind means a badge');
+  assert.strictEqual(A.cleanItem({ name: 'Ring', price: 50, kind: 'frame' }).out.kind, 'frame');
+  assert.ok(A.cleanItem({ name: 'Ring', price: 50, kind: 'hat' }).error, 'an unknown kind is refused');
+  assert.strictEqual(A.cleanItem({ kind: 'frame' }, true).out.kind, undefined, 'an edit never changes the kind');
+  assert.deepStrictEqual([A.kindOf({}), A.kindOf({ kind: 'frame' }), A.kindOf(null), A.isFrame({ kind: 'frame' }), A.isFrame({})], ['badge', 'frame', 'badge', true, false]);
+  const it = { artistId: 'u1', kind: 'frame', status: 'draft', price: 50 };
+  const e = A.editItem(it, { kind: 'badge', name: 'New' });
+  assert.ok(e.ok); A.applyEdit(it, e.out);
+  assert.strictEqual(it.kind, 'frame', 'the kind stays after an edit');
+  assert.strictEqual(A.FRAME.side, 512); assert.strictEqual(A.FRAME.hole, 384); assert.strictEqual(A.FRAME.minSide, 128);
+  step('an item is a badge or a frame, set once, and a frame picture has a fixed shape');
+}
+
 console.log('artists tests passed');

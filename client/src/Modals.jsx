@@ -278,6 +278,10 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const [hidden, setHidden] = useState(() => new Set(ownedBadges.filter((b) => b.worn === false).map((b) => b.id)));
   const toggleBadge = (id) => setHidden((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
 
+  // Frames: the rings around the profile picture that the person owns; one is worn at a time ('' = none).
+  const ownedFrames = Array.isArray(me.ownedFrames) ? me.ownedFrames : [];
+  const [frameId, setFrameId] = useState(() => (ownedFrames.find((x) => x.worn) || {}).id || '');
+
   // Username can be changed once every 7 days (the server enforces this; this just explains it).
   const unlockAt = me.usernameChangedAt ? me.usernameChangedAt + USERNAME_COOLDOWN_MS : 0;
   const locked = unlockAt > Date.now();
@@ -328,6 +332,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     ...me, ...f,
     badges: ownedBadges.length ? ownedBadges.filter((b) => !hidden.has(b.id)) : me.badges, // the card shows only the badges that are on
     username: me.username,
+    frame: null, framePreview: frameId ? imageUrl((ownedFrames.find((x) => x.id === frameId) || {}).image) : null, // the card shows the frame that is chosen
     profileTheme: theme,
     profileGradient: theme === CUSTOM_THEME_ID ? customG : null,
     avatarLogo: mode === 'logo',
@@ -346,6 +351,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
       if (theme === CUSTOM_THEME_ID) body.profileGradient = customG;
       if (renaming) body.username = f.username.trim().replace(/^@/, ''); else delete body.username;
       if (ownedBadges.length) body.hiddenBadges = [...hidden];
+      if (ownedFrames.length) body.frame = frameId || null;
       let { user } = await api('/me', { method: 'PATCH', body });
       // Choosing the letter or the logo drops any saved picture; choosing "image" applies the staged upload.
       const avatarChange = mode === 'image' ? staged.avatar : (me.avatarImage ? null : undefined);
@@ -479,6 +485,28 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
                 })}
               </div>
               <p className="muted small hint">Badges you take off are hidden from your profile and from next to your name. You still own them, so you can put them back on any time. Press Save changes to apply.</p>
+            </>
+          )}
+          {ownedFrames.length > 0 && (
+            <>
+              <label>Profile frame</label>
+              <div className="badge-wear">
+                <div className={'badge-wear-row' + (!frameId ? ' on' : '')}>
+                  <span className="grow">No frame</span>
+                  <button type="button" className={'btn small-btn' + (!frameId ? '' : ' primary')} aria-pressed={!frameId} onClick={() => setFrameId('')}>{!frameId ? 'Selected' : 'Choose'}</button>
+                </div>
+                {ownedFrames.map((fr) => {
+                  const on = frameId === fr.id;
+                  return (
+                    <div key={fr.id} className={'badge-wear-row' + (on ? ' on' : '')}>
+                      <BadgeArt item={{ kind: 'frame', name: fr.name, image: fr.image }} size={40} />
+                      <span className="grow">{fr.name}</span>
+                      <button type="button" className={'btn small-btn' + (on ? '' : ' primary')} aria-pressed={on} onClick={() => setFrameId(on ? '' : fr.id)}>{on ? 'Selected' : 'Choose'}</button>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="muted small hint">A frame is a ring around your profile picture. You wear one at a time. Press Save changes to apply.</p>
             </>
           )}
           {err && <div className="error">{err}</div>}

@@ -92,11 +92,22 @@ const isArtist = (rec) => !!rec && rec.status === 'approved';
 // An item is a badge in db().badges with an artistId. Only approved ones are for sale.
 const isItem = (b) => !!b && typeof b.artistId === 'string' && b.artistId.length > 0;
 const listed = (b) => !isItem(b) || b.status === 'approved';
+// An item is a badge (worn next to a name) or a profile frame (a ring drawn around the avatar). Older items have no `kind` and are badges.
+const KINDS = ['badge', 'frame'];
+const kindOf = (b) => (b && b.kind === 'frame' ? 'frame' : 'badge');
+const isFrame = (b) => kindOf(b) === 'frame';
+// A frame picture is a square PNG, JPEG or WebP; the middle of it (the avatar hole) has to be see-through. The browser checks the hole, the server the shape.
+const FRAME = { side: 512, hole: 384, minSide: 128 }; // the template: 512px square, the avatar sits in a 384px circle in the middle (75%)
 
 // Checks the fields of a new item (partial = false: name and price are required) or of an edit (partial = true: only what is sent).
 // A price of null is returned as null; editItem decides whether that is allowed.
 function cleanItem(body, partial = false) {
   const out = {}, b = body || {};
+  if (!partial) {
+    const kind = b.kind === undefined || b.kind === null || b.kind === '' ? 'badge' : b.kind;
+    if (!KINDS.includes(kind)) return { error: 'An item is a badge or a profile frame' };
+    out.kind = kind;
+  }
   if (!partial || b.name !== undefined) {
     const name = oneLine(b.name, LIMITS.name + 1);
     if (!name || Array.from(name).length > LIMITS.name) return { error: `A name is 1-${LIMITS.name} characters` };
@@ -159,5 +170,5 @@ const itemRoom = (items) => items.length < LIMITS.items;
 module.exports = {
   LIMITS, CUT_PERCENT, COOLDOWN_MS, cutFor,
   blank, pieceIds, filled, validSlot, cooldownLeft, open, submit, decide, view, isArtist,
-  isItem, listed, cleanItem, editItem, applyEdit, submitItem, decideItem, itemRoom,
+  isItem, listed, KINDS, FRAME, kindOf, isFrame, cleanItem, editItem, applyEdit, submitItem, decideItem, itemRoom,
 };

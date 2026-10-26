@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api.js';
-import { Icon, Modal } from './ui.jsx';
+import { Avatar, Icon, Modal } from './ui.jsx';
 import { ACCEPT_ATTR, imageUrl, processBadge, uploadImage } from './image.js';
 
 // The shop's pieces: badge tiles, the "are you sure" window, the celebration after buying, and the creator's "add a badge" form.
@@ -9,8 +9,16 @@ const BADGE_PX = { w: 128, h: 128 };
 const reduced = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
 // A badge picture: the creator's uploaded image, or an emoji (or first letter) on a colour. `src` overrides the stored image (a local preview).
+// A profile frame (item.kind === 'frame') is drawn as a ring around a sample avatar; the ring is bigger than the avatar, so the avatar is 3/4 of `size`.
 export function BadgeArt({ item, size = 64, src }) {
   const url = src || imageUrl(item?.image);
+  if (item?.kind === 'frame') {
+    return (
+      <span className="frame-art" style={{ width: size, height: size, display: 'inline-grid', placeItems: 'center', flex: 'none' }} aria-hidden="true">
+        <Avatar user={{ displayName: item.name, avatarColor: item.color || '#8c6b4f', framePreview: url }} size={Math.round(size * 0.75)} />
+      </span>
+    );
+  }
   return (
     <span className={'badge-art' + (url ? ' img' : '')} style={{ width: size, height: size, fontSize: size * 0.5, background: url ? 'transparent' : item?.color }} aria-hidden="true">
       {url ? <img src={url} alt="" draggable={false} /> : item?.emoji || Array.from(item?.name || '?')[0]}
@@ -95,7 +103,7 @@ export function ShopTile({ item, balance, busy, creator, onOpen, onOffSale, onPi
 // Shown before any credits are spent: what you get, and what your balance does.
 export function BuyConfirm({ item, balance, busy, onConfirm, onClose }) {
   return (
-    <Modal title="Get this badge?" onClose={onClose}>
+    <Modal title={item.kind === 'frame' ? 'Get this frame?' : 'Get this badge?'} onClose={onClose}>
       <div className="buy-confirm">
         <BadgeArt item={item} size={96} />
         <h3>{item.name}</h3>
@@ -105,7 +113,7 @@ export function BuyConfirm({ item, balance, busy, onConfirm, onClose }) {
           <span>Price</span><b className="minus">−{item.price.toLocaleString()}</b>
           <span className="sum">After</span><b className="sum">{(balance - item.price).toLocaleString()}</b>
         </div>
-        <p className="muted small">It shows next to your name everywhere in Aduna, and it is yours to keep.</p>
+        <p className="muted small">{item.kind === 'frame' ? 'It is a ring around your profile picture. Wear it from Settings, Profile, and it is yours to keep.' : 'It shows next to your name everywhere in Aduna, and it is yours to keep.'}</p>
       </div>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>Not now</button>
@@ -135,7 +143,7 @@ export function Celebration({ item, onClose }) {
       <div className="celebrate-card" role="dialog" aria-label="Badge bought">
         <div className="celebrate-art"><BadgeArt item={item} size={112} /></div>
         <h3>It’s yours!</h3>
-        <p>The <b>{item.name}</b> badge now shows next to your name.</p>
+        <p>{item.kind === 'frame' ? <>The <b>{item.name}</b> frame is yours. Wear it from Settings, Profile.</> : <>The <b>{item.name}</b> badge now shows next to your name.</>}</p>
         <button className="btn primary" autoFocus onClick={onClose}>Nice</button>
       </div>
     </div>

@@ -118,6 +118,67 @@ export async function processBadge(file, { w, h }) {
   return blob;
 }
 
+// Profile frames (an artist's ring around the avatar). The picture is a 512px square PNG; the avatar fills a 384px circle in the middle of it
+// (the same numbers as FRAME in server/artists.js), so the artist draws the ring in the 64px band around that circle. The middle must be see-through.
+export const FRAME = { side: 512, hole: 384 };
+
+// The template an artist downloads: the see-through square with guides. Draw the ring in the blue band, keep the circle in the middle empty,
+// then hide or delete the guide layer in your art program and export a PNG. (The Settings page lets them check it before uploading.)
+export async function makeFrameTemplate() {
+  const S = FRAME.side, c = S / 2, r = FRAME.hole / 2;
+  const canvas = document.createElement('canvas');
+  canvas.width = S; canvas.height = S;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, S, S);
+  ctx.fillStyle = 'rgba(70,140,255,0.28)'; // the ring band: from the avatar circle out to the edge of the square
+  ctx.beginPath(); ctx.rect(0, 0, S, S); ctx.arc(c, c, r, 0, Math.PI * 2, true); ctx.fill('evenodd');
+  ctx.strokeStyle = 'rgba(70,140,255,0.9)'; ctx.lineWidth = 2; ctx.setLineDash([]);
+  ctx.strokeRect(1, 1, S - 2, S - 2);
+  ctx.strokeStyle = 'rgba(235,60,60,0.95)'; ctx.setLineDash([10, 8]); ctx.lineWidth = 3; // the avatar circle: keep everything inside it empty
+  ctx.beginPath(); ctx.arc(c, c, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]); ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(235,60,60,0.95)'; ctx.font = '600 20px sans-serif';
+  ctx.fillText('Profile picture goes here', c, c - 4);
+  ctx.font = '16px sans-serif'; ctx.fillText('keep this circle empty', c, c + 20);
+  ctx.fillStyle = 'rgba(40,100,220,0.95)'; ctx.font = '600 15px sans-serif';
+  ctx.fillText('Draw your ring in the blue band', c, 30);
+  ctx.font = '13px sans-serif'; ctx.fillText('512 x 512 PNG. Hide or delete this guide layer before you export.', c, 50);
+  const blob = await toBlob(canvas, 'image/png');
+  if (!blob) throw new Error("Couldn't make the template");
+  return blob;
+}
+
+// A frame picture from the artist's file: fitted (not cropped) into the 512px square, kept as a PNG so the see-through parts stay see-through.
+// Refuses a picture whose middle is filled in, because it would cover the profile picture, and one that has no ring at all.
+export async function processFrame(file) {
+  if (!ACCEPT.includes(file.type)) throw new Error('Choose a PNG, JPEG, WebP or GIF image');
+  if (file.size > MAX_INPUT) throw new Error('That image is too big (max 15 MB)');
+  let bmp;
+  try { bmp = await createImageBitmap(file); }
+  catch { throw new Error("Couldn't read that image"); }
+  const S = FRAME.side;
+  const canvas = document.createElement('canvas');
+  canvas.width = S; canvas.height = S;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  const scale = Math.min(S / bmp.width, S / bmp.height);
+  const w = bmp.width * scale, h = bmp.height * scale;
+  ctx.drawImage(bmp, (S - w) / 2, (S - h) / 2, w, h);
+  bmp.close?.();
+  const d = ctx.getImageData(0, 0, S, S).data;
+  const c = S / 2, rIn = (FRAME.hole / 2) * 0.96; // look at the avatar circle, a hair smaller so a ring that touches its edge is fine
+  let inside = 0, filledIn = 0, ring = 0;
+  for (let y = 0; y < S; y += 2) for (let x = 0; x < S; x += 2) {
+    const a = d[(y * S + x) * 4 + 3], dist = Math.hypot(x + 0.5 - c, y + 0.5 - c);
+    if (dist <= rIn) { inside++; if (a > 40) filledIn++; } else if (a > 40) ring++;
+  }
+  if (filledIn > inside * 0.04) throw new Error('The middle of a frame has to be see-through, so the profile picture shows. Download the template: the dashed circle is where the picture goes.');
+  if (ring < 200) throw new Error('There is nothing drawn around the middle. Draw your ring in the blue band of the template.');
+  const blob = await toBlob(canvas, 'image/png');
+  if (!blob) throw new Error("Couldn't process that image");
+  if (blob.size > 1024 * 1024) throw new Error('That image is still too large after resizing, try a simpler one');
+  return blob;
+}
+
 // A piece of art for an artist application: scaled down to fit inside maxSide x maxSide, NOT cropped (a reviewer needs to see all of it).
 // WebP when the browser can make it, otherwise JPEG; re-encoding also strips EXIF data. Stays under the server's 1 MB upload limit.
 export async function processPiece(file, maxSide = 1600) {
