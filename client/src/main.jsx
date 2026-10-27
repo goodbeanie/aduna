@@ -18,6 +18,7 @@ import './screenshare.css';
 import './refine.css';
 import './zen.css';
 import './plain.css';
+import './studio.css';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';
 import { initKeyboard } from './keyboard.js';

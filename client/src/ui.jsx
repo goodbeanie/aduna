@@ -190,7 +190,8 @@ export const timeLabel = (ts) => {
   if (d.toDateString() === today.toDateString()) return 'Today at ' + t;
   const y = new Date(today.getTime() - 86400000);
   if (d.toDateString() === y.toDateString()) return 'Yesterday at ' + t;
-  return d.toLocaleDateString() + ' ' + t;
+  const day = d.toLocaleDateString([], d.getFullYear() === today.getFullYear() ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
+  return day + ', ' + t;
 };
 
 // Small badges next to a name: the Creator badge, the Artist badge, and any a creator gave the person. A badge is a picture or an emoji on a colour.
