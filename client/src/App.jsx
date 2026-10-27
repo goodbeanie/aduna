@@ -843,7 +843,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         <button className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
           <span className="dm-home-mark" aria-hidden="true" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
-        <button className={'rail-btn clips-home' + (view.kind === 'dm' && view.clips ? ' on' : '')} title="Clips" aria-label="Clips" onClick={() => { setView({ kind: 'dm', userId: null, clips: true }); setShowList(false); setMembersOpen(false); }}>
+        <button className="rail-btn clips-home" title="Clips" aria-label="Clips" onClick={() => { window.location.assign('/clips'); }}>
           <span className="clips-mark" aria-hidden="true" />
         </button>
         <div className="rail-sep" />

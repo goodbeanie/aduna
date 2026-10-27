@@ -178,8 +178,9 @@ function ownerView(c) {
   };
 }
 // sort 'new' pages with `before` (the liveAt of the last clip seen); sort 'top' pages with `offset`; sort 'following' is 'new' limited to creators you follow
-function feed(clips, users, { uid, sort = 'new', before, offset = 0, limit = 10, now = Date.now() }, cfg) {
+function feed(clips, users, { uid, sort = 'new', before, offset = 0, limit = 10, owner = '', now = Date.now() }, cfg) {
   let list = clips.filter((c) => isLive(c, now) && users[c.owner]);
+  if (owner) list = list.filter((c) => c.owner === owner); // one creator's page
   if (sort === 'top') {
     list.sort((a, b) => (b.likes || 0) * 5 + (b.views || 0) - ((a.likes || 0) * 5 + (a.views || 0)) || b.liveAt - a.liveAt);
     list = list.slice(Math.max(0, offset));
