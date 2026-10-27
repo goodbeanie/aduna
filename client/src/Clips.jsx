@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, Icon } from './ui.jsx';
 import { compressVideo, canCompress } from './compress.js';
-import { toast } from './Dialogs.jsx';
+import { toast, askConfirm } from './Dialogs.jsx';
 import ClipActions, { FollowButton } from './ClipActions.jsx';
 
 const MB = 1024 * 1024;
@@ -165,17 +165,42 @@ function ClipCard({ clip, onChange, onGone }) {
   );
 }
 
-export function Mine({ rev }) {
+// "Your clips" list (dashboard Content page and the Mine tab). A live, hidden or still-uploading clip has a Delete button that asks first.
+// `query` filters by caption; `onChange` runs after a delete so the page can refresh its numbers and the posts left today.
+const CAN_DELETE = new Set(['live', 'hidden', 'pending']);
+export function Mine({ rev, query = '', onChange }) {
   const [rows, setRows] = useState(null);
-  useEffect(() => { api('/clips/mine').then((r) => setRows(r.clips)).catch(() => setRows([])); }, [rev]);
+  const [busy, setBusy] = useState('');
+  const load = useCallback(() => api('/clips/mine').then((r) => setRows(r.clips)).catch(() => setRows([])), []);
+  useEffect(() => { load(); }, [load, rev]);
+
+  const remove = async (c) => {
+    const ok = await askConfirm({
+      title: 'Delete this video?',
+      body: 'This deletes the video for good, for everyone. It cannot be undone, and its comments go with it. Only the numbers (views, likes, shares) are kept.',
+      confirmLabel: 'Delete video', danger: true,
+    });
+    if (!ok) return;
+    setBusy(c.id);
+    try { await api(`/clips/${c.id}`, { method: 'DELETE' }); toast('Video deleted'); await load(); if (onChange) onChange(); }
+    catch (e) { toast(e.message || 'Could not delete the video', 'error'); }
+    finally { setBusy(''); }
+  };
+
   if (!rows) return <p className="muted clip-note">Loading…</p>;
   if (!rows.length) return <p className="muted clip-note">You have not posted any clips yet.</p>;
+  const q = query.trim().toLowerCase();
+  const list = q ? rows.filter((c) => (c.caption || '').toLowerCase().includes(q)) : rows;
+  if (!list.length) return <p className="muted clip-note">No clips match “{query.trim()}”.</p>;
   return (
     <div className="clip-mine">
-      {rows.map((c) => (
+      {list.map((c) => (
         <div key={c.id} className="clip-row">
           <div className="clip-row-main">{c.state === 'live' && c.available ? <a href={`/clips/${c.id}`}><b>{c.caption || 'No caption'}</b></a> : <b>{c.caption || 'No caption'}</b>}<span className="muted">{STATE_LABEL[c.state] || c.state}{c.why ? ' · ' + c.why : ''}</span></div>
           <div className="clip-row-nums muted">{c.views} views · {c.likes} likes · {c.comments || 0} comments · {c.shares || 0} shares{c.reports ? ` · ${c.reports} reports` : ''}</div>
+          {CAN_DELETE.has(c.state) && !c.purgedAt
+            ? <button className="btn clip-del" disabled={busy === c.id} onClick={() => remove(c)} aria-label={`Delete video ${c.caption || ''}`}><Icon name="trash" size={16} /> {busy === c.id ? 'Deleting…' : 'Delete'}</button>
+            : <span />}
         </div>
       ))}
     </div>

@@ -31,10 +31,15 @@
 /* layout */
 .yt-body { display: flex; align-items: flex-start; }
 .yt-side { position: sticky; top: 56px; width: 220px; flex: none; height: calc(100vh - 56px); padding: 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; }
-.yt-side a { display: flex; align-items: center; gap: 20px; height: 40px; padding: 0 12px; border-radius: 10px; color: var(--text); font-size: 14px; }
-.yt-side a:hover { background: var(--hover); }
-.yt-side a.on { background: var(--hover); font-weight: 500; }
-.yt-side a span { width: 20px; text-align: center; font-size: 16px; }
+.yt-dash .yt-nav { display: flex; align-items: center; gap: 20px; width: 100%; height: 40px; padding: 0 12px; border-radius: 10px; color: var(--text); font-size: 14px; text-align: left; background: none; border: 0; cursor: pointer; box-sizing: border-box; }
+.yt-dash .yt-nav:hover { background: var(--hover); }
+.yt-dash .yt-nav.on { background: var(--hover); font-weight: 500; }
+.yt-dash .yt-nav span { width: 20px; text-align: center; font-size: 16px; }
+.yt-dash .yt-nav:focus-visible, .yt-dash .btn:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
+/* the same pages as a row of tabs, for narrow windows where the sidebar is hidden */
+.yt-tabs { display: none; gap: 4px; padding: 8px 12px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--bg); }
+.yt-tabs .yt-nav { width: auto; flex: none; height: 36px; gap: 8px; padding: 0 14px; border-radius: 999px; }
+.yt-tabs .yt-nav span { width: auto; font-size: 14px; }
 .yt-main { flex: 1; min-width: 0; padding: 24px 24px 80px; display: flex; flex-direction: column; gap: 20px; }
 .yt-main > * { width: 100%; max-width: 980px; }
 .yt-title { font-size: 24px; margin: 0 0 4px; }
@@ -83,6 +88,40 @@
 .yt-dash .clip-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .yt-dash .clip-row-main b { font-weight: 500; color: var(--head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .yt-dash .clip-row-nums { font-size: 13px; white-space: nowrap; }
+.yt-dash .clip-row { grid-template-columns: 1fr auto auto; }
+.yt-dash .clip-row.dash-row2 { grid-template-columns: 1fr auto; }
+.yt-dash .clip-del { padding: 7px 12px; font-size: 13px; color: var(--danger-h); }
+.yt-dash .clip-del:hover:not(:disabled) { background: var(--err-bg); color: var(--err-fg); }
+.yt-dash .btn.primary.danger-fill { background: var(--danger); color: #fff !important; }
+.yt-dash .btn.primary.danger-fill:hover { background: var(--danger-h); }
+.yt-dash .dash-link { background: none; border: 0; padding: 0; color: var(--link); cursor: pointer; font: inherit; }
+.yt-dash .dash-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* numbers */
+.yt-dash .dash-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+.yt-dash .dash-stat { display: flex; flex-direction: column; gap: 2px; padding: 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); }
+.yt-dash .dash-stat b { font-size: 24px; font-weight: 500; color: var(--head); line-height: 1.2; }
+.yt-dash .dash-stat span { font-size: 12px; color: var(--muted); }
+
+/* views per clip: plain bars */
+.yt-dash .dash-bars { display: flex; align-items: flex-end; gap: 10px; height: 200px; padding: 8px 4px 0; overflow-x: auto; }
+.yt-dash .dash-bar { flex: 1 0 44px; max-width: 90px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 4px; min-width: 0; }
+.yt-dash .dash-bar i { display: block; width: 100%; border-radius: 6px 6px 0 0; background: #3ea6ff; min-height: 3px; }
+.yt-dash .dash-bar-n { font-size: 12px; color: var(--text); }
+.yt-dash .dash-bar-l { font-size: 11px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* every clip: a table that scrolls sideways on a narrow window */
+.yt-dash .dash-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+.yt-dash .dash-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.yt-dash .dash-table th, .yt-dash .dash-table td { padding: 10px 14px; text-align: right; white-space: nowrap; border-top: 1px solid var(--line); }
+.yt-dash .dash-table thead th { border-top: 0; color: var(--muted); font-weight: 500; }
+.yt-dash .dash-table th:first-child, .yt-dash .dash-table td:first-child,
+.yt-dash .dash-table th:nth-child(2), .yt-dash .dash-table td:nth-child(2) { text-align: left; }
+.yt-dash .dash-table .dash-cap { max-width: 260px; overflow: hidden; text-overflow: ellipsis; color: var(--head); }
+
+/* the creator page keeps its own look: no seasonal decorations (cobwebs, spider, candy, skeleton, lights...) on it */
+html[data-season]:has(.yt-dash)::before, html[data-season]:has(.yt-dash)::after,
+html[data-season]:has(.yt-dash) body::before, html[data-season]:has(.yt-dash) body::after { display: none !important; }
 
 /* /clips/<id>: one clip on its own page */
 .watch { max-width: 1100px; margin: 0 auto; padding: 24px 16px 80px; display: flex; gap: 28px; align-items: flex-start; }
@@ -103,6 +142,7 @@
   .watch-info { padding: 0 14px; }
   .watch > .dash-card { margin: 16px; width: auto; }
   .yt-side { display: none; }
+  .yt-tabs { display: flex; }
   .yt-search { display: none; }
   .yt-top { justify-content: space-between; }
   .yt-main { padding: 16px 12px 60px; }
