@@ -49,7 +49,7 @@ export default function VerifyEmail({ me, onUpdate, onLogout }) {
   return (
     <div className="auth-bg">
       <form className="auth-card" onSubmit={editing ? changeEmail : verify}>
-        <img className="wordmark" src="/aduna-wordmark.png" alt="Aduna" width="190" />
+        <span className="wordmark" role="img" aria-label="Aduna" />
         <h1>{me.email ? 'Check your email' : 'Add your email'}</h1>
         {!me.email && <p className="muted center">Please add an email address so we can verify your account.</p>}
         {editing ? (

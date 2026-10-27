@@ -1,0 +1,101 @@
+/* Aduna look, pass 9: "plain". Loaded after zen.css in main.jsx.
+   Zen was soft: big corners, a floating rounded chat panel, tinted fills on everything, glow rings, lines that almost vanish.
+   That reads as a template. This pass makes it a tool: small corners, flat full-height panels split by one-pixel lines,
+   solid hover and selected rows, no glow, tighter spacing. Colours still come from the theme variables, so every theme keeps working.
+   To go back one step, remove the import of this file in main.jsx. */
+
+/* ---------- 1. tokens: small corners, small shadows ---------- */
+:root {
+  --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 8px;
+  --lift-2: 0 1px 3px rgb(0 0 0 / .2);
+  --lift-3: 0 8px 24px rgb(0 0 0 / .3);
+}
+
+/* Lines you can actually see (the Zen themes set them on the page itself, so this needs important too). */
+html[data-theme^=zen] {
+  --line: color-mix(in srgb, var(--head) 14%, transparent) !important;
+  --line2: color-mix(in srgb, var(--head) 22%, transparent) !important;
+  --msg-hover: color-mix(in srgb, var(--head) 5%, transparent) !important;
+}
+
+/* ---------- 2. shell: flat panels, one line between them ---------- */
+.chat { margin: 0; border: 0; border-radius: 0; }
+.chat-head { height: 56px; padding: 0 20px; border-bottom: 1px solid var(--line2); }
+.side-head { height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line2); }
+.menu { top: 56px; }
+.side-head.has-banner + .menu { top: 100px; }
+.user-panel { height: 56px; border-top: 1px solid var(--line2); }
+.rail { border-bottom: 1px solid var(--line2); }
+@media (min-width: 721px) {
+  .rail { height: 56px; padding: 0 16px; }
+  .rail-btn { width: 36px; height: 36px; }
+  .rail-btn.dm-home .dm-home-mark { height: 22px; }
+  .side { border-right: 1px solid var(--line2); }
+  .members { border-left: 1px solid var(--line2); }
+}
+.rail-list { gap: 8px; padding: 10px 4px; }
+.side-list { padding: 6px 8px; }
+
+/* server tiles: plain rounded squares, not squircles */
+.rail-btn, .rail-btn:hover, .rail-btn.on, .rail-btn.on:hover { border-radius: var(--r-md); }
+.rail-btn .badge { border-radius: 4px; }
+
+/* rows: a solid fill for hover and for the selected one, no tint maths */
+.chan { padding: 6px 10px; border-radius: var(--r-sm); }
+.chan.dm { padding: 5px 10px; }
+.chan:hover, .member:hover { background: var(--hover); }
+.chan.on, .settings-tab.on, .cp-row.on { background: var(--sel); color: var(--head); }
+.member { padding: 5px 8px; }
+.settings-tab { padding: 7px 12px; }
+.side-label, .cat-name { padding-top: 10px; opacity: 1; }
+.menu button:hover { background: var(--hover); }
+.menu button.danger-text:hover { background: var(--err-bg); }
+
+/* ---------- 3. menus, modals, cards ---------- */
+.menu, .pop, .emenu { padding: 4px; }
+.menu button { padding: 6px 10px; }
+.modal { padding: 22px; }
+.firstrun { background: var(--bg); border: 1px solid var(--line2); }
+
+/* ---------- 4. buttons and fields ---------- */
+.btn { padding: 7px 14px; }
+.btn.full { padding: 10px 14px; margin-top: 14px; }
+.tabs button { padding: 8px 12px; }
+.chip { border-color: var(--line2); background: transparent; }
+.chip.on { background: var(--sel); border-color: var(--line2); }
+.mention { background: var(--sel); }
+.mention:hover { background: var(--hover); }
+
+/* ---------- 5. messages: closer together, plain dividers ---------- */
+.msg { margin-top: 10px; padding: 2px 16px; }
+.msg.grouped { margin-top: 0; }
+.msg-row { gap: 14px; }
+.content { line-height: 1.5; }
+.day-divider, .new-divider { margin: 18px 16px 6px; }
+.day-divider > span { font-style: normal; opacity: 1; }
+.toolbar { border-radius: var(--r-md); }
+@media (max-width: 720px) {
+  .msg { padding: 2px 12px; margin-top: 8px; }
+  .day-divider, .new-divider { margin: 14px 12px 6px; }
+}
+
+/* ---------- 6. composer: a plain field with a line, no glow ---------- */
+.composer-wrap { padding: 0 16px 16px; }
+.composer-row { min-height: 48px; padding: 4px 8px 4px 6px; border-radius: 8px; background: var(--field); border: 1px solid var(--line2); }
+.app .composer-row:focus-within { border-color: var(--ink); box-shadow: none; }
+.composer-row .icon-btn { width: 36px; height: 36px; border-radius: var(--r-md); }
+.composer-row .gif-btn { border-radius: 4px; }
+.attach-wrap .icon-btn { background: transparent; color: var(--muted); }
+.attach-wrap .icon-btn:hover:not(:disabled) { background: var(--hover); color: var(--head); }
+.replying { border-radius: 8px 8px 0 0; }
+.replying + .composer-row, .replying + .pending { border-radius: 0 0 8px 8px; }
+.send-btn { border-radius: var(--r-md) !important; }
+@media (min-width: 721px) { .send-btn { width: 36px; height: 36px; border-radius: var(--r-md) !important; } }
+@media (max-width: 720px) { .composer-wrap { padding: 0 10px 10px; } }
+
+/* ---------- 7. the logo: drawn in the theme's heading colour, so it never vanishes on a dark theme ---------- */
+.wordmark { display: block; width: 190px; max-width: 100%; margin: 0 auto; aspect-ratio: 1000 / 314; background: var(--head); -webkit-mask: url(/aduna-wordmark.png) center / contain no-repeat; mask: url(/aduna-wordmark.png) center / contain no-repeat; }
+.auth-card .wordmark { margin-bottom: 22px; }
+
+/* ---------- 8. events: a drawn icon instead of an emoji ---------- */
+.event-ico { display: grid; place-items: center; width: 32px; height: 32px; margin-top: 8px; color: var(--gold); }

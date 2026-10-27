@@ -272,10 +272,10 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
   return (
     <div className={'event-card ' + ev.id + (ev.test ? ' test' : '')}>
       <div className="event-head">
-        <span className="event-ico" aria-hidden="true">{ev.icon}</span>
+        <span className="event-ico" aria-hidden="true"><Icon name="star" size={22} /></span>
         <div className="grow">
           <h4 className="credit-h">{ev.label} event</h4>
-          <div className="muted small">{ev.until ? `Until ${dayLabel(ev.until)}` : 'Test mode'}{ev.badge ? ` · finish Trick or Treat for the ${ev.badge.emoji} ${ev.badge.name} badge` : ''}</div>
+          <div className="muted small">{ev.until ? `Until ${dayLabel(ev.until)}` : 'Test mode'}{ev.badge ? ` · finish Trick or Treat for the ${ev.badge.name} badge` : ''}</div>
         </div>
         {ev.test && <span className="event-test">TEST MODE</span>}
       </div>
@@ -295,7 +295,7 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
               </button>
             ))}
           </div>
-          <p className="muted small">A door opens on its own day in December and stays open until the event ends, so a missed one can still be opened. Open all {adv.total} doors for the {adv.badge.emoji} {adv.badge.name} badge.</p>
+          <p className="muted small">A door opens on its own day in December and stays open until the event ends, so a missed one can still be opened. Open all {adv.total} doors for the {adv.badge.name} badge.</p>
         </>
       )}
     </div>

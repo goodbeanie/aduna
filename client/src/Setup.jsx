@@ -35,7 +35,7 @@ export default function Setup({ onDone, onLogout }) {
   return (
     <div className="auth-bg">
       <form className="auth-card" onSubmit={finish}>
-        <img className="wordmark" src="/aduna-wordmark.png" alt="Aduna" width="190" />
+        <span className="wordmark" role="img" aria-label="Aduna" />
         <h1>{t('setupTitle')}</h1>
         <p className="muted center">{t('setupSub')}</p>
 

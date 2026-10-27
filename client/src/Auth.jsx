@@ -105,7 +105,7 @@ export default function Auth({ onAuthed }) {
   return (
     <div className="auth-bg">
       <form className="auth-card" onSubmit={submit}>
-        <img className="wordmark" src="/aduna-wordmark.png" alt="Aduna" width="190" />
+        <span className="wordmark" role="img" aria-label="Aduna" />
         <h1>{mode === 'login' ? t('welcomeBack') : mode === 'recover' ? t('resetTitle') : t('createTitle')}</h1>
         <p className="muted center">{mode === 'login' ? t('excited') : mode === 'recover' ? (method === 'key' ? t('resetKeyHelp') : t('resetMailHelp')) : t('joinConv')}</p>
 
