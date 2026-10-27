@@ -644,7 +644,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
         {err && <div className="composer-err" role="alert"><span>{err}</span><button className="icon-btn" aria-label="Dismiss" onClick={() => setErr('')}><Icon name="close" size={14} /></button></div>}
         <div className="composer-row" style={recording ? { display: 'none' } : undefined}>
           <div className="attach-wrap" ref={attachWrap}>
-            <button className="icon-btn" title="Attach" aria-label="Attach" aria-haspopup="menu" aria-expanded={pop === 'attach'} disabled={!files?.scope && !onPoll} onClick={() => setPop(pop === 'attach' ? null : 'attach')}><Icon name="clip" size={20} /></button>
+            <button className="icon-btn" title="Attach" aria-label="Attach" aria-haspopup="menu" aria-expanded={pop === 'attach'} disabled={!files?.scope && !onPoll} onClick={() => setPop(pop === 'attach' ? null : 'attach')}><Icon name="plus" size={20} /></button>
             {pop === 'attach' && (
               <div className="pop attach-pop" role="menu">
                 <button role="menuitem" disabled={!files?.scope} onClick={() => { setPop(null); camInput.current?.click(); }}><Icon name="camera" size={18} />Camera</button>

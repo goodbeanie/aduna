@@ -132,7 +132,7 @@ html[data-theme^=zen] {
 .chan { padding: 8px 12px; }
 .chan.dm { padding: 7px 12px; }
 .member { padding: 7px 10px; }
-.side-label, .cat-name { padding-top: 20px; opacity: .8; }
+.side-label, .cat-name { padding-top: 12px; opacity: .8; }
 
 /* servers: soft tinted squircles with no outline, only the active one is ringed */
 .rail-btn { box-shadow: none; }
@@ -162,6 +162,68 @@ html[data-theme^=zen] {
 .menu, .pop, .emenu { padding: 8px; }
 .firstrun { border-color: transparent; background: color-mix(in srgb, var(--head) 5%, transparent); box-shadow: none; }
 .btn { padding: 9px 18px; }
+
+/* ---------- 9. the server bar, redone: logo bare, tiles one size, add and search quiet, counts as small sand squares ---------- */
+@media (min-width: 721px) {
+  .rail { padding: 0 20px; height: 64px; }
+  .rail-btn { width: 40px; height: 40px; }
+  .rail-btn.dm-home .dm-home-mark { height: 24px; }
+}
+.rail-list { gap: 12px; padding: 12px 4px; }
+/* the logo is just the logo: no tile, no outline (a sand ring only when the DMs view is open) */
+.rail-btn.dm-home { background: transparent; box-shadow: none; }
+.rail-btn.dm-home:hover { background: color-mix(in srgb, var(--ink) 10%, transparent); }
+.rail-btn.dm-home.on, .rail-btn.dm-home.on:hover { background: color-mix(in srgb, var(--ink) 14%, transparent); box-shadow: inset 0 0 0 2px var(--ink); }
+/* a fine divider between the logo and the servers */
+.rail-sep { opacity: 1; width: 1px; height: 22px; margin: 0 4px; background: var(--line2); }
+/* add and jump: plain muted icons that warm up on hover (no green outline) */
+.rail-btn.add { background: transparent; box-shadow: none; color: var(--muted); }
+.rail-btn.add:hover { background: color-mix(in srgb, var(--ink) 12%, transparent); color: var(--head); }
+.rail-btn.add svg { width: 20px; height: 20px; }
+/* active server: the ring only, no dash underneath */
+.rail-btn.on::after { display: none; }
+.rail-btn.on, .rail-btn.on:hover { box-shadow: inset 0 0 0 2px var(--ink); }
+/* unread counts: a small sand square tucked on the tile's corner, cut out of the bar colour */
+.rail-btn .badge { right: -7px; top: -7px; bottom: auto; min-width: 12px; height: 12px; padding: 0 3px; font-size: 9px; line-height: 1; border: 2px solid var(--bg2); border-radius: 6px; box-sizing: content-box; background: var(--ink); color: var(--on-ink); }
+
+/* ---------- 9. the message bar, redone ----------
+   A clear lifted surface (not see-through), a sand "+" on the left, quiet tools on the right, and a send button that is always there
+   (faded until there is something to send). */
+.composer-row {
+  align-items: center; gap: 6px; min-height: 56px; padding: 8px 10px 8px 8px; border-radius: 20px;
+  background: color-mix(in srgb, var(--head) 7%, var(--bg));
+  border: 1px solid color-mix(in srgb, var(--head) 11%, transparent);
+}
+.composer-row .composer { font-size: 15px; line-height: 1.5; padding: 9px 6px; color: var(--head); }
+.composer-row .composer::placeholder { color: color-mix(in srgb, var(--head) 48%, var(--bg)); opacity: 1; }
+.composer-row .icon-btn { width: 38px; height: 38px; border-radius: 12px; color: color-mix(in srgb, var(--head) 62%, var(--bg)); }
+.composer-row .icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--head) 9%, transparent); color: var(--head); }
+.attach-wrap .icon-btn { background: color-mix(in srgb, var(--ink) 24%, transparent); color: var(--ink); }
+.attach-wrap .icon-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--ink) 36%, transparent); color: var(--ink); }
+.comp-tools { display: flex; align-items: center; gap: 2px; }
+.composer-row .gif-btn { width: auto; height: 26px; padding: 0 9px; margin: 0 4px 0 2px; border-radius: 8px; font-size: 11px; font-weight: 600; letter-spacing: .05em; border: 1px solid color-mix(in srgb, var(--head) 22%, transparent); }
+.composer-row .gif-btn:hover:not(:disabled) { border-color: color-mix(in srgb, var(--head) 40%, transparent); }
+@media (min-width: 721px) {
+  .send-btn { display: grid !important; width: 40px; height: 40px; margin-left: 2px; border-radius: 14px !important; }
+  .send-btn:disabled { background: color-mix(in srgb, var(--head) 8%, transparent); color: color-mix(in srgb, var(--head) 35%, var(--bg)); opacity: 1; animation: none; }
+}
+
+/* ---------- 10. second look ---------- */
+/* the add and search tiles in the server bar get a faint fill so they read as buttons */
+.rail-btn:not(.on) { background: color-mix(in srgb, var(--head) 6%, transparent); }
+.rail-btn:not(.on):hover { background: color-mix(in srgb, var(--ink) 14%, transparent); }
+
+@media (max-width: 720px) {
+  /* the first date sat under a lot of empty space */
+  .scroll { padding-top: 4px; }
+  .day-divider:first-child, .new-divider:first-child { margin-top: 8px; }
+  /* tighter bar on a phone so "Message #general" fits on one line */
+  .composer-row { gap: 2px; padding: 6px 8px 6px 6px; min-height: 52px; }
+  .composer-row .composer { padding: 9px 4px; }
+  .composer-row .icon-btn { width: 34px; height: 34px; }
+  .composer-row .gif-btn { padding: 0 6px; margin: 0 2px 0 0; height: 24px; }
+  .send-btn { width: 36px; height: 36px; }
+}
 
 @media (max-width: 720px) {
   .chat-head, .side-head { height: 56px; padding: 0 16px; }
