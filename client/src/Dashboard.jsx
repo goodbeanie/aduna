@@ -89,7 +89,7 @@ function TermsMenu({ limits, busy, onAccept, onClose }) {
           {!end && <p className="muted dash-menu-hint">Scroll to the end of the terms to accept them.</p>}
           <div className="dash-menu-actions">
             <button className="btn" disabled={busy} onClick={onClose}>Cancel</button>
-            <button className="btn primary" disabled={!agree || busy} onClick={onAccept}>{busy ? 'Saving…' : 'Accept and become a creator'}</button>
+            <button className="btn primary" disabled={!agree || busy} onClick={onAccept}>{busy ? 'Saving…' : 'Accept and become a Clips creator'}</button>
           </div>
         </footer>
       </div>
@@ -247,7 +247,7 @@ export default function Dashboard() {
       setState(e.status === 401 ? 'signedout' : e.status === 503 ? 'off' : 'error');
     }
   };
-  useEffect(() => { document.title = 'Creator dashboard · Aduna'; load(); }, []);
+  useEffect(() => { document.title = 'Clips dashboard · Aduna'; load(); }, []);
   useEffect(() => {
     const h = () => setPage(pageFromHash());
     window.addEventListener('hashchange', h);
@@ -267,7 +267,7 @@ export default function Dashboard() {
     try {
       await api('/clips/creator/join', { method: 'POST', body: { accept: true } });
       setTerms(false);
-      toast('You are now a creator');
+      toast('You are now a Clips creator');
       await load();
     } catch (e) { toast(e.message, 'error'); }
     finally { setBusy(false); }
@@ -293,16 +293,16 @@ export default function Dashboard() {
         <a className="yt-back" href="/app">Back to Aduna</a>
       </header>
 
-      <nav className="yt-tabs" aria-label="Creator dashboard pages">{PAGES.map(nav)}</nav>
+      <nav className="yt-tabs" aria-label="Clips dashboard pages">{PAGES.map(nav)}</nav>
 
       <div className="yt-body">
-        <nav className="yt-side" aria-label="Creator dashboard">
+        <nav className="yt-side" aria-label="Clips dashboard">
           {PAGES.map(nav)}
           <a className="yt-nav" href="/app"><span>←</span>Back to Aduna</a>
         </nav>
 
         <main className="yt-main" id="top">
-          <h1 className="yt-title">{state === 'ready' ? (PAGES.find((p) => p[0] === page) || PAGES[0])[1] : 'Creator dashboard'}</h1>
+          <h1 className="yt-title">{state === 'ready' ? (PAGES.find((p) => p[0] === page) || PAGES[0])[1] : 'Clips dashboard'}</h1>
 
           {state === 'loading' && <p className="muted">Loading…</p>}
           {state === 'signedout' && <div className="dash-card"><h2>Sign in first</h2><p className="muted">Open Aduna, sign in, then come back to this page.</p><div><a className="btn primary" href="/app">Open Aduna</a></div></div>}
@@ -311,9 +311,9 @@ export default function Dashboard() {
 
           {state === 'apply' && (
             <div className="dash-card">
-              <h2>Become a creator</h2>
+              <h2>Become a Clips creator</h2>
               <p className="muted">Anyone can watch clips and follow creators. To post your own clips and get followers, read and accept the creator terms and conditions.</p>
-              <div><button className="btn primary" onClick={() => setTerms(true)}>Read the terms and become a creator</button></div>
+              <div><button className="btn primary" onClick={() => setTerms(true)}>Read the terms and become a Clips creator</button></div>
             </div>
           )}
 

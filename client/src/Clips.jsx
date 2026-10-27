@@ -143,7 +143,7 @@ export function Uploader({ limits, onDone }) {
   );
 }
 
-function ClipCard({ clip, onChange, onGone }) {
+export function ClipCard({ clip, onChange, onGone }) {
   const counted = useRef(false);
   const play = (e) => {
     document.querySelectorAll('.clip video').forEach((v) => { if (v !== e.currentTarget) v.pause(); });
@@ -154,7 +154,7 @@ function ClipCard({ clip, onChange, onGone }) {
     <article className="clip">
       <div className="clip-who">
         <Avatar user={{ ...clip.owner, id: clip.owner.id }} size={32} />
-        <b>{clip.owner.username || 'Someone'}</b>
+        <a className="clip-name" href={`/clips/user/${clip.owner.id}`}><b>{clip.owner.username || 'Someone'}</b></a>
         <span className="muted">{ago(clip.createdAt)} · {left(clip.expiresAt)}</span>
         <FollowButton clip={clip} onChange={onChange} />
       </div>
@@ -252,8 +252,8 @@ export default function Clips({ onBack }) {
         {state === 'loading' && tab !== 'mine' && <p className="muted clip-note">Loading…</p>}
         {state === 'ready' && (
           <div className="clip-cta">
-            <span>Want to post clips? Become a creator and upload from your dashboard.</span>
-            <a className="btn" href="/dashboard">Creator dashboard</a>
+            <span>Want to post clips? Become a Clips creator and upload from your dashboard.</span>
+            <a className="btn" href="/dashboard">Clips dashboard</a>
           </div>
         )}
         {tab === 'mine' ? <Mine rev={rev} /> : state === 'ready' && (

@@ -1,0 +1,36 @@
+/* The Clips website (/clips and /clips/user/<id>). Built on the dark .yt-dash palette from dash.css. */
+.yt-dash.cs .yt-top { justify-content: flex-start; }
+.cs-tabs { display: flex; gap: 6px; margin: 0 auto; overflow-x: auto; }
+.cs-tab { height: 34px; padding: 0 16px; border-radius: 999px; border: 0; background: var(--bg3); color: var(--text); font-size: 14px; cursor: pointer; white-space: nowrap; }
+.cs-tab:hover { background: #3f3f3f; }
+.cs-tab.on { background: var(--chip-on); color: var(--on-ink); font-weight: 500; }
+.cs-tab:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
+
+.cs-main { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 24px 16px 120px; box-sizing: border-box; }
+.cs-main > * { width: 100%; max-width: 440px; }
+.cs-note { text-align: center; }
+
+/* a person's page header */
+.cs-profile { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-bottom: 8px; }
+.cs-profile-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.cs-profile-info h1 { margin: 0; font-size: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* nothing posted */
+.cs-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 0; text-align: center; color: var(--muted); font-size: 16px; }
+.cs-empty p { margin: 0; }
+.yt-dash .dash-link { color: var(--link); font-size: 14px; }
+
+/* your picture, bottom right, and the menu it opens */
+.cs-me { position: fixed; right: 20px; bottom: 20px; z-index: 20; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+.cs-me-btn { width: 52px; height: 52px; padding: 2px; border-radius: 50%; border: 2px solid var(--line2); background: var(--bg2); cursor: pointer; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 18px var(--shadow); }
+.cs-me-btn:hover { border-color: var(--text); }
+.cs-me-btn:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
+.cs-me-menu { min-width: 210px; padding: 6px; border-radius: 12px; border: 1px solid var(--line2); background: var(--bg2); box-shadow: 0 10px 36px var(--shadow); display: flex; flex-direction: column; }
+.cs-me-who { padding: 8px 12px 6px; font-size: 13px; font-weight: 500; color: var(--muted); border-bottom: 1px solid var(--line); margin-bottom: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yt-dash a.cs-me-item { display: block; padding: 10px 12px; border-radius: 8px; color: var(--text); font-size: 14px; }
+.yt-dash a.cs-me-item:hover, .yt-dash a.cs-me-item:focus-visible { background: var(--hover); outline: none; }
+
+@media (max-width: 700px) {
+  .cs-main { padding: 16px 12px 110px; }
+  .cs-me { right: 14px; bottom: 14px; }
+}

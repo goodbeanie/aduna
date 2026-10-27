@@ -2166,10 +2166,10 @@ app.post('/api/admin/servers/:id/listing', auth, adminOnly, (req, res) => {
 // the record stays with its numbers (views, likes, reports) and only the video and cover are gone. Rules and limits: clips.js.
 const clipsOn = () => !!(store.clipsR2 && clipsLib.settings().publicUrl);
 const needClips = (_req, res, next) => (clipsOn() ? next() : res.status(503).json({ error: 'Clips are not set up on this server' }));
-// Anyone signed in can watch, like and report. Posting needs a creator registration (accepting the creator terms on /dashboard).
-// The site's own creator accounts can always post.
-const isClipCreator = (u) => !!u && (!!u.clipCreator || isCreator(u));
-const needClipCreator = (req, res, next) => (isClipCreator(req.user) ? next() : res.status(403).json({ error: 'Become a creator first: accept the creator terms on your dashboard', code: 'not_clip_creator' }));
+// Anyone signed in can watch, like and report. Posting needs a clips creator registration (accepting the creator terms on /dashboard).
+// This is NOT the same as the site's own "creator" (the people who make Aduna, see isCreator above): their accounts register as clips creators like everyone else.
+const isClipCreator = (u) => !!u && !!u.clipCreator;
+const needClipCreator = (req, res, next) => (isClipCreator(req.user) ? next() : res.status(403).json({ error: 'Become a Clips creator first: accept the creator terms on your dashboard', code: 'not_clip_creator' }));
 const CLIP_TERMS_VERSION = 1;
 const clipUploadHits = new security.RateWindow(20, 3600_000);      // upload links per person per hour (the daily limit is separate)
 const clipActHits = new security.RateWindow(240, 60_000);          // feed pages, views and likes per person per minute
@@ -2214,6 +2214,13 @@ async function sweepClips() {
 
 // creator registration: ask whether you are one, and become one by accepting the terms
 app.get('/api/clips/creator', auth, (req, res) => res.json({ creator: isClipCreator(req.user), since: req.user.clipCreator ? req.user.clipCreator.at : null, terms: CLIP_TERMS_VERSION, followers: req.user.clipFollowerCount || 0 }));
+// a creator's own page (/clips/user/<id>): who they are, how many follow them, and whether you do. Anyone signed in can look.
+app.get('/api/clips/creator/:userId', auth, needClips, (req, res) => {
+  const u = db().users[req.params.userId];
+  if (!u || u.bot) return res.status(404).json({ error: 'That page was not found' });
+  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  res.json({ user: { id: u.id, username: u.username, avatarImage: u.avatarImage || null, followers: u.clipFollowerCount || 0, creator: isClipCreator(u), following: (req.user.clipFollowing || []).includes(u.id), mine: u.id === req.user.id } });
+});
 // follow or unfollow a creator (a second call undoes the first). Only the number of followers is ever shown, never who they are.
 const clipFollowHits = new security.RateWindow(60, 3600_000);
 app.post('/api/clips/follow/:userId', auth, needClips, (req, res) => {
@@ -2300,6 +2307,7 @@ app.get('/api/clips', auth, needClips, (req, res) => {
   const cfg = clipsLib.settings();
   const clips = clipsLib.feed(clipList(), db().users, {
     uid: req.user.id, sort: req.query.sort === 'top' ? 'top' : req.query.sort === 'following' ? 'following' : 'new', before: Number(req.query.before) || 0,
+    owner: typeof req.query.owner === 'string' ? req.query.owner.slice(0, 80) : '',
     offset: parseInt(req.query.offset, 10) || 0, limit: parseInt(req.query.limit, 10) || 10, now: now(),
   }, cfg);
   res.json({
