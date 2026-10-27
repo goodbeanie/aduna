@@ -15,7 +15,7 @@ const TYPES = [
   ['video/webm;codecs=vp8,opus', 'video/webm'],
   ['video/webm', 'video/webm'],
 ];
-const pickType = () => (typeof MediaRecorder === 'undefined' ? null : TYPES.find(([m]) => MediaRecorder.isTypeSupported(m)) || null);
+const pickType = (mp4Only) => (typeof MediaRecorder === 'undefined' ? null : TYPES.find(([m, plain]) => (!mp4Only || plain === 'video/mp4') && MediaRecorder.isTypeSupported(m)) || null);
 
 export function canCompress() {
   try {
@@ -26,22 +26,25 @@ export function canCompress() {
 const cancelled = () => Object.assign(new Error('Cancelled'), { cancelled: true });
 
 // Returns a smaller File (video/mp4 or video/webm). onProgress gets 0..1. Abort the signal to cancel.
-export async function compressVideo(file, { onProgress, signal } = {}) {
-  const pick = pickType();
-  if (!pick || !canCompress()) throw new Error('This browser cannot compress video');
+// Clips use the extra options: target/limit (bytes), maxSide (longest edge in pixels), maxSeconds (anything longer is cut off)
+// and mp4Only (the clips server only accepts MP4).
+export async function compressVideo(file, { onProgress, signal, target = COMPRESS_TARGET, limit = MAX_FILE, maxSide = 1280, maxSeconds = 0, mp4Only = false } = {}) {
+  const pick = pickType(mp4Only);
+  if (!pick || !canCompress()) throw new Error(mp4Only ? 'This device cannot make MP4 clips' : 'This browser cannot compress video');
   const url = URL.createObjectURL(file);
   const video = document.createElement('video');
   let ac = null, stream = null, rec = null, stopped = false, hidden = null;
   try {
     video.preload = 'auto'; video.playsInline = true; video.src = url;
     await new Promise((resolve, reject) => { video.onloadedmetadata = resolve; video.onerror = () => reject(new Error('This video could not be read')); });
-    const duration = video.duration;
-    if (!Number.isFinite(duration) || duration <= 0 || !video.videoWidth) throw new Error('This video could not be read');
+    const full = video.duration;
+    if (!Number.isFinite(full) || full <= 0 || !video.videoWidth) throw new Error('This video could not be read');
+    const duration = maxSeconds > 0 ? Math.min(full, maxSeconds) : full;
 
     // what the size limit allows, per second, minus the sound and a safety margin
-    const videoBps = Math.floor((COMPRESS_TARGET * 8 * 0.85) / duration - AUDIO_BPS);
-    if (videoBps < MIN_VIDEO_BPS) throw new Error('Too long to fit in 20 MB. Trim it first');
-    const longSide = videoBps >= 2500000 ? 1280 : videoBps >= 1200000 ? 854 : videoBps >= 500000 ? 640 : 426; // 720p, 480p, 360p, 240p
+    const videoBps = Math.floor((target * 8 * 0.85) / duration - AUDIO_BPS);
+    if (videoBps < MIN_VIDEO_BPS) throw new Error(`Too long to fit in ${sizeLabel(target)}. Trim it first`);
+    const longSide = Math.min(maxSide, videoBps >= 2500000 ? 1280 : videoBps >= 1200000 ? 854 : videoBps >= 500000 ? 640 : 426); // 720p, 480p, 360p, 240p
     const scale = Math.min(1, longSide / Math.max(video.videoWidth, video.videoHeight));
     const even = (n) => Math.max(2, Math.round((n * scale) / 2) * 2);
     const w = even(video.videoWidth), h = even(video.videoHeight);
@@ -76,6 +79,7 @@ export async function compressVideo(file, { onProgress, signal } = {}) {
 
     const draw = () => {
       if (stopped) return;
+      if (maxSeconds > 0 && video.currentTime >= duration) { stopped = true; video.pause(); if (rec.state !== 'inactive') rec.stop(); return; } // cut off at the limit
       g.drawImage(video, 0, 0, w, h);
       onProgress?.(Math.min(1, video.currentTime / duration));
       next();
@@ -91,7 +95,7 @@ export async function compressVideo(file, { onProgress, signal } = {}) {
     if (signal?.aborted) throw cancelled();
     const blob = new Blob(chunks, { type: pick[1] });
     if (!blob.size) throw new Error('Compressing failed');
-    if (blob.size > MAX_FILE) throw new Error(`Still ${sizeLabel(blob.size)} after compressing`);
+    if (blob.size > limit) throw new Error(`Still ${sizeLabel(blob.size)} after compressing`);
     const name = (file.name || 'video').replace(/\.[^.]+$/, '') + (pick[1] === 'video/mp4' ? '.mp4' : '.webm');
     return new File([blob], name, { type: pick[1] }); // the plain type: the server only plays mp4 and webm inline
   } finally {

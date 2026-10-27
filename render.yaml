@@ -42,6 +42,9 @@ services:
         sync: false
       - key: CLIPS_PUBLIC_URL
         sync: false
+      # while clips are tested, only creator accounts can use them. Delete this variable (or set it to 0) to open clips to everyone.
+      - key: CLIPS_CREATORS_ONLY
+        value: "1"
       # optional: public address of a SEPARATE public R2 bucket that holds the Windows installer (e.g. https://pub-xxxx.r2.dev or
       # https://downloads.yourdomain.com). Without it the installer is served from this site.
       - key: DOWNLOAD_BASE_URL

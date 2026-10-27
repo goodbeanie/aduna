@@ -2165,7 +2165,12 @@ app.post('/api/admin/servers/:id/listing', auth, adminOnly, (req, res) => {
 // Storage: clips have their own bucket and their own cap (CLIPS_LIMIT_GB, default 5). They are deleted after CLIPS_TTL_DAYS (default 7);
 // the record stays with its numbers (views, likes, reports) and only the video and cover are gone. Rules and limits: clips.js.
 const clipsOn = () => !!(store.clipsR2 && clipsLib.settings().publicUrl);
-const needClips = (_req, res, next) => (clipsOn() ? next() : res.status(503).json({ error: 'Clips are not set up on this server' }));
+// CLIPS_CREATORS_ONLY=1: while clips are being tested, only creator accounts can use them (everyone else gets a 403). Remove it to open clips to all.
+const needClips = (req, res, next) => {
+  if (!clipsOn()) return res.status(503).json({ error: 'Clips are not set up on this server' });
+  if (process.env.CLIPS_CREATORS_ONLY === '1' && !isCreator(req.user)) return res.status(403).json({ error: 'Clips are in testing for creators only', code: 'clips_testing' });
+  next();
+};
 const clipUploadHits = new security.RateWindow(20, 3600_000);      // upload links per person per hour (the daily limit is separate)
 const clipActHits = new security.RateWindow(240, 60_000);          // feed pages, views and likes per person per minute
 const clipReportHits = new security.RateWindow(listing.LISTING.perHour, 3600_000);

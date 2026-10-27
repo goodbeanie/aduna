@@ -25,6 +25,7 @@ import RulesView from './Rules.jsx';
 import { mentionPreview } from './Mentions.jsx';
 import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
+import Clips from './Clips.jsx';
 import { OnboardingFlow } from './Onboarding.jsx';
 import Setup from './Setup.jsx';
 import { setLang, useLang } from './i18n.js';
@@ -958,11 +959,16 @@ function Main({ me, setMe, privKey, openServerId }) {
               <button className={'chan' + (view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, quests: true }); setShowList(false); }}>
                 <span className="hash"><Icon name="flag" size={20} /></span>{tr('questsTab')}
               </button>
-              <button className={'chan' + (!view.userId && !view.explore && !view.shop && !view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
+              {me.creator && (
+                <button className={'chan' + (view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, clips: true }); setShowList(false); }}>
+                  <span className="hash"><Icon name="video" size={20} /></span>Clips
+                </button>
+              )}
+              <button className={'chan' + (!view.userId && !view.explore && !view.shop && !view.quests && !view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
                 <span className="hash"><Icon name="users" size={20} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
               <div className="side-label">{tr('lblDMs')}</div>
-              {convos.length === 0 && <div className="pad"><p className="muted">{tr('noConvos')}</p>{(view.userId || view.explore || view.shop || view.quests) && <button className="btn" onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>{tr('friends')}</button>}</div>}
+              {convos.length === 0 && <div className="pad"><p className="muted">{tr('noConvos')}</p>{(view.userId || view.explore || view.shop || view.quests || view.clips) && <button className="btn" onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>{tr('friends')}</button>}</div>}
               {convos.map((id) => users[id] && (
                 <button key={id} className={'chan dm' + (id === view.userId ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: id }); setShowList(false); }}>
                   <Avatar user={users[id]} size={32} presence={statusOf(id)} />
@@ -1030,7 +1036,8 @@ function Main({ me, setMe, privKey, openServerId }) {
       )}
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
       {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} />}
-      {view.kind === 'dm' && !dmUser && !view.explore && !view.shop && !view.quests && (
+      {view.kind === 'dm' && !dmUser && view.clips && me.creator && <Clips onBack={() => setShowList(true)} />}
+      {view.kind === 'dm' && !dmUser && !view.explore && !view.shop && !view.quests && !(view.clips && me.creator) && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
       )}
 
