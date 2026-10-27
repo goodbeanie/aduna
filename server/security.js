@@ -23,10 +23,24 @@ const CSP = [
 ].join('; ');
 
 // Aduna's own checkout loads PayPal's card fields and button, so when PayPal is set up its addresses are allowed too (and only then).
+// Clips: when CLIPS_PUBLIC_URL is set, the clips address is allowed for pictures and video, and (with CLIPS_R2_BUCKET) the R2 upload
+// address for the signed upload links. Without them the policy is unchanged.
+const originOf = (u) => { try { return new URL(String(u || '')).origin; } catch { return ''; } };
 function cspFor(env) {
-  if (!env.PAYPAL_CLIENT_ID) return CSP;
-  const geo = env.TAX_COLLECT_IN ? ' https://api.bigdatacloud.net' : ''; // checkout's "use my location" turns coordinates into a country/state
-  const add = { 'script-src': "https://*.paypal.com https://*.paypalobjects.com", 'frame-src': 'https://*.paypal.com', 'connect-src': 'https://*.paypal.com https://*.paypalobjects.com' + geo, 'img-src': 'https://*.paypal.com https://*.paypalobjects.com' };
+  const add = {};
+  const put = (k, v) => { add[k] = add[k] ? `${add[k]} ${v}` : v; };
+  if (env.PAYPAL_CLIENT_ID) {
+    const geo = env.TAX_COLLECT_IN ? ' https://api.bigdatacloud.net' : ''; // checkout's "use my location" turns coordinates into a country/state
+    put('script-src', 'https://*.paypal.com https://*.paypalobjects.com'); put('frame-src', 'https://*.paypal.com');
+    put('connect-src', 'https://*.paypal.com https://*.paypalobjects.com' + geo); put('img-src', 'https://*.paypal.com https://*.paypalobjects.com');
+  }
+  const clips = originOf(env.CLIPS_PUBLIC_URL);
+  if (clips) { put('img-src', clips); put('media-src', clips); }
+  if (clips && env.CLIPS_R2_BUCKET) {
+    const up = originOf(env.R2_ENDPOINT) || (env.R2_ACCOUNT_ID ? `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : '');
+    if (up) put('connect-src', up);
+  }
+  if (!Object.keys(add).length) return CSP;
   return CSP.split('; ').map((d) => { const k = d.split(' ')[0]; return add[k] ? (k === 'frame-src' ? `frame-src ${add[k]}` : `${d} ${add[k]}`) : d; }).join('; ');
 }
 

@@ -32,6 +32,16 @@ services:
         sync: false
       - key: R2_BUCKET
         sync: false
+      # optional: clips (short vertical videos). Make a SEPARATE R2 bucket for them, give the same R2 API token access to it, and put a custom
+      # domain on it (e.g. https://clips.yourdomain.com) so the videos are public and cached by Cloudflare. Both are needed; without them clips are off.
+      # Add an R2 lifecycle rule on that bucket: delete objects 8 days after upload (a safety net behind the 7-day deletion the server does itself),
+      # and a CORS rule that allows PUT from your site's address. Storage budget (R2's free tier is 10 GB): everything else is capped by
+      # STORAGE_LIMIT_GB (default 4), clips by CLIPS_LIMIT_GB (default 5). Other knobs, with their defaults: CLIPS_TTL_DAYS=7, CLIP_MAX_MB=8,
+      # CLIP_MAX_SECONDS=30, CLIP_DAILY_LIMIT=5 (per person), CLIP_UPLOAD_CREDITS=0 (credits charged per clip), CLIP_REPORTS_TO_HIDE=5.
+      - key: CLIPS_R2_BUCKET
+        sync: false
+      - key: CLIPS_PUBLIC_URL
+        sync: false
       # optional: public address of a SEPARATE public R2 bucket that holds the Windows installer (e.g. https://pub-xxxx.r2.dev or
       # https://downloads.yourdomain.com). Without it the installer is served from this site.
       - key: DOWNLOAD_BASE_URL

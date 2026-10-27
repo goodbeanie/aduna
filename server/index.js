@@ -18,6 +18,7 @@ const { createPush, cleanPrefs } = require('./push');
 const { createFcm } = require('./fcm');
 const np = require('./notifprefs');
 const listing = require('./listing');
+const clipsLib = require('./clips'); // clips: short vertical videos (see the "clips" block below)
 const polls = require('./polls');
 const calllog = require('./calllog');
 const groupsLib = require('./groups');
@@ -2156,6 +2157,207 @@ app.post('/api/admin/servers/:id/listing', auth, adminOnly, (req, res) => {
   res.json({ ok: true, hold: s.listingHold || null });
 });
 
+// ----- clips: short vertical videos -----
+// The flow: the app asks for upload links (POST /api/clips/upload-url), PUTs the video and its cover picture straight to the clips R2 bucket
+// (so Render never carries the video), then says it is done (POST /api/clips/:id/complete). Only then does the server look at what arrived
+// (size, type, the MP4 header, the real length), and only a clip that passes goes live. R2's signed links cannot cap an upload's size, so a
+// clip that is too big is deleted at that point, and an upload nobody finishes is deleted by the sweep a few minutes later.
+// Storage: clips have their own bucket and their own cap (CLIPS_LIMIT_GB, default 5). They are deleted after CLIPS_TTL_DAYS (default 7);
+// the record stays with its numbers (views, likes, reports) and only the video and cover are gone. Rules and limits: clips.js.
+const clipsOn = () => !!(store.clipsR2 && clipsLib.settings().publicUrl);
+const needClips = (_req, res, next) => (clipsOn() ? next() : res.status(503).json({ error: 'Clips are not set up on this server' }));
+const clipUploadHits = new security.RateWindow(20, 3600_000);      // upload links per person per hour (the daily limit is separate)
+const clipActHits = new security.RateWindow(240, 60_000);          // feed pages, views and likes per person per minute
+const clipReportHits = new security.RateWindow(listing.LISTING.perHour, 3600_000);
+const clipViewSeen = new security.RateWindow(1, 24 * 3600_000);    // one counted view per person per clip per day
+const clipList = () => Object.values(db().clips);
+const clipsFull = 'Clips are full right now. Older clips are removed every day, so try again later.';
+
+// delete a clip's video and cover from R2; false (and the keys stay, so the sweep tries again) if R2 would not
+async function dropClipBytes(c) {
+  const b = store.clipsR2;
+  if (!b) return false;
+  try { for (const k of clipsLib.objectsOf(c)) await b.del(k); return true; }
+  catch (e) { console.error('Clip cleanup failed (will retry):', e.message); return false; }
+}
+// credits taken for an upload that never went live are given back
+function refundClip(c) {
+  if (!(c.credits > 0)) return;
+  const u = db().users[c.owner];
+  if (u) credits.grant(u, c.credits, 'clip refund', { note: 'Clip not posted' });
+  c.credits = 0;
+}
+// take a clip down: out of the feed at once, bytes deleted, numbers kept
+async function endClip(c, state, why) {
+  c.state = state;
+  if (why) c.why = why;
+  if (await dropClipBytes(c)) clipsLib.purge(c, state, now());
+  store.save();
+}
+// delete what has expired or was never finished. Runs at start and every ten minutes.
+async function sweepClips() {
+  const out = { expired: 0, abandoned: 0, retried: 0 };
+  if (!store.clipsR2) return out;
+  const t = now();
+  const d = clipsLib.due(clipList(), t, clipsLib.settings());
+  for (const c of d.abandoned) if (await dropClipBytes(c)) { refundClip(c); c.why = 'The upload was never finished'; clipsLib.purge(c, 'rejected', t); out.abandoned++; }
+  for (const c of d.expire) if (await dropClipBytes(c)) { clipsLib.purge(c, 'expired', t); out.expired++; }
+  for (const c of d.retry) if (await dropClipBytes(c)) { clipsLib.purge(c, c.state, t); out.retried++; }
+  if (out.expired + out.abandoned + out.retried) store.save();
+  return out;
+}
+
+app.post('/api/clips/upload-url', auth, needClips, ah(async (req, res) => {
+  const cfg = clipsLib.settings();
+  if (!clipUploadHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down. Try again in a little while.' });
+  const r = clipsLib.checkRequest(req.body, cfg, BLOCKED_WORDS);
+  if (r.error) return res.status(400).json({ error: r.error });
+  const all = clipList(), t = now();
+  if (clipsLib.uploadsToday(all, req.user.id, t) >= cfg.dailyLimit) return res.status(429).json({ error: `You can post ${cfg.dailyLimit} clips a day. Try again tomorrow.`, code: 'daily_limit' });
+  if (clipsLib.pendingOf(all, req.user.id) >= cfg.maxPending) return res.status(429).json({ error: 'Let your other uploads finish first.' });
+  if (!clipsLib.hasRoom(all, r.value.size + r.value.posterSize, cfg)) return res.status(507).json({ error: clipsFull, code: 'clips_full' });
+  if (cfg.credits && !credits.spend(req.user, cfg.credits, 'clip', { note: 'Posted a clip' })) return res.status(402).json({ error: `Posting a clip costs ${cfg.credits} credits`, code: 'not_enough_credits' });
+  const c = {
+    id: store.id(), owner: req.user.id, caption: r.value.caption, state: 'pending',
+    key: `clips/${crypto.randomBytes(16).toString('hex')}.mp4`, posterKey: `posters/${crypto.randomBytes(16).toString('hex')}`,
+    size: r.value.size, posterSize: r.value.posterSize, seconds: r.value.seconds, width: r.value.width, height: r.value.height,
+    createdAt: t, views: 0, likes: 0, likedBy: [], reports: [], reportCount: 0, credits: cfg.credits,
+  };
+  let video, poster;
+  try {
+    [video, poster] = await Promise.all([store.clipsR2.presignPut(c.key, 600), store.clipsR2.presignPut(c.posterKey, 600)]);
+  } catch (e) {
+    refundClip(c); store.save();
+    console.error('Could not sign a clip upload:', e.message);
+    return res.status(502).json({ error: 'Uploads are not available right now. Try again soon.' });
+  }
+  db().clips[c.id] = c;
+  store.save();
+  res.json({
+    id: c.id, expiresIn: 600,
+    video: { url: video, method: 'PUT', headers: { 'Content-Type': 'video/mp4' } },
+    poster: { url: poster, method: 'PUT', headers: { 'Content-Type': r.value.posterType } },
+  });
+}));
+
+app.post('/api/clips/:id/complete', auth, needClips, ah(async (req, res) => {
+  const cfg = clipsLib.settings();
+  const c = db().clips[req.params.id];
+  if (!c || c.owner !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  if (c.state === 'live') return res.json({ clip: clipsLib.view(c, db().users, req.user.id, cfg) }); // asked twice
+  if (c.state !== 'pending') return res.status(409).json({ error: 'This upload is no longer open', why: c.why || null });
+  const b = store.clipsR2;
+  const reject = async (status, message) => { if (c.state === 'pending') { refundClip(c); await endClip(c, 'rejected', message); } return res.status(status).json({ error: message }); };
+  let vh, ph;
+  try { [vh, ph] = await Promise.all([b.head(c.key), b.head(c.posterKey)]); }
+  catch (e) { console.error('Clip check failed:', e.message); return res.status(502).json({ error: 'Could not check the upload. Try again.' }); }
+  if (!vh || !ph) return res.status(409).json({ error: 'The upload has not arrived yet', code: 'not_uploaded' }); // still pending: the app can ask again
+  if (vh.size < 1024 || vh.size > cfg.maxBytes) return reject(413, `Clips can be at most ${Math.round(cfg.maxBytes / clipsLib.MB * 10) / 10} MB`);
+  if (vh.type !== 'video/mp4') return reject(400, 'That is not an MP4 video');
+  if (ph.size < 1 || ph.size > clipsLib.MAX_POSTER || !clipsLib.POSTER_TYPES.includes(ph.type)) return reject(400, 'The cover picture is missing or too big');
+  let head, pic;
+  try { [head, pic] = await Promise.all([b.first(c.key, clipsLib.FIRST_BYTES), b.first(c.posterKey, clipsLib.MAX_POSTER)]); }
+  catch (e) { console.error('Clip check failed:', e.message); return res.status(502).json({ error: 'Could not check the upload. Try again.' }); }
+  const mp4 = clipsLib.sniffMp4(head);
+  if (mp4.error) return reject(400, mp4.error);
+  if (mp4.seconds > cfg.maxSeconds + 1) return reject(400, `Clips can be at most ${cfg.maxSeconds} seconds`);
+  if (!pic || !sniffImage(pic)) return reject(400, 'The cover picture is not a valid image');
+  if (c.state !== 'pending') return res.status(409).json({ error: 'This upload is no longer open' }); // the sweep dropped it while we were looking
+  if (!clipsLib.hasRoom(clipList(), vh.size + ph.size, cfg, c.id)) return reject(507, clipsFull);
+  Object.assign(c, { size: vh.size, posterSize: ph.size, seconds: Math.round(mp4.seconds * 10) / 10, state: 'live', liveAt: now(), expiresAt: now() + cfg.ttlMs });
+  store.save();
+  res.json({ clip: clipsLib.view(c, db().users, req.user.id, cfg) });
+}));
+
+app.get('/api/clips', auth, needClips, (req, res) => {
+  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const cfg = clipsLib.settings();
+  const clips = clipsLib.feed(clipList(), db().users, {
+    uid: req.user.id, sort: req.query.sort === 'top' ? 'top' : 'new', before: Number(req.query.before) || 0,
+    offset: parseInt(req.query.offset, 10) || 0, limit: parseInt(req.query.limit, 10) || 10, now: now(),
+  }, cfg);
+  res.json({
+    clips,
+    limits: { maxSeconds: cfg.maxSeconds, maxMb: Math.round(cfg.maxBytes / clipsLib.MB * 10) / 10, dailyLimit: cfg.dailyLimit, left: Math.max(0, cfg.dailyLimit - clipsLib.uploadsToday(clipList(), req.user.id, now())), credits: cfg.credits, keepDays: Math.round(cfg.ttlMs / clipsLib.DAY * 10) / 10 },
+  });
+});
+// your own clips, including the ones whose video has expired (the numbers stay)
+app.get('/api/clips/mine', auth, (req, res) => {
+  const mine = clipList().filter((c) => c.owner === req.user.id).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(clipsLib.ownerView);
+  res.json({ clips: mine });
+});
+function liveClipOr404(req, res) {
+  const c = db().clips[req.params.id];
+  if (!c || !clipsLib.isLive(c, now())) { res.status(404).json({ error: 'That clip is gone' }); return null; }
+  return c;
+}
+app.post('/api/clips/:id/view', auth, needClips, (req, res) => {
+  const c = liveClipOr404(req, res);
+  if (!c) return;
+  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  if (c.owner !== req.user.id && clipViewSeen.allow(req.user.id + ':' + c.id)) { c.views = (c.views || 0) + 1; store.save(); }
+  res.json({ views: c.views || 0 });
+});
+app.post('/api/clips/:id/like', auth, needClips, (req, res) => {
+  const c = liveClipOr404(req, res);
+  if (!c) return;
+  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const liked = clipsLib.toggleLike(c, req.user.id);
+  store.save();
+  res.json({ liked, likes: c.likes });
+});
+app.post('/api/clips/:id/report', auth, needClips, (req, res) => {
+  const c = db().clips[req.params.id];
+  if (!c || !(c.state === 'live' || c.state === 'hidden') || c.purgedAt) return res.status(404).json({ error: 'That clip is gone' });
+  if (c.owner === req.user.id) return res.status(400).json({ error: 'You cannot report your own clip' });
+  const reason = String(req.body?.reason || '');
+  if (!listing.REASONS.includes(reason)) return res.status(400).json({ error: 'Pick a reason' });
+  const details = clip(req.body?.details, listing.LISTING.maxDetails).trim();
+  if (reason === 'other' && !details) return res.status(400).json({ error: 'Tell us what is wrong' });
+  if (!clipReportHits.allow(req.user.id)) return res.status(429).json({ error: 'You have sent a lot of reports. Try again later.' });
+  clipsLib.addReport(c, req.user.id, reason, details, now());
+  if (clipsLib.shouldHide(c, db().users, now(), clipsLib.settings())) { c.state = 'hidden'; c.hold = { state: 'hidden', at: now() }; }
+  store.save();
+  res.json({ ok: true });
+});
+// the poster takes their own clip down (the numbers stay)
+app.delete('/api/clips/:id', auth, ah(async (req, res) => {
+  const c = db().clips[req.params.id];
+  if (!c || c.owner !== req.user.id) return res.status(404).json({ error: 'Not found' });
+  if (!clipsLib.HOLDING.has(c.state) || c.purgedAt) return res.json({ ok: true });
+  if (c.state === 'pending') refundClip(c);
+  await endClip(c, 'removed', 'Removed by the poster');
+  res.json({ ok: true });
+}));
+
+// moderators: what is reported or hidden, how full the storage is, and what to do about it
+app.get('/api/admin/clips', auth, adminOnly, ah(async (_req, res) => {
+  const cfg = clipsLib.settings(), all = clipList(), users = db().users;
+  const other = store.usingR2 ? await store.r2BytesUsed() : 0, otherMax = store.storageLimitBytes();
+  const rows = all.filter((c) => (c.reports || []).length || c.state === 'hidden').sort((a, b) => (b.reports || []).length - (a.reports || []).length).map((c) => ({
+    id: c.id, state: c.state, caption: c.caption, owner: users[c.owner]?.username || null, views: c.views || 0, likes: c.likes || 0,
+    url: c.key && cfg.publicUrl ? `${cfg.publicUrl}/${c.key}` : null, poster: c.posterKey && cfg.publicUrl ? `${cfg.publicUrl}/${c.posterKey}` : null,
+    counted: listing.countedReports(c.reports, users, now()), hold: c.hold || null,
+    reports: (c.reports || []).map((r) => ({ by: users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at })),
+  }));
+  res.json({
+    usage: { clipsBytes: clipsLib.usedBytes(all), clipsLimit: cfg.limitBytes, otherBytes: other, otherLimit: otherMax, live: all.filter((c) => clipsLib.isLive(c, now())).length, total: all.length },
+    toHide: cfg.reportsToHide, clips: rows,
+  });
+}));
+// restore = back in the feed, reports cleared; dismiss = clear the reports only; remove = delete the video for good (the numbers stay)
+app.post('/api/admin/clips/:id', auth, adminOnly, ah(async (req, res) => {
+  const c = db().clips[req.params.id];
+  if (!c) return res.status(404).json({ error: 'Not found' });
+  const action = req.body?.action;
+  if (action === 'restore') { if (c.state === 'hidden' && !c.purgedAt) c.state = 'live'; delete c.hold; c.reports = []; }
+  else if (action === 'dismiss') c.reports = [];
+  else if (action === 'remove') { if (c.state === 'pending') refundClip(c); if (!c.purgedAt) await endClip(c, 'removed', 'Removed by a moderator'); }
+  else return res.status(400).json({ error: 'action must be restore, dismiss or remove' });
+  store.save();
+  res.json({ ok: true, state: c.state });
+}));
+
 // ----- bots: developer accounts, bot records, the explorer's Bots tab -----
 // Anyone can turn on a developer account (Settings > Developer, POST /api/developer/join). A developer writes bots (JavaScript, see bots.js)
 // that are private (only they can install them) or public (listed in the explorer, anyone who manages a server can add them).
@@ -3752,6 +3954,9 @@ async function start() {
   await store.pruneFiles(referencedFiles());
   await runCleanup(); // also clear out anything that expired while the server was off
   setInterval(runCleanup, 3600_000).unref();
+  const clipSweep = async () => { try { await sweepClips(); } catch (e) { console.error('Clip sweep failed:', e.message); } };
+  await clipSweep(); // clips that expired while the server was off
+  setInterval(clipSweep, 600_000).unref();
   if (process.env.NODE_ENV !== 'test') botHost.startTimers(); // due bot timers are looked for every few seconds (tests call botHost.tick() themselves)
 }
 const ready = start();
@@ -3762,7 +3967,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips: for the tests
 
 
 /* HANDOFF: see HANDOFF.md in the project root for what this server does, what is done, and what is left. */
