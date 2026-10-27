@@ -21,6 +21,20 @@
 .ca-overlay .ca-stats b { color: #fff; }
 .ca-overlay .ca-stats span, .ca-overlay .ca-followers { color: #a8a8ad; }
 
+/* Like / comments / share / "..." as a column of round buttons down the right edge of the video, like Instagram Reels. */
+.ca-overlay { width: auto; }
+.ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 10px; padding: 0; }
+.ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 52px; height: auto; padding: 0; gap: 2px; background: none; color: #fff; font-size: 12px; }
+.ca-overlay .ca-btn:hover, .ca-overlay .ca-btn.open { background: none; }
+.ca-overlay .ca-btn svg { width: 44px; height: 44px; padding: 11px; box-sizing: border-box; border-radius: 50%; background: rgba(0,0,0,.35); transition: background .12s; }
+.ca-overlay .ca-btn:hover svg, .ca-overlay .ca-btn.open svg { background: rgba(0,0,0,.55); }
+.ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.25); }
+.ca-overlay .ca-btn.ca-icon { width: 52px; }
+.ca-overlay .ca-views, .ca-overlay .ca-grow { display: none; }
+.ca-overlay .ca-more { position: relative; }
+.ca-overlay .ca-menu { left: auto; right: calc(100% + 8px); bottom: 0; }
+.ca-overlay .ca-report { position: absolute; right: 64px; bottom: 0; width: min(280px, 70vw); margin: 0; box-sizing: border-box; }
+
 /* The comments popup (drawn outside the page, so it has its own dark colours; the card itself is .ss-panel from sharesheet.css) */
 .cs-panel { display: flex; flex-direction: column; height: min(74vh, 640px); padding-bottom: 12px; overflow: hidden; }
 .cs-panel .ca-comments { flex: 1; min-height: 0; max-height: none; padding: 0; overflow: hidden; gap: 10px; }

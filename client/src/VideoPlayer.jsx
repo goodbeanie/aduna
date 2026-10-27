@@ -8,7 +8,7 @@ import './videoplayer.css';
 //  - autoPlay: start as soon as the video is ready (a clip's own page). inView: play while it is on screen and pause when it scrolls away (the feed).
 // It never just spins forever: "Loading…" while the file starts, and if the file errors or nothing arrives within 20 seconds it says so
 // and offers Try again (which asks for the file again).
-const PlayGlyph = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l11-6.5a1 1 0 0 0 0-1.7l-11-6.5A1 1 0 0 0 8 5.5z" /></svg>;
+const PlayGlyph = () => <svg width="32" height="32" viewBox="0 0 24 24" fill="#fff" stroke="#fff" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M6.5 5.5v13L17.5 12z" /></svg>;
 const SoundGlyph = ({ off }) => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M4 9.5v5h3.5L12 18.5v-13L7.5 9.5H4z" fill="#fff" />

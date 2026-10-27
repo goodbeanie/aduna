@@ -102,6 +102,7 @@ const PATHS = {
   file: <><path d="M6 3.5h8l4.5 4.5v12.5H6z" /><path d="M14 3.5V8h4.5" /></>,
   download: <><path d="M12 4v11" /><path d="M7.5 10.5L12 15l4.5-4.5" /><path d="M5 19.5h14" /></>,
   play: <path d="M8 5.5v13l10.5-6.5z" />,
+  playc: <path d="M6.75 5.5v13l10.5-6.5z" />,
   pause: <><rect x="7" y="5.5" width="3.4" height="13" rx="1" /><rect x="13.6" y="5.5" width="3.4" height="13" rx="1" /></>,
   poll: <><path d="M5 20V11M12 20V4.5M19 20v-6.5" /><path d="M3.5 20.5h17" /></>,
   phone: <path d="M6.5 4h3l1.5 4-2 1.3a11 11 0 005.7 5.7L16 13l4 1.5v3a2 2 0 01-2.2 2A15.5 15.5 0 014.5 6.2 2 2 0 016.5 4z" />,

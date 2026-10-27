@@ -1,0 +1,35 @@
+/* A shared clip in a chat (ClipEmbed.jsx): cover picture + play button, and the full-screen viewer it opens. */
+.clip-embed { display: flex; flex-direction: column; gap: 8px; width: 240px; max-width: 100%; margin-top: 6px; padding: 8px; box-sizing: border-box; border-radius: 14px; border: 1px solid var(--line, rgba(127,127,127,.25)); background: var(--bg2, var(--field)); color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.clip-embed:hover { border-color: var(--line2, rgba(127,127,127,.5)); }
+.clip-embed:focus-visible { outline: 2px solid var(--accent, #6aa7ff); outline-offset: 2px; }
+.ce-thumb { position: relative; display: block; width: 100%; aspect-ratio: var(--ratio, .5625); max-height: 360px; border-radius: 10px; overflow: hidden; background: #000; }
+.ce-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+/* the play button: a darker rounded square with the triangle exactly in the middle */
+.ce-play { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 18px; background: rgba(0,0,0,.55); display: grid; place-items: center; transition: background .12s, transform .12s; }
+.ce-play svg { display: block; }
+.clip-embed:hover .ce-play { background: rgba(0,0,0,.72); transform: scale(1.05); }
+.ce-meta { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ce-text { display: flex; flex-direction: column; min-width: 0; font-size: 13px; line-height: 1.3; }
+.ce-text b { font-weight: 600; color: var(--head, inherit); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ce-cap { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clip-embed.loading { cursor: default; }
+.clip-embed.loading .ce-thumb { aspect-ratio: 9 / 16; max-height: 300px; background: var(--field, rgba(127,127,127,.2)); }
+.clip-embed.gone { cursor: default; padding: 12px; }
+.ce-gone { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+
+/* the viewer: over the whole app, the video in the middle, Back to chat top left */
+.cv-back { position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,.88); display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+.cv-exit { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: 14px; z-index: 5; display: inline-flex; align-items: center; gap: 6px; height: 40px; padding: 0 16px 0 12px; border: 0; border-radius: 999px; background: rgba(255,255,255,.16); color: #fff; font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
+.cv-exit:hover { background: rgba(255,255,255,.26); }
+.cv-exit:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.cv-exit .icon { color: #fff; }
+.cv-stage { display: flex; align-items: center; justify-content: center; max-width: 100%; }
+.cv-stage .vp { height: min(calc(100vh - 96px), 900px); height: min(calc(100dvh - 96px), 900px); width: auto; max-width: 100%; border-radius: 16px; }
+.cv-gone { display: flex; flex-direction: column; align-items: center; gap: 10px; color: #fff; text-align: center; }
+@media (max-width: 600px) {
+  .cv-back { padding: 0; }
+  .cv-stage { width: 100%; height: 100%; }
+  .cv-stage .vp { width: 100%; height: 100%; max-width: none; border-radius: 0; }
+  .cv-stage .vp-inner { border-radius: 0; }
+  .cv-exit { background: rgba(0,0,0,.5); }
+}

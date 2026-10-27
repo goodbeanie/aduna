@@ -98,7 +98,7 @@ function VideoAtt({ att, dm, url }) {
         onLoadedMetadata={onMeta} onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setDur(e.currentTarget.duration)}
         onTimeUpdate={(e) => setCur(e.currentTarget.currentTime)}
       />
-      {!playing && <button className="vp-big" onClick={toggle} aria-label="Play"><Icon name="play" size={26} className="fill" /></button>}
+      {!playing && <button className="vp-big" onClick={toggle} aria-label="Play"><Icon name="playc" size={26} className="fill" /></button>}
       <div className="vp-bar">
         <button className="icon-btn" title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'} onClick={toggle}><Icon name={playing ? 'pause' : 'play'} size={18} className="fill" /></button>
         <input className="vp-seek" type="range" min="0" max={dur || 0} step="0.05" value={Math.min(cur, dur || 0)} onChange={seek} disabled={!dur} aria-label="Seek" />

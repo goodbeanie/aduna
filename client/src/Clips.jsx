@@ -34,16 +34,27 @@ function probe(file) {
   });
 }
 
-// a cover picture: one frame, small enough for the server (200 KB)
-async function makeCover(p, longSide = 480) {
-  const v = p.video;
-  const at = Math.min(1, (p.duration || 1) / 2);
-  await new Promise((resolve) => { v.onseeked = resolve; v.currentTime = at; setTimeout(resolve, 3000); });
+// a cover picture: one frame (or a picture the creator chose), cropped to the video's shape, small enough for the server (200 KB)
+async function makeCover(p, longSide = 480, pick = {}) {
+  let src = p.video, sw = p.width, sh = p.height;
+  if (pick.image) {
+    try { src = await createImageBitmap(pick.image); sw = src.width; sh = src.height; }
+    catch { throw new Error('That picture could not be read'); }
+  } else {
+    const dur = p.duration || 1;
+    const at = Number.isFinite(pick.at) ? Math.min(Math.max(0, pick.at), Math.max(0, dur - 0.1)) : Math.min(1, dur / 2);
+    const v = p.video;
+    await new Promise((resolve) => { v.onseeked = resolve; v.currentTime = at; setTimeout(resolve, 3000); });
+  }
+  const ratio = p.width / p.height;
+  let cw = sw, ch = sh;
+  if (cw / ch > ratio) cw = ch * ratio; else ch = cw / ratio;
+  const cx = (sw - cw) / 2, cy = (sh - ch) / 2;
   for (const side of [longSide, 360, 240]) {
     const k = Math.min(1, side / Math.max(p.width, p.height));
     const c = document.createElement('canvas');
     c.width = even(p.width * k); c.height = even(p.height * k);
-    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    c.getContext('2d').drawImage(src, cx, cy, cw, ch, 0, 0, c.width, c.height);
     for (const q of [0.75, 0.55, 0.4]) {
       const blob = await new Promise((r) => c.toBlob(r, 'image/jpeg', q));
       if (blob && blob.size <= MAX_POSTER) return blob;
@@ -67,6 +78,24 @@ export function Uploader({ limits, onDone }) {
   const [progress, setProgress] = useState(0);
   const ctl = useRef(null);
   const busy = !!step;
+  const [prevUrl, setPrevUrl] = useState('');
+  const [dur, setDur] = useState(0);
+  const [coverAt, setCoverAt] = useState(null); // seconds into the video, or null for the automatic frame
+  const [coverImg, setCoverImg] = useState(null); // a picture the creator chose instead of a frame
+  const [coverImgUrl, setCoverImgUrl] = useState('');
+  const pv = useRef(null);
+  useEffect(() => {
+    if (!file) { setPrevUrl(''); return undefined; }
+    const u = URL.createObjectURL(file);
+    setPrevUrl(u); setDur(0); setCoverAt(null); setCoverImg(null);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  useEffect(() => {
+    if (!coverImg) { setCoverImgUrl(''); return undefined; }
+    const u = URL.createObjectURL(coverImg);
+    setCoverImgUrl(u);
+    return () => URL.revokeObjectURL(u);
+  }, [coverImg]);
 
   const cancel = () => { ctl.current?.abort(); };
   const go = async () => {
@@ -86,7 +115,7 @@ export function Uploader({ limits, onDone }) {
         onProgress: setProgress, signal: ctl.current.signal,
         target: Math.max(1, limits.maxMb - 1) * MB, limit: limits.maxMb * MB, maxSide: 1280, maxSeconds: limits.maxSeconds, mp4Only: true,
       });
-      const cover = await makeCover(p);
+      const cover = await makeCover(p, 480, { at: coverAt, image: coverImg });
       const k = Math.min(1, 1280 / Math.max(p.width, p.height));
       setStep('Uploading'); setProgress(0);
       const up = await api('/clips/upload-url', { method: 'POST', body: {
@@ -124,6 +153,29 @@ export function Uploader({ limits, onDone }) {
       </div>
       {file && (
         <>
+          <div className="clip-cover">
+            <div className="clip-cover-pic">
+              {coverImgUrl
+                ? <img src={coverImgUrl} alt="Cover picture" />
+                : <video ref={pv} src={prevUrl} muted playsInline preload="auto" onLoadedMetadata={(e) => { const d = e.currentTarget.duration || 0; setDur(d); e.currentTarget.currentTime = Math.min(1, (d || 1) / 2); }} />}
+            </div>
+            <div className="clip-cover-ctl">
+              <b>Cover picture</b>
+              <span className="muted">This is what people see in chat before they press play.</span>
+              {!coverImgUrl && dur > 0 && (
+                <input type="range" min="0" max={dur} step="0.1" disabled={busy} aria-label="Pick a frame for the cover"
+                  value={coverAt ?? Math.min(1, dur / 2)}
+                  onChange={(e) => { const t = Number(e.target.value); setCoverAt(t); if (pv.current) pv.current.currentTime = t; }} />
+              )}
+              <div className="clip-up-row">
+                <label className={'btn' + (busy ? ' disabled' : '')}>
+                  Upload a picture
+                  <input type="file" accept="image/*" hidden disabled={busy} onChange={(e) => { setCoverImg(e.target.files?.[0] || null); e.target.value = ''; }} />
+                </label>
+                {coverImg && <button type="button" className="btn" disabled={busy} onClick={() => setCoverImg(null)}>Use a video frame</button>}
+              </div>
+            </div>
+          </div>
           <input className="clip-caption" value={caption} maxLength={150} placeholder="Add a caption (optional)" disabled={busy} onChange={(e) => setCaption(e.target.value)} />
           <label className="dash-check">
             <input type="checkbox" checked={rights} disabled={busy} onChange={(e) => setRights(e.target.checked)} />
@@ -170,7 +222,7 @@ export function ClipCard({ clip, onChange, onGone, reel }) {
       <div className="clip-who">
         <a className="clip-ava" href={`/clips/user/${clip.owner.id}`} aria-label={`${who}'s page`}><Avatar user={{ ...clip.owner, id: clip.owner.id }} size={32} /></a>
         <a className="clip-name" href={`/clips/user/${clip.owner.id}`}><b>{who}</b></a>
-        <span className="muted">{ago(clip.createdAt)} · {left(clip.expiresAt)}</span>
+        <span className="muted">{reel ? `${compact(clip.views)} ${clip.views === 1 ? 'view' : 'views'} · ` : ''}{ago(clip.createdAt)} · {left(clip.expiresAt)}</span>
         <FollowButton clip={clip} onChange={onChange} />
       </div>
       <VideoPlayer inView ratio={ratio} src={clip.url} poster={clip.poster} onPlay={play} onDoubleLike={doubleLike} info={info}>

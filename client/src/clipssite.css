@@ -47,6 +47,21 @@
 .yt-dash a.cs-me-item { display: block; padding: 10px 12px; border-radius: 8px; color: var(--text); font-size: 14px; }
 .yt-dash a.cs-me-item:hover, .yt-dash a.cs-me-item:focus-visible { background: var(--hover); outline: none; }
 
+/* ---- like / comments / share / "..." as a column on the right of the video, like Reels (a phone; a wide screen moves it outside, below) ---- */
+.cs .clip.reel .vp-bottom { align-items: flex-end; padding: 0 8px 34px 0; }
+.cs .ca-overlay { width: auto; }
+.cs .ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 10px; padding: 0; }
+.cs .ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 52px; height: auto; padding: 0; gap: 2px; background: none; color: #fff; font-size: 12px; }
+.cs .ca-overlay .ca-btn:hover, .cs .ca-overlay .ca-btn.open { background: none; }
+.cs .ca-overlay .ca-btn svg { width: 44px; height: 44px; padding: 11px; box-sizing: border-box; border-radius: 50%; background: rgba(0,0,0,.35); transition: background .12s; }
+.cs .ca-overlay .ca-btn:hover svg, .cs .ca-overlay .ca-btn.open svg { background: rgba(0,0,0,.55); }
+.cs .ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.25); }
+.cs .ca-overlay .ca-btn.ca-icon { width: 52px; }
+.cs .ca-overlay .ca-views, .cs .ca-overlay .ca-grow { display: none; } /* the view count is in the line above the video (and over it on a wide screen) */
+.cs .ca-overlay .ca-more { position: relative; }
+.cs .ca-overlay .ca-menu { left: auto; right: calc(100% + 8px); bottom: 0; }
+.cs .ca-overlay .ca-report { position: absolute; right: 64px; bottom: 0; width: min(280px, 70vw); margin: 0; box-sizing: border-box; }
+
 @media (max-width: 700px) {
   .cs-main { padding: 16px 12px 110px; }
   .cs-main.cs-feeding { padding: 0; }
@@ -77,7 +92,7 @@
   .cs .ca-overlay .ca-views, .cs .ca-overlay .ca-grow { display: none; }
   .cs .ca-overlay .ca-more { position: relative; }
   .cs .ca-overlay .ca-menu { left: calc(100% + 8px); right: auto; bottom: 0; }
-  .cs .ca-overlay .ca-report { position: absolute; left: calc(100% + 8px); bottom: 0; width: 280px; margin: 0; box-sizing: border-box; }
+  .cs .ca-overlay .ca-report { position: absolute; left: calc(100% + 8px); right: auto; bottom: 0; width: 280px; margin: 0; box-sizing: border-box; }
 
   /* creator and caption over the video */
   .cs .clip.reel .vp-info { display: flex; left: 18px; right: 18px; bottom: 26px; }

@@ -4,6 +4,7 @@ import EmojiPicker from './EmojiPicker.jsx';
 import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
 import { Rich, useEmoji } from './Emoji.jsx';
 import { InviteCard, inviteCodesIn } from './Invite.jsx';
+import { ClipEmbed, clipIdsIn, isOnlyClipLink } from './ClipEmbed.jsx';
 import { MentionMenu, fromMentionTokens, mentionPreview, toMentionTokens, useMentionComplete } from './Mentions.jsx';
 import { useTypingProof } from './typing.js';
 import { BotTag } from './Bots.jsx';
@@ -220,10 +221,11 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           )}
           {editing
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > 2000) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
-            : (m.content || m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+            : (m.content || m.editedAt) && !(isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {m.poll && <PollCard m={m} users={users} me={me} onVote={onVote} onClose={onClosePoll} canClose={canDelete} />}
           {m.invite && <InviteCard code={m.invite} />}
           {!editing && inviteCodesIn(m.content).filter((c) => c !== m.invite).map((c) => <InviteCard key={c} code={c} />)}
+          {!editing && clipIdsIn(m.content).map((id) => <ClipEmbed key={id} id={id} />)}
           <Attachments atts={m.attachments} dm={dm} onOpen={(v) => onOpen({ ...v, dm })} />
           {Object.keys(m.reactions || {}).length > 0 && (
             <div className="reactions">
