@@ -24,7 +24,7 @@
 .cv-exit:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .cv-exit .icon { color: #fff; }
 .cv-stage { display: flex; align-items: center; justify-content: center; max-width: 100%; }
-.cv-stage .vp { height: min(calc(100vh - 96px), 900px); height: min(calc(100dvh - 96px), 900px); width: auto; max-width: 100%; border-radius: 16px; }
+.cv-stage .vp { width: min(calc(100vw - 48px), calc((100vh - 96px) * var(--ratio, .5625))); height: auto; border-radius: 16px; }
 .cv-gone { display: flex; flex-direction: column; align-items: center; gap: 10px; color: #fff; text-align: center; }
 @media (max-width: 600px) {
   .cv-back { padding: 0; }

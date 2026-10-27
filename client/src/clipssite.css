@@ -75,9 +75,10 @@
   .cs-slide { padding: 16px 0; }
 
   /* video height = the slide minus its padding (container units where supported, the viewport otherwise) */
-  .cs .clip.reel { --vh: min(calc(100dvh - 56px - 32px), 980px); position: relative; width: calc(var(--vh) * var(--ratio, .5625)); max-width: 100%; gap: 0; }
-  @supports (height: 1cqh) { .cs .clip.reel { --vh: min(calc(100cqh - 32px), 980px); } }
-  .cs .clip.reel .vp { height: var(--vh); width: 100%; max-height: none; }
+  /* the video is as big as the space allows, whatever its shape: it is fitted inside (height of the slide) x (width minus room for the button column) */
+  .cs .clip.reel { --vh: calc(100dvh - 56px - 32px); --vw: calc(100vw - 220px); position: relative; width: min(var(--vw), calc(var(--vh) * var(--ratio, .5625))); max-width: none; gap: 0; }
+  @supports (height: 1cqh) { .cs .clip.reel { --vh: calc(100cqh - 32px); --vw: calc(100cqw - 220px); } }
+  .cs .clip.reel .vp { height: auto; width: 100%; max-height: none; aspect-ratio: var(--ratio, .5625); }
 
   /* the column of buttons, outside the video on its right, level with its bottom */
   .cs .clip.reel .vp-bottom { inset: auto; top: auto; right: auto; left: calc(100% + 14px); bottom: 0; width: 60px; padding: 0; align-items: center; }
