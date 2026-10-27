@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { Avatar } from './ui.jsx';
 import { DialogHost } from './Dialogs.jsx';
 import ClipActions, { exact } from './ClipActions.jsx';
+import { VideoPlayer } from './Clips.jsx';
 import './dash.css';
 
 // A single clip on its own page: /clips/<clip id>. The same link works for sharing. You have to be signed in to Aduna to watch (like the feed).
@@ -61,7 +62,7 @@ export default function ClipPage({ id }) {
         {state === 'ready' && clip && (
           <>
             <div className="watch-player">
-              <video className="watch-video" style={{ aspectRatio: String(ratio) }} src={clip.url} poster={clip.poster} controls loop playsInline autoPlay onPlay={play} />
+              <VideoPlayer inline className="watch-video" style={{ aspectRatio: String(ratio) }} src={clip.url} poster={clip.poster} autoPlay onPlay={play} />
             </div>
             <div className="watch-info">
               {clip.caption && <h1 className="watch-title">{clip.caption}</h1>}

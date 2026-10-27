@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Uploader, Mine } from './Clips.jsx';
 import { DialogHost, toast } from './Dialogs.jsx';
+import { IconAnalytics, IconContent, IconDashboard, IconUpload } from './DashIcons.jsx';
 import './dash.css';
 
 // What a creator agrees to. Shown in a pop-up on /dashboard before anyone can post. The numbers here (30 seconds, 720p, 7 days) match the server's limits.
@@ -99,10 +100,10 @@ function TermsMenu({ limits, busy, onAccept, onClose }) {
 
 // ---------- the pages of the dashboard ----------
 const PAGES = [
-  ['dashboard', 'Dashboard', '▦'],
-  ['upload', 'Upload', '⬆'],
-  ['content', 'Content', '▶'],
-  ['analytics', 'Analytics', '▮'],
+  ['dashboard', 'Dashboard', <IconDashboard key="d" />],
+  ['upload', 'Upload', <IconUpload key="u" />],
+  ['content', 'Content', <IconContent key="c" />],
+  ['analytics', 'Analytics', <IconAnalytics key="a" />],
 ];
 const pageFromHash = () => { const h = (typeof location !== 'undefined' ? location.hash : '').replace('#', ''); return PAGES.some((p) => p[0] === h) ? h : 'dashboard'; };
 const n0 = (n) => Number(n || 0).toLocaleString();
@@ -139,8 +140,8 @@ function Overview({ rows, followers, go }) {
           <Stat value={t.comments} label="Comments" />
         </div>
         <div className="dash-actions">
-          <button className="btn primary" onClick={() => go('upload')}>⬆ Upload a clip</button>
-          <button className="btn" onClick={() => go('analytics')}>▮ See analytics</button>
+          <button className="btn primary" onClick={() => go('upload')}><IconUpload size={16} /> Upload a clip</button>
+          <button className="btn" onClick={() => go('analytics')}><IconAnalytics size={16} /> See analytics</button>
         </div>
       </div>
       <div className="dash-card">
@@ -158,6 +159,52 @@ function Overview({ rows, followers, go }) {
             </div>
           )}
         {!!latest.length && <div><button className="btn" onClick={() => go('content')}>All your content</button></div>}
+      </div>
+    </>
+  );
+}
+
+// Analytics for ONE video: opened by clicking it on the Content page. Numbers come from the same list as everything else (viewsByDay is kept for 30 days).
+const DAYMS = 24 * 3600 * 1000;
+const dayKey = (t) => new Date(t).toISOString().slice(0, 10);
+const fmtDate = (t) => (t ? new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '–');
+function VideoAnalytics({ clip, onBack }) {
+  const by = clip.viewsByDay || {};
+  const days = [];
+  for (let i = 13; i >= 0; i--) { const k = dayKey(Date.now() - i * DAYMS); days.push({ k, n: by[k] || 0 }); }
+  const max = Math.max(1, ...days.map((d) => d.n));
+  const counted = days.reduce((s, d) => s + d.n, 0);
+  const reactions = (clip.likes || 0) + (clip.comments || 0) + (clip.shares || 0);
+  return (
+    <>
+      <div className="dash-card">
+        <button className="dash-link" onClick={onBack}>← All content</button>
+        <h2 className="va-title">{clip.caption || 'No caption'}</h2>
+        <p className="muted clip-note">{STATE[clip.state] || clip.state}{clip.why ? ' · ' + clip.why : ''} · Posted {fmtDate(clip.liveAt || clip.createdAt)}{clip.expiresAt && clip.available ? ` · Removed ${fmtDate(clip.expiresAt)}` : ''}</p>
+        <div className="dash-stats">
+          <Stat value={clip.views} label="Views" />
+          <Stat value={clip.likes} label="Likes" />
+          <Stat value={clip.comments} label="Comments" />
+          <Stat value={clip.shares} label="Shares" />
+        </div>
+        <p className="muted clip-note">
+          Engagement: {clip.views ? pct(reactions / clip.views) : '0%'} of views led to a like, comment or share.
+          {clip.seconds ? ` Length: ${Math.round(clip.seconds)}s.` : ''}{clip.reports ? ` Reports: ${clip.reports}.` : ''}
+        </p>
+        {clip.available && clip.state === 'live' && <div><a className="btn" href={`/clips/${clip.id}`}><IconContent size={16} /> Watch video</a></div>}
+      </div>
+      <div className="dash-card">
+        <h2>Views, last 14 days</h2>
+        <div className="dash-bars" role="img" aria-label="Views per day for this video">
+          {days.map((d) => (
+            <div key={d.k} className="dash-bar" title={`${d.k}: ${n0(d.n)} views`}>
+              <span className="dash-bar-n">{n0(d.n)}</span>
+              <i style={{ height: Math.max(3, Math.round((d.n / max) * 100)) + '%' }} />
+              <span className="dash-bar-l">{d.k.slice(5)}</span>
+            </div>
+          ))}
+        </div>
+        {counted < (clip.views || 0) && <p className="muted clip-note">Daily counts start from the first view after daily tracking was added, so they can add up to less than the total.</p>}
       </div>
     </>
   );
@@ -233,6 +280,7 @@ export default function Dashboard() {
   const [rows, setRows] = useState(null); // your clips with their numbers (null while loading)
   const [followers, setFollowers] = useState(0);
   const [q, setQ] = useState('');
+  const [openId, setOpenId] = useState(null); // the video whose analytics are open on the Content page
 
   const loadRows = () => api('/clips/mine').then((r) => setRows(r.clips)).catch(() => setRows([]));
   const load = async () => {
@@ -332,13 +380,18 @@ export default function Dashboard() {
             </div>
           )}
 
-          {state === 'ready' && limits && page === 'content' && (
-            <div className="dash-card" id="content">
-              <h2>Channel content</h2>
-              {q.trim() && <p className="muted clip-note">Showing clips that match “{q.trim()}”. <button className="dash-link" onClick={() => setQ('')}>Clear search</button></p>}
-              <Mine query={q} onChange={changed} />
-            </div>
-          )}
+          {state === 'ready' && limits && page === 'content' && (() => {
+            const open = openId && rows ? rows.find((c) => c.id === openId) : null;
+            if (open) return <VideoAnalytics clip={open} onBack={() => setOpenId(null)} />;
+            return (
+              <div className="dash-card" id="content">
+                <h2>Channel content</h2>
+                <p className="muted clip-note">Click a video to see its analytics.</p>
+                {q.trim() && <p className="muted clip-note">Showing clips that match “{q.trim()}”. <button className="dash-link" onClick={() => setQ('')}>Clear search</button></p>}
+                <Mine query={q} onChange={changed} onOpen={setOpenId} />
+              </div>
+            );
+          })()}
 
           {state === 'ready' && limits && page === 'analytics' && <Analytics rows={rows} followers={followers} />}
 

@@ -171,8 +171,9 @@ function view(c, users, uid, cfg) {
 // the poster's own numbers, kept after the video is gone (no file names, no list of who liked it)
 function ownerView(c) {
   return {
-    id: c.id, caption: c.caption || '', state: c.state, why: c.why || null, seconds: c.seconds, size: c.size,
+    id: c.id, caption: c.caption || '', state: c.state, why: c.why || null, seconds: c.seconds, size: c.size, width: c.width || null, height: c.height || null,
     views: c.views || 0, likes: c.likes || 0, comments: c.commentCount || 0, shares: c.shares || 0, reports: c.reportCount || 0,
+    viewsByDay: c.viewsByDay || {},
     createdAt: c.createdAt, liveAt: c.liveAt || null, expiresAt: c.expiresAt || null, purgedAt: c.purgedAt || null,
     available: !c.purgedAt && (c.state === 'live' || c.state === 'hidden'),
   };
@@ -252,9 +253,23 @@ function commentViews(c, users, uid) {
 }
 const addShare = (c) => { c.shares = (c.shares || 0) + 1; return c.shares; };
 
+// One view: the total goes up and so does today's count (UTC day), which is what the per-video analytics chart draws.
+// Only the last 30 days are kept; the running total (c.views) is never trimmed. Counting by day starts from the first view after this was added.
+const dayKey = (t) => new Date(t).toISOString().slice(0, 10);
+function addView(c, now) {
+  c.views = (c.views || 0) + 1;
+  const by = c.viewsByDay && typeof c.viewsByDay === 'object' ? c.viewsByDay : {};
+  const k = dayKey(now);
+  by[k] = (by[k] || 0) + 1;
+  const days = Object.keys(by).sort();
+  for (const old of days.slice(0, Math.max(0, days.length - 30))) delete by[old];
+  c.viewsByDay = by;
+  return c.views;
+}
+
 module.exports = {
   MB, GB, DAY, MAX_POSTER, POSTER_TYPES, MAX_CAPTION, MAX_COMMENT, FIRST_BYTES, HOLDING,
   settings, checkRequest, sniffMp4, usedBytes, hasRoom, uploadsToday, pendingOf, due, purge, objectsOf,
   addReport, shouldHide, toggleLike, isLive, view, ownerView, feed,
-  checkComment, addComment, removeComment, commentViews, addShare, toggleFollow, MAX_FOLLOWING,
+  checkComment, addComment, removeComment, commentViews, addShare, addView, dayKey, toggleFollow, MAX_FOLLOWING,
 };

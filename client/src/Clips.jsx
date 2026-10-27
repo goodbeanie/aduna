@@ -143,10 +143,42 @@ export function Uploader({ limits, onDone }) {
   );
 }
 
+// The video itself. It never just spins forever: it shows "Loading…" while the file starts, and if the file errors or nothing arrives
+// within 20 seconds it says so and offers Try again (which asks for the file again).
+export function VideoPlayer({ src, poster, className, style, autoPlay, onPlay, inline }) {
+  const [status, setStatus] = useState(src ? 'loading' : 'error'); // 'loading' | 'ready' | 'error'
+  const [tries, setTries] = useState(0);
+  useEffect(() => {
+    if (!src) { setStatus('error'); return undefined; }
+    setStatus('loading');
+    const t = setTimeout(() => setStatus((s) => (s === 'loading' ? 'error' : s)), 20000);
+    return () => clearTimeout(t);
+  }, [src, tries]);
+  const url = src && tries ? src + (src.includes('?') ? '&' : '?') + 'r=' + tries : src;
+  const ready = () => setStatus('ready');
+  return (
+    <div className={'vp' + (inline ? ' vp-inline' : '')}>
+      <video
+        key={tries} className={className} style={style} src={url} poster={poster} controls loop playsInline autoPlay={autoPlay} preload="metadata"
+        onLoadedMetadata={ready} onLoadedData={ready} onCanPlay={ready} onPlaying={ready} onPlay={onPlay}
+        onError={() => setStatus('error')}
+      />
+      {status === 'loading' && <div className="vp-msg" role="status"><span>Loading…</span></div>}
+      {status === 'error' && (
+        <div className="vp-msg vp-err" role="alert">
+          <span>This video could not be loaded.</span>
+          <button type="button" className="btn" onClick={() => setTries((n) => n + 1)}>Try again</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ClipCard({ clip, onChange, onGone }) {
   const counted = useRef(false);
   const play = (e) => {
     document.querySelectorAll('.clip video').forEach((v) => { if (v !== e.currentTarget) v.pause(); });
+    // (e.currentTarget is the playing <video>; the player wrapper passes the event straight through)
     if (!counted.current) { counted.current = true; api(`/clips/${clip.id}/view`, { method: 'POST' }).catch(() => {}); }
   };
   const ratio = clip.width && clip.height ? clip.width / clip.height : 9 / 16;
@@ -158,7 +190,7 @@ export function ClipCard({ clip, onChange, onGone }) {
         <span className="muted">{ago(clip.createdAt)} · {left(clip.expiresAt)}</span>
         <FollowButton clip={clip} onChange={onChange} />
       </div>
-      <video className="clip-video" style={{ aspectRatio: String(ratio) }} src={clip.url} poster={clip.poster} controls loop playsInline preload="none" onPlay={play} />
+      <VideoPlayer className="clip-video" style={{ aspectRatio: String(ratio) }} src={clip.url} poster={clip.poster} onPlay={play} />
       {clip.caption && <p className="clip-text">{clip.caption}</p>}
       <ClipActions clip={clip} onChange={onChange} onGone={onGone} />
     </article>
@@ -167,22 +199,28 @@ export function ClipCard({ clip, onChange, onGone }) {
 
 // "Your clips" list (dashboard Content page and the Mine tab). A live, hidden or still-uploading clip has a Delete button that asks first.
 // `query` filters by caption; `onChange` runs after a delete so the page can refresh its numbers and the posts left today.
-const CAN_DELETE = new Set(['live', 'hidden', 'pending']);
-export function Mine({ rev, query = '', onChange }) {
+// Every row can be deleted. A live, hidden or uploading clip is taken down first; one that is already removed, expired or not posted is just dropped from the list.
+// `onOpen(id)` runs when a row is clicked (the dashboard opens that video's analytics); without it a live clip links to its watch page.
+export function Mine({ rev, query = '', onChange, onOpen }) {
   const [rows, setRows] = useState(null);
   const [busy, setBusy] = useState('');
   const load = useCallback(() => api('/clips/mine').then((r) => setRows(r.clips)).catch(() => setRows([])), []);
   useEffect(() => { load(); }, [load, rev]);
 
   const remove = async (c) => {
-    const ok = await askConfirm({
+    const holding = !c.purgedAt && ['live', 'hidden', 'pending'].includes(c.state);
+    const ok = await askConfirm(holding ? {
       title: 'Delete this video?',
       body: 'This deletes the video for good, for everyone. It cannot be undone, and its comments go with it. Only the numbers (views, likes, shares) are kept.',
       confirmLabel: 'Delete video', danger: true,
+    } : {
+      title: 'Remove from your list?',
+      body: 'This clip is already gone. This removes it from your list and it will not show up again.',
+      confirmLabel: 'Remove', danger: true,
     });
     if (!ok) return;
     setBusy(c.id);
-    try { await api(`/clips/${c.id}`, { method: 'DELETE' }); toast('Video deleted'); await load(); if (onChange) onChange(); }
+    try { await api(`/clips/${c.id}`, { method: 'DELETE' }); toast(holding ? 'Video deleted' : 'Removed from your list'); await load(); if (onChange) onChange(); }
     catch (e) { toast(e.message || 'Could not delete the video', 'error'); }
     finally { setBusy(''); }
   };
@@ -196,11 +234,14 @@ export function Mine({ rev, query = '', onChange }) {
     <div className="clip-mine">
       {list.map((c) => (
         <div key={c.id} className="clip-row">
-          <div className="clip-row-main">{c.state === 'live' && c.available ? <a href={`/clips/${c.id}`}><b>{c.caption || 'No caption'}</b></a> : <b>{c.caption || 'No caption'}</b>}<span className="muted">{STATE_LABEL[c.state] || c.state}{c.why ? ' · ' + c.why : ''}</span></div>
+          <div className="clip-row-main">
+            {onOpen
+              ? <button type="button" className="clip-open" onClick={() => onOpen(c.id)} title="See analytics for this video"><b>{c.caption || 'No caption'}</b></button>
+              : c.state === 'live' && c.available ? <a href={`/clips/${c.id}`}><b>{c.caption || 'No caption'}</b></a> : <b>{c.caption || 'No caption'}</b>}
+            <span className="muted">{STATE_LABEL[c.state] || c.state}{c.why ? ' · ' + c.why : ''}</span>
+          </div>
           <div className="clip-row-nums muted">{c.views} views · {c.likes} likes · {c.comments || 0} comments · {c.shares || 0} shares{c.reports ? ` · ${c.reports} reports` : ''}</div>
-          {CAN_DELETE.has(c.state) && !c.purgedAt
-            ? <button className="btn clip-del" disabled={busy === c.id} onClick={() => remove(c)} aria-label={`Delete video ${c.caption || ''}`}><Icon name="trash" size={16} /> {busy === c.id ? 'Deleting…' : 'Delete'}</button>
-            : <span />}
+          <button className="btn clip-del" disabled={busy === c.id} onClick={() => remove(c)} aria-label={`Delete ${c.caption || 'video'}`}><Icon name="trash" size={16} /> {busy === c.id ? 'Deleting…' : 'Delete'}</button>
         </div>
       ))}
     </div>

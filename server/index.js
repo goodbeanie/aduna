@@ -2315,9 +2315,9 @@ app.get('/api/clips', auth, needClips, (req, res) => {
     limits: { maxSeconds: cfg.maxSeconds, maxMb: Math.round(cfg.maxBytes / clipsLib.MB * 10) / 10, dailyLimit: cfg.dailyLimit, left: Math.max(0, cfg.dailyLimit - clipsLib.uploadsToday(clipList(), req.user.id, now())), credits: cfg.credits, keepDays: Math.round(cfg.ttlMs / clipsLib.DAY * 10) / 10 },
   });
 });
-// your own clips, including the ones whose video has expired (the numbers stay)
+// your own clips, including the ones whose video has expired (the numbers stay). A clip you deleted from your list (dismissed) is not shown again.
 app.get('/api/clips/mine', auth, (req, res) => {
-  const mine = clipList().filter((c) => c.owner === req.user.id).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(clipsLib.ownerView);
+  const mine = clipList().filter((c) => c.owner === req.user.id && !c.dismissed).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(clipsLib.ownerView);
   res.json({ clips: mine });
 });
 // one clip, for its own page (/clips/:id). Only a live clip can be opened; after it expires or is taken down the link says "gone".
@@ -2336,7 +2336,7 @@ app.post('/api/clips/:id/view', auth, needClips, (req, res) => {
   const c = liveClipOr404(req, res);
   if (!c) return;
   if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  if (c.owner !== req.user.id && clipViewSeen.allow(req.user.id + ':' + c.id)) { c.views = (c.views || 0) + 1; store.save(); }
+  if (c.owner !== req.user.id && clipViewSeen.allow(req.user.id + ':' + c.id)) { clipsLib.addView(c, now()); store.save(); }
   res.json({ views: c.views || 0 });
 });
 app.post('/api/clips/:id/like', auth, needClips, (req, res) => {
@@ -2397,13 +2397,17 @@ app.post('/api/clips/:id/report', auth, needClips, (req, res) => {
   store.save();
   res.json({ ok: true });
 });
-// the poster takes their own clip down (the numbers stay)
+// the poster takes their own clip down. A live, hidden or unfinished clip is taken down first (the video is deleted). Then it is dropped from the poster's list,
+// so a clip that was already removed (or expired, or not posted) can be deleted from the list too. The record itself stays on the server, with its numbers, as proof of what happened.
 app.delete('/api/clips/:id', auth, ah(async (req, res) => {
   const c = db().clips[req.params.id];
   if (!c || c.owner !== req.user.id) return res.status(404).json({ error: 'Not found' });
-  if (!clipsLib.HOLDING.has(c.state) || c.purgedAt) return res.json({ ok: true });
-  if (c.state === 'pending') refundClip(c);
-  await endClip(c, 'removed', 'Removed by the poster');
+  if (clipsLib.HOLDING.has(c.state) && !c.purgedAt) {
+    if (c.state === 'pending') refundClip(c);
+    await endClip(c, 'removed', 'Removed by the poster');
+  }
+  c.dismissed = now();
+  store.save();
   res.json({ ok: true });
 }));
 

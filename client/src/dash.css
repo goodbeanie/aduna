@@ -90,6 +90,11 @@
 .yt-dash .clip-row-nums { font-size: 13px; white-space: nowrap; }
 .yt-dash .clip-row { grid-template-columns: 1fr auto auto; }
 .yt-dash .clip-row.dash-row2 { grid-template-columns: 1fr auto; }
+.yt-dash .clip-open { background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; min-width: 0; }
+.yt-dash .clip-open:hover b, .yt-dash .clip-open:focus-visible b { text-decoration: underline; }
+.yt-dash .dash-ico { display: inline-block; vertical-align: -3px; flex: none; }
+.yt-dash .yt-nav span { display: inline-flex; align-items: center; justify-content: center; }
+.yt-dash .va-title { margin: 8px 0 4px; overflow-wrap: anywhere; }
 .yt-dash .clip-del { padding: 7px 12px; font-size: 13px; color: var(--danger-h); }
 .yt-dash .clip-del:hover:not(:disabled) { background: var(--err-bg); color: var(--err-fg); }
 .yt-dash .btn.primary.danger-fill { background: var(--danger); color: #fff !important; }
