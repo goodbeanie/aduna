@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, Icon } from './ui.jsx';
 import { compressVideo, canCompress } from './compress.js';
-import { toast, askConfirm } from './Dialogs.jsx';
+import { toast } from './Dialogs.jsx';
+import ClipActions, { FollowButton } from './ClipActions.jsx';
 
 const MB = 1024 * 1024;
 const MAX_POSTER = 200 * 1024; // the server's limit for the cover picture
-const REASONS = [['inappropriate', 'Inappropriate'], ['spam', 'Spam'], ['illegal', 'Illegal'], ['impersonation', 'Impersonation']];
 const STATE_LABEL = { live: 'Live', hidden: 'Hidden (reported)', pending: 'Uploading', expired: 'Expired', removed: 'Removed', rejected: 'Not posted' };
 
 const even = (n) => Math.max(2, Math.round(n / 2) * 2);
@@ -144,24 +144,10 @@ export function Uploader({ limits, onDone }) {
 }
 
 function ClipCard({ clip, onChange, onGone }) {
-  const [reporting, setReporting] = useState(false);
   const counted = useRef(false);
-  const like = async () => {
-    try { const r = await api(`/clips/${clip.id}/like`, { method: 'POST' }); onChange({ ...clip, liked: r.liked, likes: r.likes }); }
-    catch (e) { toast(e.message, 'error'); }
-  };
   const play = (e) => {
     document.querySelectorAll('.clip video').forEach((v) => { if (v !== e.currentTarget) v.pause(); });
     if (!counted.current) { counted.current = true; api(`/clips/${clip.id}/view`, { method: 'POST' }).catch(() => {}); }
-  };
-  const report = async (reason) => {
-    setReporting(false);
-    try { await api(`/clips/${clip.id}/report`, { method: 'POST', body: { reason } }); toast('Thanks, we will take a look'); }
-    catch (e) { toast(e.message, 'error'); }
-  };
-  const remove = async () => {
-    if (!(await askConfirm({ title: 'Remove this clip?', body: 'The video is deleted. Its numbers stay.', confirm: 'Remove' }))) return;
-    try { await api(`/clips/${clip.id}`, { method: 'DELETE' }); onGone(clip.id); } catch (e) { toast(e.message, 'error'); }
   };
   const ratio = clip.width && clip.height ? clip.width / clip.height : 9 / 16;
   return (
@@ -170,23 +156,11 @@ function ClipCard({ clip, onChange, onGone }) {
         <Avatar user={{ ...clip.owner, id: clip.owner.id }} size={32} />
         <b>{clip.owner.username || 'Someone'}</b>
         <span className="muted">{ago(clip.createdAt)} · {left(clip.expiresAt)}</span>
+        <FollowButton clip={clip} onChange={onChange} />
       </div>
       <video className="clip-video" style={{ aspectRatio: String(ratio) }} src={clip.url} poster={clip.poster} controls loop playsInline preload="none" onPlay={play} />
       {clip.caption && <p className="clip-text">{clip.caption}</p>}
-      <div className="clip-bar">
-        <button className={'clip-like' + (clip.liked ? ' on' : '')} onClick={like} aria-pressed={clip.liked}>{clip.liked ? '♥' : '♡'} {clip.likes}</button>
-        <span className="muted">{clip.views} views</span>
-        <span className="grow" />
-        {clip.mine
-          ? <button className="icon-btn" title="Remove" aria-label="Remove clip" onClick={remove}><Icon name="trash" size={18} /></button>
-          : <button className="icon-btn" title="Report" aria-label="Report clip" onClick={() => setReporting((v) => !v)}><Icon name="flag" size={18} /></button>}
-      </div>
-      {reporting && (
-        <div className="clip-report">
-          <span className="muted">Why are you reporting this?</span>
-          {REASONS.map(([id, label]) => <button key={id} className="btn" onClick={() => report(id)}>{label}</button>)}
-        </div>
-      )}
+      <ClipActions clip={clip} onChange={onChange} onGone={onGone} />
     </article>
   );
 }
@@ -200,8 +174,8 @@ export function Mine({ rev }) {
     <div className="clip-mine">
       {rows.map((c) => (
         <div key={c.id} className="clip-row">
-          <div className="clip-row-main"><b>{c.caption || 'No caption'}</b><span className="muted">{STATE_LABEL[c.state] || c.state}{c.why ? ' · ' + c.why : ''}</span></div>
-          <div className="clip-row-nums muted">{c.views} views · {c.likes} likes{c.reports ? ` · ${c.reports} reports` : ''}</div>
+          <div className="clip-row-main">{c.state === 'live' && c.available ? <a href={`/clips/${c.id}`}><b>{c.caption || 'No caption'}</b></a> : <b>{c.caption || 'No caption'}</b>}<span className="muted">{STATE_LABEL[c.state] || c.state}{c.why ? ' · ' + c.why : ''}</span></div>
+          <div className="clip-row-nums muted">{c.views} views · {c.likes} likes · {c.comments || 0} comments · {c.shares || 0} shares{c.reports ? ` · ${c.reports} reports` : ''}</div>
         </div>
       ))}
     </div>
@@ -209,7 +183,7 @@ export function Mine({ rev }) {
 }
 
 export default function Clips({ onBack }) {
-  const [tab, setTab] = useState('feed'); // 'feed' | 'top' | 'mine'
+  const [tab, setTab] = useState('feed'); // 'feed' | 'top' | 'following' | 'mine'
   const [clips, setClips] = useState([]);
   const [limits, setLimits] = useState(null);
   const [state, setState] = useState('loading'); // 'loading' | 'ready' | 'off' | 'error'
@@ -217,7 +191,7 @@ export default function Clips({ onBack }) {
   const [rev, setRev] = useState(0);
 
   const load = useCallback(async (append, list) => {
-    const sort = tab === 'top' ? 'top' : 'new';
+    const sort = tab === 'top' ? 'top' : tab === 'following' ? 'following' : 'new';
     const q = new URLSearchParams({ sort, limit: '10' });
     if (append && list.length) { if (sort === 'top') q.set('offset', String(list.length)); else q.set('before', String(list[list.length - 1].createdAt)); }
     try {
@@ -233,7 +207,8 @@ export default function Clips({ onBack }) {
 
   useEffect(() => { if (tab !== 'mine') load(false, []); }, [load, tab, rev]);
 
-  const swap = (c) => setClips((p) => p.map((x) => (x.id === c.id ? c : x)));
+  // a change to one clip (a like, a follow...) is kept; following a creator also updates their other clips on screen
+  const swap = (c) => setClips((p) => p.map((x) => (x.id === c.id ? c : x.owner.id === c.owner.id ? { ...x, following: c.following, owner: { ...x.owner, followers: c.owner.followers } } : x)));
   const gone = (id) => { setClips((p) => p.filter((x) => x.id !== id)); setRev((n) => n + 1); };
 
   return (
@@ -243,7 +218,7 @@ export default function Clips({ onBack }) {
         <span className="hash"><Icon name="video" size={20} /></span>
         <h3>Clips</h3>
         <div className="explore-tabs" role="tablist">
-          {[['feed', 'New'], ['top', 'Top'], ['mine', 'Mine']].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={'explore-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>{label}</button>)}
+          {[['feed', 'New'], ['top', 'Top'], ['following', 'Following'], ['mine', 'Mine']].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={'explore-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>{label}</button>)}
         </div>
       </header>
       <div className="clips-body">
@@ -258,7 +233,7 @@ export default function Clips({ onBack }) {
         )}
         {tab === 'mine' ? <Mine rev={rev} /> : state === 'ready' && (
           <>
-            {clips.length === 0 && <p className="muted clip-note">No clips yet. Be the first to post one.</p>}
+            {clips.length === 0 && <p className="muted clip-note">{tab === 'following' ? 'Nothing here yet. Tap Follow on a creator and their new clips show up here.' : 'No clips yet. Be the first to post one.'}</p>}
             <div className="clip-list">{clips.map((c) => <ClipCard key={c.id} clip={c} onChange={swap} onGone={gone} />)}</div>
             {more && <button className="btn clip-more" onClick={() => load(true, clips)}>Load more</button>}
           </>

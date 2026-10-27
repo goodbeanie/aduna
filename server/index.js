@@ -2213,7 +2213,18 @@ async function sweepClips() {
 }
 
 // creator registration: ask whether you are one, and become one by accepting the terms
-app.get('/api/clips/creator', auth, (req, res) => res.json({ creator: isClipCreator(req.user), since: req.user.clipCreator ? req.user.clipCreator.at : null, terms: CLIP_TERMS_VERSION }));
+app.get('/api/clips/creator', auth, (req, res) => res.json({ creator: isClipCreator(req.user), since: req.user.clipCreator ? req.user.clipCreator.at : null, terms: CLIP_TERMS_VERSION, followers: req.user.clipFollowerCount || 0 }));
+// follow or unfollow a creator (a second call undoes the first). Only the number of followers is ever shown, never who they are.
+const clipFollowHits = new security.RateWindow(60, 3600_000);
+app.post('/api/clips/follow/:userId', auth, needClips, (req, res) => {
+  const target = db().users[req.params.userId];
+  if (!target || !isClipCreator(target)) return res.status(404).json({ error: 'That creator was not found' });
+  if (!clipFollowHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const r = clipsLib.toggleFollow(req.user, target);
+  if (r.error) return res.status(400).json({ error: r.error });
+  store.save();
+  res.json(r);
+});
 app.post('/api/clips/creator/join', auth, (req, res) => {
   if (req.body?.accept !== true) return res.status(400).json({ error: 'Please accept the creator terms' });
   if (!req.user.clipCreator) { req.user.clipCreator = { at: now(), terms: CLIP_TERMS_VERSION }; store.save(); }
@@ -2288,7 +2299,7 @@ app.get('/api/clips', auth, needClips, (req, res) => {
   if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
   const cfg = clipsLib.settings();
   const clips = clipsLib.feed(clipList(), db().users, {
-    uid: req.user.id, sort: req.query.sort === 'top' ? 'top' : 'new', before: Number(req.query.before) || 0,
+    uid: req.user.id, sort: req.query.sort === 'top' ? 'top' : req.query.sort === 'following' ? 'following' : 'new', before: Number(req.query.before) || 0,
     offset: parseInt(req.query.offset, 10) || 0, limit: parseInt(req.query.limit, 10) || 10, now: now(),
   }, cfg);
   res.json({
@@ -2300,6 +2311,13 @@ app.get('/api/clips', auth, needClips, (req, res) => {
 app.get('/api/clips/mine', auth, (req, res) => {
   const mine = clipList().filter((c) => c.owner === req.user.id).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(clipsLib.ownerView);
   res.json({ clips: mine });
+});
+// one clip, for its own page (/clips/:id). Only a live clip can be opened; after it expires or is taken down the link says "gone".
+app.get('/api/clips/:id', auth, needClips, (req, res) => {
+  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const c = liveClipOr404(req, res);
+  if (!c || !db().users[c.owner]) return c ? res.status(404).json({ error: 'That clip is gone' }) : undefined;
+  res.json({ clip: clipsLib.view(c, db().users, req.user.id, clipsLib.settings()) });
 });
 function liveClipOr404(req, res) {
   const c = db().clips[req.params.id];
@@ -2320,6 +2338,42 @@ app.post('/api/clips/:id/like', auth, needClips, (req, res) => {
   const liked = clipsLib.toggleLike(c, req.user.id);
   store.save();
   res.json({ liked, likes: c.likes });
+});
+// comments: anyone signed in can read and write them on a live clip; you can delete your own, and the poster can delete any on their clip
+const clipCommentHits = new security.RateWindow(30, 3600_000);     // comments per person per hour
+const clipShareSeen = new security.RateWindow(1, 24 * 3600_000);   // one counted share per person per clip per day
+app.get('/api/clips/:id/comments', auth, needClips, (req, res) => {
+  const c = liveClipOr404(req, res);
+  if (!c) return;
+  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  res.json({ comments: clipsLib.commentViews(c, db().users, req.user.id), total: c.commentCount || 0 });
+});
+app.post('/api/clips/:id/comments', auth, needClips, (req, res) => {
+  const c = liveClipOr404(req, res);
+  if (!c) return;
+  const r = clipsLib.checkComment(req.body?.text, BLOCKED_WORDS);
+  if (r.error) return res.status(400).json({ error: r.error });
+  if (!clipCommentHits.allow(req.user.id)) return res.status(429).json({ error: 'You are commenting a lot. Try again in a little while.' });
+  clipsLib.addComment(c, req.user.id, r.value, now(), store.id());
+  store.save();
+  res.json({ comments: clipsLib.commentViews(c, db().users, req.user.id), total: c.commentCount || 0 });
+});
+app.delete('/api/clips/:id/comments/:cid', auth, needClips, (req, res) => {
+  const c = liveClipOr404(req, res);
+  if (!c) return;
+  const done = clipsLib.removeComment(c, req.params.cid, req.user.id);
+  if (done === false) return res.status(404).json({ error: 'That comment is gone' });
+  if (done === null) return res.status(403).json({ error: 'You can only delete your own comments' });
+  store.save();
+  res.json({ comments: clipsLib.commentViews(c, db().users, req.user.id), total: c.commentCount || 0 });
+});
+// someone copied or sent the link: counts once per person per clip per day
+app.post('/api/clips/:id/share', auth, needClips, (req, res) => {
+  const c = liveClipOr404(req, res);
+  if (!c) return;
+  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  if (clipShareSeen.allow(req.user.id + ':' + c.id)) { clipsLib.addShare(c); store.save(); }
+  res.json({ shares: c.shares || 0 });
 });
 app.post('/api/clips/:id/report', auth, needClips, (req, res) => {
   const c = db().clips[req.params.id];

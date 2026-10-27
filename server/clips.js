@@ -25,6 +25,8 @@ const MAX_POSTER = 200 * 1024;
 const POSTER_TYPES = ['image/jpeg', 'image/webp', 'image/png'];
 const MIN_VIDEO = 1024;
 const MAX_CAPTION = 150;
+const MAX_COMMENT = 300;
+const MAX_KEPT_COMMENTS = 200;
 const FIRST_BYTES = 256 * 1024; // how much of the start of a video is read to find its header (the index must be up front)
 
 const num = (v, d) => (Number(v) > 0 ? Number(v) : d);
@@ -130,6 +132,7 @@ function purge(c, state, now) {
   c.purgedAt = c.purgedAt || now;
   c.key = null; c.posterKey = null;
   c.likedBy = [];
+  c.comments = []; // the words go with the video; commentCount and shares stay
   return c;
 }
 const objectsOf = (c) => [c.key, c.posterKey].filter(Boolean);
@@ -152,14 +155,16 @@ function toggleLike(c, uid) {
 
 // ---------- what clients see ----------
 const isLive = (c, now) => c.state === 'live' && !c.purgedAt && c.expiresAt > now;
+const followsOf = (users, uid) => (users[uid] && users[uid].clipFollowing) || [];
 function view(c, users, uid, cfg) {
   const o = users[c.owner];
   return {
     id: c.id, caption: c.caption || '',
-    owner: { id: c.owner, username: o ? o.username : null, avatarImage: o ? o.avatarImage || null : null },
+    owner: { id: c.owner, username: o ? o.username : null, avatarImage: o ? o.avatarImage || null : null, followers: o ? o.clipFollowerCount || 0 : 0 },
+    following: followsOf(users, uid).includes(c.owner),
     url: `${cfg.publicUrl}/${c.key}`, poster: `${cfg.publicUrl}/${c.posterKey}`,
     seconds: c.seconds, width: c.width, height: c.height,
-    views: c.views || 0, likes: c.likes || 0, liked: (c.likedBy || []).includes(uid), mine: c.owner === uid,
+    views: c.views || 0, likes: c.likes || 0, comments: c.commentCount || 0, shares: c.shares || 0, liked: (c.likedBy || []).includes(uid), mine: c.owner === uid,
     createdAt: c.liveAt || c.createdAt, expiresAt: c.expiresAt,
   };
 }
@@ -167,18 +172,19 @@ function view(c, users, uid, cfg) {
 function ownerView(c) {
   return {
     id: c.id, caption: c.caption || '', state: c.state, why: c.why || null, seconds: c.seconds, size: c.size,
-    views: c.views || 0, likes: c.likes || 0, reports: c.reportCount || 0,
+    views: c.views || 0, likes: c.likes || 0, comments: c.commentCount || 0, shares: c.shares || 0, reports: c.reportCount || 0,
     createdAt: c.createdAt, liveAt: c.liveAt || null, expiresAt: c.expiresAt || null, purgedAt: c.purgedAt || null,
     available: !c.purgedAt && (c.state === 'live' || c.state === 'hidden'),
   };
 }
-// sort 'new' pages with `before` (the liveAt of the last clip seen); sort 'top' pages with `offset`
+// sort 'new' pages with `before` (the liveAt of the last clip seen); sort 'top' pages with `offset`; sort 'following' is 'new' limited to creators you follow
 function feed(clips, users, { uid, sort = 'new', before, offset = 0, limit = 10, now = Date.now() }, cfg) {
   let list = clips.filter((c) => isLive(c, now) && users[c.owner]);
   if (sort === 'top') {
     list.sort((a, b) => (b.likes || 0) * 5 + (b.views || 0) - ((a.likes || 0) * 5 + (a.views || 0)) || b.liveAt - a.liveAt);
     list = list.slice(Math.max(0, offset));
   } else {
+    if (sort === 'following') { const f = new Set(followsOf(users, uid)); list = list.filter((c) => f.has(c.owner)); }
     list.sort((a, b) => b.liveAt - a.liveAt);
     if (before > 0) list = list.filter((c) => c.liveAt < before);
   }
@@ -186,8 +192,68 @@ function feed(clips, users, { uid, sort = 'new', before, offset = 0, limit = 10,
   return page.map((c) => view(c, users, uid, cfg));
 }
 
+// ---------- following ----------
+// A viewer's list of creators lives on their account (clipFollowing, newest 500); each creator keeps a running count (clipFollowerCount).
+// Nobody sees who follows whom, only the number. Returns { following, followers } or { error }.
+const MAX_FOLLOWING = 500;
+function toggleFollow(viewer, target) {
+  if (!viewer || !target) return { error: 'Not found' };
+  if (viewer.id === target.id) return { error: 'You cannot follow yourself' };
+  viewer.clipFollowing = viewer.clipFollowing || [];
+  const i = viewer.clipFollowing.indexOf(target.id);
+  if (i >= 0) {
+    viewer.clipFollowing.splice(i, 1);
+    target.clipFollowerCount = Math.max(0, (target.clipFollowerCount || 0) - 1);
+    return { following: false, followers: target.clipFollowerCount };
+  }
+  if (viewer.clipFollowing.length >= MAX_FOLLOWING) return { error: `You can follow up to ${MAX_FOLLOWING} creators` };
+  viewer.clipFollowing.push(target.id);
+  target.clipFollowerCount = (target.clipFollowerCount || 0) + 1;
+  return { following: true, followers: target.clipFollowerCount };
+}
+
+// ---------- comments and shares ----------
+// Comments are kept on the clip record (newest 200) and go away with the video; the NUMBER of comments stays, like the other numbers.
+function checkComment(text, words = []) {
+  const t = String(text ?? '').replace(/\s+/g, ' ').trim();
+  if (!t) return { error: 'Write something first' };
+  if (t.length > MAX_COMMENT) return { error: `Comments can be at most ${MAX_COMMENT} characters` };
+  if (listing.hasLink(t)) return { error: 'Comments cannot contain links' };
+  if (listing.blockedWord(t, words)) return { error: 'The comment contains words that are not allowed' };
+  return { value: t };
+}
+function addComment(c, uid, text, now, id) {
+  c.comments = c.comments || [];
+  const row = { id, by: uid, text, at: now };
+  c.comments.push(row);
+  if (c.comments.length > MAX_KEPT_COMMENTS) c.comments = c.comments.slice(-MAX_KEPT_COMMENTS);
+  c.commentCount = (c.commentCount || 0) + 1;
+  return row;
+}
+// the writer of a comment can delete it, and so can the person who posted the clip
+function removeComment(c, commentId, uid) {
+  const i = (c.comments || []).findIndex((x) => x.id === commentId);
+  if (i < 0) return false;
+  if (c.comments[i].by !== uid && c.owner !== uid) return null; // exists, but not yours to delete
+  c.comments.splice(i, 1);
+  c.commentCount = Math.max(0, (c.commentCount || 0) - 1);
+  return true;
+}
+function commentViews(c, users, uid) {
+  return (c.comments || []).slice().reverse().map((x) => {
+    const u = users[x.by];
+    return {
+      id: x.id, text: x.text, at: x.at,
+      user: { id: x.by, username: u ? u.username : null, avatarImage: u ? u.avatarImage || null : null },
+      mine: x.by === uid, canDelete: x.by === uid || c.owner === uid,
+    };
+  });
+}
+const addShare = (c) => { c.shares = (c.shares || 0) + 1; return c.shares; };
+
 module.exports = {
-  MB, GB, DAY, MAX_POSTER, POSTER_TYPES, MAX_CAPTION, FIRST_BYTES, HOLDING,
+  MB, GB, DAY, MAX_POSTER, POSTER_TYPES, MAX_CAPTION, MAX_COMMENT, FIRST_BYTES, HOLDING,
   settings, checkRequest, sniffMp4, usedBytes, hasRoom, uploadsToday, pendingOf, due, purge, objectsOf,
   addReport, shouldHide, toggleLike, isLive, view, ownerView, feed,
+  checkComment, addComment, removeComment, commentViews, addShare, toggleFollow, MAX_FOLLOWING,
 };

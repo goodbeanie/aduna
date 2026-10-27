@@ -141,5 +141,35 @@ if (require.main === module) {
   assert.ok(!('reports' in v) && !('likedBy' in v) && !('key' in v) && !('credits' in v), 'viewers see no reports, no list of likers, no internals');
   step('feed: only live clips, newest or top, 20 a page, nothing private in what viewers get');
 
+  // ---- comments and shares ----
+  assert.ok(clips.checkComment('   ').error && clips.checkComment(null).error, 'empty comments are refused');
+  assert.ok(clips.checkComment('x'.repeat(clips.MAX_COMMENT + 1)).error, 'too long');
+  assert.ok(clips.checkComment('see www.example.com now').error, 'no links');
+  assert.ok(clips.checkComment('you are a darn fool', ['darn']).error, 'blocked words');
+  assert.strictEqual(clips.checkComment('  nice   one \n ').value, 'nice one', 'spaces are tidied');
+  const cc = rec({ id: 'cc', owner: 'u1' });
+  const c1 = clips.addComment(cc, 'u2', 'first', 10, 'k1'); clips.addComment(cc, 'u3', 'second', 20, 'k2');
+  assert.deepStrictEqual([cc.commentCount, cc.comments.length, c1.by, c1.text], [2, 2, 'u2', 'first']);
+  const cv = clips.commentViews(cc, U, 'u2');
+  assert.deepStrictEqual(cv.map((x) => x.id), ['k2', 'k1'], 'newest first');
+  assert.deepStrictEqual([cv[1].mine, cv[1].canDelete, cv[0].mine, cv[0].canDelete], [true, true, false, false], 'you can delete your own');
+  assert.strictEqual(clips.commentViews(cc, U, 'u1')[0].canDelete, true, 'the poster can delete any comment on their clip');
+  assert.strictEqual(clips.removeComment(cc, 'k2', 'u2'), null, 'someone else cannot delete it');
+  assert.strictEqual(clips.removeComment(cc, 'nope', 'u2'), false);
+  assert.strictEqual(clips.removeComment(cc, 'k1', 'u2'), true);
+  assert.strictEqual(clips.removeComment(cc, 'k2', 'u1'), true, 'the poster deletes one');
+  assert.deepStrictEqual([cc.commentCount, cc.comments.length], [0, 0]);
+  const busy = rec({ id: 'busy' });
+  for (let i = 0; i < 250; i++) clips.addComment(busy, 'u2', 'c' + i, i, 'id' + i);
+  assert.deepStrictEqual([busy.comments.length, busy.commentCount, busy.comments[0].text], [200, 250, 'c50'], 'only the newest 200 are kept');
+  assert.strictEqual(clips.addShare(busy), 1); assert.strictEqual(clips.addShare(busy), 2);
+  const bv = clips.view({ ...busy, key: 'clips/b.mp4', posterKey: 'posters/b', liveAt: 5, expiresAt: 9 }, U, 'me', pub);
+  assert.deepStrictEqual([bv.comments, bv.shares], [250, 2], 'viewers get the numbers');
+  assert.ok(!('commentList' in bv) && !Array.isArray(bv.comments), 'but not the comments themselves');
+  clips.purge(busy, 'expired', now);
+  assert.deepStrictEqual([busy.comments.length, busy.commentCount, busy.shares], [0, 250, 2], 'purge drops the words, keeps the numbers');
+  assert.deepStrictEqual([clips.ownerView(busy).comments, clips.ownerView(busy).shares], [250, 2]);
+  step('comments: tidy, no links or blocked words, newest first, own or poster can delete, 200 kept; shares count; numbers survive expiry');
+
   console.log('\nAll clip logic tests passed.');
 }

@@ -21,6 +21,7 @@ import './plain.css';
 import './studio.css';
 import './clips.css';
 import Dashboard from './Dashboard.jsx';
+import ClipPage from './ClipPage.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';
 import { initKeyboard } from './keyboard.js';
@@ -31,6 +32,7 @@ initTheme();
 initKeyboard();
 
 startPhrases();
-// /dashboard is the creator page (upload clips); everything else is the app
+// /dashboard is the creator page (upload clips), /clips/<id> is one clip on its own page; everything else is the app
 const onDashboard = /^\/dashboard\/?$/.test(location.pathname);
-createRoot(document.getElementById('root')).render(onDashboard ? <Dashboard /> : <App />);
+const clipId = /^\/clips\/([A-Za-z0-9_-]+)\/?$/.exec(location.pathname)?.[1] || null;
+createRoot(document.getElementById('root')).render(onDashboard ? <Dashboard /> : clipId ? <ClipPage id={clipId} /> : <App />);
