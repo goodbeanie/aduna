@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { Avatar, Icon } from './ui.jsx';
 import { compressVideo, canCompress } from './compress.js';
 import { toast, askConfirm } from './Dialogs.jsx';
-import ClipActions, { FollowButton } from './ClipActions.jsx';
+import ClipActions, { FollowButton, useDoubleLike, compact } from './ClipActions.jsx';
 import { VideoPlayer } from './VideoPlayer.jsx';
 
 const MB = 1024 * 1024;
@@ -144,22 +144,36 @@ export function Uploader({ limits, onDone }) {
   );
 }
 
-export function ClipCard({ clip, onChange, onGone }) {
+export function ClipCard({ clip, onChange, onGone, reel }) {
   const counted = useRef(false);
+  const doubleLike = useDoubleLike(clip, onChange);
   const play = (e) => {
     document.querySelectorAll('.clip video').forEach((v) => { if (v !== e.currentTarget) v.pause(); });
     if (!counted.current) { counted.current = true; api(`/clips/${clip.id}/view`, { method: 'POST' }).catch(() => {}); }
   };
   const ratio = clip.width && clip.height ? clip.width / clip.height : 9 / 16;
+  const who = clip.owner.username || 'Someone';
+  // `reel` (the Clips website feed): on a wide screen the creator, caption and numbers sit over the bottom of the video
+  const info = reel ? (
+    <>
+      <div className="vp-info-who">
+        <a className="vp-info-ava" href={`/clips/user/${clip.owner.id}`} aria-label={`${who}'s page`}><Avatar user={{ ...clip.owner, id: clip.owner.id }} size={36} /></a>
+        <a className="vp-info-name" href={`/clips/user/${clip.owner.id}`}><b>{who}</b></a>
+        <FollowButton clip={clip} onChange={onChange} />
+      </div>
+      {clip.caption && <p className="vp-info-cap">{clip.caption}</p>}
+      <div className="vp-info-meta">{compact(clip.views)} {clip.views === 1 ? 'view' : 'views'} · {ago(clip.createdAt)} · {left(clip.expiresAt)}</div>
+    </>
+  ) : undefined;
   return (
-    <article className="clip">
+    <article className={'clip' + (reel ? ' reel' : '')} style={reel ? { '--ratio': String(ratio) } : undefined}>
       <div className="clip-who">
-        <a className="clip-ava" href={`/clips/user/${clip.owner.id}`} aria-label={`${clip.owner.username || 'Someone'}'s page`}><Avatar user={{ ...clip.owner, id: clip.owner.id }} size={32} /></a>
-        <a className="clip-name" href={`/clips/user/${clip.owner.id}`}><b>{clip.owner.username || 'Someone'}</b></a>
+        <a className="clip-ava" href={`/clips/user/${clip.owner.id}`} aria-label={`${who}'s page`}><Avatar user={{ ...clip.owner, id: clip.owner.id }} size={32} /></a>
+        <a className="clip-name" href={`/clips/user/${clip.owner.id}`}><b>{who}</b></a>
         <span className="muted">{ago(clip.createdAt)} · {left(clip.expiresAt)}</span>
         <FollowButton clip={clip} onChange={onChange} />
       </div>
-      <VideoPlayer inView ratio={ratio} src={clip.url} poster={clip.poster} onPlay={play}>
+      <VideoPlayer inView ratio={ratio} src={clip.url} poster={clip.poster} onPlay={play} onDoubleLike={doubleLike} info={info}>
         <ClipActions overlay clip={clip} onChange={onChange} onGone={onGone} />
       </VideoPlayer>
       {clip.caption && <p className="clip-text">{clip.caption}</p>}

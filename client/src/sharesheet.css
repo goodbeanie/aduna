@@ -18,6 +18,14 @@
 .ss-act { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: #d6d6d9; cursor: pointer; font: inherit; font-size: 12px; }
 .ss-circle { width: 52px; height: 52px; border-radius: 50%; background: rgba(255,255,255,.1); display: grid; place-items: center; color: #fff; }
 .ss-act:hover .ss-circle { background: rgba(255,255,255,.18); }
+/* asked once when this browser does not hold the message key yet */
+.ss-unlock { margin: 8px 0 4px; padding: 12px; border-radius: 12px; background: rgba(255,255,255,.06); }
+.ss-unlock p { margin: 0 0 8px; font-size: 13px; color: #d6d6d9; line-height: 1.4; }
+.ss-unlock-row { display: flex; gap: 8px; }
+.ss-unlock-row input { flex: 1; min-width: 0; height: 38px; border-radius: 999px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color: #f2f2f2; padding: 0 14px; }
+.ss-unlock-row button { height: 38px; padding: 0 16px; border: 0; border-radius: 999px; background: #fff; color: #111; font-weight: 500; cursor: pointer; }
+.ss-unlock-row button:disabled { opacity: .4; cursor: default; }
+.ss-unlock .ss-err { margin: 8px 0 0; color: #ff8a80; }
 @media (max-width: 560px) {
   .ss-back { align-items: flex-end; padding: 0; }
   .ss-panel { max-width: none; border-radius: 20px 20px 0 0; }

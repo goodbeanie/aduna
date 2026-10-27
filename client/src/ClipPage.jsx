@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar } from './ui.jsx';
 import { DialogHost } from './Dialogs.jsx';
-import ClipActions, { exact } from './ClipActions.jsx';
+import ClipActions, { exact, useDoubleLike } from './ClipActions.jsx';
 import { VideoPlayer } from './VideoPlayer.jsx';
 import './dash.css';
 
@@ -44,6 +44,7 @@ export default function ClipPage({ id }) {
   };
 
   const ratio = clip && clip.width && clip.height ? clip.width / clip.height : 9 / 16;
+  const doubleLike = useDoubleLike(clip || { id: '', liked: true }, setClip);
   return (
     <div className="yt-dash">
       <header className="yt-top">
@@ -62,7 +63,7 @@ export default function ClipPage({ id }) {
         {state === 'ready' && clip && (
           <>
             <div className="watch-player">
-              <VideoPlayer ratio={ratio} src={clip.url} poster={clip.poster} autoPlay onPlay={play}>
+              <VideoPlayer ratio={ratio} src={clip.url} poster={clip.poster} autoPlay onPlay={play} onDoubleLike={doubleLike}>
                 <ClipActions overlay clip={clip} onChange={setClip} onGone={() => setState('gone')} />
               </VideoPlayer>
             </div>

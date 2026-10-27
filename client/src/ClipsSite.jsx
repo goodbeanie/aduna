@@ -8,8 +8,12 @@ import './clipssite.css';
 
 // The Clips website: /clips is the feed, /clips/user/<id> is one person's page. It is its own page (the Clips button in Aduna opens it),
 // dark like the creator dashboard. Your picture sits bottom right; it opens a small menu: back to Aduna, your dashboard, your page.
+//
+// The feed is one clip per screen and snaps to it. A swipe, one turn of the mouse wheel, or the arrow keys / Page Up / Page Down move
+// exactly one clip (CSS scroll-snap does the touch part; the wheel and keys are handled here so a fast scroll never skips a clip).
 const TABS = [['feed', 'New'], ['top', 'Top'], ['following', 'Following']];
 const NONE = 'No content has been posted';
+const GO_MS = 600; // a move takes about this long; further wheel / key input is ignored until it is over
 
 // the picture bottom right and the menu it opens
 function MeMenu({ me }) {
@@ -40,6 +44,12 @@ function MeMenu({ me }) {
   );
 }
 
+const Chevron = ({ up }) => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d={up ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} />
+  </svg>
+);
+
 export default function ClipsSite({ userId = null }) {
   const [me, setMe] = useState(null);
   const [tab, setTab] = useState('feed'); // 'feed' | 'top' | 'following' (a person's page always shows their newest)
@@ -48,6 +58,12 @@ export default function ClipsSite({ userId = null }) {
   const [more, setMore] = useState(false);
   const [profile, setProfile] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [idx, setIdx] = useState(0); // which clip is on screen
+
+  const feedRef = useRef(null);
+  const lockUntil = useRef(0);
+  const target = useRef(0);
+  const loadingMore = useRef(false);
 
   useEffect(() => { document.title = 'Clips · Aduna'; api('/me').then((r) => setMe(r.user)).catch(() => {}); }, []);
 
@@ -71,11 +87,17 @@ export default function ClipsSite({ userId = null }) {
       setMore(r.clips.length >= 10);
       setState('ready');
     } catch (e) {
+      if (append) { setMore(false); return; } // a failed "next page" never throws away the clips already on screen
       setState(e.status === 401 ? 'signedout' : e.status === 503 ? 'off' : 'error');
     }
   }, [tab, userId]);
 
-  useEffect(() => { setState((s) => (s === 'notfound' ? s : 'loading')); load(false, []); }, [load]);
+  useEffect(() => {
+    setState((s) => (s === 'notfound' ? s : 'loading'));
+    setIdx(0); target.current = 0; lockUntil.current = 0;
+    if (feedRef.current) feedRef.current.scrollTop = 0;
+    load(false, []);
+  }, [load]);
 
   // a like or a follow on one clip is kept; following a creator also updates their other clips and their page
   const swap = (c) => {
@@ -97,6 +119,72 @@ export default function ClipsSite({ userId = null }) {
   };
 
   const ready = state === 'ready';
+  const feeding = ready && clips.length > 0;
+
+  // the newest data for the handlers below, which are set up once
+  const latest = useRef({});
+  latest.current = { clips, more, load };
+  const loadMore = useCallback(() => {
+    const s = latest.current;
+    if (!s.more || loadingMore.current) return;
+    loadingMore.current = true;
+    Promise.resolve(s.load(true, s.clips)).finally(() => { loadingMore.current = false; });
+  }, []);
+
+  // move `dir` clips (1 = next, -1 = previous), one at a time
+  const go = useCallback((dir) => {
+    const el = feedRef.current;
+    if (!el || !el.children.length) return;
+    const now = Date.now();
+    const base = now < lockUntil.current ? target.current : Math.round(el.scrollTop / Math.max(1, el.clientHeight));
+    const next = Math.min(el.children.length - 1, Math.max(0, base + dir));
+    target.current = next;
+    lockUntil.current = now + GO_MS;
+    el.scrollTo({ top: next * el.clientHeight, behavior: 'smooth' });
+    if (next >= el.children.length - 3) loadMore();
+  }, [loadMore]);
+
+  // mouse wheel and keyboard: one clip per gesture
+  useEffect(() => {
+    const el = feedRef.current;
+    if (!feeding || !el) return undefined;
+    let last = 0;
+    const onWheel = (e) => {
+      if (e.ctrlKey || Math.abs(e.deltaY) < Math.abs(e.deltaX)) return; // pinch-zoom and sideways scrolling are left alone
+      if (e.target.closest && e.target.closest('.ca-menu')) return;
+      e.preventDefault();
+      const now = Date.now();
+      const gap = now - last;
+      last = now;
+      if (Math.abs(e.deltaY) < 4 || now < lockUntil.current) return;
+      if (gap < 80) return; // the tail of a trackpad swipe that already moved one clip
+      go(e.deltaY > 0 ? 1 : -1);
+    };
+    const onKey = (e) => {
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const t = e.target;
+      if (t && t.closest && t.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (document.querySelector('.ss-back')) return; // the comments or share popup is open
+      const dir = e.key === 'ArrowDown' || e.key === 'PageDown' ? 1 : e.key === 'ArrowUp' || e.key === 'PageUp' ? -1 : 0;
+      if (!dir) return;
+      e.preventDefault();
+      if (e.repeat && Date.now() < lockUntil.current) return; // holding a key moves one clip at a time, pressing again queues the next one
+      go(dir);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('keydown', onKey);
+    return () => { el.removeEventListener('wheel', onWheel); window.removeEventListener('keydown', onKey); };
+  }, [feeding, go]);
+
+  // keep `idx` in step with what is on screen (touch swipes too), and load the next page when near the end
+  const onScroll = (e) => {
+    const el = e.currentTarget;
+    if (!feeding) return;
+    const i = Math.round(el.scrollTop / Math.max(1, el.clientHeight));
+    setIdx((p) => (p === i ? p : i));
+    if (i >= el.children.length - 3) loadMore();
+  };
+
   return (
     <div className="yt-dash cs">
       <header className="yt-top">
@@ -106,18 +194,18 @@ export default function ClipsSite({ userId = null }) {
           : <div className="yt-search" />}
       </header>
 
-      <main className="cs-main">
-        {userId && profile && (
-          <div className="cs-profile">
-            <Avatar user={profile} size={72} />
-            <div className="cs-profile-info">
-              <h1>{profile.username || 'Someone'}</h1>
-              <span className="muted">{Number(profile.followers || 0).toLocaleString()} {profile.followers === 1 ? 'follower' : 'followers'}</span>
-            </div>
-            {!profile.mine && profile.creator && <button className={'btn' + (profile.following ? '' : ' primary')} disabled={busy} onClick={follow} aria-pressed={!!profile.following}>{profile.following ? 'Following' : 'Follow'}</button>}
+      {userId && profile && (
+        <div className="cs-profile">
+          <Avatar user={profile} size={48} />
+          <div className="cs-profile-info">
+            <h1>{profile.username || 'Someone'}</h1>
+            <span className="muted">{Number(profile.followers || 0).toLocaleString()} {profile.followers === 1 ? 'follower' : 'followers'}</span>
           </div>
-        )}
+          {!profile.mine && profile.creator && <button className={'btn' + (profile.following ? '' : ' primary')} disabled={busy} onClick={follow} aria-pressed={!!profile.following}>{profile.following ? 'Following' : 'Follow'}</button>}
+        </div>
+      )}
 
+      <main ref={feedRef} className={'cs-main' + (feeding ? ' cs-feeding' : '')} onScroll={onScroll}>
         {state === 'loading' && <p className="muted cs-note">Loading…</p>}
         {state === 'signedout' && <div className="dash-card"><h2>Sign in to watch</h2><p className="muted">Open Aduna, sign in, then come back to Clips.</p><div><a className="btn primary" href="/app">Open Aduna</a></div></div>}
         {state === 'off' && <div className="dash-card"><h2>Clips are not switched on yet</h2><p className="muted">Check back soon.</p></div>}
@@ -130,13 +218,19 @@ export default function ClipsSite({ userId = null }) {
             {userId && profile && profile.mine && !profile.creator && <a className="dash-link" href="/dashboard">Become a Clips creator on your dashboard</a>}
           </div>
         )}
-        {ready && clips.length > 0 && (
-          <>
-            <div className="clip-list">{clips.map((c) => <ClipCard key={c.id} clip={c} onChange={swap} onGone={gone} />)}</div>
-            {more && <button className="btn clip-more" onClick={() => load(true, clips)}>Load more</button>}
-          </>
-        )}
+        {feeding && clips.map((c) => (
+          <section key={c.id} className="cs-slide">
+            <ClipCard reel clip={c} onChange={swap} onGone={gone} />
+          </section>
+        ))}
       </main>
+
+      {feeding && (
+        <div className="cs-nav">
+          <button type="button" className="cs-nav-btn" aria-label="Previous clip" title="Previous clip" disabled={idx <= 0} onClick={() => go(-1)}><Chevron up /></button>
+          <button type="button" className="cs-nav-btn" aria-label="Next clip" title="Next clip" disabled={idx >= clips.length - 1} onClick={() => go(1)}><Chevron /></button>
+        </div>
+      )}
 
       {me && <MeMenu me={me} />}
       <DialogHost />

@@ -158,7 +158,7 @@
 .tabbar { display: none; }
 @media (max-width: 720px) {
   .tabbar.show {
-    display: grid; grid-template-columns: repeat(4, 1fr); order: 5; flex: none;
+    display: grid; grid-template-columns: repeat(5, 1fr); order: 5; flex: none;
     background: var(--panel, var(--bg)); border-top: 1px solid var(--line);
     padding: 0 var(--s-2) env(safe-area-inset-bottom, 0px);
   }
@@ -177,6 +177,8 @@
   .tab-badge { position: absolute; top: 6px; left: calc(50% + 6px); min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box; display: grid; place-items: center;
     font-size: 11px; line-height: 1; color: var(--on-ink); background: var(--ink); border-radius: var(--s-1); }
   .tabbar button span { white-space: nowrap; }
+  /* the Clips logo as a bar icon (same mask the top bar uses), the size of the other icons */
+  .tabbar .tab-clips-mark { display: block; width: 24px; height: 22px; background: currentColor; -webkit-mask: url(/clips-logo.svg) center / contain no-repeat; mask: url(/clips-logo.svg) center / contain no-repeat; }
   .body.list-open .panel-jump { display: none; } /* the bar has Search now */
   /* the notification banner was squeezed into half the screen (left: 50%); on phones it spans the width and clears the bar */
   .notify-prompt { left: var(--s-3); right: var(--s-3); transform: none; max-width: none; }

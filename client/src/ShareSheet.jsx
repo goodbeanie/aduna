@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, connectSocket, emitAck } from './api.js';
 import { Avatar, ServerIcon } from './ui.jsx';
-import { loadKey, encryptFor } from './crypto.js';
+import { loadKey, saveKey, unlockIdentity, encryptFor } from './crypto.js';
 import { toast } from './Dialogs.jsx';
 import './sharesheet.css';
 
@@ -21,13 +21,15 @@ export default function ShareSheet({ clip, onClose, onShared }) {
   const [servers, setServers] = useState(null);
   const [q, setQ] = useState('');
   const [done, setDone] = useState({}); // id -> 'sending' | 'sent'
+  const [unlock, setUnlock] = useState(null); // { f, pw, busy, err } when this browser does not hold the message key yet
   const key = useRef(null);
+  const keyReady = useRef(null);
   const sock = useRef(null);
 
   useEffect(() => {
     let live = true;
-    (async () => {
-      try { const { user } = await api('/me'); key.current = await loadKey(user.id); } catch { /* a friend send will explain */ }
+    keyReady.current = (async () => {
+      try { const { user } = await api('/me'); key.current = await loadKey(user.id); } catch { /* a friend send will ask for the password */ }
     })();
     api('/friends').then((r) => live && setFriends(r.friends || [])).catch(() => live && setFriends([]));
     api('/servers').then((r) => live && setServers((r.servers || []).filter(firstText))).catch(() => live && setServers([]));
@@ -43,12 +45,30 @@ export default function ShareSheet({ clip, onClose, onShared }) {
     if (done[f.id]) return;
     mark(f.id, 'sending');
     try {
-      if (!key.current) throw new Error('Open Aduna once on this device to send messages from here.');
+      await keyReady.current;
+      // Messages are end-to-end encrypted with a key that is kept per browser. A browser that has never signed in here (or was cleared)
+      // does not have it yet: ask for the password once, open the key with it, keep it, and carry on with the send.
+      if (!key.current) { mark(f.id, ''); setUnlock({ f, pw: '', busy: false, err: '' }); return; }
       if (!f.publicKey) throw new Error(nameOf(f) + ' has not set up messages yet.');
       const enc = await encryptFor(key.current, f.publicKey, wrapDm(link));
       await emitAck(socket(), 'dm:send', { to: f.id, ...enc, files: [] });
       mark(f.id, 'sent'); onShared();
     } catch (e) { mark(f.id, ''); toast(e.message || 'Could not send', 'error'); }
+  };
+  const unlockNow = async () => {
+    if (!unlock || !unlock.pw || unlock.busy) return;
+    const { f, pw } = unlock;
+    setUnlock({ ...unlock, busy: true, err: '' });
+    try {
+      const { user, encPrivKey } = await api('/me');
+      if (!encPrivKey) throw new Error('This account has no message key yet. Open Aduna and sign in once.');
+      let k;
+      try { k = await unlockIdentity(encPrivKey, pw); } catch { throw new Error('That password is not right.'); }
+      try { await saveKey(user.id, k); } catch { /* it still works for this popup */ }
+      key.current = k;
+      setUnlock(null);
+      toFriend(f);
+    } catch (e) { setUnlock((u) => (u ? { ...u, busy: false, err: e.message || 'Could not unlock' } : u)); }
   };
   const toServer = async (s) => {
     if (done[s.id]) return;
@@ -86,6 +106,17 @@ export default function ShareSheet({ clip, onClose, onShared }) {
     <div className="ss-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="ss-panel" role="dialog" aria-modal="true" aria-label="Share this clip">
         <div className="ss-head"><b>Share</b><button type="button" className="ss-x" onClick={onClose} aria-label="Close">✕</button></div>
+        {unlock && (
+          <div className="ss-unlock">
+            <p>Enter your Aduna password to send messages from this browser. It never leaves your device.</p>
+            <div className="ss-unlock-row">
+              <input type="password" autoFocus autoComplete="current-password" value={unlock.pw} placeholder="Password" aria-label="Aduna password"
+                onChange={(e) => setUnlock({ ...unlock, pw: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') unlockNow(); }} />
+              <button type="button" disabled={unlock.busy || !unlock.pw} onClick={unlockNow}>{unlock.busy ? '…' : 'Unlock'}</button>
+            </div>
+            {unlock.err && <p className="ss-err">{unlock.err}</p>}
+          </div>
+        )}
         {many && <input className="ss-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search friends and servers" aria-label="Search friends and servers" />}
 
         <div className="ss-label">Friends</div>

@@ -871,6 +871,9 @@ function Main({ me, setMe, privKey, openServerId }) {
           <Icon name="message" size={22} /><span>DMs</span>
           {dmUnread + fr.incoming.length > 0 && <span className="tab-badge">{fmtN(dmUnread + fr.incoming.length)}</span>}
         </button>
+        <button onClick={() => window.location.assign('/clips')} aria-label="Clips">
+          <span className="tab-clips-mark" aria-hidden="true" /><span>Clips</span>
+        </button>
         <button onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={22} /><span>Search</span></button>
         <button onClick={() => setModal({ type: 'edit', tab: 'profile' })}><Icon name="user" size={22} /><span>You</span></button>
       </nav>

@@ -25,6 +25,19 @@ const short = (t) => {
   return Math.round(s / 86400) + 'd';
 };
 
+// Double-click (or double-tap) on the video: likes the clip. It only ever likes (a second double-click never un-likes), and a fast
+// triple-click cannot send two toggles because a request is already in flight.
+export function useDoubleLike(clip, onChange) {
+  const busy = useRef(false);
+  return async () => {
+    if (busy.current || clip.liked) return;
+    busy.current = true;
+    try { const r = await api(`/clips/${clip.id}/like`, { method: 'POST' }); onChange({ ...clip, liked: r.liked, likes: r.likes }); }
+    catch (e) { toast(e.message, 'error'); }
+    finally { busy.current = false; }
+  };
+}
+
 const HeartIcon = ({ on }) => <svg width="20" height="20" viewBox="0 0 24 24" fill={on ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.3-9.4C1.5 7.800 3.700 4.500 7 4.500c2 0 3.500 1.100 5 3 1.500-1.900 3-3 5-3 3.300 0 5.500 3.300 4.300 6.600-1.800 4.800-9.300 9.400-9.300 9.400z" /></svg>;
 const CommentIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.600 7.100L4 20.500l1.500-4.700A8 8 0 1 1 21 12z" /></svg>;
 const ShareIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7" /><path d="M12 15V3" /><path d="M7.500 7.500 12 3l4.500 4.500" /></svg>;

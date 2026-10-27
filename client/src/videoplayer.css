@@ -1,14 +1,30 @@
-/* The clip player (VideoPlayer.jsx): fills a rounded frame edge to edge, no browser controls. */
-.vp { position: relative; overflow: hidden; border-radius: 16px; background: #000; color: #fff; aspect-ratio: var(--ratio, 0.5625); isolation: isolate; }
+/* The clip player (VideoPlayer.jsx): fills a rounded frame edge to edge, no browser controls.
+   .vp is the frame; .vp-inner clips the picture to the rounded corners; .vp-bottom (the like / comment / share row) sits above it and,
+   on a wide screen, moves out to a column beside the video (see clipactions.css). */
+.vp { position: relative; border-radius: 16px; background: #000; color: #fff; aspect-ratio: var(--ratio, 0.5625); }
+.vp-inner { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; isolation: isolate; }
 .vp-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
 .vp-tap { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: pointer; z-index: 1; -webkit-tap-highlight-color: transparent; }
 .vp-tap:focus-visible { outline: 2px solid #fff; outline-offset: -3px; border-radius: inherit; }
-.vp-big { position: absolute; left: 50%; top: 50%; width: 72px; height: 72px; margin: -36px 0 0 -36px; border-radius: 50%; background: rgba(0,0,0,.45); display: grid; place-items: center; pointer-events: none; z-index: 2; }
-.vp-big svg { margin-left: 3px; }
+/* (named vp-bigplay on purpose: the chat's own video player already uses .vp-big, which moved this off-centre) */
+.vp-bigplay { position: absolute; left: 50%; top: 50%; width: 72px; height: 72px; margin: -36px 0 0 -36px; border-radius: 50%; background: rgba(0,0,0,.45); display: grid; place-items: center; pointer-events: none; z-index: 2; }
+.vp-bigplay svg { margin-left: 3px; }
 .vp-shade { position: absolute; left: 0; right: 0; bottom: 0; height: 40%; background: linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,0)); pointer-events: none; z-index: 2; }
 .vp-mute { position: absolute; top: 12px; right: 12px; width: 36px; height: 36px; border-radius: 50%; border: 0; background: rgba(0,0,0,.45); display: grid; place-items: center; cursor: pointer; z-index: 4; }
 .vp-mute:hover { background: rgba(0,0,0,.65); }
-/* whatever is drawn over the bottom of the video (like, comments, share). The box fills the frame so a comments drawer can sit above the row. */
+/* the heart that pops up where you double-tapped */
+.vp-burst { position: absolute; width: 96px; height: 96px; margin: -48px 0 0 -48px; pointer-events: none; z-index: 4; filter: drop-shadow(0 4px 14px rgba(0,0,0,.5)); animation: vp-pop .8s ease-out forwards; }
+@keyframes vp-pop { 0% { transform: scale(.3); opacity: 0; } 20% { transform: scale(1.15); opacity: 1; } 60% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.2) translateY(-34px); opacity: 0; } }
+/* creator + caption over the bottom-left of the video (wide screens only) */
+.vp-info { position: absolute; left: 16px; right: 16px; bottom: 24px; z-index: 3; display: none; flex-direction: column; gap: 8px; pointer-events: none; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6); }
+.vp-info a, .vp-info button { pointer-events: auto; }
+.vp-info-who { display: flex; align-items: center; gap: 10px; }
+.vp-info-name { color: #fff; text-decoration: none; font-size: 15px; }
+.vp-info-name:hover { text-decoration: underline; }
+.vp-info .ca-follow { margin-left: 4px; background: #fff; color: #111; text-shadow: none; }
+.vp-info-cap { margin: 0; font-size: 14px; line-height: 1.4; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.vp-info-meta { font-size: 12px; opacity: .8; }
+/* whatever is drawn over the bottom of the video. The box fills the frame. */
 .vp-bottom { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; padding-bottom: 14px; pointer-events: none; z-index: 3; }
 /* the thin position bar along the very bottom */
 .vp-seek { position: absolute; left: 0; right: 0; bottom: 0; height: 16px; cursor: pointer; z-index: 5; touch-action: none; }
@@ -20,11 +36,26 @@
 .vp-err { background: rgba(0,0,0,.72); }
 .vp-err .btn { pointer-events: auto; }
 
-/* in the feed: a portrait frame that fits the screen */
-.clip .vp { height: min(calc(100vh - 150px), 900px); width: auto; max-width: 100%; align-self: center; }
+/* in a list of clips: a portrait frame that fits the screen */
+.clip .vp { height: min(calc(100vh - 150px), 900px); height: min(calc(100dvh - 150px), 900px); width: auto; max-width: 100%; align-self: center; }
 /* on a clip's own page */
 .watch-player .vp { height: calc(100vh - 120px); width: auto; max-width: min(100%, 440px); }
 @media (max-width: 820px) {
   .watch-player { display: block; }
   .watch-player .vp { height: auto; width: 100%; max-width: 100%; max-height: 78vh; border-radius: 0; }
+  .watch-player .vp-inner { border-radius: 0; }
+}
+
+/* the /clips feed on a phone: who / caption above and below the video, one clip per screen */
+.clip.reel .clip-who, .clip.reel .clip-text { width: min(100%, 440px); box-sizing: border-box; }
+.clip.reel .clip-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.clip.reel .vp { height: min(calc(100vh - 170px), 900px); height: min(calc(100dvh - 170px), 900px); }
+
+/* a wide screen: the video fills the screen height, the creator and caption sit over it, the buttons in a column beside it */
+@media (min-width: 900px) {
+  .clip.reel .clip-who, .clip.reel .clip-text { display: none; }
+  .clip.reel .vp { height: 100%; max-height: 980px; }
+  .vp-info { display: flex; }
+  .vp-bottom { padding-bottom: 0; }
+  .watch-player { margin-right: 72px; }
 }

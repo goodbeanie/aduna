@@ -1,24 +1,41 @@
 /* The Clips website (/clips and /clips/user/<id>). Built on the dark .yt-dash palette from dash.css. */
-.yt-dash.cs .yt-top { justify-content: flex-start; }
+
+/* The page is exactly one screen tall. The top bar stays, and the feed scrolls inside the space under it. */
+.yt-dash.cs { height: 100vh; height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.yt-dash.cs .yt-top { flex: none; justify-content: flex-start; }
 .cs-tabs { display: flex; gap: 6px; margin: 0 auto; overflow-x: auto; }
 .cs-tab { height: 34px; padding: 0 16px; border-radius: 999px; border: 0; background: var(--bg3); color: var(--text); font-size: 14px; cursor: pointer; white-space: nowrap; }
 .cs-tab:hover { background: #3f3f3f; }
 .cs-tab.on { background: var(--chip-on); color: var(--on-ink); font-weight: 500; }
 .cs-tab:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
 
-.cs-main { display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 24px 16px 120px; box-sizing: border-box; }
+.cs-main { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 18px; padding: 24px 16px 120px; box-sizing: border-box; }
 .cs-main > * { width: 100%; max-width: 440px; }
 .cs-note { text-align: center; }
 
-/* a person's page header */
-.cs-profile { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding-bottom: 8px; }
+/* a person's page header (stays above the feed) */
+.cs-profile { flex: none; display: flex; align-items: center; gap: 14px; width: 100%; max-width: 440px; margin: 0 auto; padding: 12px 16px; box-sizing: border-box; border-bottom: 1px solid var(--line); }
 .cs-profile-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.cs-profile-info h1 { margin: 0; font-size: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-profile-info h1 { margin: 0; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* nothing posted */
 .cs-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 0; text-align: center; color: var(--muted); font-size: 16px; }
 .cs-empty p { margin: 0; }
 .yt-dash .dash-link { color: var(--link); font-size: 14px; }
+
+/* ---- the feed: one clip per screen, snapping ---- */
+.cs-main.cs-feeding { display: block; gap: 0; padding: 0; scroll-snap-type: y mandatory; overscroll-behavior-y: contain; scrollbar-width: none; }
+.cs-main.cs-feeding::-webkit-scrollbar { display: none; }
+.cs-main.cs-feeding > .cs-slide { width: 100%; max-width: none; }
+.cs-slide { height: 100%; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 8px 12px; scroll-snap-align: start; scroll-snap-stop: always; container-type: size; }
+.cs .clip.reel { width: 100%; max-width: 440px; }
+.yt-dash a.clip-name, .yt-dash a.clip-name:hover { color: #fff; } /* the poster's name is white, not link blue */
+/* on a phone the video takes what is left of the slide after the creator row above it and the caption below it */
+@supports (height: 1cqh) { .cs .clip.reel .vp { height: min(calc(100cqh - 120px), 900px); } }
+.cs .vp { -webkit-user-select: none; user-select: none; } /* a double-click likes; it must not select text */
+
+/* previous / next buttons (wide screens only) */
+.cs-nav { display: none; }
 
 /* your picture, bottom right, and the menu it opens */
 .cs-me { position: fixed; right: 20px; bottom: 20px; z-index: 20; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
@@ -32,5 +49,45 @@
 
 @media (max-width: 700px) {
   .cs-main { padding: 16px 12px 110px; }
+  .cs-main.cs-feeding { padding: 0; }
   .cs-me { right: 14px; bottom: 14px; }
+}
+
+/* ---- a wide screen ----
+   The video is as tall as the space allows, centred. The creator, caption and numbers sit over its bottom-left. Like / comments /
+   share / "..." are a column of round buttons to its right, and the previous / next buttons sit at the right edge of the page. */
+@media (min-width: 900px) {
+  .cs-slide { padding: 16px 0; }
+
+  /* video height = the slide minus its padding (container units where supported, the viewport otherwise) */
+  .cs .clip.reel { --vh: min(calc(100dvh - 56px - 32px), 980px); position: relative; width: calc(var(--vh) * var(--ratio, .5625)); max-width: 100%; gap: 0; }
+  @supports (height: 1cqh) { .cs .clip.reel { --vh: min(calc(100cqh - 32px), 980px); } }
+  .cs .clip.reel .vp { height: var(--vh); width: 100%; max-height: none; }
+
+  /* the column of buttons, outside the video on its right, level with its bottom */
+  .cs .clip.reel .vp-bottom { inset: auto; top: auto; right: auto; left: calc(100% + 14px); bottom: 0; width: 60px; padding: 0; align-items: center; }
+  .cs .ca-overlay { width: 100%; }
+  .cs .ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 14px; padding: 0; }
+  .cs .ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 60px; height: auto; padding: 0; gap: 4px; background: none; color: #fff; text-shadow: none; font-size: 12px; }
+  .cs .ca-overlay .ca-btn:hover, .cs .ca-overlay .ca-btn.open { background: none; }
+  .cs .ca-overlay .ca-btn svg { width: 48px; height: 48px; padding: 13px; box-sizing: border-box; border-radius: 50%; background: rgba(255,255,255,.12); transition: background .12s; }
+  .cs .ca-overlay .ca-btn:hover svg, .cs .ca-overlay .ca-btn.open svg { background: rgba(255,255,255,.24); }
+  .cs .ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.22); }
+  .cs .ca-overlay .ca-btn.ca-icon { width: 60px; }
+  .cs .ca-overlay .ca-views, .cs .ca-overlay .ca-grow { display: none; }
+  .cs .ca-overlay .ca-more { position: relative; }
+  .cs .ca-overlay .ca-menu { left: calc(100% + 8px); right: auto; bottom: 0; }
+  .cs .ca-overlay .ca-report { position: absolute; left: calc(100% + 8px); bottom: 0; width: 280px; margin: 0; box-sizing: border-box; }
+
+  /* creator and caption over the video */
+  .cs .clip.reel .vp-info { display: flex; left: 18px; right: 18px; bottom: 26px; }
+  .cs .vp-info a.vp-info-name { color: #fff; font-size: 15px; }
+  .cs .vp-info .vp-info-ava { display: block; border-radius: 50%; }
+  .cs .vp-info .vp-info-meta { font-size: 12px; opacity: .85; }
+
+  .cs-nav { position: fixed; right: 28px; top: 50%; transform: translateY(-50%); z-index: 20; display: flex; flex-direction: column; gap: 12px; }
+  .cs-nav-btn { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--bg3); color: var(--text); display: grid; place-items: center; cursor: pointer; }
+  .cs-nav-btn:hover:not(:disabled) { background: #3f3f3f; }
+  .cs-nav-btn:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
+  .cs-nav-btn:disabled { opacity: .3; cursor: default; }
 }
