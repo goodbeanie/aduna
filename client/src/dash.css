@@ -137,7 +137,8 @@ html[data-season]:has(.yt-dash) body::before, html[data-season]:has(.yt-dash) bo
 .watch-title { font-size: 20px; line-height: 1.35; margin: 0; word-break: break-word; }
 .watch-meta { font-size: 13px; }
 .watch-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.watch-who { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--head); }
+.watch-who { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--head); text-decoration: none; width: fit-content; }
+.watch-who:hover b { text-decoration: underline; }
 .yt-dash .btn.on { background: #f1f1f1; color: #0f0f0f; }
 .watch-report { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px; border-radius: 12px; background: var(--bg2); border: 1px solid var(--line); }
 

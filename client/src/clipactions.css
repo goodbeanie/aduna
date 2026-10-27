@@ -3,7 +3,33 @@
 .ca-bar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .ca-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 999px; color: var(--text); font-size: 13px; font-weight: 500; }
 .ca-btn:hover { background: var(--hover, rgba(127,127,127,.15)); }
-.ca-btn.on { color: #ff4d6d; }
+.ca-btn.on { color: #fff; } /* a liked clip: the heart fills in, still white */
+
+/* Over the bottom of the video: everything white, no boxes. The comments open as a drawer above the row. */
+.ca-overlay { gap: 8px; width: auto; position: static; }
+.ca-overlay .ca-bar { pointer-events: auto; padding: 0 10px; gap: 2px; }
+.ca-overlay .ca-btn { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.ca-overlay .ca-btn:hover, .ca-overlay .ca-btn.open { background: rgba(255,255,255,.16); }
+.ca-overlay .ca-views { color: #fff; opacity: .85; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.ca-overlay .ca-report { pointer-events: auto; margin: 0 10px; background: rgba(20,20,20,.92); border-color: rgba(255,255,255,.14); color: #fff; }
+.ca-overlay .ca-report .muted { color: #bbb; }
+.ca-overlay .ca-pill { background: rgba(255,255,255,.12); color: #fff; }
+.ca-overlay .ca-menu { background: #1d1d1f; border-color: rgba(255,255,255,.14); color: #f2f2f2; }
+.ca-overlay .ca-menu .ca-item { color: #f2f2f2 !important; }
+.ca-overlay .ca-menu .ca-item.danger { color: #ff6b6b !important; }
+.ca-overlay .ca-stats div { background: rgba(255,255,255,.07); }
+.ca-overlay .ca-stats b { color: #fff; }
+.ca-overlay .ca-stats span, .ca-overlay .ca-followers { color: #a8a8ad; }
+
+/* The comments popup (drawn outside the page, so it has its own dark colours; the card itself is .ss-panel from sharesheet.css) */
+.cs-panel { display: flex; flex-direction: column; height: min(74vh, 640px); padding-bottom: 12px; overflow: hidden; }
+.cs-panel .ca-comments { flex: 1; min-height: 0; max-height: none; padding: 0; overflow: hidden; gap: 10px; }
+.ca-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 4px 2px; }
+.cs-panel .ca-write input { background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.14); }
+.cs-panel .ca-send { background: #fff; color: #111; }
+.cs-panel .ca-body p, .cs-panel .ca-body b { color: #f2f2f2; }
+.cs-panel .ca-note, .cs-panel .ca-body .muted, .cs-panel .ca-del { color: #9a9a9f; }
+@media (max-width: 560px) { .cs-panel { height: 72vh; } }
 .ca-btn.open { background: var(--hover, rgba(127,127,127,.15)); }
 .ca-btn.ca-icon { padding: 0; width: 36px; justify-content: center; }
 .ca-views { font-size: 13px; margin-left: 8px; }

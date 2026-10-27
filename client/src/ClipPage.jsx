@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { Avatar } from './ui.jsx';
 import { DialogHost } from './Dialogs.jsx';
 import ClipActions, { exact } from './ClipActions.jsx';
-import { VideoPlayer } from './Clips.jsx';
+import { VideoPlayer } from './VideoPlayer.jsx';
 import './dash.css';
 
 // A single clip on its own page: /clips/<clip id>. The same link works for sharing. You have to be signed in to Aduna to watch (like the feed).
@@ -62,16 +62,17 @@ export default function ClipPage({ id }) {
         {state === 'ready' && clip && (
           <>
             <div className="watch-player">
-              <VideoPlayer inline className="watch-video" style={{ aspectRatio: String(ratio) }} src={clip.url} poster={clip.poster} autoPlay onPlay={play} />
+              <VideoPlayer ratio={ratio} src={clip.url} poster={clip.poster} autoPlay onPlay={play}>
+                <ClipActions overlay clip={clip} onChange={setClip} onGone={() => setState('gone')} />
+              </VideoPlayer>
             </div>
             <div className="watch-info">
               {clip.caption && <h1 className="watch-title">{clip.caption}</h1>}
               <div className="watch-meta muted">{exact(clip.views)} views · {ago(clip.createdAt)} · {left(clip.expiresAt)}</div>
-              <div className="watch-who">
+              <a className="watch-who" href={`/clips/user/${clip.owner.id}`} title={`See ${clip.owner.username || 'their'} clips`}>
                 <Avatar user={{ ...clip.owner, id: clip.owner.id }} size={40} />
                 <b>{clip.owner.username || 'Someone'}</b>
-              </div>
-              <ClipActions clip={clip} onChange={setClip} onGone={() => setState('gone')} />
+              </a>
             </div>
           </>
         )}

@@ -4,6 +4,7 @@ import { Avatar, Icon } from './ui.jsx';
 import { compressVideo, canCompress } from './compress.js';
 import { toast, askConfirm } from './Dialogs.jsx';
 import ClipActions, { FollowButton } from './ClipActions.jsx';
+import { VideoPlayer } from './VideoPlayer.jsx';
 
 const MB = 1024 * 1024;
 const MAX_POSTER = 200 * 1024; // the server's limit for the cover picture
@@ -143,56 +144,25 @@ export function Uploader({ limits, onDone }) {
   );
 }
 
-// The video itself. It never just spins forever: it shows "Loading…" while the file starts, and if the file errors or nothing arrives
-// within 20 seconds it says so and offers Try again (which asks for the file again).
-export function VideoPlayer({ src, poster, className, style, autoPlay, onPlay, inline }) {
-  const [status, setStatus] = useState(src ? 'loading' : 'error'); // 'loading' | 'ready' | 'error'
-  const [tries, setTries] = useState(0);
-  useEffect(() => {
-    if (!src) { setStatus('error'); return undefined; }
-    setStatus('loading');
-    const t = setTimeout(() => setStatus((s) => (s === 'loading' ? 'error' : s)), 20000);
-    return () => clearTimeout(t);
-  }, [src, tries]);
-  const url = src && tries ? src + (src.includes('?') ? '&' : '?') + 'r=' + tries : src;
-  const ready = () => setStatus('ready');
-  return (
-    <div className={'vp' + (inline ? ' vp-inline' : '')}>
-      <video
-        key={tries} className={className} style={style} src={url} poster={poster} controls loop playsInline autoPlay={autoPlay} preload="metadata"
-        onLoadedMetadata={ready} onLoadedData={ready} onCanPlay={ready} onPlaying={ready} onPlay={onPlay}
-        onError={() => setStatus('error')}
-      />
-      {status === 'loading' && <div className="vp-msg" role="status"><span>Loading…</span></div>}
-      {status === 'error' && (
-        <div className="vp-msg vp-err" role="alert">
-          <span>This video could not be loaded.</span>
-          <button type="button" className="btn" onClick={() => setTries((n) => n + 1)}>Try again</button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function ClipCard({ clip, onChange, onGone }) {
   const counted = useRef(false);
   const play = (e) => {
     document.querySelectorAll('.clip video').forEach((v) => { if (v !== e.currentTarget) v.pause(); });
-    // (e.currentTarget is the playing <video>; the player wrapper passes the event straight through)
     if (!counted.current) { counted.current = true; api(`/clips/${clip.id}/view`, { method: 'POST' }).catch(() => {}); }
   };
   const ratio = clip.width && clip.height ? clip.width / clip.height : 9 / 16;
   return (
     <article className="clip">
       <div className="clip-who">
-        <Avatar user={{ ...clip.owner, id: clip.owner.id }} size={32} />
+        <a className="clip-ava" href={`/clips/user/${clip.owner.id}`} aria-label={`${clip.owner.username || 'Someone'}'s page`}><Avatar user={{ ...clip.owner, id: clip.owner.id }} size={32} /></a>
         <a className="clip-name" href={`/clips/user/${clip.owner.id}`}><b>{clip.owner.username || 'Someone'}</b></a>
         <span className="muted">{ago(clip.createdAt)} · {left(clip.expiresAt)}</span>
         <FollowButton clip={clip} onChange={onChange} />
       </div>
-      <VideoPlayer className="clip-video" style={{ aspectRatio: String(ratio) }} src={clip.url} poster={clip.poster} onPlay={play} />
+      <VideoPlayer inView ratio={ratio} src={clip.url} poster={clip.poster} onPlay={play}>
+        <ClipActions overlay clip={clip} onChange={onChange} onGone={onGone} />
+      </VideoPlayer>
       {clip.caption && <p className="clip-text">{clip.caption}</p>}
-      <ClipActions clip={clip} onChange={onChange} onGone={onGone} />
     </article>
   );
 }

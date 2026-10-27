@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from './api.js';
 import { Avatar } from './ui.jsx';
 import { toast, askConfirm } from './Dialogs.jsx';
+import ShareSheet from './ShareSheet.jsx';
 import './clipactions.css';
 
 // The buttons under a clip (feed card and /clips/<id> page): like, comments, share and a "..." menu with the exact numbers
@@ -56,10 +58,7 @@ function Comments({ clip, onTotal }) {
 
   return (
     <div className="ca-comments">
-      <div className="ca-write">
-        <input value={text} maxLength={300} placeholder="Add a comment…" disabled={busy} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} />
-        <button className="ca-send" disabled={busy || !text.trim()} onClick={send}>Post</button>
-      </div>
+      <div className="ca-list">
       {!rows && <p className="muted ca-note">Loading…</p>}
       {rows && !rows.length && <p className="muted ca-note">No comments yet. Be the first.</p>}
       {rows && rows.map((cm) => (
@@ -72,7 +71,30 @@ function Comments({ clip, onTotal }) {
           {cm.canDelete && <button className="ca-del" title="Delete comment" aria-label="Delete comment" onClick={() => del(cm)}>✕</button>}
         </div>
       ))}
+      </div>
+      <div className="ca-write">
+        <input value={text} maxLength={300} placeholder="Add a comment…" disabled={busy} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') send(); }} />
+        <button className="ca-send" disabled={busy || !text.trim()} onClick={send}>Post</button>
+      </div>
     </div>
+  );
+}
+
+// The comments open as a popup over the page (like Reels / Shorts): a card on a computer, a sheet from the bottom on a phone.
+function CommentsSheet({ clip, onTotal, onClose }) {
+  useEffect(() => {
+    const esc = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onClose]);
+  return createPortal(
+    <div className="ss-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="ss-panel cs-panel" role="dialog" aria-modal="true" aria-label="Comments">
+        <div className="ss-head"><b>Comments{clip.comments ? ' · ' + compact(clip.comments) : ''}</b><button type="button" className="ss-x" onClick={onClose} aria-label="Close">✕</button></div>
+        <Comments clip={clip} onTotal={onTotal} />
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -93,11 +115,15 @@ export function FollowButton({ clip, onChange }) {
   return <button className={'ca-follow' + (clip.following ? ' on' : '')} disabled={busy} onClick={toggle} aria-pressed={!!clip.following}>{clip.following ? 'Following' : 'Follow'}</button>;
 }
 
-export default function ClipActions({ clip, onChange, onGone }) {
+// `overlay`: drawn in white over the bottom of the video (see VideoPlayer). Comments and Share open as popups (CommentsSheet, ShareSheet).
+export default function ClipActions({ clip, onChange, onGone, overlay }) {
   const [menu, setMenu] = useState(false);
   const [open, setOpen] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const box = useRef(null);
+  const latest = useRef(clip);
+  latest.current = clip;
 
   useEffect(() => {
     if (!menu) return undefined;
@@ -111,15 +137,8 @@ export default function ClipActions({ clip, onChange, onGone }) {
     try { const r = await api(`/clips/${clip.id}/like`, { method: 'POST' }); onChange({ ...clip, liked: r.liked, likes: r.likes }); }
     catch (e) { toast(e.message, 'error'); }
   };
-  const share = async () => {
-    const link = `${location.origin}/clips/${clip.id}`;
-    let sent = false;
-    try {
-      if (navigator.share) { await navigator.share({ url: link, title: clip.caption || 'A clip on Aduna' }); sent = true; }
-      else { await navigator.clipboard.writeText(link); toast('Link copied'); sent = true; }
-    } catch (e) { if (e && e.name !== 'AbortError') { toast(link); sent = true; } }
-    if (sent) api(`/clips/${clip.id}/share`, { method: 'POST' }).then((r) => onChange({ ...clip, shares: r.shares })).catch(() => {});
-  };
+  // Each time the share sheet sends the clip somewhere (a friend, a server, copy, the device's own menu) it counts as a share.
+  const shared = () => api(`/clips/${clip.id}/share`, { method: 'POST' }).then((r) => onChange({ ...latest.current, shares: r.shares })).catch(() => {});
   const report = async (reason) => {
     setReporting(false);
     try { await api(`/clips/${clip.id}/report`, { method: 'POST', body: { reason } }); toast('Thanks, we will take a look'); }
@@ -132,11 +151,11 @@ export default function ClipActions({ clip, onChange, onGone }) {
   };
 
   return (
-    <div className="ca">
+    <div className={'ca' + (overlay ? ' ca-overlay' : '')}>
       <div className="ca-bar">
         <button className={'ca-btn' + (clip.liked ? ' on' : '')} onClick={like} aria-pressed={clip.liked} aria-label="Like" title="Like"><HeartIcon on={clip.liked} /><span>{compact(clip.likes)}</span></button>
         <button className={'ca-btn' + (open ? ' open' : '')} onClick={() => setOpen((v) => !v)} aria-expanded={open} aria-label="Comments" title="Comments"><CommentIcon /><span>{compact(clip.comments)}</span></button>
-        <button className="ca-btn" onClick={share} aria-label="Share" title="Share"><ShareIcon /><span>{compact(clip.shares)}</span></button>
+        <button className="ca-btn" onClick={() => setSharing(true)} aria-label="Share" title="Share"><ShareIcon /><span>{compact(clip.shares)}</span></button>
         <span className="ca-views muted">{compact(clip.views)} views</span>
         <span className="ca-grow" />
         <div className="ca-more" ref={box}>
@@ -165,7 +184,8 @@ export default function ClipActions({ clip, onChange, onGone }) {
           <button className="ca-pill" onClick={() => setReporting(false)}>Cancel</button>
         </div>
       )}
-      {open && <Comments clip={clip} onTotal={(n) => n !== clip.comments && onChange({ ...clip, comments: n })} />}
+      {open && <CommentsSheet clip={clip} onClose={() => setOpen(false)} onTotal={(n) => n !== latest.current.comments && onChange({ ...latest.current, comments: n })} />}
+      {sharing && <ShareSheet clip={clip} onClose={() => setSharing(false)} onShared={shared} />}
     </div>
   );
 }
