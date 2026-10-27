@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import './clips.css';
 import { api } from './api.js';
 import { Avatar, Icon } from './ui.jsx';
 import { compressVideo, canCompress } from './compress.js';
@@ -57,9 +56,12 @@ async function put(target, body) {
   if (!r.ok) throw new Error('The upload did not go through (' + r.status + ')');
 }
 
-function Uploader({ limits, onDone }) {
+// The upload form. It lives on the /dashboard page (see Dashboard.jsx). Every check that can be made on the device is made here
+// before anything is sent; the server checks the same things again on what arrives.
+export function Uploader({ limits, onDone }) {
   const [file, setFile] = useState(null);
   const [caption, setCaption] = useState('');
+  const [rights, setRights] = useState(false);
   const [step, setStep] = useState(''); // '' | 'Making the clip' | 'Uploading' | 'Checking'
   const [progress, setProgress] = useState(0);
   const ctl = useRef(null);
@@ -71,10 +73,14 @@ function Uploader({ limits, onDone }) {
     ctl.current = new AbortController();
     let p = null;
     try {
-      setStep('Making the clip'); setProgress(0);
+      if (!/^video\//.test(file.type || '')) throw new Error('That is not a video file');
+      setStep('Checking the video'); setProgress(0);
       p = await probe(file);
       if (!Number.isFinite(p.duration) || !p.width) throw new Error('This video could not be read');
+      if (p.height <= p.width) throw new Error('Clips must be portrait (taller than wide). Turn the video or pick another one.');
+      if (p.duration > limits.maxSeconds + 0.3) throw new Error(`Clips can be at most ${limits.maxSeconds} seconds. This one is ${Math.round(p.duration)} seconds. Trim it first.`);
       const seconds = Math.floor(Math.min(p.duration, limits.maxSeconds) * 10) / 10;
+      setStep('Making the clip');
       const out = await compressVideo(file, {
         onProgress: setProgress, signal: ctl.current.signal,
         target: Math.max(1, limits.maxMb - 1) * MB, limit: limits.maxMb * MB, maxSide: 1280, maxSeconds: limits.maxSeconds, mp4Only: true,
@@ -84,7 +90,7 @@ function Uploader({ limits, onDone }) {
       setStep('Uploading'); setProgress(0);
       const up = await api('/clips/upload-url', { method: 'POST', body: {
         size: out.size, posterSize: cover.size, posterType: 'image/jpeg', seconds,
-        width: even(p.width * k), height: even(p.height * k), caption,
+        width: even(p.width * k), height: even(p.height * k), caption, rights: true,
       } });
       await Promise.all([put(up.video, out), put(up.poster, cover)]);
       setStep('Checking');
@@ -95,7 +101,7 @@ function Uploader({ limits, onDone }) {
       }
       if (!done) throw new Error('The upload did not arrive. Try again.');
       toast('Clip posted');
-      setFile(null); setCaption('');
+      setFile(null); setCaption(''); setRights(false);
       onDone();
     } catch (e) {
       if (!e.cancelled) toast(e.message || 'Could not post the clip', 'error');
@@ -118,15 +124,19 @@ function Uploader({ limits, onDone }) {
       {file && (
         <>
           <input className="clip-caption" value={caption} maxLength={150} placeholder="Add a caption (optional)" disabled={busy} onChange={(e) => setCaption(e.target.value)} />
+          <label className="dash-check">
+            <input type="checkbox" checked={rights} disabled={busy} onChange={(e) => setRights(e.target.checked)} />
+            <span>I made this clip or have permission to post everything in it (video, music and anything else), and it follows the creator terms.</span>
+          </label>
           <div className="clip-up-row">
-            <button className="btn primary" disabled={busy || limits.left <= 0} onClick={go}>{busy ? step + '…' : 'Post clip'}</button>
+            <button className="btn primary" disabled={busy || !rights || limits.left <= 0} onClick={go}>{busy ? step + '…' : 'Post clip'}</button>
             {step === 'Making the clip' && <button className="btn" onClick={cancel}>Cancel</button>}
             {step === 'Making the clip' && <span className="muted">{Math.round(progress * 100)}%</span>}
           </div>
         </>
       )}
       <p className="muted clip-note">
-        Up to {limits.maxSeconds} seconds and {limits.maxMb} MB, 720p. Longer videos are cut off, then squeezed on this device before they upload.
+        Portrait video, up to {limits.maxSeconds} seconds. It is squeezed to 720p and under {limits.maxMb} MB on this device before it uploads.
         Clips are removed after {limits.keepDays} days. {limits.left} of {limits.dailyLimit} posts left today{limits.credits ? ` (${limits.credits} credits each)` : ''}.
       </p>
     </div>
@@ -181,7 +191,7 @@ function ClipCard({ clip, onChange, onGone }) {
   );
 }
 
-function Mine({ rev }) {
+export function Mine({ rev }) {
   const [rows, setRows] = useState(null);
   useEffect(() => { api('/clips/mine').then((r) => setRows(r.clips)).catch(() => setRows([])); }, [rev]);
   if (!rows) return <p className="muted clip-note">Loading…</p>;
@@ -217,7 +227,7 @@ export default function Clips({ onBack }) {
       setMore(r.clips.length >= 10);
       setState('ready');
     } catch (e) {
-      setState(e.status === 503 || e.status === 403 ? 'off' : 'error');
+      setState(e.status === 503 ? 'off' : 'error');
     }
   }, [tab]);
 
@@ -232,16 +242,20 @@ export default function Clips({ onBack }) {
         {onBack && <button className="icon-btn back-btn" title="Back" aria-label="Back to list" onClick={onBack}><Icon name="back" size={22} /></button>}
         <span className="hash"><Icon name="video" size={20} /></span>
         <h3>Clips</h3>
-        <span className="muted clip-test">Testing</span>
         <div className="explore-tabs" role="tablist">
           {[['feed', 'New'], ['top', 'Top'], ['mine', 'Mine']].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={'explore-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>{label}</button>)}
         </div>
       </header>
       <div className="clips-body">
-        {state === 'off' && <p className="muted clip-note">Clips are not switched on for this account yet.</p>}
+        {state === 'off' && <p className="muted clip-note">Clips are not switched on yet.</p>}
         {state === 'error' && <p className="muted clip-note">Could not load clips. <button className="btn" onClick={() => load(false, [])}>Try again</button></p>}
         {state === 'loading' && tab !== 'mine' && <p className="muted clip-note">Loading…</p>}
-        {state === 'ready' && limits && <Uploader limits={limits} onDone={() => { setRev((n) => n + 1); }} />}
+        {state === 'ready' && (
+          <div className="clip-cta">
+            <span>Want to post clips? Become a creator and upload from your dashboard.</span>
+            <a className="btn" href="/dashboard">Creator dashboard</a>
+          </div>
+        )}
         {tab === 'mine' ? <Mine rev={rev} /> : state === 'ready' && (
           <>
             {clips.length === 0 && <p className="muted clip-note">No clips yet. Be the first to post one.</p>}

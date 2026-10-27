@@ -2165,12 +2165,12 @@ app.post('/api/admin/servers/:id/listing', auth, adminOnly, (req, res) => {
 // Storage: clips have their own bucket and their own cap (CLIPS_LIMIT_GB, default 5). They are deleted after CLIPS_TTL_DAYS (default 7);
 // the record stays with its numbers (views, likes, reports) and only the video and cover are gone. Rules and limits: clips.js.
 const clipsOn = () => !!(store.clipsR2 && clipsLib.settings().publicUrl);
-// CLIPS_CREATORS_ONLY=1: while clips are being tested, only creator accounts can use them (everyone else gets a 403). Remove it to open clips to all.
-const needClips = (req, res, next) => {
-  if (!clipsOn()) return res.status(503).json({ error: 'Clips are not set up on this server' });
-  if (process.env.CLIPS_CREATORS_ONLY === '1' && !isCreator(req.user)) return res.status(403).json({ error: 'Clips are in testing for creators only', code: 'clips_testing' });
-  next();
-};
+const needClips = (_req, res, next) => (clipsOn() ? next() : res.status(503).json({ error: 'Clips are not set up on this server' }));
+// Anyone signed in can watch, like and report. Posting needs a creator registration (accepting the creator terms on /dashboard).
+// The site's own creator accounts can always post.
+const isClipCreator = (u) => !!u && (!!u.clipCreator || isCreator(u));
+const needClipCreator = (req, res, next) => (isClipCreator(req.user) ? next() : res.status(403).json({ error: 'Become a creator first: accept the creator terms on your dashboard', code: 'not_clip_creator' }));
+const CLIP_TERMS_VERSION = 1;
 const clipUploadHits = new security.RateWindow(20, 3600_000);      // upload links per person per hour (the daily limit is separate)
 const clipActHits = new security.RateWindow(240, 60_000);          // feed pages, views and likes per person per minute
 const clipReportHits = new security.RateWindow(listing.LISTING.perHour, 3600_000);
@@ -2212,9 +2212,18 @@ async function sweepClips() {
   return out;
 }
 
-app.post('/api/clips/upload-url', auth, needClips, ah(async (req, res) => {
+// creator registration: ask whether you are one, and become one by accepting the terms
+app.get('/api/clips/creator', auth, (req, res) => res.json({ creator: isClipCreator(req.user), since: req.user.clipCreator ? req.user.clipCreator.at : null, terms: CLIP_TERMS_VERSION }));
+app.post('/api/clips/creator/join', auth, (req, res) => {
+  if (req.body?.accept !== true) return res.status(400).json({ error: 'Please accept the creator terms' });
+  if (!req.user.clipCreator) { req.user.clipCreator = { at: now(), terms: CLIP_TERMS_VERSION }; store.save(); }
+  res.json({ creator: true, since: req.user.clipCreator.at });
+});
+
+app.post('/api/clips/upload-url', auth, needClips, needClipCreator, ah(async (req, res) => {
   const cfg = clipsLib.settings();
   if (!clipUploadHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down. Try again in a little while.' });
+  if (req.body?.rights !== true) return res.status(400).json({ error: 'Confirm that you made this clip or have permission to post it' });
   const r = clipsLib.checkRequest(req.body, cfg, BLOCKED_WORDS);
   if (r.error) return res.status(400).json({ error: r.error });
   const all = clipList(), t = now();
@@ -2227,6 +2236,7 @@ app.post('/api/clips/upload-url', auth, needClips, ah(async (req, res) => {
     key: `clips/${crypto.randomBytes(16).toString('hex')}.mp4`, posterKey: `posters/${crypto.randomBytes(16).toString('hex')}`,
     size: r.value.size, posterSize: r.value.posterSize, seconds: r.value.seconds, width: r.value.width, height: r.value.height,
     createdAt: t, views: 0, likes: 0, likedBy: [], reports: [], reportCount: 0, credits: cfg.credits,
+    rightsAt: t, // the poster confirmed they own it or have permission, and accepted the creator terms (version in their account)
   };
   let video, poster;
   try {
@@ -2245,7 +2255,7 @@ app.post('/api/clips/upload-url', auth, needClips, ah(async (req, res) => {
   });
 }));
 
-app.post('/api/clips/:id/complete', auth, needClips, ah(async (req, res) => {
+app.post('/api/clips/:id/complete', auth, needClips, needClipCreator, ah(async (req, res) => {
   const cfg = clipsLib.settings();
   const c = db().clips[req.params.id];
   if (!c || c.owner !== req.user.id) return res.status(404).json({ error: 'Not found' });

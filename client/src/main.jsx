@@ -19,6 +19,8 @@ import './refine.css';
 import './zen.css';
 import './plain.css';
 import './studio.css';
+import './clips.css';
+import Dashboard from './Dashboard.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';
 import { initKeyboard } from './keyboard.js';
@@ -29,4 +31,6 @@ initTheme();
 initKeyboard();
 
 startPhrases();
-createRoot(document.getElementById('root')).render(<App />);
+// /dashboard is the creator page (upload clips); everything else is the app
+const onDashboard = /^\/dashboard\/?$/.test(location.pathname);
+createRoot(document.getElementById('root')).render(onDashboard ? <Dashboard /> : <App />);

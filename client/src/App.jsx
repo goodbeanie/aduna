@@ -840,8 +840,11 @@ function Main({ me, setMe, privKey, openServerId }) {
     <div className="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
       {/* server bar (top) */}
       <nav className="rail">
-        <button className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
+        <button className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
           <span className="dm-home-mark" aria-hidden="true" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
+        </button>
+        <button className={'rail-btn clips-home' + (view.kind === 'dm' && view.clips ? ' on' : '')} title="Clips" aria-label="Clips" onClick={() => { setView({ kind: 'dm', userId: null, clips: true }); setShowList(false); setMembersOpen(false); }}>
+          <span className="clips-mark" aria-hidden="true" />
         </button>
         <div className="rail-sep" />
         <RailList>
@@ -959,11 +962,6 @@ function Main({ me, setMe, privKey, openServerId }) {
               <button className={'chan' + (view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, quests: true }); setShowList(false); }}>
                 <span className="hash"><Icon name="flag" size={20} /></span>{tr('questsTab')}
               </button>
-              {me.creator && (
-                <button className={'chan' + (view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, clips: true }); setShowList(false); }}>
-                  <span className="hash"><Icon name="video" size={20} /></span>Clips
-                </button>
-              )}
               <button className={'chan' + (!view.userId && !view.explore && !view.shop && !view.quests && !view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
                 <span className="hash"><Icon name="users" size={20} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
@@ -1036,8 +1034,8 @@ function Main({ me, setMe, privKey, openServerId }) {
       )}
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
       {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} />}
-      {view.kind === 'dm' && !dmUser && view.clips && me.creator && <Clips onBack={() => setShowList(true)} />}
-      {view.kind === 'dm' && !dmUser && !view.explore && !view.shop && !view.quests && !(view.clips && me.creator) && (
+      {view.kind === 'dm' && !dmUser && view.clips && <Clips onBack={() => setShowList(true)} />}
+      {view.kind === 'dm' && !dmUser && !view.explore && !view.shop && !view.quests && !view.clips && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
       )}
 

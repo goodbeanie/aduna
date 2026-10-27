@@ -60,7 +60,9 @@ function checkRequest(body, cfg, words = []) {
   if (seconds > cfg.maxSeconds) return { error: `Clips can be at most ${cfg.maxSeconds} seconds` };
   const dim = (v) => (Number.isInteger(v) && v > 0 && v <= 4096 ? v : null);
   const width = dim(b.width), height = dim(b.height);
-  if (width && height && Math.max(width, height) > 1280) return { error: 'Clips are 720p at most (1280 on the long side)' };
+  if (!width || !height) return { error: 'The size of the video is missing' };
+  if (Math.max(width, height) > 1280) return { error: 'Clips are 720p at most (1280 on the long side)' };
+  if (height <= width) return { error: 'Clips must be portrait (taller than wide)' };
   const caption = String(b.caption ?? '').replace(/\s+/g, ' ').trim().slice(0, MAX_CAPTION + 1);
   if (caption.length > MAX_CAPTION) return { error: `Captions can be at most ${MAX_CAPTION} characters` };
   if (listing.hasLink(caption)) return { error: 'Captions cannot contain links' };

@@ -66,7 +66,7 @@ const DAY = 24 * 3600 * 1000;
   const vid = (seconds = 10, pad = 3000, o = {}) => Buffer.concat([mp4(seconds, o), Buffer.alloc(pad, 1)]);
   // the whole flow: ask for links, PUT the bytes to them, say it is done
   async function post(u, { video = vid(), poster = PNG, seconds = 10, caption = '', declared, videoType = 'video/mp4', posterType = 'image/png', upload = true } = {}) {
-    const up = await call('/clips/upload-url', { method: 'POST', token: u.token, body: { size: declared || video.length, posterSize: poster.length, posterType, seconds, width: 720, height: 1280, caption } });
+    const up = await call('/clips/upload-url', { method: 'POST', token: u.token, body: { size: declared || video.length, posterSize: poster.length, posterType, seconds, width: 720, height: 1280, caption, rights: true } });
     if (up.status !== 200) return { up };
     if (upload) {
       assert.strictEqual((await fetch(up.video.url, { method: 'PUT', headers: { ...up.video.headers, 'Content-Type': videoType }, body: video })).status, 200);
@@ -78,11 +78,27 @@ const DAY = 24 * 3600 * 1000;
 
   const ann = await makeUser('clipann'), bob = await makeUser('clipbob'), cat = await makeUser('clipcat'), dan = await makeUser('clipdan'), eve = await makeUser('clipeve'), admin = await makeUser('clipadmin');
   for (const u of [bob, cat]) store.db.users[u.user.id].createdAt = Date.now() - 2 * DAY; // established accounts: their reports count
+  for (const u of [ann, bob, cat, dan, eve, admin]) store.db.users[u.user.id].clipCreator = { at: Date.now(), terms: 1 }; // registered creators (the signing-up flow is tested below)
 
   // ---- the defaults for the storage budget ----
   assert.strictEqual(store.storageLimitBytes(), 4 * 1024 ** 3, 'everything that is not a clip: 4 GB');
   assert.strictEqual(require('./clips').settings({}).limitBytes, 5 * 1024 ** 3, 'clips: 5 GB');
   step('storage budget: 4 GB for everything else + 5 GB for clips = 9 GB');
+
+  // ---- becoming a creator, and the rights confirmation ----
+  const newbie = await makeUser('clipnewbie');
+  assert.strictEqual((await call('/clips/creator', { token: newbie.token })).creator, false);
+  assert.strictEqual((await call('/clips/upload-url', { method: 'POST', token: newbie.token, body: {} })).status, 403, 'not a creator yet: cannot post');
+  assert.strictEqual((await call('/clips', { token: newbie.token })).status, 200, 'but anyone can watch');
+  assert.strictEqual((await call('/clips/creator/join', { method: 'POST', token: newbie.token, body: {} })).status, 400, 'the terms must be accepted');
+  assert.strictEqual((await call('/clips/creator/join', { method: 'POST', token: newbie.token, body: { accept: true } })).status, 200);
+  assert.strictEqual((await call('/clips/creator', { token: newbie.token })).creator, true);
+  const noRights = await call('/clips/upload-url', { method: 'POST', token: newbie.token, body: { size: 5000, posterSize: 100, seconds: 5, width: 720, height: 1280 } });
+  assert.strictEqual(noRights.status, 400, 'the rights confirmation is required');
+  assert.match(noRights.error, /permission/);
+  const landscape = await call('/clips/upload-url', { method: 'POST', token: newbie.token, body: { size: 5000, posterSize: 100, seconds: 5, width: 1280, height: 720, rights: true } });
+  assert.strictEqual(landscape.status, 400, 'landscape is refused');
+  step('creators: anyone can watch; posting needs the terms accepted, the rights confirmation, and a portrait video');
 
   // ---- the header lets the browser play and upload ----
   const csp = (await fetch(base + '/healthz')).headers.get('content-security-policy');

@@ -51,8 +51,10 @@ if (require.main === module) {
   bad({ caption: 'Nazi stuff' }, /not allowed/);
   assert.ok(clips.checkRequest(null, cfg).error && clips.checkRequest('x', cfg).error, 'garbage body refused');
   assert.strictEqual(clips.checkRequest({ ...good, caption: '  lots   of\n space  ' }, cfg).value.caption, 'lots of space');
-  assert.strictEqual(clips.checkRequest({ ...good, width: undefined, height: undefined }, cfg).value.width, null, 'sizes are optional');
-  step('a request over the limits (size, length, size of the picture, 720p, caption) is refused before any link is handed out');
+  bad({ width: 1280, height: 720 }, /portrait/);
+  bad({ width: 720, height: 720 }, /portrait/); // square is not portrait either
+  bad({ width: undefined, height: undefined }, /size of the video is missing/);
+  step('a request over the limits (size, length, size of the picture, 720p, portrait, caption) is refused before any link is handed out');
 
   // ---- the bytes ----
   assert.strictEqual(clips.sniffMp4(mp4(12.5)).seconds, 12.5);
