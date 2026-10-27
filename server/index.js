@@ -2240,20 +2240,21 @@ app.post('/api/clips/creator/join', auth, (req, res) => {
 
 app.post('/api/clips/upload-url', auth, needClips, needClipCreator, ah(async (req, res) => {
   const cfg = clipsLib.settings();
-  if (!clipUploadHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down. Try again in a little while.' });
+  const boss = isCreator(req.user); // the site's creator accounts post without the daily / open-uploads / hourly limits and without paying credits (the storage cap still applies)
+  if (!boss && !clipUploadHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down. Try again in a little while.' });
   if (req.body?.rights !== true) return res.status(400).json({ error: 'Confirm that you made this clip or have permission to post it' });
   const r = clipsLib.checkRequest(req.body, cfg, BLOCKED_WORDS);
   if (r.error) return res.status(400).json({ error: r.error });
   const all = clipList(), t = now();
-  if (clipsLib.uploadsToday(all, req.user.id, t) >= cfg.dailyLimit) return res.status(429).json({ error: `You can post ${cfg.dailyLimit} clips a day. Try again tomorrow.`, code: 'daily_limit' });
-  if (clipsLib.pendingOf(all, req.user.id) >= cfg.maxPending) return res.status(429).json({ error: 'Let your other uploads finish first.' });
+  if (!boss && clipsLib.uploadsToday(all, req.user.id, t) >= cfg.dailyLimit) return res.status(429).json({ error: `You can post ${cfg.dailyLimit} clips a day. Try again tomorrow.`, code: 'daily_limit' });
+  if (!boss && clipsLib.pendingOf(all, req.user.id) >= cfg.maxPending) return res.status(429).json({ error: 'Let your other uploads finish first.' });
   if (!clipsLib.hasRoom(all, r.value.size + r.value.posterSize, cfg)) return res.status(507).json({ error: clipsFull, code: 'clips_full' });
-  if (cfg.credits && !credits.spend(req.user, cfg.credits, 'clip', { note: 'Posted a clip' })) return res.status(402).json({ error: `Posting a clip costs ${cfg.credits} credits`, code: 'not_enough_credits' });
+  if (!boss && cfg.credits && !credits.spend(req.user, cfg.credits, 'clip', { note: 'Posted a clip' })) return res.status(402).json({ error: `Posting a clip costs ${cfg.credits} credits`, code: 'not_enough_credits' });
   const c = {
     id: store.id(), owner: req.user.id, caption: r.value.caption, state: 'pending',
     key: `clips/${crypto.randomBytes(16).toString('hex')}.mp4`, posterKey: `posters/${crypto.randomBytes(16).toString('hex')}`,
     size: r.value.size, posterSize: r.value.posterSize, seconds: r.value.seconds, width: r.value.width, height: r.value.height,
-    createdAt: t, views: 0, likes: 0, likedBy: [], reports: [], reportCount: 0, credits: cfg.credits,
+    createdAt: t, views: 0, likes: 0, likedBy: [], reports: [], reportCount: 0, credits: boss ? 0 : cfg.credits,
     rightsAt: t, // the poster confirmed they own it or have permission, and accepted the creator terms (version in their account)
   };
   let video, poster;
@@ -2312,7 +2313,7 @@ app.get('/api/clips', auth, needClips, (req, res) => {
   }, cfg);
   res.json({
     clips,
-    limits: { maxSeconds: cfg.maxSeconds, maxMb: Math.round(cfg.maxBytes / clipsLib.MB * 10) / 10, dailyLimit: cfg.dailyLimit, left: Math.max(0, cfg.dailyLimit - clipsLib.uploadsToday(clipList(), req.user.id, now())), credits: cfg.credits, keepDays: Math.round(cfg.ttlMs / clipsLib.DAY * 10) / 10 },
+    limits: { maxSeconds: cfg.maxSeconds, maxMb: Math.round(cfg.maxBytes / clipsLib.MB * 10) / 10, dailyLimit: cfg.dailyLimit, unlimited: isCreator(req.user), left: Math.max(0, cfg.dailyLimit - clipsLib.uploadsToday(clipList(), req.user.id, now())), credits: isCreator(req.user) ? 0 : cfg.credits, keepDays: Math.round(cfg.ttlMs / clipsLib.DAY * 10) / 10 },
   });
 });
 // your own clips, including the ones whose video has expired (the numbers stay). A clip you deleted from your list (dismissed) is not shown again.

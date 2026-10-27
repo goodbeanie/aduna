@@ -129,7 +129,7 @@ export function Uploader({ limits, onDone }) {
             <span>I made this clip or have permission to post everything in it (video, music and anything else), and it follows the creator terms.</span>
           </label>
           <div className="clip-up-row">
-            <button className="btn primary" disabled={busy || !rights || limits.left <= 0} onClick={go}>{busy ? step + '…' : 'Post clip'}</button>
+            <button className="btn primary" disabled={busy || !rights || (!limits.unlimited && limits.left <= 0)} onClick={go}>{busy ? step + '…' : 'Post clip'}</button>
             {step === 'Making the clip' && <button className="btn" onClick={cancel}>Cancel</button>}
             {step === 'Making the clip' && <span className="muted">{Math.round(progress * 100)}%</span>}
           </div>
@@ -137,7 +137,7 @@ export function Uploader({ limits, onDone }) {
       )}
       <p className="muted clip-note">
         Portrait video, up to {limits.maxSeconds} seconds. It is squeezed to 720p and under {limits.maxMb} MB on this device before it uploads.
-        Clips are removed after {limits.keepDays} days. {limits.left} of {limits.dailyLimit} posts left today{limits.credits ? ` (${limits.credits} credits each)` : ''}.
+        Clips are removed after {limits.keepDays} days. {limits.unlimited ? 'You can post as many as you like.' : <>{limits.left} of {limits.dailyLimit} posts left today{limits.credits ? ` (${limits.credits} credits each)` : ''}.</>}
       </p>
     </div>
   );
