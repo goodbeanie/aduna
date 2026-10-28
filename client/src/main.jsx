@@ -21,6 +21,7 @@ import './plain.css';
 import './studio.css';
 import './clips.css';
 import Dashboard from './Dashboard.jsx';
+import AdminPage from './AdminPage.jsx';
 import ClipPage from './ClipPage.jsx';
 import ClipsSite from './ClipsSite.jsx';
 import { initTheme } from './themes.js';
@@ -33,17 +34,19 @@ initTheme();
 initKeyboard();
 
 startPhrases();
-// /dashboard is the Clips creator page (upload clips), /clips is the Clips website (the feed), /clips/user/<id> is one person's Clips page,
+// /dashboard is the Clips creator page (upload clips), /admin is the admin page (admins only), /clips is the Clips website (the feed), /clips/user/<id> is one person's Clips page,
 // /clips/<clip id> is one clip on its own page; everything else is the app
 const path = location.pathname;
 const onDashboard = /^\/dashboard\/?$/.test(path);
+const onAdmin = /^\/admin\/?$/.test(path);
 const onClipsFeed = /^\/clips\/?$/.test(path);
 const clipsUser = /^\/clips\/user\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null;
 const clipId = /^\/clips\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null;
 createRoot(document.getElementById('root')).render(
   onDashboard ? <Dashboard />
-    : onClipsFeed ? <ClipsSite />
-      : clipsUser ? <ClipsSite userId={clipsUser} />
-        : clipId ? <ClipPage id={clipId} />
-          : <App />
+    : onAdmin ? <AdminPage />
+      : onClipsFeed ? <ClipsSite />
+        : clipsUser ? <ClipsSite userId={clipsUser} />
+          : clipId ? <ClipPage id={clipId} />
+            : <App />
 );

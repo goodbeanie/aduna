@@ -216,7 +216,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -264,7 +264,7 @@ const convoKey = (a, b) => [a, b].sort().join(':');
 // Tokens carry the account's tokenVersion, so "log out everywhere" (POST /api/me/logout-all) can revoke them all (see security.js).
 const sessions = security.createSessions({ jwt, getSecret: () => SECRET });
 const signToken = (u) => sessions.sign(u);
-const userFromToken = (token) => sessions.user(token, (uid) => { const u = db().users[uid]; return u && !u.bot ? u : undefined; }); // a bot account has no password and no session, whatever token is presented
+const userFromToken = (token) => sessions.user(token, (uid) => { const u = db().users[uid]; return u && !u.bot && !u.deleted && !u.suspended ? u : undefined; }); // a bot account has no password and no session, whatever token is presented; a suspended or deleted account (see the admin page) is signed out everywhere
 
 // The web app is logged in by an httpOnly cookie (see security.js). The token is still accepted in an Authorization header (older apps,
 // the tests, scripts), and still returned in the JSON unless the caller sends "X-Session: cookie", which the web app always does:
@@ -649,9 +649,11 @@ app.post('/api/login', authLimiter, ah(async (req, res) => {
     res.set('Retry-After', String(lock.retryAfterSec));
     return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
   }
-  const user = Object.values(db().users).find((u) => !u.bot && u.username.toLowerCase() === name.toLowerCase());
+  const user = Object.values(db().users).find((u) => !u.bot && !u.deleted && u.username.toLowerCase() === name.toLowerCase());
   const ok = await bcrypt.compare(String(password || ''), user ? user.passHash : DUMMY_HASH); // always one comparison: no timing hint about which names exist
   if (!user || !ok) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'Invalid username or password' }); }
+  // a moderator suspended this account (admin page): only someone who knows the password is told, so names cannot be probed
+  if (user.suspended) return res.status(403).json({ error: user.suspended.reason ? `This account has been suspended: ${user.suspended.reason}` : 'This account has been suspended.', code: 'suspended' });
   // Two-factor: the password was right, so say a code is needed (nothing is issued yet). Wrong codes feed the same lockout, and the
   // lockout is only cleared after the code passes too, or a correct password would reset the counter on every guess.
   if (user.totp && user.totp.enabled) {
@@ -2116,7 +2118,9 @@ function cleanTags(v) {
 const reportHits = new security.RateWindow(listing.LISTING.perHour, 3600_000);
 const REPORTS_TO_HIDE = posNum(process.env.LISTING_REPORTS_TO_HIDE, listing.LISTING.reportsToHide);
 const ADMINS = new Set(String(process.env.ADMIN_USERNAMES || '').toLowerCase().split(',').map((x) => x.trim()).filter(Boolean));
-const isAdmin = (u) => !!u && ADMINS.has(String(u.username).toLowerCase());
+// An admin is a creator account, a name in ADMIN_USERNAMES, or an account a creator made an admin on the /admin page (u.admin = { at, by }).
+const isEnvAdmin = (u) => !!u && ADMINS.has(String(u.username).toLowerCase());
+const isAdmin = (u) => !!u && !u.bot && !u.deleted && !u.suspended && (isEnvAdmin(u) || !!u.admin || isCreator(u));
 
 app.post('/api/servers/:id/report', auth, (req, res) => {
   const s = db().servers[req.params.id];
@@ -2992,6 +2996,224 @@ app.post('/api/admin/users/:id/reports', auth, adminOnly, (req, res) => {
   res.json({ ok: true });
 });
 
+// ----- the admin page (/admin): admins, people, reports, moderation -----
+// Who can open it: creator accounts, the usernames in ADMIN_USERNAMES, and accounts a creator made admin on the page itself (u.admin = { at, by }).
+// Only a creator adds or removes admins. Admins read every report and act on it, suspend or delete accounts, and delete servers or messages, but
+// cannot act on a creator or on another admin. Everything they do is written to a short log (meta "adminlog", the newest 300 entries).
+// Anyone who is not an admin gets a plain 404 from every route here, so the routes cannot be used to find out who is.
+const adminRole = (u) => (isCreator(u) ? 'creator' : isEnvAdmin(u) ? 'config' : u.admin ? 'admin' : null);
+const needCreator = (req, res, next) => (isCreator(req.user) ? next() : res.status(403).json({ error: 'Only a creator account can do that' }));
+let adminLogChain = Promise.resolve();
+function adminLogAdd(by, action, target, note) {
+  const entry = { at: now(), by: by.username, action, target: String(target || '').slice(0, 80), note: String(note || '').slice(0, 300) };
+  adminLogChain = adminLogChain.then(async () => { // one at a time, so two actions never overwrite each other's entry
+    const raw = await store.getMeta('adminlog');
+    const list = raw ? JSON.parse(raw) : [];
+    list.push(entry);
+    await store.setMeta('adminlog', JSON.stringify(list.slice(-300)));
+  }).catch((e) => console.error('Could not write the admin log:', e.message));
+  return adminLogChain;
+}
+// The email address is private even from admins, so it is never part of these.
+const adminUserRow = (u) => ({
+  id: u.id, username: u.username, displayName: u.displayName || u.username, createdAt: u.createdAt || null, role: adminRole(u),
+  suspended: u.suspended ? { at: u.suspended.at, reason: u.suspended.reason || '' } : null, deleted: !!u.deleted,
+  reports: (u.reports || []).length, avatarImage: u.avatarImage || null, avatarColor: u.avatarColor || '#8c6b4f', avatarEmoji: u.avatarEmoji || '',
+});
+const adminReportRows = (list) => (list || []).map((r) => ({ by: db().users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at, about: r.about || 'account', message: r.message || null }));
+// the person an action is about; sends the refusal itself. Not yourself, never a creator, and only a creator may act on an admin.
+function modTarget(req, res) {
+  const u = db().users[req.params.id];
+  if (!u || u.bot || u.deleted) { res.status(404).json({ error: 'Not found' }); return null; }
+  if (u.id === req.user.id) { res.status(400).json({ error: 'You cannot do that to your own account' }); return null; }
+  if (isCreator(u)) { res.status(403).json({ error: 'Creator accounts cannot be moderated here' }); return null; }
+  if (adminRole(u) && !isCreator(req.user)) { res.status(403).json({ error: 'Only a creator can do that to an admin' }); return null; }
+  return u;
+}
+
+app.get('/api/admin/me', auth, adminOnly, (req, res) => res.json({ username: req.user.username, role: adminRole(req.user), canManageAdmins: isCreator(req.user) }));
+
+app.get('/api/admin/summary', auth, adminOnly, (_req, res) => {
+  const people = Object.values(db().users).filter((u) => !u.bot);
+  res.json({
+    users: people.filter((u) => !u.deleted).length, suspended: people.filter((u) => u.suspended).length,
+    reports: {
+      users: people.filter((u) => (u.reports || []).length).length,
+      servers: Object.values(db().servers).filter((s) => (s.reports || []).length || s.listingHold).length,
+      bots: Object.values(db().bots).filter((b) => (b.reports || []).length || b.listingHold).length,
+      clips: clipList().filter((c) => (c.reports || []).length || c.state === 'hidden').length,
+    },
+  });
+});
+
+// find people by username, display name or id (newest accounts first when nothing is typed); at most 30 come back
+app.get('/api/admin/users', auth, adminOnly, (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase().slice(0, 40);
+  const all = Object.values(db().users).filter((u) => !u.bot && !u.deleted);
+  const rank = (u) => (u.username.toLowerCase() === q ? 0 : u.username.toLowerCase().startsWith(q) ? 1 : 2);
+  const rows = q
+    ? all.filter((u) => u.username.toLowerCase().includes(q) || String(u.displayName || '').toLowerCase().includes(q) || u.id === q).sort((a, b) => rank(a) - rank(b) || a.username.localeCompare(b.username))
+    : all.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  res.json({ users: rows.slice(0, 30).map(adminUserRow), total: rows.length });
+});
+
+app.get('/api/admin/users/:id', auth, adminOnly, (req, res) => {
+  const u = db().users[req.params.id];
+  if (!u || u.bot || u.deleted) return res.status(404).json({ error: 'Not found' });
+  const mine = myServers(u.id), clips = clipList().filter((c) => c.owner === u.id);
+  res.json({
+    user: {
+      ...adminUserRow(u), bio: u.bio || '', servers: mine.length,
+      owned: mine.filter((s) => s.ownerId === u.id).map((s) => ({ id: s.id, name: s.name, members: humanCount(s) })),
+      clips: clips.length, liveClips: clips.filter((c) => clipsLib.isLive(c, now())).length, bots: myBots(u.id).length,
+      ownsOfficialServer: !!defaultServer() && defaultServer().ownerId === u.id,
+      canModerate: u.id !== req.user.id && !isCreator(u) && (!adminRole(u) || isCreator(req.user)),
+    },
+    reports: adminReportRows(u.reports),
+  });
+});
+
+// suspend = locked out everywhere right now, nothing is removed, and the username and email stay reserved (so it cannot just sign up again);
+// unsuspend = they can sign in again
+app.post('/api/admin/users/:id/suspend', auth, adminOnly, ah(async (req, res) => {
+  const u = modTarget(req, res); if (!u) return;
+  const reason = clip(req.body?.reason, 300).trim();
+  u.suspended = { at: now(), by: req.user.id, reason };
+  await revokeAllSessions(u);
+  adminLogAdd(req.user, 'suspend', u.username, reason);
+  res.json({ ok: true, user: adminUserRow(u) });
+}));
+app.post('/api/admin/users/:id/unsuspend', auth, adminOnly, (req, res) => {
+  const u = modTarget(req, res); if (!u) return;
+  delete u.suspended;
+  store.save();
+  adminLogAdd(req.user, 'unsuspend', u.username, '');
+  res.json({ ok: true, user: adminUserRow(u) });
+});
+
+// Deleting an account turns the record into an empty shell with the same id ("Deleted user", no email, no keys, no password), so old messages, DMs and
+// groups still point at something. Everything else of theirs goes: they are signed out everywhere; servers they own are deleted (the others they simply
+// leave); friendships, bots, clips and uploaded pictures are removed; and with `purge` their channel messages too. Direct messages are end-to-end
+// encrypted and belong to both people, so they stay. The username and email become free to register again (suspend keeps them reserved).
+async function deleteAccount(u, { purge }) {
+  const id = u.id, out = { servers: 0, serversDeleted: 0, messages: 0, clips: 0, bots: 0 };
+  const avatar = u.avatarImage || null, banner = u.bannerImage || null;
+  const passHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10); // nobody knows this password
+  await revokeAllSessions(u);
+  const shell = {
+    id, username: 'deleted-' + crypto.randomBytes(4).toString('hex'), passHash, displayName: 'Deleted user', bio: '', avatarColor: '#8c6b4f', avatarEmoji: '',
+    bannerColor: '#e3dccb', accentColor: '#2a251e', status: 'offline', publicKey: u.publicKey, tokenVersion: u.tokenVersion, createdAt: u.createdAt, deleted: { at: now() },
+  };
+  for (const k of Object.keys(u)) delete u[k];
+  Object.assign(u, shell);
+  if (db().artists && db().artists[id]) delete db().artists[id];
+  emitUserUpdate(u); // servers and friends see "Deleted user" straight away (before the memberships below are removed)
+  for (const s of myServers(id)) {
+    out.servers++;
+    if (s.ownerId === id) { destroyServer(s); out.serversDeleted++; continue; }
+    s.members = s.members.filter((m) => m !== id);
+    if (s.memberRoles) delete s.memberRoles[id];
+    if (s.onboarded) delete s.onboarded[id];
+    if (s.joinedAt) delete s.joinedAt[id];
+    io.to('server:' + s.id).emit('server:update', serverView(s));
+  }
+  for (const [k, f] of Object.entries(db().friendships)) {
+    if (f.from === id || f.to === id) { delete db().friendships[k]; notifyFriends(f.from, f.to); }
+  }
+  for (const b of myBots(id)) { removeEverywhere(b); guard.forget(b.id); delete db().bots[b.id]; out.bots++; }
+  for (const c of clipList().filter((x) => x.owner === id)) {
+    try { if (c.state === 'pending') refundClip(c); if (!c.purgedAt) await endClip(c, 'removed', 'Account removed'); out.clips++; } catch (e) { console.error('Could not remove a clip of a deleted account:', e.message); }
+  }
+  if (purge) {
+    const mine = Object.values(db().messages).filter((m) => m.authorId === id);
+    for (const m of mine) {
+      delete db().messages[m.id];
+      io.to('channel:' + m.channelId).emit('message:deleted', { kind: 'channel', messageId: m.id, channelId: m.channelId });
+    }
+    out.messages = mine.length;
+    store.deleteFiles(mine.flatMap((m) => (m.attachments || []).map((a) => a.id).filter(Boolean))).catch((e) => console.error(e));
+  }
+  store.save();
+  await store.flush();
+  if (avatar) store.deleteImage(avatar).catch(() => {});
+  if (banner) store.deleteImage(banner).catch(() => {});
+  return out;
+}
+app.post('/api/admin/users/:id/delete', auth, adminOnly, ah(async (req, res) => {
+  const u = modTarget(req, res); if (!u) return;
+  if (String(req.body?.confirm || '').trim().toLowerCase() !== u.username.toLowerCase()) return res.status(400).json({ error: 'Type the username exactly to confirm' });
+  const dflt = defaultServer();
+  if (dflt && dflt.ownerId === u.id) return res.status(400).json({ error: 'This account owns the official Aduna server. Transfer it first.' });
+  const name = u.username;
+  const out = await deleteAccount(u, { purge: req.body?.purge !== false });
+  adminLogAdd(req.user, 'delete account', name, `${out.serversDeleted} servers, ${out.messages} messages, ${out.clips} clips, ${out.bots} bots removed`);
+  res.json({ ok: true, ...out });
+}));
+
+// servers: search by name / invite code / id, and delete one for good (the official server is protected)
+app.get('/api/admin/servers', auth, adminOnly, (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase().slice(0, 40);
+  const rows = Object.values(db().servers).filter((s) => !q || String(s.name).toLowerCase().includes(q) || s.id === q || String(s.inviteCode).toLowerCase() === q)
+    .sort((a, b) => humanCount(b) - humanCount(a)).slice(0, 30)
+    .map((s) => ({ id: s.id, name: s.name, owner: db().users[s.ownerId]?.username || null, members: humanCount(s), visibility: s.visibility || null, reports: (s.reports || []).length, hold: s.listingHold || null }));
+  res.json({ servers: rows });
+});
+app.post('/api/admin/servers/:id/delete', auth, adminOnly, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  const dflt = defaultServer();
+  if (dflt && dflt.id === s.id) return res.status(400).json({ error: 'The official Aduna server cannot be deleted here' });
+  const owner = db().users[s.ownerId];
+  if (owner && isCreator(owner) && !isCreator(req.user)) return res.status(403).json({ error: 'Only a creator can delete a server a creator owns' });
+  const name = s.name;
+  destroyServer(s);
+  adminLogAdd(req.user, 'delete server', name, owner ? 'owner ' + owner.username : '');
+  res.json({ ok: true });
+});
+// a reported channel message (its id is in the report): delete it
+app.post('/api/admin/messages/:id/delete', auth, adminOnly, (req, res) => {
+  const m = db().messages[req.params.id];
+  if (!m) return res.status(404).json({ error: 'That message is already gone' });
+  delete db().messages[m.id];
+  store.save();
+  store.deleteFiles((m.attachments || []).map((a) => a.id).filter(Boolean)).catch((e) => console.error(e));
+  io.to('channel:' + m.channelId).emit('message:deleted', { kind: 'channel', messageId: m.id, channelId: m.channelId });
+  adminLogAdd(req.user, 'delete message', db().users[m.authorId]?.username || m.authorId, '');
+  res.json({ ok: true });
+});
+
+// admins: everyone who can open this page. Only a creator adds or removes (accounts listed in ADMIN_USERNAMES and creators cannot be removed here).
+app.get('/api/admin/admins', auth, adminOnly, (req, res) => {
+  const rows = Object.values(db().users).filter((u) => !u.bot && !u.deleted && adminRole(u))
+    .map((u) => ({ ...adminUserRow(u), since: u.admin?.at || null, addedBy: db().users[u.admin?.by]?.username || null }))
+    .sort((a, b) => a.username.localeCompare(b.username));
+  res.json({ admins: rows, canManage: isCreator(req.user) });
+});
+app.post('/api/admin/admins', auth, adminOnly, needCreator, (req, res) => {
+  const u = db().users[String(req.body?.userId || '')];
+  if (!u || u.bot || u.deleted) return res.status(404).json({ error: 'Not found' });
+  if (u.suspended) return res.status(400).json({ error: 'That account is suspended' });
+  if (adminRole(u)) return res.status(400).json({ error: 'They are already an admin' });
+  u.admin = { at: now(), by: req.user.id };
+  store.save();
+  adminLogAdd(req.user, 'add admin', u.username, '');
+  res.json({ ok: true, admin: adminUserRow(u) });
+});
+app.delete('/api/admin/admins/:id', auth, adminOnly, needCreator, (req, res) => {
+  const u = db().users[req.params.id];
+  if (!u || !u.admin) return res.status(404).json({ error: 'That account was not made an admin on this page' });
+  delete u.admin;
+  store.save();
+  adminLogAdd(req.user, 'remove admin', u.username, '');
+  res.json({ ok: true });
+});
+
+app.get('/api/admin/log', auth, adminOnly, ah(async (_req, res) => {
+  let list = [];
+  try { list = JSON.parse((await store.getMeta('adminlog')) || '[]'); } catch { /* an unreadable log shows as empty */ }
+  res.json({ log: list.slice(-100).reverse() });
+}));
+
 // ----- bots, part 3: bot accounts, installing a bot in a server, running it on events -----
 // A bot gets ONE account (a user record with `bot: true`, username "bot-<hex>", which no person can register because of the dash). It has
 // no password and no session: tokens for it are refused (userFromToken), it cannot be found by username for friend requests, DMs or the
@@ -3523,6 +3745,14 @@ if (fs.existsSync(dist)) {
   // "/" is the public home page; the app itself lives at /app (and any other path falls through to it).
   const landing = path.join(dist, 'landing.html');
   if (fs.existsSync(landing)) app.get('/', (_req, res) => res.sendFile(landing));
+  // /admin is for admins only: anyone else (signed out, or signed in without the role) goes to the home page before any of the page loads.
+  // The page checks again through /api/admin/me, and every admin route refuses non-admins on its own.
+  app.get(/^\/admin\/?$/, (req, res, next) => {
+    const me = userFromToken(security.readSessionCookie(req.headers, secureReq(req)));
+    if (!isAdmin(me) || needsVerify(me)) return res.redirect(302, '/');
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
   // Windows installer. By default it is served from this site (client/public/updates/). If DOWNLOAD_BASE_URL is set (the public
   // address of a separate, public Cloudflare R2 bucket), /download and the auto-update feed point there instead, so the
   // 80 MB file never touches this server. The file name always comes from updates/latest.yml, so the link never goes stale.
