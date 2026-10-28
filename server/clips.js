@@ -194,6 +194,31 @@ function feed(clips, users, { uid, sort = 'new', before, offset = 0, limit = 10,
   return page.map((c) => view(c, users, uid, cfg));
 }
 
+// ---------- search ----------
+// Creators whose name contains every word typed, and live clips whose caption or poster's name does. Case and accents are ignored.
+// Only people registered as clips creators can be found, so this never lists ordinary accounts.
+const fold = (s) => String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function search(clips, users, { uid, q, now = Date.now(), limit = 12 }, cfg) {
+  const words = fold(q).split(/\s+/).filter(Boolean).slice(0, 5);
+  if (!words.length) return { creators: [], clips: [] };
+  const hit = (text) => { const t = fold(text); return words.every((w) => t.includes(w)); };
+  const live = clips.filter((c) => isLive(c, now) && users[c.owner]);
+  const count = {};
+  for (const c of live) count[c.owner] = (count[c.owner] || 0) + 1;
+  const follows = new Set(followsOf(users, uid));
+  const creators = Object.values(users)
+    .filter((u) => u && !u.bot && u.clipCreator && hit(u.username))
+    .sort((a, b) => (b.clipFollowerCount || 0) - (a.clipFollowerCount || 0) || String(a.username).localeCompare(String(b.username)))
+    .slice(0, Math.min(Math.max(1, limit), 20))
+    .map((u) => ({ id: u.id, username: u.username, avatarImage: u.avatarImage || null, followers: u.clipFollowerCount || 0, clips: count[u.id] || 0, following: follows.has(u.id), mine: u.id === uid }));
+  const found = live
+    .filter((c) => hit(c.caption) || hit(users[c.owner].username))
+    .sort((a, b) => (b.likes || 0) * 5 + (b.views || 0) - ((a.likes || 0) * 5 + (a.views || 0)) || b.liveAt - a.liveAt)
+    .slice(0, Math.min(Math.max(1, limit), 20))
+    .map((c) => view(c, users, uid, cfg));
+  return { creators, clips: found };
+}
+
 // ---------- following ----------
 // A viewer's list of creators lives on their account (clipFollowing, newest 500); each creator keeps a running count (clipFollowerCount).
 // Nobody sees who follows whom, only the number. Returns { following, followers } or { error }.
@@ -270,6 +295,6 @@ function addView(c, now) {
 module.exports = {
   MB, GB, DAY, MAX_POSTER, POSTER_TYPES, MAX_CAPTION, MAX_COMMENT, FIRST_BYTES, HOLDING,
   settings, checkRequest, sniffMp4, usedBytes, hasRoom, uploadsToday, pendingOf, due, purge, objectsOf,
-  addReport, shouldHide, toggleLike, isLive, view, ownerView, feed,
+  addReport, shouldHide, toggleLike, isLive, view, ownerView, feed, search,
   checkComment, addComment, removeComment, commentViews, addShare, addView, dayKey, toggleFollow, MAX_FOLLOWING,
 };

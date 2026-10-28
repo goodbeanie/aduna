@@ -218,7 +218,7 @@ export function ClipCard({ clip, onChange, onGone, reel }) {
     </>
   ) : undefined;
   return (
-    <article className={'clip' + (reel ? ' reel' : '')} style={reel ? { '--ratio': String(ratio) } : undefined}>
+    <article className={'clip' + (reel ? ' reel' : '') + (reel && ratio > 0.9 ? ' land' : '')} style={reel ? { '--ratio': String(ratio) } : undefined}>
       <div className="clip-who">
         <a className="clip-ava" href={`/clips/user/${clip.owner.id}`} aria-label={`${who}'s page`}><Avatar user={{ ...clip.owner, id: clip.owner.id }} size={32} /></a>
         <a className="clip-name" href={`/clips/user/${clip.owner.id}`}><b>{who}</b></a>

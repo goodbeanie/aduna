@@ -1,6 +1,6 @@
 /* The Share sheet (ShareSheet.jsx). Drawn outside the page, so it has its own dark colours: a centred card on a computer, a sheet from the bottom on a phone. */
 .ss-back { position: fixed; inset: 0; z-index: 3000; background: rgba(0,0,0,.6); display: flex; align-items: center; justify-content: center; padding: 16px; }
-.ss-panel { width: 100%; max-width: 440px; max-height: 86vh; overflow-y: auto; background: #1d1d1f; color: #f2f2f2; border-radius: 20px; padding: 16px 16px 20px; box-shadow: 0 16px 48px rgba(0,0,0,.5); font-size: 14px; }
+.ss-panel { width: 100%; max-width: 440px; max-height: 86vh; max-height: 86dvh; overflow-y: auto; background: #1d1d1f; color: #f2f2f2; border-radius: 20px; padding: 16px 16px 20px; box-shadow: 0 16px 48px rgba(0,0,0,.5); font-size: 14px; }
 .ss-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 16px; }
 .ss-x { width: 32px; height: 32px; border-radius: 50%; border: 0; background: rgba(255,255,255,.08); color: #f2f2f2; cursor: pointer; font-size: 13px; }
 .ss-x:hover { background: rgba(255,255,255,.16); }

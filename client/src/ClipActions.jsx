@@ -111,6 +111,54 @@ function CommentsSheet({ clip, onTotal, onClose }) {
   );
 }
 
+const OpenIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 4h6v6" /><path d="M20 4l-9 9" /><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" /></svg>;
+const FlagIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 21V4" /><path d="M5 4h11l-2 4 2 4H5" /></svg>;
+const TrashIcon = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 7h16" /><path d="M10 11v6M14 11v6" /><path d="M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12" /><path d="M9 7V4h6v3" /></svg>;
+
+// The "..." opens a popup like the comments do: the exact numbers, the creator's followers, Open clip page, and Report / Remove.
+// Report asks for a reason on a second screen inside the same popup.
+function MoreSheet({ clip, onClose, onReport, onRemove }) {
+  const [view, setView] = useState('menu'); // 'menu' | 'report'
+  useEffect(() => {
+    const esc = (e) => { if (e.key === 'Escape') { if (view === 'report') setView('menu'); else onClose(); } };
+    document.addEventListener('keydown', esc);
+    return () => document.removeEventListener('keydown', esc);
+  }, [onClose, view]);
+  const name = clip.owner.username || 'this creator';
+  return createPortal(
+    <div className="ss-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="ss-panel ms-panel" role="dialog" aria-modal="true" aria-label="Clip details">
+        {view === 'menu' ? (
+          <>
+            <div className="ss-head"><b>Clip details</b><button type="button" className="ss-x" onClick={onClose} aria-label="Close">✕</button></div>
+            <div className="ms-stats">
+              <div><b>{exact(clip.views)}</b><span>Views</span></div>
+              <div><b>{exact(clip.likes)}</b><span>Likes</span></div>
+              <div><b>{exact(clip.comments)}</b><span>Comments</span></div>
+              <div><b>{exact(clip.shares)}</b><span>Shares</span></div>
+            </div>
+            <div className="ms-who">{exact(clip.owner.followers)} {clip.owner.followers === 1 ? 'follower' : 'followers'} · {name}</div>
+            <div className="ms-list">
+              <a className="ms-item" href={`/clips/${clip.id}`} target="_blank" rel="noopener"><OpenIcon />Open clip page</a>
+              {clip.mine
+                ? <button type="button" className="ms-item danger" onClick={onRemove}><TrashIcon />Remove clip</button>
+                : <button type="button" className="ms-item" onClick={() => setView('report')}><FlagIcon />Report</button>}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="ss-head"><b>Why are you reporting this?</b><button type="button" className="ss-x" onClick={() => setView('menu')} aria-label="Back">←</button></div>
+            <div className="ms-list">
+              {REASONS.map(([id, label]) => <button type="button" key={id} className="ms-item" onClick={() => onReport(id)}>{label}</button>)}
+            </div>
+          </>
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // Follow / Following next to the poster's name. Hidden on your own clips. Following someone puts their new clips in the Following tab.
 export function FollowButton({ clip, onChange }) {
   const [busy, setBusy] = useState(false);
@@ -128,23 +176,45 @@ export function FollowButton({ clip, onChange }) {
   return <button className={'ca-follow' + (clip.following ? ' on' : '')} disabled={busy} onClick={toggle} aria-pressed={!!clip.following}>{clip.following ? 'Following' : 'Follow'}</button>;
 }
 
+const when = (t) => {
+  const s = Math.max(0, (Date.now() - t) / 1000);
+  if (s < 60) return 'just now';
+  if (s < 3600) return Math.round(s / 60) + 'm ago';
+  if (s < 86400) return Math.round(s / 3600) + 'h ago';
+  return Math.round(s / 86400) + 'd ago';
+};
+const remains = (t) => {
+  const s = (t - Date.now()) / 1000;
+  if (s <= 0) return 'ending now';
+  return s < 86400 ? Math.max(1, Math.round(s / 3600)) + 'h left' : Math.round(s / 86400) + 'd left';
+};
+
+// Creator, Follow, caption and the small print, drawn over the bottom-left of the video (VideoPlayer's `info`).
+// `linked` false (the viewer over a chat): the name is plain text, so nothing takes you out of the chat.
+export function ClipInfo({ clip, onChange, linked = true }) {
+  const who = clip.owner.username || 'Someone';
+  const href = `/clips/user/${clip.owner.id}`;
+  const ava = <Avatar user={{ ...clip.owner, id: clip.owner.id }} size={36} />;
+  return (
+    <>
+      <div className="vp-info-who">
+        {linked ? <a className="vp-info-ava" href={href} aria-label={`${who}'s page`}>{ava}</a> : <span className="vp-info-ava">{ava}</span>}
+        {linked ? <a className="vp-info-name" href={href}><b>{who}</b></a> : <span className="vp-info-name"><b>{who}</b></span>}
+        <FollowButton clip={clip} onChange={onChange} />
+      </div>
+      {clip.caption && <p className="vp-info-cap">{clip.caption}</p>}
+      <div className="vp-info-meta">{compact(clip.views)} {clip.views === 1 ? 'view' : 'views'} · {when(clip.createdAt)} · {remains(clip.expiresAt)}</div>
+    </>
+  );
+}
+
 // `overlay`: drawn in white over the bottom of the video (see VideoPlayer). Comments and Share open as popups (CommentsSheet, ShareSheet).
 export default function ClipActions({ clip, onChange, onGone, overlay }) {
   const [menu, setMenu] = useState(false);
   const [open, setOpen] = useState(false);
-  const [reporting, setReporting] = useState(false);
   const [sharing, setSharing] = useState(false);
-  const box = useRef(null);
   const latest = useRef(clip);
   latest.current = clip;
-
-  useEffect(() => {
-    if (!menu) return undefined;
-    const off = (e) => { if (box.current && !box.current.contains(e.target)) setMenu(false); };
-    const esc = (e) => { if (e.key === 'Escape') setMenu(false); };
-    document.addEventListener('mousedown', off); document.addEventListener('keydown', esc);
-    return () => { document.removeEventListener('mousedown', off); document.removeEventListener('keydown', esc); };
-  }, [menu]);
 
   const like = async () => {
     try { const r = await api(`/clips/${clip.id}/like`, { method: 'POST' }); onChange({ ...clip, liked: r.liked, likes: r.likes }); }
@@ -153,7 +223,7 @@ export default function ClipActions({ clip, onChange, onGone, overlay }) {
   // Each time the share sheet sends the clip somewhere (a friend, a server, copy, the device's own menu) it counts as a share.
   const shared = () => api(`/clips/${clip.id}/share`, { method: 'POST' }).then((r) => onChange({ ...latest.current, shares: r.shares })).catch(() => {});
   const report = async (reason) => {
-    setReporting(false);
+    setMenu(false);
     try { await api(`/clips/${clip.id}/report`, { method: 'POST', body: { reason } }); toast('Thanks, we will take a look'); }
     catch (e) { toast(e.message, 'error'); }
   };
@@ -171,32 +241,11 @@ export default function ClipActions({ clip, onChange, onGone, overlay }) {
         <button className="ca-btn" onClick={() => setSharing(true)} aria-label="Share" title="Share"><ShareIcon /><span>{compact(clip.shares)}</span></button>
         <span className="ca-views muted">{compact(clip.views)} views</span>
         <span className="ca-grow" />
-        <div className="ca-more" ref={box}>
-          <button className="ca-btn ca-icon" onClick={() => setMenu((v) => !v)} aria-haspopup="menu" aria-expanded={menu} aria-label="More" title="More"><MoreIcon /></button>
-          {menu && (
-            <div className="ca-menu" role="menu">
-              <div className="ca-stats">
-                <div><b>{exact(clip.views)}</b><span>Views</span></div>
-                <div><b>{exact(clip.likes)}</b><span>Likes</span></div>
-                <div><b>{exact(clip.comments)}</b><span>Comments</span></div>
-                <div><b>{exact(clip.shares)}</b><span>Shares</span></div>
-              </div>
-              <div className="ca-followers muted">{exact(clip.owner.followers)} {clip.owner.followers === 1 ? 'follower' : 'followers'} · {clip.owner.username || 'this creator'}</div>
-              <a role="menuitem" className="ca-item" href={`/clips/${clip.id}`} target="_blank" rel="noopener">Open clip page</a>
-              {clip.mine
-                ? <button role="menuitem" className="ca-item danger" onClick={remove}>Remove clip</button>
-                : <button role="menuitem" className="ca-item" onClick={() => { setMenu(false); setReporting(true); }}>Report</button>}
-            </div>
-          )}
+        <div className="ca-more">
+          <button className={'ca-btn ca-icon' + (menu ? ' open' : '')} onClick={() => setMenu(true)} aria-haspopup="dialog" aria-expanded={menu} aria-label="More" title="More"><MoreIcon /></button>
         </div>
       </div>
-      {reporting && (
-        <div className="ca-report">
-          <span className="muted">Why are you reporting this?</span>
-          {REASONS.map(([id, label]) => <button key={id} className="ca-pill" onClick={() => report(id)}>{label}</button>)}
-          <button className="ca-pill" onClick={() => setReporting(false)}>Cancel</button>
-        </div>
-      )}
+      {menu && <MoreSheet clip={clip} onClose={() => setMenu(false)} onReport={report} onRemove={remove} />}
       {open && <CommentsSheet clip={clip} onClose={() => setOpen(false)} onTotal={(n) => n !== latest.current.comments && onChange({ ...latest.current, comments: n })} />}
       {sharing && <ShareSheet clip={clip} onClose={() => setSharing(false)} onShared={shared} />}
     </div>

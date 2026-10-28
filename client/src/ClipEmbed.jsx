@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from './api.js';
 import { Avatar, Icon } from './ui.jsx';
-import ClipActions, { useDoubleLike } from './ClipActions.jsx';
+import ClipActions, { ClipInfo, useDoubleLike } from './ClipActions.jsx';
 import { VideoPlayer } from './VideoPlayer.jsx';
 import './clipembed.css';
 
@@ -105,7 +105,7 @@ function ClipViewer({ clip, onChange, onClose }) {
         {gone
           ? <div className="cv-gone"><b>This clip is gone</b><span>It was removed.</span><button type="button" className="btn" onClick={onClose}>Back to chat</button></div>
           : (
-            <VideoPlayer ratio={ratio} src={clip.url} poster={clip.poster} autoPlay onPlay={play} onDoubleLike={doubleLike}>
+            <VideoPlayer ratio={ratio} src={clip.url} poster={clip.poster} autoPlay onPlay={play} onDoubleLike={doubleLike} info={<ClipInfo clip={clip} onChange={onChange} linked={false} />}>
               <ClipActions overlay clip={clip} onChange={onChange} onGone={() => setGone(true)} />
             </VideoPlayer>
           )}

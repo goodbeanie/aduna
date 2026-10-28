@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { Avatar } from './ui.jsx';
 import { DialogHost, toast } from './Dialogs.jsx';
 import { ClipCard } from './Clips.jsx';
+import ClipSearch, { SearchIcon } from './ClipSearch.jsx';
 import './dash.css';
 import './clipssite.css';
 
@@ -59,6 +60,7 @@ export default function ClipsSite({ userId = null }) {
   const [profile, setProfile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [idx, setIdx] = useState(0); // which clip is on screen
+  const [searching, setSearching] = useState(false);
 
   const feedRef = useRef(null);
   const lockUntil = useRef(0);
@@ -151,7 +153,7 @@ export default function ClipsSite({ userId = null }) {
     let last = 0;
     const onWheel = (e) => {
       if (e.ctrlKey || Math.abs(e.deltaY) < Math.abs(e.deltaX)) return; // pinch-zoom and sideways scrolling are left alone
-      if (e.target.closest && e.target.closest('.ca-menu')) return;
+      if (e.target.closest && e.target.closest('.ss-back')) return;
       e.preventDefault();
       const now = Date.now();
       const gap = now - last;
@@ -164,7 +166,7 @@ export default function ClipsSite({ userId = null }) {
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       const t = e.target;
       if (t && t.closest && t.closest('input, textarea, select, [contenteditable="true"]')) return;
-      if (document.querySelector('.ss-back')) return; // the comments or share popup is open
+      if (document.querySelector('.ss-back, .sp')) return; // the comments, share or search popup is open
       const dir = e.key === 'ArrowDown' || e.key === 'PageDown' ? 1 : e.key === 'ArrowUp' || e.key === 'PageUp' ? -1 : 0;
       if (!dir) return;
       e.preventDefault();
@@ -186,12 +188,13 @@ export default function ClipsSite({ userId = null }) {
   };
 
   return (
-    <div className="yt-dash cs">
+    <div className={'yt-dash cs' + (!userId ? ' cs-over' : '')}>
       <header className="yt-top">
-        <a className="yt-logo" href="/clips"><i aria-hidden="true" />Aduna<small>Clips</small></a>
+        <a className="yt-logo" href="/clips"><i aria-hidden="true" /><span className="yt-logo-name">Aduna</span><small>Clips</small></a>
         {!userId
           ? <div className="cs-tabs" role="tablist" aria-label="Clips">{TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={'cs-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>{label}</button>)}</div>
           : <div className="yt-search" />}
+        <button type="button" className="cs-search-btn" aria-label="Search creators and clips" title="Search" onClick={() => { document.querySelectorAll('.cs video').forEach((v) => v.pause()); setSearching(true); }}><SearchIcon /></button>
       </header>
 
       {userId && profile && (
@@ -233,6 +236,7 @@ export default function ClipsSite({ userId = null }) {
       )}
 
       {me && <MeMenu me={me} />}
+      {searching && <ClipSearch onClose={() => setSearching(false)} />}
       <DialogHost />
     </div>
   );

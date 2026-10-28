@@ -50,17 +50,15 @@
 /* ---- like / comments / share / "..." as a column on the right of the video, like Reels (a phone; a wide screen moves it outside, below) ---- */
 .cs .clip.reel .vp-bottom { align-items: flex-end; padding: 0 8px 34px 0; }
 .cs .ca-overlay { width: auto; }
-.cs .ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 10px; padding: 0; }
-.cs .ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 52px; height: auto; padding: 0; gap: 2px; background: none; color: #fff; font-size: 12px; }
+.cs .ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 20px; gap: clamp(12px, 2.8dvh, 24px); padding: 0; }
+.cs .ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 56px; height: auto; padding: 0; gap: 5px; background: none; color: #fff; font-size: 12px; }
 .cs .ca-overlay .ca-btn:hover, .cs .ca-overlay .ca-btn.open { background: none; }
-.cs .ca-overlay .ca-btn svg { width: 44px; height: 44px; padding: 11px; box-sizing: border-box; border-radius: 50%; background: rgba(0,0,0,.35); transition: background .12s; }
-.cs .ca-overlay .ca-btn:hover svg, .cs .ca-overlay .ca-btn.open svg { background: rgba(0,0,0,.55); }
-.cs .ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.25); }
-.cs .ca-overlay .ca-btn.ca-icon { width: 52px; }
+.cs .ca-overlay .ca-btn svg { width: 46px; height: 46px; padding: 12px; box-sizing: border-box; border-radius: 50%; background: rgba(0,0,0,.4); transition: background .12s; }
+.cs .ca-overlay .ca-btn:hover svg, .cs .ca-overlay .ca-btn.open svg { background: rgba(0,0,0,.6); }
+.cs .ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.28); }
+.cs .ca-overlay .ca-btn.ca-icon { width: 56px; }
 .cs .ca-overlay .ca-views, .cs .ca-overlay .ca-grow { display: none; } /* the view count is in the line above the video (and over it on a wide screen) */
 .cs .ca-overlay .ca-more { position: relative; }
-.cs .ca-overlay .ca-menu { left: auto; right: calc(100% + 8px); bottom: 0; }
-.cs .ca-overlay .ca-report { position: absolute; right: 64px; bottom: 0; width: min(280px, 70vw); margin: 0; box-sizing: border-box; }
 
 @media (max-width: 700px) {
   .cs-main { padding: 16px 12px 110px; }
@@ -83,17 +81,15 @@
   /* the column of buttons, outside the video on its right, level with its bottom */
   .cs .clip.reel .vp-bottom { inset: auto; top: auto; right: auto; left: calc(100% + 14px); bottom: 0; width: 60px; padding: 0; align-items: center; }
   .cs .ca-overlay { width: 100%; }
-  .cs .ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 14px; padding: 0; }
-  .cs .ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 60px; height: auto; padding: 0; gap: 4px; background: none; color: #fff; text-shadow: none; font-size: 12px; }
+  .cs .ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 22px; gap: clamp(12px, 3dvh, 26px); padding: 0; }
+  .cs .ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 60px; height: auto; padding: 0; gap: 5px; background: none; color: #fff; text-shadow: none; font-size: 12px; }
   .cs .ca-overlay .ca-btn:hover, .cs .ca-overlay .ca-btn.open { background: none; }
-  .cs .ca-overlay .ca-btn svg { width: 48px; height: 48px; padding: 13px; box-sizing: border-box; border-radius: 50%; background: rgba(255,255,255,.12); transition: background .12s; }
+  .cs .ca-overlay .ca-btn svg { width: 52px; height: 52px; padding: 14px; box-sizing: border-box; border-radius: 50%; background: rgba(255,255,255,.12); transition: background .12s; }
   .cs .ca-overlay .ca-btn:hover svg, .cs .ca-overlay .ca-btn.open svg { background: rgba(255,255,255,.24); }
   .cs .ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.22); }
   .cs .ca-overlay .ca-btn.ca-icon { width: 60px; }
   .cs .ca-overlay .ca-views, .cs .ca-overlay .ca-grow { display: none; }
   .cs .ca-overlay .ca-more { position: relative; }
-  .cs .ca-overlay .ca-menu { left: calc(100% + 8px); right: auto; bottom: 0; }
-  .cs .ca-overlay .ca-report { position: absolute; left: calc(100% + 8px); right: auto; bottom: 0; width: 280px; margin: 0; box-sizing: border-box; }
 
   /* creator and caption over the video */
   .cs .clip.reel .vp-info { display: flex; left: 18px; right: 18px; bottom: 26px; }
@@ -106,4 +102,48 @@
   .cs-nav-btn:hover:not(:disabled) { background: #3f3f3f; }
   .cs-nav-btn:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
   .cs-nav-btn:disabled { opacity: .3; cursor: default; }
+}
+
+/* ---- the search button in the top bar (opens ClipSearch) ---- */
+.cs-search-btn { flex: none; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; background: var(--bg3); color: var(--text); cursor: pointer; }
+.cs-search-btn:hover { background: #3f3f3f; }
+.cs-search-btn:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
+.cs .yt-search { max-width: none; }
+
+/* ---- a phone or a narrow window ----
+   Looks like the wide layout, with the video filling the whole screen: the top bar floats over it, the creator, caption and numbers sit in
+   the bottom-left corner, the like / comment / share / "..." column is down the right edge, and your picture moves to the top right. */
+@media (max-width: 899px) {
+  .cs-slide { padding: 0; }
+  .cs .clip.reel { width: 100%; max-width: none; height: 100%; gap: 0; position: relative; }
+  .cs .clip.reel .clip-who, .cs .clip.reel .clip-text { display: none; }
+  .cs .clip.reel .vp { width: 100%; height: 100%; max-height: none; aspect-ratio: auto; border-radius: 0; }
+  .cs .clip.reel .vp-inner { border-radius: 0; }
+  .cs .clip.reel.land .vp-video { object-fit: contain; } /* a wide clip is shown whole instead of cropped */
+  .cs .clip.reel .vp-shade { height: 50%; }
+  .cs .clip.reel .vp-info { display: flex; left: 14px; right: 86px; bottom: calc(26px + env(safe-area-inset-bottom, 0px)); }
+  .cs .clip.reel .vp-bottom { padding: 0 10px calc(30px + env(safe-area-inset-bottom, 0px)) 0; }
+  .cs .vp-info a.vp-info-name { color: #fff; font-size: 15px; }
+  .cs .vp-info .vp-info-ava { display: block; border-radius: 50%; }
+  .cs .vp-info .vp-info-meta { font-size: 12px; opacity: .85; }
+
+  /* the top bar floats over the video (everywhere but a person's page, which keeps its own header) */
+  .yt-dash.cs .yt-top { padding-right: 64px; gap: 8px; }
+  .yt-dash.cs-over .yt-top { position: absolute; top: 0; left: 0; right: 0; z-index: 25; height: calc(56px + env(safe-area-inset-top, 0px)); padding-top: env(safe-area-inset-top, 0px); padding-left: 12px; box-sizing: border-box; background: linear-gradient(to bottom, rgba(0,0,0,.7), rgba(0,0,0,0)); border-bottom: 0; }
+  .yt-dash.cs-over .yt-logo-name, .yt-dash.cs-over .yt-top .yt-logo small { display: none; }
+  .yt-dash.cs-over .cs-tabs { gap: 4px; }
+  .yt-dash.cs-over .cs-tab { height: 32px; padding: 0 13px; font-size: 13px; background: rgba(255,255,255,.14); color: #fff; }
+  .yt-dash.cs-over .cs-tab.on { background: #fff; color: #111; }
+  .yt-dash.cs-over .cs-search-btn { width: 36px; height: 36px; background: rgba(255,255,255,.14); color: #fff; }
+  .yt-dash.cs-over .cs-main:not(.cs-feeding) { padding-top: calc(76px + env(safe-area-inset-top, 0px)); }
+  .yt-dash.cs-over .vp-mute { top: calc(60px + env(safe-area-inset-top, 0px)); }
+
+  /* your picture: top right, with its menu opening below it */
+  .yt-dash.cs .cs-me { top: calc(8px + env(safe-area-inset-top, 0px)); bottom: auto; right: 10px; flex-direction: column-reverse; }
+  .yt-dash.cs .cs-me-btn { width: 40px; height: 40px; padding: 2px; overflow: hidden; background: rgba(0,0,0,.4); }
+  .yt-dash.cs .cs-me-btn > * { transform: scale(.64); flex: none; }
+}
+/* a phone turned sideways: show the whole picture instead of cropping it */
+@media (max-width: 899px) and (min-aspect-ratio: 1/1) {
+  .cs .clip.reel .vp-video { object-fit: contain; }
 }

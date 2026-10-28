@@ -2,9 +2,11 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar } from './ui.jsx';
 import { DialogHost } from './Dialogs.jsx';
-import ClipActions, { exact, useDoubleLike } from './ClipActions.jsx';
+import ClipActions, { ClipInfo, FollowButton, exact, useDoubleLike } from './ClipActions.jsx';
+import ClipSearch, { SearchIcon } from './ClipSearch.jsx';
 import { VideoPlayer } from './VideoPlayer.jsx';
 import './dash.css';
+import './clipssite.css';
 
 // A single clip on its own page: /clips/<clip id>. The same link works for sharing. You have to be signed in to Aduna to watch (like the feed).
 const ago = (t) => {
@@ -22,6 +24,7 @@ const left = (t) => {
 export default function ClipPage({ id }) {
   const [state, setState] = useState('loading'); // 'loading' | 'ready' | 'gone' | 'signedout' | 'off' | 'error'
   const [clip, setClip] = useState(null);
+  const [searching, setSearching] = useState(false);
   const counted = useRef(false);
 
   const load = async () => {
@@ -46,10 +49,11 @@ export default function ClipPage({ id }) {
   const ratio = clip && clip.width && clip.height ? clip.width / clip.height : 9 / 16;
   const doubleLike = useDoubleLike(clip || { id: '', liked: true }, setClip);
   return (
-    <div className="yt-dash">
+    <div className="yt-dash cs-watch">
       <header className="yt-top">
-        <a className="yt-logo" href="/app"><i aria-hidden="true" />Aduna<small>Clips</small></a>
+        <a className="yt-logo" href="/clips"><i aria-hidden="true" /><span className="yt-logo-name">Aduna</span><small>Clips</small></a>
         <div className="yt-search" />
+        <button type="button" className="cs-search-btn" aria-label="Search creators and clips" title="Search" onClick={() => { document.querySelectorAll('video').forEach((v) => v.pause()); setSearching(true); }}><SearchIcon /></button>
         <a className="yt-back" href="/app">Back to Aduna</a>
       </header>
 
@@ -63,20 +67,24 @@ export default function ClipPage({ id }) {
         {state === 'ready' && clip && (
           <>
             <div className="watch-player">
-              <VideoPlayer ratio={ratio} src={clip.url} poster={clip.poster} autoPlay onPlay={play} onDoubleLike={doubleLike}>
+              <VideoPlayer ratio={ratio} src={clip.url} poster={clip.poster} autoPlay onPlay={play} onDoubleLike={doubleLike} info={<ClipInfo clip={clip} onChange={setClip} />}>
                 <ClipActions overlay clip={clip} onChange={setClip} onGone={() => setState('gone')} />
               </VideoPlayer>
             </div>
             <div className="watch-info">
               {clip.caption && <h1 className="watch-title">{clip.caption}</h1>}
               <div className="watch-meta muted">{exact(clip.views)} views · {ago(clip.createdAt)} · {left(clip.expiresAt)}</div>
-              <a className="watch-who" href={`/clips/user/${clip.owner.id}`} title={`See ${clip.owner.username || 'their'} clips`}>
-                <Avatar user={{ ...clip.owner, id: clip.owner.id }} size={40} />
-                <b>{clip.owner.username || 'Someone'}</b>
-              </a>
+              <div className="watch-row">
+                <a className="watch-who" href={`/clips/user/${clip.owner.id}`} title={`See ${clip.owner.username || 'their'} clips`}>
+                  <Avatar user={{ ...clip.owner, id: clip.owner.id }} size={40} />
+                  <b>{clip.owner.username || 'Someone'}</b>
+                </a>
+                <FollowButton clip={clip} onChange={setClip} />
+              </div>
             </div>
           </>
         )}
+        {searching && <ClipSearch onClose={() => setSearching(false)} />}
         <DialogHost />
       </main>
     </div>

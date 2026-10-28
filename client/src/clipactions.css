@@ -1,74 +1,69 @@
-/* Like / comments / share / "..." under a clip. Uses the page's own colour variables, so it follows the app theme in the feed and is dark on /clips/<id>. */
+/* Like / comments / share / "..." beside a clip. Uses the page's own colour variables, so it follows the app theme in the feed and is dark on /clips/<id>. */
 .ca { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 .ca-bar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .ca-btn { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 12px; border-radius: 999px; color: var(--text); font-size: 13px; font-weight: 500; }
 .ca-btn:hover { background: var(--hover, rgba(127,127,127,.15)); }
 .ca-btn.on { color: #fff; } /* a liked clip: the heart fills in, still white */
+.ca-btn.open { background: var(--hover, rgba(127,127,127,.15)); }
+.ca-btn.ca-icon { padding: 0; width: 36px; justify-content: center; }
+.ca-views { font-size: 13px; margin-left: 8px; }
+.ca-grow { flex: 1; }
 
-/* Over the bottom of the video: everything white, no boxes. The comments open as a drawer above the row. */
-.ca-overlay { gap: 8px; width: auto; position: static; }
-.ca-overlay .ca-bar { pointer-events: auto; padding: 0 10px; gap: 2px; }
-.ca-overlay .ca-btn { color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
-.ca-overlay .ca-btn:hover, .ca-overlay .ca-btn.open { background: rgba(255,255,255,.16); }
-.ca-overlay .ca-views { color: #fff; opacity: .85; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
-.ca-overlay .ca-report { pointer-events: auto; margin: 0 10px; background: rgba(20,20,20,.92); border-color: rgba(255,255,255,.14); color: #fff; }
-.ca-overlay .ca-report .muted { color: #bbb; }
-.ca-overlay .ca-pill { background: rgba(255,255,255,.12); color: #fff; }
-.ca-overlay .ca-menu { background: #1d1d1f; border-color: rgba(255,255,255,.14); color: #f2f2f2; }
-.ca-overlay .ca-menu .ca-item { color: #f2f2f2 !important; }
-.ca-overlay .ca-menu .ca-item.danger { color: #ff6b6b !important; }
-.ca-overlay .ca-stats div { background: rgba(255,255,255,.07); }
-.ca-overlay .ca-stats b { color: #fff; }
-.ca-overlay .ca-stats span, .ca-overlay .ca-followers { color: #a8a8ad; }
-
-/* Like / comments / share / "..." as a column of round buttons down the right edge of the video, like Instagram Reels. */
-.ca-overlay { width: auto; }
-.ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 10px; padding: 0; }
-.ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 52px; height: auto; padding: 0; gap: 2px; background: none; color: #fff; font-size: 12px; }
+/* Over the video: a column of round buttons down the right edge, like Instagram Reels. The buttons are spaced well apart
+   (a little closer on a short window, so the whole column always fits). */
+.ca-overlay { width: auto; position: static; gap: 8px; }
+.ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 20px; gap: clamp(12px, 2.8dvh, 24px); padding: 0; pointer-events: auto; }
+.ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 56px; height: auto; padding: 0; gap: 5px; background: none; color: #fff; font-size: 12px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
 .ca-overlay .ca-btn:hover, .ca-overlay .ca-btn.open { background: none; }
-.ca-overlay .ca-btn svg { width: 44px; height: 44px; padding: 11px; box-sizing: border-box; border-radius: 50%; background: rgba(0,0,0,.35); transition: background .12s; }
-.ca-overlay .ca-btn:hover svg, .ca-overlay .ca-btn.open svg { background: rgba(0,0,0,.55); }
-.ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.25); }
-.ca-overlay .ca-btn.ca-icon { width: 52px; }
+.ca-overlay .ca-btn svg { width: 46px; height: 46px; padding: 12px; box-sizing: border-box; border-radius: 50%; background: rgba(0,0,0,.4); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); transition: background .12s, transform .12s; }
+.ca-overlay .ca-btn:hover svg, .ca-overlay .ca-btn.open svg { background: rgba(0,0,0,.6); }
+.ca-overlay .ca-btn:active svg { transform: scale(.92); }
+.ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.28); }
+.ca-overlay .ca-btn.ca-icon { width: 56px; }
+.ca-overlay .ca-btn:focus-visible { outline: none; }
+.ca-overlay .ca-btn:focus-visible svg { outline: 2px solid #fff; outline-offset: 2px; }
 .ca-overlay .ca-views, .ca-overlay .ca-grow { display: none; }
 .ca-overlay .ca-more { position: relative; }
-.ca-overlay .ca-menu { left: auto; right: calc(100% + 8px); bottom: 0; }
-.ca-overlay .ca-report { position: absolute; right: 64px; bottom: 0; width: min(280px, 70vw); margin: 0; box-sizing: border-box; }
+
+/* The clip shown on its own (the viewer over a chat, a clip's own page) on a wide screen: the column sits outside the video on its right */
+@media (min-width: 900px) {
+  .cv-stage .ca-overlay, .watch-player .ca-overlay { width: 100%; }
+  .cv-stage .ca-overlay .ca-btn, .watch-player .ca-overlay .ca-btn { width: 60px; text-shadow: none; }
+  .cv-stage .ca-overlay .ca-btn svg, .watch-player .ca-overlay .ca-btn svg { width: 52px; height: 52px; padding: 14px; background: rgba(255,255,255,.12); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .cv-stage .ca-overlay .ca-btn:hover svg, .cv-stage .ca-overlay .ca-btn.open svg,
+  .watch-player .ca-overlay .ca-btn:hover svg, .watch-player .ca-overlay .ca-btn.open svg { background: rgba(255,255,255,.24); }
+  .cv-stage .ca-overlay .ca-btn.on svg, .watch-player .ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.22); }
+  .cv-stage .ca-overlay .ca-btn.ca-icon, .watch-player .ca-overlay .ca-btn.ca-icon { width: 60px; }
+}
 
 /* The comments popup (drawn outside the page, so it has its own dark colours; the card itself is .ss-panel from sharesheet.css) */
-.cs-panel { display: flex; flex-direction: column; height: min(74vh, 640px); padding-bottom: 12px; overflow: hidden; }
+.cs-panel { display: flex; flex-direction: column; height: min(74vh, 640px); height: min(74dvh, 640px); padding-bottom: 12px; overflow: hidden; }
 .cs-panel .ca-comments { flex: 1; min-height: 0; max-height: none; padding: 0; overflow: hidden; gap: 10px; }
 .ca-list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding: 4px 2px; }
 .cs-panel .ca-write input { background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.14); }
 .cs-panel .ca-send { background: #fff; color: #111; }
 .cs-panel .ca-body p, .cs-panel .ca-body b { color: #f2f2f2; }
 .cs-panel .ca-note, .cs-panel .ca-body .muted, .cs-panel .ca-del { color: #9a9a9f; }
-@media (max-width: 560px) { .cs-panel { height: 72vh; } }
-.ca-btn.open { background: var(--hover, rgba(127,127,127,.15)); }
-.ca-btn.ca-icon { padding: 0; width: 36px; justify-content: center; }
-.ca-views { font-size: 13px; margin-left: 8px; }
-.ca-grow { flex: 1; }
+@media (max-width: 560px) { .cs-panel { height: 72vh; height: 72dvh; } }
 
-.ca-more { position: relative; }
-.ca-menu { position: absolute; right: 0; bottom: 42px; z-index: 20; width: 240px; padding: 8px; border-radius: 12px; background: var(--raised, var(--bg2)); border: 1px solid var(--line); box-shadow: 0 8px 28px var(--shadow, rgba(0,0,0,.4)); display: flex; flex-direction: column; gap: 4px; }
-.ca-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; padding: 6px 4px 10px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
-.ca-stats div { display: flex; flex-direction: column; padding: 6px 8px; border-radius: 8px; background: var(--field); }
-.ca-stats b { font-size: 16px; font-weight: 600; color: var(--head, var(--text)); font-variant-numeric: tabular-nums; }
-.ca-stats span { font-size: 11px; color: var(--muted); }
-.ca-item { display: block; width: 100%; text-align: left; padding: 9px 10px; border-radius: 8px; font-size: 14px; color: var(--text) !important; text-decoration: none; }
-.ca-item:hover { background: var(--hover, rgba(127,127,127,.15)); }
-.ca-item.danger { color: var(--danger) !important; }
-.ca-followers { font-size: 12px; padding: 2px 10px 6px; }
+/* The "..." popup (MoreSheet): same card as the comments and the share sheet */
+.ms-panel { max-width: 400px; }
+.ms-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 12px; }
+.ms-stats div { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border-radius: 14px; background: rgba(255,255,255,.07); }
+.ms-stats b { font-size: 22px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.ms-stats span { font-size: 12px; color: #9a9a9f; }
+.ms-who { padding: 2px 2px 12px; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,.1); color: #9a9a9f; font-size: 13px; }
+.ms-list { display: flex; flex-direction: column; gap: 2px; }
+.ms-item { display: flex; align-items: center; gap: 12px; width: 100%; box-sizing: border-box; padding: 13px 12px; border: 0; border-radius: 12px; background: none; color: #f2f2f2; font: inherit; font-size: 15px; text-align: left; text-decoration: none; cursor: pointer; }
+.ms-item:hover, .ms-item:focus-visible { background: rgba(255,255,255,.08); outline: none; }
+.ms-item.danger { color: #ff6b6b; }
+.ms-item svg { flex: none; opacity: .85; }
 
 /* Follow button next to the poster's name */
 .ca-follow { margin-left: auto; padding: 6px 14px; border-radius: 999px; background: var(--ink); color: var(--on-ink); font-size: 13px; font-weight: 500; }
 .ca-follow:hover { background: var(--ink-h, var(--ink)); }
 .ca-follow.on { background: var(--hover, rgba(127,127,127,.2)); color: var(--text); }
 .ca-follow:disabled { opacity: .6; cursor: default; }
-
-.ca-report { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--field); }
-.ca-pill { padding: 6px 12px; border-radius: 999px; background: var(--hover, rgba(127,127,127,.15)); font-size: 13px; color: var(--text); }
-.ca-pill:hover { background: var(--line2, rgba(127,127,127,.3)); }
 
 .ca-comments { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; max-height: 420px; overflow-y: auto; }
 .ca-write { display: flex; gap: 8px; align-items: center; }

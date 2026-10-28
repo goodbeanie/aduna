@@ -38,12 +38,44 @@
 
 /* in a list of clips: a portrait frame that fits the screen */
 .clip .vp { height: min(calc(100vh - 150px), 900px); height: min(calc(100dvh - 150px), 900px); width: auto; max-width: 100%; align-self: center; }
-/* on a clip's own page */
-.watch-player .vp { width: min(calc(100vw - 160px), calc((100vh - 120px) * var(--ratio, .5625))); height: auto; max-width: none; }
-@media (max-width: 820px) {
-  .watch-player { display: block; }
-  .watch-player .vp { height: auto; width: 100%; max-width: 100%; max-height: 78vh; border-radius: 0; }
-  .watch-player .vp-inner { border-radius: 0; }
+/* ---- one clip, as big as the window allows ----
+   The viewer over a chat (.cv-stage) and a clip's own page (.watch-player). The frame is fitted inside (window height) x (window width),
+   whatever the window or the clip's shape, so it always fits the screen without scrolling. On a wide screen the like / comment / share /
+   "..." column sits outside the video on its right (--side is the room kept for it); below that it is drawn over the video. */
+.cv-stage, .watch-player { --u: 1vh; --pad: 16px; --side: 0px; --fh: calc(var(--u) * 100 - 2 * var(--pad)); --fw: calc(100vw - 2 * var(--pad) - 2 * var(--side)); }
+@supports (height: 1dvh) { .cv-stage, .watch-player { --u: 1dvh; } }
+.cv-stage .vp, .watch-player .vp { width: min(var(--fw), calc(var(--fh) * var(--ratio, .5625))); height: auto; max-width: none; }
+.watch-player { --fh: calc(var(--u) * 100 - 56px - 8px); --fw: 100vw; }
+
+/* creator + caption over the bottom-left of the video. Clear of the buttons when they are drawn over the video. */
+.cv-stage .vp-info { display: flex; right: 84px; bottom: 30px; }
+.cv-stage .vp-shade { height: 55%; }
+.vp-info-ava { display: block; border-radius: 50%; flex: none; }
+.vp-info-name { font-weight: 600; }
+.vp-info-meta { letter-spacing: .01em; }
+
+@media (max-width: 899px) {
+  .watch-player { display: flex; justify-content: center; }
+  .watch-player .vp, .watch-player .vp-inner { border-radius: 0; }
+  /* a clip's own page on a phone: the video fills the screen under the top bar; creator, caption and numbers sit in its bottom-left corner
+     (the same ClipInfo as the feed), so the details block underneath is not needed */
+  .cs-watch .watch-player { width: 100%; }
+  .cs-watch .watch-player .vp { width: 100%; height: calc(var(--u) * 100 - 56px); aspect-ratio: auto; }
+  .cs-watch .watch-player .vp-shade { height: 50%; }
+  .cs-watch .watch-player .vp-info { display: flex; left: 14px; right: 86px; bottom: calc(26px + env(safe-area-inset-bottom, 0px)); }
+  .cs-watch .watch-player .vp-bottom { padding: 0 10px calc(30px + env(safe-area-inset-bottom, 0px)) 0; }
+  .cs-watch .watch-info { display: none; }
+  .cs-watch .yt-logo-name, .cs-watch .yt-top .yt-logo small { display: none; }
+}
+/* on a wide screen the details sit beside the video, so the corner copy is not drawn */
+@media (min-width: 900px) {
+  .cs-watch .watch-player .vp-info { display: none; }
+}
+@media (min-width: 900px) {
+  .cv-stage { --side: 92px; }
+  .watch-player { --fh: calc(var(--u) * 100 - 56px - 32px); --fw: min(calc(100vw - 460px), 960px); margin-right: 92px; }
+  .cv-stage .vp-info { right: 18px; }
+  .cv-stage .vp-bottom, .watch-player .vp-bottom { inset: auto; left: calc(100% + 16px); bottom: 0; width: 60px; padding: 0; align-items: center; }
 }
 
 /* the /clips feed on a phone: who / caption above and below the video, one clip per screen */

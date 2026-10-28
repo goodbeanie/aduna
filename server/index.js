@@ -2321,6 +2321,12 @@ app.get('/api/clips/mine', auth, (req, res) => {
   const mine = clipList().filter((c) => c.owner === req.user.id && !c.dismissed).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(clipsLib.ownerView);
   res.json({ clips: mine });
 });
+// search creators (by name) and clips (by caption or poster's name) for the Clips website's search button
+app.get('/api/clips/search', auth, needClips, (req, res) => {
+  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 60) : '';
+  res.json(clipsLib.search(clipList(), db().users, { uid: req.user.id, q, now: now() }, clipsLib.settings()));
+});
 // one clip, for its own page (/clips/:id). Only a live clip can be opened; after it expires or is taken down the link says "gone".
 app.get('/api/clips/:id', auth, needClips, (req, res) => {
   if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
