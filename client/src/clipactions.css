@@ -13,7 +13,7 @@
    (a little closer on a short window, so the whole column always fits). */
 .ca-overlay { width: auto; position: static; gap: 8px; }
 .ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 20px; gap: clamp(12px, 2.8dvh, 24px); padding: 0; pointer-events: auto; }
-.ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 56px; height: auto; padding: 0; gap: 5px; background: none; color: #fff; font-size: 12px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 56px; height: auto; padding: 0; gap: 10px; background: none; color: #fff; font-size: 12px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
 .ca-overlay .ca-btn:hover, .ca-overlay .ca-btn.open { background: none; }
 .ca-overlay .ca-btn svg { width: 46px; height: 46px; padding: 12px; box-sizing: border-box; border-radius: 50%; background: rgba(0,0,0,.4); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); transition: background .12s, transform .12s; }
 .ca-overlay .ca-btn:hover svg, .ca-overlay .ca-btn.open svg { background: rgba(0,0,0,.6); }

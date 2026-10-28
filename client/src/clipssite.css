@@ -51,7 +51,7 @@
 .cs .clip.reel .vp-bottom { align-items: flex-end; padding: 0 8px 34px 0; }
 .cs .ca-overlay { width: auto; }
 .cs .ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 20px; gap: clamp(12px, 2.8dvh, 24px); padding: 0; }
-.cs .ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 56px; height: auto; padding: 0; gap: 5px; background: none; color: #fff; font-size: 12px; }
+.cs .ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 56px; height: auto; padding: 0; gap: 10px; background: none; color: #fff; font-size: 12px; }
 .cs .ca-overlay .ca-btn:hover, .cs .ca-overlay .ca-btn.open { background: none; }
 .cs .ca-overlay .ca-btn svg { width: 46px; height: 46px; padding: 12px; box-sizing: border-box; border-radius: 50%; background: rgba(0,0,0,.4); transition: background .12s; }
 .cs .ca-overlay .ca-btn:hover svg, .cs .ca-overlay .ca-btn.open svg { background: rgba(0,0,0,.6); }
