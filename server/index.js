@@ -2120,7 +2120,9 @@ const isAdmin = (u) => !!u && ADMINS.has(String(u.username).toLowerCase());
 
 app.post('/api/servers/:id/report', auth, (req, res) => {
   const s = db().servers[req.params.id];
-  if (!s || s.visibility !== 'public') return res.status(404).json({ error: 'That server is not listed publicly' });
+  const isPublic = !!s && s.visibility === 'public';
+  // a public listing can be reported by anyone signed in; any other server only by one of its own members (from inside the server)
+  if (!s || (!isPublic && !(s.members || []).includes(req.user.id))) return res.status(404).json({ error: 'That server is not listed publicly' });
   if (s.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot report your own server' });
   const reason = String(req.body?.reason || '');
   if (!listing.REASONS.includes(reason)) return res.status(400).json({ error: 'Pick a reason' });
@@ -2130,7 +2132,7 @@ app.post('/api/servers/:id/report', auth, (req, res) => {
   s.reports = (s.reports || []).filter((r) => r.by !== req.user.id);
   s.reports.push({ by: req.user.id, reason, details, at: now(), name: s.name, description: s.description || '', tags: s.tags || [] }); // a copy of what was reported, in case it is edited after
   if (s.reports.length > 200) s.reports = s.reports.slice(-200);
-  if (!s.listingHold && listing.countedReports(s.reports, db().users, now()) >= REPORTS_TO_HIDE) s.listingHold = { state: 'hidden', at: now() };
+  if (isPublic && !s.listingHold && listing.countedReports(s.reports, db().users, now()) >= REPORTS_TO_HIDE) s.listingHold = { state: 'hidden', at: now() };
   store.save();
   res.json({ ok: true });
 });
@@ -2906,7 +2908,7 @@ app.get('/api/admin/bot-reports', auth, adminOnly, (_req, res) => {
   const rows = Object.values(db().bots).filter((b) => (b.reports || []).length || b.listingHold).map((b) => ({
     botId: b.id, name: b.name, description: b.description || '', tags: b.tags || [], visibility: b.visibility, installs: (b.installs || []).length,
     developer: db().users[b.ownerId]?.username || null, hold: b.listingHold || null, counted: listing.countedReports(b.reports, db().users, now()),
-    reports: (b.reports || []).map((r) => ({ by: db().users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at })),
+    reports: (b.reports || []).map((r) => ({ by: db().users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at, about: r.about || 'listing', message: r.message || null })),
   })).sort((a, b) => b.reports.length - a.reports.length);
   res.json({ bots: rows, toHide: REPORTS_TO_HIDE });
 });
@@ -2920,6 +2922,74 @@ app.post('/api/admin/bots/:id/listing', auth, adminOnly, (req, res) => {
   store.save();
   tellDeveloper(b);
   res.json({ ok: true, hold: b.listingHold || null });
+});
+
+// ----- reports from inside the app: a person, a bot account, a message -----
+// (A server is reported with POST /api/servers/:id/report above; it now also accepts members of a private server.)
+// Same rules as the listing reports: one per person per thing, never your own, a reason (and details for "other"), a rate limit, and the
+// reported person is never told who reported. These do not hide or remove anything by themselves: moderators read them
+// (GET /api/admin/user-reports, plus the bot and server lists above) and decide. A report keeps a copy of what was reported,
+// in case it is edited or deleted afterwards.
+function readReport(req, res) {
+  const reason = String(req.body?.reason || '');
+  if (!listing.REASONS.includes(reason)) { res.status(400).json({ error: 'Pick a reason' }); return null; }
+  const details = clip(req.body?.details, listing.LISTING.maxDetails).trim();
+  if (reason === 'other' && !details) { res.status(400).json({ error: 'Tell us what is wrong' }); return null; }
+  if (!reportHits.allow(req.user.id)) { res.status(429).json({ error: 'You have sent a lot of reports. Try again later.' }); return null; }
+  return { reason, details };
+}
+// a report about a bot account is kept on the bot's own record (the developer's), about anyone else on that person's record
+const reportHolder = (u) => (u.bot && u.botId && db().bots[u.botId] ? db().bots[u.botId] : u);
+function addAccountReport(holder, entry) {
+  const key = entry.message ? entry.message.id : '';
+  holder.reports = (holder.reports || []).filter((r) => !(r.by === entry.by && (r.message ? r.message.id : '') === key));
+  holder.reports.push(entry);
+  if (holder.reports.length > 200) holder.reports = holder.reports.slice(-200);
+}
+app.post('/api/users/:id/report', auth, (req, res) => {
+  const u = db().users[req.params.id];
+  if (!u) return res.status(404).json({ error: 'Not found' });
+  if (u.id === req.user.id) return res.status(400).json({ error: 'You cannot report yourself' });
+  const holder = reportHolder(u);
+  if (holder.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot report your own bot' });
+  const r = readReport(req, res);
+  if (!r) return;
+  addAccountReport(holder, { by: req.user.id, reason: r.reason, details: r.details, at: now(), about: 'account', name: u.displayName || u.username });
+  store.save();
+  res.json({ ok: true });
+});
+app.post('/api/messages/:id/report', auth, (req, res) => {
+  const m = db().messages[req.params.id];
+  const f = m && m.channelId ? findChannel(m.channelId) : null;
+  if (!f || !f.server.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' }); // only a message you can see
+  if (m.authorId === req.user.id) return res.status(400).json({ error: 'You cannot report your own message' });
+  const author = db().users[m.authorId];
+  if (!author) return res.status(404).json({ error: 'Not found' });
+  const holder = reportHolder(author);
+  if (holder.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot report your own bot' });
+  const r = readReport(req, res);
+  if (!r) return;
+  addAccountReport(holder, {
+    by: req.user.id, reason: r.reason, details: r.details, at: now(), about: 'message', name: author.displayName || author.username,
+    message: { id: m.id, channelId: f.channel.id, channel: f.channel.name, server: f.server.name, serverId: f.server.id, sentAt: m.createdAt, content: clip(m.content, 500), attachments: (m.attachments || []).length },
+  });
+  store.save();
+  res.json({ ok: true });
+});
+app.get('/api/admin/user-reports', auth, adminOnly, (_req, res) => {
+  const rows = Object.values(db().users).filter((u) => (u.reports || []).length).map((u) => ({
+    userId: u.id, username: u.username, displayName: u.displayName, createdAt: u.createdAt,
+    reports: u.reports.map((r) => ({ by: db().users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at, about: r.about || 'account', message: r.message || null })),
+  })).sort((a, b) => b.reports.length - a.reports.length);
+  res.json({ users: rows });
+});
+app.post('/api/admin/users/:id/reports', auth, adminOnly, (req, res) => {
+  const u = db().users[req.params.id];
+  if (!u) return res.status(404).json({ error: 'Not found' });
+  if (req.body?.action !== 'dismiss') return res.status(400).json({ error: 'action must be dismiss' });
+  u.reports = [];
+  store.save();
+  res.json({ ok: true });
 });
 
 // ----- bots, part 3: bot accounts, installing a bot in a server, running it on events -----
