@@ -191,6 +191,20 @@ export default function ClipsSite({ userId = null }) {
     if (i >= el.children.length - 3) loadMore();
   };
 
+  // The address follows the clip on screen, like YouTube Shorts: /clips/<clip id>. It replaces the current history entry (no new one per swipe,
+  // so Back still leaves Clips), and the link can be copied and opened as that clip's own page. On someone's page and while nothing is showing it stays put.
+  const shownId = feeding && !userId ? clips[idx]?.id : null;
+  useEffect(() => {
+    if (userId) return;
+    const want = shownId ? '/clips/' + shownId : '/clips';
+    try { if (location.pathname !== want) history.replaceState(history.state, '', want); } catch { /* the address just stays as it was */ }
+  }, [shownId, userId]);
+  useEffect(() => {
+    const c = shownId ? clips[idx] : null;
+    if (c) document.title = (c.caption ? c.caption.slice(0, 60) : 'Clip by ' + (c.owner.username || 'someone')) + ' · Clips · Aduna';
+    else if (!userId) document.title = 'Clips · Aduna';
+  }, [shownId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className={'yt-dash cs' + (!userId ? ' cs-over' : '')}>
       <header className="yt-top">
