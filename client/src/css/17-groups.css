@@ -1,0 +1,76 @@
+/* group chats and group calls: the list rows, the new-group and group-info dialogs, the call grid and the "join" banner.
+   Everything uses the theme variables, so it follows every theme (seasonal ones included). */
+
+/* a group has no picture: a round tile with the people icon, tinted by a hue that is stable per group (--sh is set from the group id) */
+.group-icon { flex: none; display: inline-grid; place-items: center; border-radius: 50%; background: hsl(var(--sh, 30) 38% 44%); color: #fffdf8; }
+.chan.dm.group-row .group-icon { box-shadow: 0 0 0 1px var(--line); }
+.chan.dm.group-row.unread .grow { font-weight: 700; }
+.gc-live { display: inline-grid; place-items: center; margin-left: 6px; color: var(--green); vertical-align: -1px; } /* a call is running in this group */
+
+/* ---------- new group / group info dialogs ---------- */
+.gc-label { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
+.gc-label .muted { margin-left: 4px; }
+.gc-picked { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.gc-chip { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px 3px 4px; border-radius: 999px; background: var(--chip-on); font-size: 13px; }
+.gc-chip:hover { background: var(--sel); }
+.gc-results { max-height: 240px; }
+.gc-row { width: 100%; }
+.gc-row.on { background: var(--sel); }
+.gc-row:disabled { opacity: .5; cursor: default; }
+.gc-check { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--line2); color: var(--on-ink); }
+.gc-check.on { background: var(--ink); border-color: var(--ink); }
+.gc-note { margin-top: 12px; }
+.gc-head { display: flex; align-items: center; gap: 14px; margin-bottom: 4px; }
+.gc-head .grow { min-width: 0; }
+.gc-rename { display: flex; gap: 8px; margin-bottom: 4px; }
+.gc-rename input { flex: 1 1 auto; min-width: 0; }
+.gc-warn { display: flex; gap: 10px; align-items: flex-start; margin: 12px 0 2px; padding: 10px 12px; border-radius: 10px; background: var(--err-bg); color: var(--err-fg); font-size: 14px; }
+.gc-warn svg { flex: none; margin-top: 2px; }
+.gc-members { max-height: 260px; }
+.gc-member { justify-content: space-between; }
+.gc-member:hover { background: transparent; }
+.gc-who { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; text-align: left; padding: 0; background: none; }
+.gc-who:hover { text-decoration: underline; }
+.gc-add { margin-top: 10px; }
+.gc-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+.gc-foot { flex-wrap: wrap; align-items: center; }
+.gc-foot .spacer { flex: 1 1 auto; }
+
+/* ---------- group call ---------- */
+/* the stage uses the 1:1 call styles (07-calls.css); only the grid is different: one tile per person, up to 8 */
+.stage-tiles.gcall-grid { grid-auto-rows: minmax(0, 1fr); }
+.stage-tiles.gcall-grid:not(.spot)[data-n="1"] { grid-template-columns: minmax(0, 1fr); }
+.stage-tiles.gcall-grid:not(.spot)[data-n="2"],
+.stage-tiles.gcall-grid:not(.spot)[data-n="3"],
+.stage-tiles.gcall-grid:not(.spot)[data-n="4"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.stage-tiles.gcall-grid:not(.spot)[data-n="5"],
+.stage-tiles.gcall-grid:not(.spot)[data-n="6"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.stage-tiles.gcall-grid:not(.spot)[data-n="7"],
+.stage-tiles.gcall-grid:not(.spot)[data-n="8"] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.call-stage.gcall:not(.big) { height: clamp(260px, 46vh, 500px); } /* a little taller than a 1:1 call: more tiles to fit */
+.gcall-grid .call-tile { min-height: 90px; }
+.gcall-grid .call-tile .tile-name { max-width: calc(100% - 44px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* "join" banner at the top of a group chat while a call is running and you are not in it */
+.gcall-banner { display: flex; align-items: center; gap: 10px; margin: 0 16px 10px; padding: 8px 12px; border-radius: 12px; background: var(--ok-bg); color: var(--ok-fg); font-size: 14px; }
+.gcall-banner .spacer { flex: 1 1 auto; }
+.gb-faces { display: inline-flex; }
+.gb-faces > * { margin-left: -6px; box-shadow: 0 0 0 2px var(--ok-bg); border-radius: 50%; }
+.gb-faces > *:first-child { margin-left: 0; }
+.gb-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gb-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 8px; background: var(--green); color: #fffdf8; font-weight: 600; }
+.gb-btn:hover:not(:disabled) { background: var(--green-h); }
+.gb-btn:disabled { opacity: .45; cursor: default; }
+.gb-btn.icon { padding: 6px 9px; }
+
+@media (max-width: 720px) {
+  .call-stage.gcall.big .stage-tiles.gcall-grid:not(.spot)[data-n] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .call-stage.gcall.big .stage-tiles.gcall-grid:not(.spot)[data-n="1"],
+  .call-stage.gcall.big .stage-tiles.gcall-grid:not(.spot)[data-n="2"] { grid-template-columns: minmax(0, 1fr); }
+  .call-stage.gcall:not(.big) .stage-tiles.gcall-grid:not(.spot)[data-n="5"],
+  .call-stage.gcall:not(.big) .stage-tiles.gcall-grid:not(.spot)[data-n="6"],
+  .call-stage.gcall:not(.big) .stage-tiles.gcall-grid:not(.spot)[data-n="7"],
+  .call-stage.gcall:not(.big) .stage-tiles.gcall-grid:not(.spot)[data-n="8"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .gcall-banner { margin: 0 10px 8px; }
+}
+@media (prefers-reduced-motion: reduce) { .gcall-banner { animation: none; } }

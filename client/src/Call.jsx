@@ -12,21 +12,23 @@ import { ScreenSharePicker, ShareBar, QUALITY, desktopScreen } from './ScreenSha
 
 // While a call is ringing the tab title flashes, and a desktop notification shows if the tab is hidden.
 let titleTimer = null, titleBase = '';
-function alertIncoming(name, video, peerId) {
+// title: "Pat is calling" / "Pat started a group call"; target: where tapping the notification goes ('d:<userId>' or 'g:<groupId>')
+export function alertCall(title, video, target) {
   clearInterval(titleTimer); if (titleBase) document.title = titleBase; // (not clearAlert: that would also close the notification shown below)
   titleBase = document.title;
   let on = false;
-  titleTimer = setInterval(() => { on = !on; document.title = on ? `\u{1F4DE} ${name} is calling…` : titleBase; }, 900);
-  if (notify.away()) notify.show({ title: `${name} is calling`, body: `Incoming ${video ? 'video' : 'voice'} call`, tag: 'call', target: 'd:' + peerId, kind: 'call', sticky: true });
+  titleTimer = setInterval(() => { on = !on; document.title = on ? `\u{1F4DE} ${title}…` : titleBase; }, 900);
+  if (notify.away()) notify.show({ title, body: `Incoming ${video ? 'video' : 'voice'} call`, tag: 'call', target, kind: 'call', sticky: true });
 }
+function alertIncoming(name, video, peerId) { alertCall(`${name} is calling`, video, 'd:' + peerId); }
 function clearAlert() {
   clearInterval(titleTimer); titleTimer = null;
   if (titleBase) document.title = titleBase;
   titleBase = '';
   notify.dismiss('call');
 }
-function startRing(kind) { stopRing(); snd.startRing(kind); }
-function stopRing() { snd.stopRing(); clearAlert(); }
+export function startRing(kind) { stopRing(); snd.startRing(kind); }
+export function stopRing() { snd.stopRing(); clearAlert(); }
 
 // Phases in which the person is "in" a call (as opposed to idle or only being rung).
 export const IN_CALL = ['starting', 'outgoing', 'connecting', 'active'];
@@ -34,11 +36,13 @@ export const inCall = (call) => IN_CALL.includes(call.phase);
 
 const IDLE = { phase: 'idle', callId: null, peerId: null, video: false, startedAt: 0, muted: false, deafened: false, camOn: false, sharing: false, picker: false, preview: null, local: null, remote: null, peerState: {}, rev: 0, notice: '' };
 
-async function getMedia(video) {
+// `lite` asks for a smaller picture: in a group call every camera is sent to every other person, so it has to be cheaper.
+export async function getMedia(video, lite = false) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error('Calls need a secure page (https or localhost) and a modern browser');
   const audio = { echoCancellation: true, noiseSuppression: true, ...micConstraint() };
+  const size = lite ? { width: { ideal: 640 }, height: { ideal: 360 }, frameRate: { ideal: 24 } } : { width: { ideal: 1280 }, height: { ideal: 720 } };
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio, video: video ? { width: { ideal: 1280 }, height: { ideal: 720 }, ...camConstraint() } : false });
+    return await navigator.mediaDevices.getUserMedia({ audio, video: video ? { ...size, ...camConstraint() } : false });
   } catch (e) {
     if (video && (e.name === 'NotFoundError' || e.name === 'NotReadableError' || e.name === 'OverconstrainedError')) {
       try { return await navigator.mediaDevices.getUserMedia({ audio, video: false }); } catch (e2) { e = e2; }
@@ -349,7 +353,7 @@ const fmt = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 const callName = (u) => u?.displayName || 'Someone';
 const statusOf = (call) => (call.phase === 'outgoing' ? 'Calling…' : call.phase === 'starting' ? 'Starting…' : 'Connecting…');
 
-function usePhone() {
+export function usePhone() {
   const q = '(max-width: 720px)';
   const [m, setM] = useState(() => !!window.matchMedia?.(q).matches);
   useEffect(() => {
@@ -363,14 +367,14 @@ function usePhone() {
 }
 
 // Counts up by itself, so the rest of the call UI does not redraw every second.
-function CallTimer({ since }) {
+export function CallTimer({ since }) {
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(t); }, []);
   return <>{fmt(Math.max(0, Math.floor((Date.now() - since) / 1000)))}</>;
 }
 
 // true while this audio is loud enough to count as talking (the green ring). Reads the stream through a Web Audio analyser.
-function useSpeaking(stream, on) {
+export function useSpeaking(stream, on) {
   const [speaking, setSpeaking] = useState(false);
   const hasAudio = !!stream && stream.getAudioTracks().length > 0;
   useEffect(() => {
@@ -408,7 +412,7 @@ function CallAudio({ call }) {
   return <audio ref={ref} autoPlay muted={!!call.deafened} />;
 }
 
-function StageBtn({ icon, title, onClick, off, on, disabled, hangup, size = 22 }) {
+export function StageBtn({ icon, title, onClick, off, on, disabled, hangup, size = 22 }) {
   return (
     <button className={'stage-btn' + (off ? ' off' : '') + (on ? ' on' : '') + (hangup ? ' hangup' : '')} title={title} aria-label={title} aria-pressed={off || on ? true : undefined} onClick={onClick} disabled={disabled}>
       <Icon name={icon} size={size} style={hangup ? { transform: 'rotate(135deg)' } : undefined} />
@@ -416,7 +420,7 @@ function StageBtn({ icon, title, onClick, off, on, disabled, hangup, size = 22 }
   );
 }
 
-function Tile({ user, label, size, speaking, waiting, muted, deaf, stream, mirror, contain, showVideo, silent = true, small, onPick, pinned, live }) {
+export function Tile({ user, label, size, speaking, waiting, muted, deaf, stream, mirror, contain, showVideo, silent = true, small, onPick, pinned, live }) {
   const off = deaf || muted;
   return (
     <div className={'call-tile' + (speaking ? ' speaking' : '') + (waiting ? ' waiting' : '') + (small ? ' small' : '') + (pinned ? ' pinned' : '')}

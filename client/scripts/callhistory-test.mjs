@@ -27,6 +27,16 @@ assert.strictEqual(callSummary({ ...miss, outcome: 'something-new' }, 'me', 'Pat
 assert.strictEqual(callSummary(miss, 'pat').detail, 'them called you', 'works without a name');
 ok('unanswered calls are worded for whoever is reading; only a call you missed is flagged');
 
+// group calls: one record for the whole call (a = who started it, b = null, people = how many were on it)
+const grec = (o) => ({ id: 'g1', convo: 'g:x', group: true, a: 'me', b: null, video: false, outcome: 'completed', startedAt: 0, answeredAt: 1, endedAt: 2, seconds: 125, people: 3, ...o });
+s = callSummary(grec({}), 'me', 'them'); assert.deepStrictEqual(s, { icon: 'phone', title: 'Group voice call', detail: '2 min 5 s \u00b7 3 people', bad: false });
+assert.deepStrictEqual(callSummary(grec({}), 'pat', 'Alex'), s, 'a finished group call reads the same for everyone');
+s = callSummary(grec({ video: true, people: 2 }), 'pat', 'Alex'); assert.deepStrictEqual([s.icon, s.title, s.detail], ['video', 'Group video call', '2 min 5 s \u00b7 2 people']);
+s = callSummary(grec({ outcome: 'missed', seconds: 0, answeredAt: null, people: 1 }), 'me', 'me'); assert.deepStrictEqual([s.title, s.detail, s.bad], ['No one joined', 'Group voice call', false]);
+s = callSummary(grec({ outcome: 'missed', seconds: 0, answeredAt: null, people: 1 }), 'pat', 'Alex'); assert.deepStrictEqual([s.title, s.detail, s.bad], ['Missed group voice call', 'Alex started a call', true]);
+assert.strictEqual(callSummary(grec({ people: undefined }), 'me').detail, '2 min 5 s \u00b7 1 person', 'a record without a head count still draws');
+ok('group calls: one line for everyone, a call nobody joined is flagged for the others');
+
 const msgs = [{ id: 'm1', createdAt: 10 }, { id: 'm2', createdAt: 30 }, { id: 'm3', createdAt: 50 }];
 const recs = [rec({ id: 'late', endedAt: 60 }), rec({ id: 'early', endedAt: 5 }), rec({ id: 'mid', endedAt: 40 }), rec({ id: 'tie', endedAt: 30 })];
 const out = withCalls(msgs, recs);

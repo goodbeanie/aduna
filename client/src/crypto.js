@@ -195,17 +195,21 @@ export async function clearKeys() {
     tx.objectStore('keys').clear();
     tx.oncomplete = res;
   });
-  sharedCache.clear();
+  sharedCache = new WeakMap();
 }
 
 // ---- per-conversation keys ----
-const sharedCache = new Map();
+// Cached per private key and per other public key (one page normally holds one identity, but a cache keyed only by the other
+// person's key would hand back the wrong secret the moment two identities are used in one place, as the tests do).
+let sharedCache = new WeakMap(); // private key -> Map(their public key -> AES key)
 
 async function sharedKey(privateKey, theirPublic) {
-  if (sharedCache.has(theirPublic)) return sharedCache.get(theirPublic);
+  let mine = sharedCache.get(privateKey);
+  if (!mine) { mine = new Map(); sharedCache.set(privateKey, mine); }
+  if (mine.has(theirPublic)) return mine.get(theirPublic);
   const pub = await crypto.subtle.importKey('jwk', JSON.parse(theirPublic), ECDH, false, []);
   const key = await crypto.subtle.deriveKey({ name: 'ECDH', public: pub }, privateKey, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
-  sharedCache.set(theirPublic, key);
+  mine.set(theirPublic, key);
   return key;
 }
 
@@ -234,6 +238,67 @@ export async function encryptBytesFor(privateKey, theirPublic, buffer) {
 
 export async function decryptBytesFrom(privateKey, theirPublic, buffer) {
   const key = await sharedKey(privateKey, theirPublic);
+  const b = new Uint8Array(buffer);
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.slice(0, 12) }, key, b.slice(12));
+}
+
+// ---- group chats ----
+// A group has one AES-256 key per epoch (see server/groups.js). It is made here, in the browser of whoever changes the member list, and
+// wrapped once per member with the pairwise ECDH key that member already shares with the maker (the same one DMs use). The server only
+// stores wraps it cannot open. A wrap is { ciphertext, iv, pk }: pk is a short fingerprint of the public key it was wrapped for.
+
+// 12 URL-safe characters of SHA-256: short, stable, and enough to notice that a key changed (not a security boundary by itself).
+export async function fingerprint(text) {
+  const h = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(String(text))));
+  return toB64(h.slice(0, 9)).replace(/\+/g, '-').replace(/\//g, '_');
+}
+
+// Fingerprint of "who is in the group and with which identity keys". It is sealed inside the encrypted group name, so every member who can
+// read the epoch can tell when someone's identity key changed since the epoch was made (and make a fresh epoch for them).
+export function rosterFingerprint(members) {
+  const list = members.map((m) => m.id + ':' + (m.publicKey || '')).sort().join('|');
+  return fingerprint(list);
+}
+
+export async function newGroupKey() {
+  return crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+}
+
+export async function wrapGroupKey(privateKey, memberPublic, groupKey) {
+  const raw = await crypto.subtle.exportKey('raw', groupKey);
+  const shared = await sharedKey(privateKey, memberPublic);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, shared, raw);
+  return { ciphertext: toB64(ct), iv: toB64(iv), pk: await fingerprint(memberPublic) };
+}
+
+// `byPublic` is the public key of the member who made the epoch (the server keeps it as `byKey`). Throws if the wrap is not for us.
+export async function unwrapGroupKey(privateKey, byPublic, wrap) {
+  const shared = await sharedKey(privateKey, byPublic);
+  const raw = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(wrap.iv) }, shared, fromB64(wrap.ciphertext));
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']); // not extractable once opened
+}
+
+export async function encryptWithKey(key, text) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(text));
+  return { ciphertext: toB64(ct), iv: toB64(iv) };
+}
+
+export async function decryptWithKey(key, ciphertext, iv) {
+  return dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(iv) }, key, fromB64(ciphertext)));
+}
+
+// Files in a group: iv (12) | ciphertext, like DM files, but under the epoch key.
+export async function encryptBytesWithKey(key, buffer) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, buffer));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv); out.set(ct, 12);
+  return out;
+}
+
+export async function decryptBytesWithKey(key, buffer) {
   const b = new Uint8Array(buffer);
   return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b.slice(0, 12) }, key, b.slice(12));
 }

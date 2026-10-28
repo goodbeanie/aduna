@@ -1,5 +1,5 @@
 // Attachment helpers: upload (with progress), fetch + decrypt, and small formatting utilities.
-import { encryptBytesFor, decryptBytesFrom } from './crypto.js';
+import { encryptBytesFor, decryptBytesFrom, encryptBytesWithKey, decryptBytesWithKey } from './crypto.js';
 
 export const MAX_FILE = 20 * 1024 * 1024;
 // The server deletes attachments after FILE_DAYS days, or LARGE_FILE_DAYS for files over LARGE_FILE_BYTES (see server/index.js).
@@ -36,11 +36,13 @@ async function imageSize(file) {
 }
 
 // scope: { kind: 'channel', target: channelId } or { kind: 'dm', target: userId, privKey, theirPublic }
+//        or { kind: 'group', target: groupId, key, epoch } (key = the current epoch's AES key; the epoch is stored in the attachment)
 export async function uploadFile(file, scope, onProgress) {
   if (file.size > MAX_FILE) throw new Error(`${file.name} is larger than 20 MB`);
   if (!file.size) throw new Error(`${file.name} is empty`);
   let body = await file.arrayBuffer();
   if (scope.kind === 'dm') body = await encryptBytesFor(scope.privKey, scope.theirPublic, body);
+  else if (scope.kind === 'group') body = await encryptBytesWithKey(scope.key, body);
   const id = await new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open('POST', `/api/files?kind=${scope.kind}&target=${encodeURIComponent(scope.target)}`);
@@ -53,12 +55,13 @@ export async function uploadFile(file, scope, onProgress) {
     x.onerror = () => reject(new Error('Upload failed'));
     x.send(body);
   });
-  return { id, name: file.name || 'file', type: file.type || 'application/octet-stream', size: file.size, ...(await imageSize(file)) };
+  return { id, name: file.name || 'file', type: file.type || 'application/octet-stream', size: file.size, ...(scope.kind === 'group' ? { epoch: scope.epoch } : {}), ...(await imageSize(file)) };
 }
 
 export const discardUpload = (id) => fetch('/api/files/' + id, { method: 'DELETE' }).catch(() => {});
 
-// Fetch an attachment as a Blob (decrypting DM files). Cached per file id.
+// Fetch an attachment as a Blob (decrypting DM and group files). Cached per file id.
+// `dm` is { privKey, theirPublic } for a DM, { group: { keyFor(epoch) } } for a group (keyFor may be async and returns the epoch's AES key), or null.
 const cache = new Map();
 export function loadBlob(att, dm) {
   if (!cache.has(att.id)) {
@@ -67,7 +70,11 @@ export function loadBlob(att, dm) {
       if (res.status === 404) throw Object.assign(new Error('This file has expired'), { expired: true }); // removed by the cleanup
       if (!res.ok) throw new Error('Could not load file');
       let buf = await res.arrayBuffer();
-      if (dm) buf = await decryptBytesFrom(dm.privKey, dm.theirPublic, buf);
+      if (dm?.group) {
+        const key = await dm.group.keyFor(att.epoch);
+        if (!key) throw new Error('You do not have the key for this file');
+        buf = await decryptBytesWithKey(key, buf);
+      } else if (dm) buf = await decryptBytesFrom(dm.privKey, dm.theirPublic, buf);
       return new Blob([buf], { type: att.type });
     })().catch((e) => { cache.delete(att.id); throw e; }));
   }

@@ -36,6 +36,7 @@ export async function api(path, { method = 'GET', body } = {}) {
     const err = new Error(data.error || 'Request failed');
     err.status = res.status;
     err.code = data.code; // e.g. '2fa_required', '2fa_invalid'
+    err.data = data;      // the whole answer, e.g. { epoch } on a group's 409
     throw err;
   }
   return data;
@@ -47,7 +48,7 @@ export const emitAck = (socket, event, payload) =>
   new Promise((resolve, reject) => {
     socket.timeout(8000).emit(event, payload, (err, res) => {
       if (err) return reject(new Error('Timed out'));
-      if (res?.error) return reject(new Error(res.error));
+      if (res?.error) return reject(Object.assign(new Error(res.error), { data: res }));
       resolve(res);
     });
   });

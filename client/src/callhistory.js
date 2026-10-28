@@ -15,10 +15,19 @@ export function durationLabel(seconds) {
 const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1);
 
 // { icon, title, detail, bad } for one record. `bad` = a call you missed (drawn in the warning colour).
+// A group call is one record for the whole call (rec.group, rec.a = who started it, rec.b = null, rec.people = how many were on it):
+// `otherName` is then the name of whoever started it.
 export function callSummary(rec, meId, otherName = 'them') {
   const iCalled = rec.a === meId;
   const word = rec.video ? 'video call' : 'voice call';
   const icon = rec.video ? 'video' : 'phone';
+  if (rec.group) {
+    const n = Math.max(1, Number(rec.people) || 1);
+    if (rec.outcome === 'completed') return { icon, title: `Group ${word}`, detail: `${durationLabel(rec.seconds)} \u00b7 ${n} ${n === 1 ? 'person' : 'people'}`, bad: false };
+    return iCalled
+      ? { icon, title: 'No one joined', detail: `Group ${word}`, bad: false }
+      : { icon, title: `Missed group ${word}`, detail: `${otherName} started a call`, bad: true };
+  }
   switch (rec.outcome) {
     case 'completed': return { icon, title: cap(word), detail: durationLabel(rec.seconds), bad: false };
     case 'declined': return iCalled

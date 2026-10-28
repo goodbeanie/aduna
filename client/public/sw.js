@@ -128,6 +128,11 @@ async function tell(msg) { for (const w of await self.clients.matchAll({ type: '
 async function markRead(n, d) {
   if (d.channelId) await post(`/api/channels/${encodeURIComponent(d.channelId)}/read`, {});
   if (d.peerId) await tell({ type: 'aduna:read', target: 'd:' + d.peerId });
+  else if (!d.channelId) { // a group chat is encrypted like a DM: its notification only carries the chat in its link (?n=g:<id>)
+    let t = '';
+    try { t = new URL(d.url || '', self.location.origin).searchParams.get('n') || ''; } catch { /* no link */ }
+    if (/^g:[0-9a-f]{16}$/.test(t)) await tell({ type: 'aduna:read', target: t });
+  }
   n.close();
 }
 // Reply typed into the notification: only channels (plain text through the server). A DM would have to be encrypted with a key this

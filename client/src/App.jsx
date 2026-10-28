@@ -31,6 +31,10 @@ import Setup from './Setup.jsx';
 import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
+import { wrapDm, unwrapDm } from './envelope.js';
+import { useGroups } from './useGroups.js';
+import { GroupCallUI, GroupCallStage, GroupCallDock, GroupCallBanner, inGroupCall, useGroupCall } from './GroupCall.jsx';
+import { NewGroupModal, GroupInfoModal, GroupIcon } from './Groups.jsx';
 import * as notify from './notify.js';
 import { NotifyPrompt } from './NotifyPrompt.jsx';
 import { CommandPalette } from './CommandPalette.jsx';
@@ -50,11 +54,6 @@ import { RailList, PopMenu, EmptyState, ListSkeleton, Tooltips } from './ShellBi
 // quests the browser says what the message was; the server only counts it after its own checks (see server/events.js).
 const TRICK_RE = /\btrick[\s-]*(?:or|n|and|&)[\s-]*treat(?:ing)?\b/i;
 const questHint = (text, atts) => (TRICK_RE.test(String(text || '')) ? 'trick' : (atts || []).some((a) => a && a.gif) ? 'gif' : undefined);
-const wrapDm = (text, attachments, invite) => JSON.stringify({ v: 1, t: text, a: attachments || [], ...(invite ? { i: invite } : {}) });
-const unwrapDm = (s) => {
-  try { const o = JSON.parse(s); if (o && o.v === 1 && typeof o.t === 'string') return { text: o.t, attachments: Array.isArray(o.a) ? o.a : [], invite: typeof o.i === 'string' && INVITE_CODE_RE.test(o.i) ? o.i : undefined }; } catch {}
-  return { text: s, attachments: [] };
-};
 
 const mergeById = (a, b) => {
   const map = new Map();
@@ -211,6 +210,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const pendingNav = useRef(new URLSearchParams(location.search).get('n')); // a tapped notification opened the app on a chat
   const pendingFocus = useRef(new URLSearchParams(location.search).get('focus') === '1'); // ...from its Reply button: put the cursor in the message box
   const openTargetRef = useRef(() => {});
+  const pendingGroup = useRef(null); // a tapped notification named a group before the group list had loaded
   const frIncoming = useRef(null);
   const usersRef = useRef(users);
   const plainRef = useRef(plain);
@@ -232,6 +232,39 @@ function Main({ me, setMe, privKey, openServerId }) {
       return next;
     });
   }, []);
+  // ---------- group chats (useGroups.js) and group calls (GroupCall.jsx) ----------
+  // A group is shown inside the DM screens as view { kind: 'dm', userId: null, groupId }.
+  const groups = useGroups({
+    me, privKey, socketRef, users, addUsers,
+    onIncoming: (m, g, read) => { // somebody else wrote in a group: count it, and notify when this tab is not in front
+      const v = viewRef.current;
+      const watching = v?.kind === 'dm' && v.groupId === m.group && !document.hidden;
+      if (!watching) bump('g:' + m.group);
+      if (notify.away() && prefsOf().dm !== false) {
+        (async () => { // like DMs: this device decrypts the text for the notification, the server never sees it
+          const t = await read();
+          const who = usersRef.current[m.from];
+          notify.show({
+            title: `${who?.displayName || 'Someone'} \u00b7 ${groupsRef.current.titleFor(m.group)}`,
+            body: t.invite ? 'Sent a server invite' : t.text?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent a message'),
+            tag: 'm:' + m.id, target: 'g:' + m.group, kind: 'dm', sender: who?.displayName, icon: imageUrl(who?.avatarImage) || undefined, msgId: m.id, read: true,
+          });
+        })().catch(() => {});
+      }
+    },
+    onRemoved: (id, reason) => { // left, removed or deleted: get out of its screen
+      clearUnread('g:' + id);
+      setView((v) => (v?.kind === 'dm' && v.groupId === id ? { kind: 'dm', userId: null } : v));
+      setModal((m) => (m && m.type === 'groupInfo' && m.id === id ? null : m));
+      if (reason === 'deleted') showToast('A group chat was deleted by its owner.');
+    },
+  });
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
+  const gcall = useGroupCall({ socketRef, privKey, me, getUser: (id) => usersRef.current[id], isBusy: () => call.call.phase !== 'idle' });
+  const gcallHandleRef = useRef(gcall.handle);
+  gcallHandleRef.current = gcall.handle;
+
   const loadFriends = useCallback(async () => {
     const r = await api('/friends');
     setFr(r);
@@ -357,6 +390,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   useEffect(() => {
     const s = connectSocket();
     socketRef.current = s;
+    groupsRef.current.attach(s); // group:* events (messages, key changes, call state) and the group halves of the shared events below
 
     s.on('connect_error', (e) => { if (e.message === 'unauthorized') logout(); });
     s.on('session:revoked', () => logout()); // "log out everywhere" was used on another device
@@ -404,7 +438,9 @@ function Main({ me, setMe, privKey, openServerId }) {
       if (!usersRef.current[partner]) api('/users/' + partner).then((r) => addUsers([r.user])).catch(() => {});
     });
 
+    // The next four events are shared with group chats (kind: 'group'); useGroups handles those, so they must not reach the DM code.
     s.on('reaction:update', ({ kind, messageId, reactions }) => {
+      if (kind === 'group') return;
       const patch = (store) => {
         const next = {};
         for (const [k, list] of Object.entries(store)) next[k] = list.some((m) => m.id === messageId) ? list.map((m) => (m.id === messageId ? { ...m, reactions } : m)) : list;
@@ -414,6 +450,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     });
 
     s.on('message:edited', ({ kind, message: m }) => {
+      if (kind === 'group') return;
       if (kind === 'channel') setChan((p) => ({ ...p, [m.channelId]: (p[m.channelId] || []).map((x) => (x.id === m.id ? { ...x, ...m } : x)) }));
       else {
         const partner = m.from === me.id ? m.to : m.from;
@@ -429,11 +466,13 @@ function Main({ me, setMe, privKey, openServerId }) {
     });
     // A call with someone has finished: it becomes a line in that DM ("Voice call · 4 min", "Missed video call").
     s.on('call:log', (rec) => {
+      if (rec.group || String(rec.convo || '').startsWith('g:')) return; // a group call: useGroups puts it in that group
       const partner = rec.a === me.id ? rec.b : rec.a;
       setCallsRaw((p) => ({ ...p, [partner]: mergeRecords(p[partner], [rec]) }));
     });
 
     s.on('message:deleted', ({ kind, messageId, channelId, from, to }) => {
+      if (kind === 'group') return;
       if (kind === 'channel') setChan((p) => ({ ...p, [channelId]: (p[channelId] || []).filter((x) => x.id !== messageId) }));
       else {
         const partner = from === me.id ? to : from;
@@ -446,7 +485,8 @@ function Main({ me, setMe, privKey, openServerId }) {
       if (!usersRef.current[p.from]) { try { const u = (await api('/users/' + p.from)).user; usersRef.current = { ...usersRef.current, [p.from]: u }; addUsers([u]); } catch { return; } }
       callHandleRef.current('call:incoming', p);
     });
-    s.on('disconnect', () => callHandleRef.current('disconnect'));
+    for (const ev of ['gcall:incoming', 'gcall:signal', 'gcall:left', 'gcall:ended']) s.on(ev, (p) => gcallHandleRef.current(ev, p));
+    s.on('disconnect', () => { callHandleRef.current('disconnect'); gcallHandleRef.current('disconnect'); });
     // An announcement notifies every member, whichever channel they are looking at.
     s.on('announcement:new', async ({ serverId, channelId, messageId, authorId }) => {
       if (authorId === me.id) return;
@@ -493,8 +533,8 @@ function Main({ me, setMe, privKey, openServerId }) {
       setView((v) => (v?.kind === 'server' && v.serverId === serverId ? { kind: 'dm', userId: null } : v));
       setShowList(true);
     });
-    s.on('typing', ({ channelId, dmWith, userId }) => {
-      const key = channelId || 'dm:' + dmWith;
+    s.on('typing', ({ channelId, dmWith, groupId, userId }) => {
+      const key = groupId ? 'g:' + groupId : channelId || 'dm:' + dmWith;
       setTyping((p) => ({ ...p, [key]: { ...(p[key] || {}), [userId]: Date.now() + 3500 } }));
     });
 
@@ -517,8 +557,11 @@ function Main({ me, setMe, privKey, openServerId }) {
       clearUnread('d:' + view.userId);
       api(`/dms/${view.userId}/messages`).then((r) => setDmRaw((p) => ({ ...p, [view.userId]: mergeById(p[view.userId] || [], r.messages) }))).catch(() => {}).finally(() => markLoaded('d:' + view.userId));
       api(`/dms/${view.userId}/calls`).then((r) => setCallsRaw((p) => ({ ...p, [view.userId]: mergeRecords(p[view.userId], r.calls) }))).catch(() => {});
+    } else if (view.groupId) {
+      clearUnread('g:' + view.groupId);
+      groupsRef.current.loadMessages(view.groupId).catch(() => {}).finally(() => markLoaded('g:' + view.groupId));
     }
-  }, [view?.kind, view?.channelId, view?.userId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view?.kind, view?.channelId, view?.userId, view?.groupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Coming back to the tab counts as reading whatever channel / DM is open (messages that arrived while it was hidden were badged).
   useEffect(() => {
@@ -527,6 +570,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       const v = viewRef.current;
       if (v?.kind === 'server') { clearUnread('c:' + v.channelId); markRead(v.channelId); }
       else if (v?.kind === 'dm' && v.userId) clearUnread('d:' + v.userId);
+      else if (v?.kind === 'dm' && v.groupId) clearUnread('g:' + v.groupId);
     };
     document.addEventListener('visibilitychange', seen);
     return () => document.removeEventListener('visibilitychange', seen);
@@ -549,10 +593,18 @@ function Main({ me, setMe, privKey, openServerId }) {
       let u = usersRef.current[a];
       if (!u) { try { u = (await api('/users/' + a)).user; } catch { return; } }
       openDm(u);
+    } else if (kind === 'g' && /^[0-9a-f]{16}$/.test(a || '')) {
+      if (groupsRef.current.byId[a]) openGroup(a);
+      else if (!groupsRef.current.ready) pendingGroup.current = a; // the app has just opened: open it as soon as the group list is here
     } else if (kind === 'f') { setView({ kind: 'dm', userId: null }); setShowList(false); }
     else if (kind === 'ai' && window.adunaDesktop?.ai) setModal({ type: 'edit', tab: 'developer', ai: Date.now() }); // desktop app: AI Coder (tray, title bar, menu, "your bot is ready")
   };
   openTargetRef.current = openTarget;
+  useEffect(() => {
+    if (!groups.ready || !pendingGroup.current) return;
+    const id = pendingGroup.current; pendingGroup.current = null;
+    if (groups.byId[id]) openGroup(id);
+  }, [groups.ready]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { // the app was opened by tapping a notification (/app?n=...)
     if (!loaded || !pendingNav.current) return;
     const t = pendingNav.current; pendingNav.current = null;
@@ -569,7 +621,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     const fromSw = (e) => {
       if (e.data?.type === 'aduna:open') openTargetRef.current(e.data.target, { focus: !!e.data.focus });
       // "Mark as read" on a notification: a DM's unread count lives only in this page (DMs are end-to-end encrypted), channels are told by the server (notif:read)
-      else if (e.data?.type === 'aduna:read' && /^d:[0-9a-f]{16}$/.test(e.data.target || '')) clearUnread(e.data.target);
+      else if (e.data?.type === 'aduna:read' && /^[dg]:[0-9a-f]{16}$/.test(e.data.target || '')) clearUnread(e.data.target);
     };
     const fromPage = (e) => { notify.takePendingOpen(); openTargetRef.current(e.detail); };
     navigator.serviceWorker?.addEventListener('message', fromSw);
@@ -580,7 +632,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   useEffect(() => { // keep this device's push subscription fresh (browsers rotate them now and then)
     if (notify.pushSupported() && notify.permission() === 'granted') notify.subscribe().catch(() => {});
   }, []);
-  const badgeCount = Object.values(mentions).reduce((n, x) => n + x, 0) + Object.entries(unread).reduce((n, [k, x]) => n + (k.startsWith('d:') ? x : 0), 0) + fr.incoming.length;
+  const badgeCount = Object.values(mentions).reduce((n, x) => n + x, 0) + Object.entries(unread).reduce((n, [k, x]) => n + (k.startsWith('d:') || k.startsWith('g:') ? x : 0), 0) + fr.incoming.length;
   useEffect(() => { notify.setBadge(badgeCount); }, [badgeCount]);
 
   // ---------- derived ----------
@@ -605,8 +657,11 @@ function Main({ me, setMe, privKey, openServerId }) {
   const openOnboarding = () => api(`/servers/${server.id}/onboarding`).then((st) => setModal({ type: 'onboarding', serverId: server.id, state: st })).catch((e) => showToast(e.message, 'error'));
   const channel = server?.channels.find((c) => c.id === view.channelId);
   const dmUser = view?.kind === 'dm' && view.userId ? users[view.userId] : null;
+  const group = view?.kind === 'dm' && view.groupId ? groups.byId[view.groupId] || null : null; // the group chat on screen
   const stageHere = !!dmUser && inCall(call.call) && call.call.peerId === dmUser.id; // the call is drawn in this conversation
+  const gStageHere = !!group && inGroupCall(gcall.gcall) && gcall.gcall.groupId === group.id; // ...or the group call
   const goToCall = (peerId) => { setView({ kind: 'dm', userId: peerId }); setShowList(false); setMembersOpen(false); };
+  const openGroup = (id) => { setView({ kind: 'dm', userId: null, groupId: id }); setShowList(false); setMembersOpen(false); setModal(null); };
 
   // On a server page the app fades to that server's theme; anywhere else (DMs, friends) it fades back to yours.
   // While the owner is in server settings, that screen previews the draft theme itself, so leave it alone.
@@ -618,14 +673,15 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   const messages = useMemo(() => {
     if (view?.kind === 'server') return chan[view.channelId] || [];
+    if (group) return groups.messagesFor(group.id);
     if (dmUser) {
       const texts = (dmRaw[dmUser.id] || []).map((m) => ({ id: m.id, authorId: m.from, content: plain[m.id]?.text ?? '…', attachments: plain[m.id]?.attachments, invite: plain[m.id]?.invite, replyTo: m.replyTo, reactions: m.reactions, createdAt: m.createdAt, editedAt: m.editedAt }));
       return withCalls(texts, callsRaw[dmUser.id]); // finished calls sit between the messages, by the time they ended
     }
     return [];
-  }, [view, chan, dmRaw, callsRaw, plain, dmUser]);
+  }, [view, chan, dmRaw, callsRaw, plain, dmUser, group, groups.messagesFor]);
 
-  const typingKey = view?.kind === 'server' ? view.channelId : dmUser ? 'dm:' + dmUser.id : null;
+  const typingKey = view?.kind === 'server' ? view.channelId : group ? 'g:' + group.id : dmUser ? 'dm:' + dmUser.id : null;
   const typingNames = Object.entries(typing[typingKey] || {}).filter(([uid, t]) => uid !== me.id && t > Date.now()).map(([uid]) => users[uid]?.displayName || 'Someone');
 
   const openServer = (s) => {
@@ -681,6 +737,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const send = async (text, replyTo, atts = [], typing) => {
     const s = socketRef.current;
     if (view.kind === 'server') return emitAck(s, 'message:send', { channelId: view.channelId, content: text, replyTo, attachments: atts, typing });
+    if (group) return groups.send(group.id, text, atts, replyTo);
     const enc = await encryptFor(privKey, dmUser.publicKey, wrapDm(text, atts));
     return emitAck(s, 'dm:send', { to: dmUser.id, ...enc, replyTo, files: atts.map((a) => a.id).filter(Boolean), quest: questHint(text, atts) });
   };
@@ -688,17 +745,25 @@ function Main({ me, setMe, privKey, openServerId }) {
   const sendPoll = (poll) => emitAck(socketRef.current, 'message:send', { channelId: view.channelId, content: '', poll });
   const votePoll = (messageId, options) => emitAck(socketRef.current, 'poll:vote', { messageId, options });
   const closePoll = (messageId) => emitAck(socketRef.current, 'poll:close', { messageId });
-  const react = (messageId, emoji) =>
-    emitAck(socketRef.current, 'reaction:toggle', { kind: view.kind === 'server' ? 'channel' : 'dm', messageId, emoji }).catch(() => {});
+  const react = (messageId, emoji) => (group ? groups.react(messageId, emoji)
+    : emitAck(socketRef.current, 'reaction:toggle', { kind: view.kind === 'server' ? 'channel' : 'dm', messageId, emoji }).catch(() => {}));
   const editMsg = async (messageId, text) => {
     const s = socketRef.current;
     if (view.kind === 'server') return emitAck(s, 'message:edit', { kind: 'channel', messageId, content: text });
+    if (group) return groups.edit(messageId, text);
     const enc = await encryptFor(privKey, dmUser.publicKey, wrapDm(text, plainRef.current[messageId]?.attachments, plainRef.current[messageId]?.invite));
     return emitAck(s, 'message:edit', { kind: 'dm', messageId, ...enc });
   };
-  const deleteMsg = (messageId) => emitAck(socketRef.current, 'message:delete', { kind: view.kind === 'server' ? 'channel' : 'dm', messageId });
+  const deleteMsg = (messageId) => (group ? groups.remove(messageId) : emitAck(socketRef.current, 'message:delete', { kind: view.kind === 'server' ? 'channel' : 'dm', messageId }));
   const pinMsg = (m, pinned) => emitAck(socketRef.current, 'message:pin', { messageId: m.id, pinned }).catch((e) => showToast(e.message || 'Could not do that. Try again.', 'error'));
-  const onTyping = () => socketRef.current?.emit('typing', view.kind === 'server' ? { channelId: view.channelId } : { to: dmUser.id });
+  const onTyping = () => { if (group) groups.typing(group.id); else socketRef.current?.emit('typing', view.kind === 'server' ? { channelId: view.channelId } : { to: dmUser.id }); };
+
+  // group actions (the dialogs are in Groups.jsx; the encryption is in useGroups.js)
+  const createGroup = async (people, name) => { const g = await groups.create(people, name); openGroup(g.id); };
+  const refreshKeys = async (id) => {
+    if (!(await askConfirm({ title: 'Refresh keys', body: 'This makes a fresh set of keys for everyone in the group. Because you cannot read the group on this device, its name is reset too. Another member who can read it would normally do this for you. Continue?', confirmLabel: 'Refresh keys' }))) return;
+    try { await groups.rekey(id); showToast('Keys refreshed'); } catch (e) { showToast(e.message || 'Could not refresh the keys', 'error'); }
+  };
 
   const requestFriend = async (username) => { const r = await api('/friends/request', { method: 'POST', body: { username } }); await loadFriends(); return r; };
   const acceptFriend = (id) => api(`/friends/${id}/accept`, { method: 'POST' }).then(loadFriends).catch((e) => showToast(e.message, 'error'));
@@ -740,7 +805,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const totalUnreadFor = (s) => s.channels.reduce((n, c) => n + (unread['c:' + c.id] || 0), 0);
   const unreadCountsAll = (sv, ch) => { const e = np.effective(notePrefs[sv.id], ch.id, Date.now()); return e.level === 'all' && !e.muted; }; // the unread number counts every message only then
   const totalMentionsFor = (s) => s.channels.reduce((n, c) => n + (mentions['c:' + c.id] || 0), 0);
-  const dmUnread = Object.entries(unread).filter(([k]) => k.startsWith('d:')).reduce((n, [, v]) => n + v, 0);
+  const dmUnread = Object.entries(unread).filter(([k]) => k.startsWith('d:') || k.startsWith('g:')).reduce((n, [, v]) => n + v, 0);
   const myPresence = me.status === 'invisible' ? 'offline' : me.status;
   const statusOf = (id) => presence[id] || 'offline';
 
@@ -825,6 +890,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   if (!view) return <BootSplash />;
 
   const roleColors = server ? Object.fromEntries(server.members.map((m) => [m.id, roleColorOf(server, m.id)]).filter(([, c]) => c)) : {};
+  const groupKey = group ? groups.currentKey(group.id) : null; // the current epoch's key: files sent to the group are encrypted with it
   const memberRow = (u) => (
     <button key={u.id} className={'member' + (statusOf(u.id) === 'offline' ? ' off' : '')} onClick={() => { setMembersOpen(false); showUser(u.id); }} onContextMenu={(e) => userMenu(e, u.id)}>
       <Avatar user={users[u.id] || u} size={32} presence={statusOf(u.id)} />
@@ -840,7 +906,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     <div className="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
       {/* server bar (top) */}
       <nav className="rail">
-        <button className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
+        <button className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
           <span className="dm-home-mark" aria-hidden="true" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
         <button className="rail-btn clips-home" title="Clips" aria-label="Clips" onClick={() => { window.location.assign('/clips'); }}>
@@ -878,7 +944,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         <button onClick={() => setModal({ type: 'edit', tab: 'profile' })}><Icon name="user" size={22} /><span>You</span></button>
       </nav>
 
-      <div className={'body' + (call.call.phase !== 'idle' ? ' in-call' : '') + (showList ? ' list-open' : '')}>
+      <div className={'body' + (call.call.phase !== 'idle' || inGroupCall(gcall.gcall) ? ' in-call' : '') + (showList ? ' list-open' : '')}>
       {/* sidebar */}
       <aside className="side">
         {server ? (
@@ -953,6 +1019,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         ) : (
           <>
             <div className="side-head static">{tr('dms')}
+              <button className="icon-btn" title="New group" aria-label="New group chat" onClick={() => setModal({ type: 'newGroup' })}><Icon name="users" size={17} /></button>
               <button className="icon-btn" title={tr('newMessage')} onClick={() => setModal({ type: 'dm' })}><Icon name="plus" size={17} /></button>
             </div>
             <div className="side-list">
@@ -965,11 +1032,20 @@ function Main({ me, setMe, privKey, openServerId }) {
               <button className={'chan' + (view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, quests: true }); setShowList(false); }}>
                 <span className="hash"><Icon name="flag" size={20} /></span>{tr('questsTab')}
               </button>
-              <button className={'chan' + (!view.userId && !view.explore && !view.shop && !view.quests && !view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
+              <button className={'chan' + (!view.userId && !view.groupId && !view.explore && !view.shop && !view.quests && !view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
                 <span className="hash"><Icon name="users" size={20} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
               <div className="side-label">{tr('lblDMs')}</div>
-              {convos.length === 0 && <div className="pad"><p className="muted">{tr('noConvos')}</p>{(view.userId || view.explore || view.shop || view.quests || view.clips) && <button className="btn" onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>{tr('friends')}</button>}</div>}
+              {convos.length === 0 && groups.list.length === 0 && <div className="pad"><p className="muted">{tr('noConvos')}</p>{(view.userId || view.groupId || view.explore || view.shop || view.quests || view.clips) && <button className="btn" onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>{tr('friends')}</button>}</div>}
+              {groups.list.map((g) => (
+                <button key={g.id} className={'chan dm group-row' + (g.id === view.groupId ? ' on' : '') + (unread['g:' + g.id] ? ' unread' : '')} onClick={() => openGroup(g.id)}>
+                  <GroupIcon group={g} size={32} />
+                  <span className="grow">{groups.titleFor(g.id)}{g.call && <span className="gc-live" title="A call is running" aria-label="A call is running"><Icon name="phone" size={12} /></span>}</span>
+                  {!g.canRead && <span className="muted small" title="Waiting for the group's keys to be refreshed"><Icon name="lock" size={13} /></span>}
+                  {g.id !== view.groupId && hasDraft('g:' + g.id) && <span className="muted small" title="You have an unsent message here">Draft</span>}
+                  {unread['g:' + g.id] > 0 && <span className="badge inline">{unread['g:' + g.id]}</span>}
+                </button>
+              ))}
               {convos.map((id) => users[id] && (
                 <button key={id} className={'chan dm' + (id === view.userId ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: id }); setShowList(false); }}>
                   <Avatar user={users[id]} size={32} presence={statusOf(id)} />
@@ -982,6 +1058,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           </>
         )}
         <CallDock call={call.call} actions={call.actions} users={users} onOpen={goToCall} />
+        <GroupCallDock gcall={gcall.gcall} actions={gcall.actions} titleFor={groups.titleFor} onOpen={openGroup} />
         <FirstRun me={me} serverCount={servers.length} onTheme={() => setModal({ type: 'edit', tab: 'appearance' })} onPicture={() => setModal({ type: 'edit', tab: 'profile' })} onServer={() => setModal({ type: 'server' })} />
         <div className="user-panel">
           <button className="me" onClick={() => setModal({ type: 'user', id: me.id })}>
@@ -1029,16 +1106,35 @@ function Main({ me, setMe, privKey, openServerId }) {
           placeholder={`Message @${dmUser.displayName}`} mentionables={[me, dmUser]}
           stage={stageHere ? <CallStage call={call.call} actions={call.actions} users={users} me={me} /> : null}
           headerExtra={<>
-            <button className="icon-btn" title="Voice call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle'} onClick={() => call.actions.startCall(dmUser.id, false)}><Icon name="phone" size={18} /></button>
-            <button className="icon-btn" title="Video call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle'} onClick={() => call.actions.startCall(dmUser.id, true)}><Icon name="video" size={18} /></button>
+            <button className="icon-btn" title="Voice call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle' || inGroupCall(gcall.gcall)} onClick={() => call.actions.startCall(dmUser.id, false)}><Icon name="phone" size={18} /></button>
+            <button className="icon-btn" title="Video call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle' || inGroupCall(gcall.gcall)} onClick={() => call.actions.startCall(dmUser.id, true)}><Icon name="video" size={18} /></button>
             <button className="btn small-btn" title="End-to-end encrypted" onClick={() => setModal({ type: 'safety' })}><Icon name="lock" size={14} className="inline-icon" /><span className="hide-sm"> End-to-end encrypted</span></button>
           </>}
           notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && <><br />You aren’t friends with {dmUser.displayName}, so you can’t send new messages until you are.</>}</>} />
       )}
+      {group && (
+        <Chat title={groups.titleFor(group.id)} draftKey={'g:' + group.id} loading={!loadedKeys['g:' + group.id]} unreadCount={unread['g:' + group.id] || 0} unreadExact subtitle={<GroupIcon group={group} size={22} />} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
+          onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={false} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
+          files={{ scope: groupKey ? { kind: 'group', target: group.id, key: groupKey, epoch: group.epoch } : null, dm: { group: { keyFor: groups.keyFor(group.id) } } }} gifEnabled={gifEnabled}
+          placeholder={`Message ${groups.titleFor(group.id)}`} mentionables={group.members}
+          stage={<>
+            {gStageHere && <GroupCallStage gcall={gcall.gcall} actions={gcall.actions} users={users} me={me} titleFor={groups.titleFor} />}
+            <GroupCallBanner group={group} gcall={gcall.gcall} actions={gcall.actions} users={users} />
+          </>}
+          headerExtra={<>
+            <button className="icon-btn" title="Voice call" aria-label="Voice call" disabled={call.call.phase !== 'idle' || inGroupCall(gcall.gcall)} onClick={() => gcall.actions.join(group.id, false)}><Icon name="phone" size={18} /></button>
+            <button className="icon-btn" title="Video call" aria-label="Video call" disabled={call.call.phase !== 'idle' || inGroupCall(gcall.gcall)} onClick={() => gcall.actions.join(group.id, true)}><Icon name="video" size={18} /></button>
+            <button className="icon-btn" title="Group info" aria-label="Group info" onClick={() => setModal({ type: 'groupInfo', id: group.id })}><Icon name="users" size={18} /></button>
+          </>}
+          readOnly={group.canRead ? null : 'You cannot send messages here until the group’s keys are refreshed.'}
+          notice={group.canRead
+            ? <><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only the {group.members.length} people in this group can read them.</>
+            : <><Icon name="alert" size={14} className="inline-icon" /> You cannot read new messages in this group on this device yet. Another member’s Aduna will refresh its keys when they are online. <button className="link-btn" onClick={() => refreshKeys(group.id)}>Refresh keys now</button></>} />
+      )}
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
       {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} />}
       {view.kind === 'dm' && !dmUser && view.clips && <Clips onBack={() => setShowList(true)} />}
-      {view.kind === 'dm' && !dmUser && !view.explore && !view.shop && !view.quests && !view.clips && (
+      {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && !view.clips && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
       )}
 
@@ -1078,6 +1174,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       <WhatsNewPopup />
       {gain && <div className="credit-gain" key={gain.key} aria-live="polite"><Icon name="coin" size={16} />+{gain.delta} credits</div>}
       <CallUI call={call.call} actions={call.actions} users={users} onOpen={goToCall} showStrip={!stageHere} />
+      <GroupCallUI gcall={gcall.gcall} actions={gcall.actions} users={users} titleFor={groups.titleFor} onOpen={openGroup} showStrip={!gStageHere} />
       </div>
 
       {modal?.type === 'server' && <ServerModal onClose={() => setModal(null)} onDone={(s) => { setServers((p) => (p.some((x) => x.id === s.id) ? p : [...p, s])); addUsers(s.members); openServer(s); setModal(null); }} />}
@@ -1093,6 +1190,12 @@ function Main({ me, setMe, privKey, openServerId }) {
       {modal?.type === 'notes' && server && <ServerNotifications server={server} prefs={notePrefs[server.id]} focusChannel={modal.channelId} onSave={(next) => saveNotes(server.id, next)} onMarkRead={() => markServerRead(server)} onClose={() => setModal(null)} />}
       {modal?.type === 'invite' && server && <InviteModal server={server} friends={fr.friends} isOwner={can(server, me.id, 'manageServer')} onSend={sendInvite} onClose={() => setModal(null)} />}
       {modal?.type === 'dm' && <NewDmModal friends={fr.friends} onClose={() => setModal(null)} onPick={openDm} />}
+      {modal?.type === 'newGroup' && <NewGroupModal friends={fr.friends} onClose={() => setModal(null)} onCreate={createGroup} />}
+      {modal?.type === 'groupInfo' && groups.byId[modal.id] && (
+        <GroupInfoModal key={modal.id} group={groups.byId[modal.id]} title={groups.titleFor(modal.id)} me={me} users={users} friends={fr.friends} statusOf={statusOf} onClose={() => setModal(null)}
+          onRename={(name) => groups.rename(modal.id, name)} onAdd={(people) => groups.addMembers(modal.id, people)} onKick={(uid) => groups.kick(modal.id, uid)}
+          onLeave={() => groups.leave(modal.id)} onDelete={() => groups.destroy(modal.id)} onUser={(id) => { setModal(null); showUser(id); }} />
+      )}
       {modal?.type === 'safety' && dmUser && <SafetyModal me={me} other={dmUser} onClose={() => setModal(null)} />}
       {modal?.type === 'kick' && server && users[modal.id] && (
         <KickModal server={server} user={users[modal.id]} onClose={() => setModal(null)}
