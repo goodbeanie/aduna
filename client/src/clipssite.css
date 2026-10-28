@@ -74,25 +74,15 @@
 
   /* video height = the slide minus its padding (container units where supported, the viewport otherwise) */
   /* the video is as big as the space allows, whatever its shape: it is fitted inside (height of the slide) x (width minus room for the button column) */
-  .cs .clip.reel { --vh: calc(100dvh - 56px - 32px); --vw: calc(100vw - 220px); position: relative; width: min(var(--vw), calc(var(--vh) * var(--ratio, .5625))); max-width: none; gap: 0; }
-  @supports (height: 1cqh) { .cs .clip.reel { --vh: calc(100cqh - 32px); --vw: calc(100cqw - 220px); } }
+  .cs .clip.reel { --vh: calc(100dvh - 56px - 32px); --vw: calc(100vw - 120px); position: relative; width: min(var(--vw), calc(var(--vh) * var(--ratio, .5625))); max-width: none; gap: 0; }
+  @supports (height: 1cqh) { .cs .clip.reel { --vh: calc(100cqh - 32px); --vw: calc(100cqw - 120px); } }
   .cs .clip.reel .vp { height: auto; width: 100%; max-height: none; aspect-ratio: var(--ratio, .5625); }
 
-  /* the column of buttons, outside the video on its right, level with its bottom */
-  .cs .clip.reel .vp-bottom { inset: auto; top: auto; right: auto; left: calc(100% + 14px); bottom: 0; width: 60px; padding: 0; align-items: center; }
-  .cs .ca-overlay { width: 100%; }
-  .cs .ca-overlay .ca-bar { flex-direction: column; align-items: center; flex-wrap: nowrap; gap: 22px; gap: clamp(12px, 3dvh, 26px); padding: 0; }
-  .cs .ca-overlay .ca-btn { flex-direction: column; justify-content: flex-start; width: 60px; height: auto; padding: 0; gap: 5px; background: none; color: #fff; text-shadow: none; font-size: 12px; }
-  .cs .ca-overlay .ca-btn:hover, .cs .ca-overlay .ca-btn.open { background: none; }
-  .cs .ca-overlay .ca-btn svg { width: 52px; height: 52px; padding: 14px; box-sizing: border-box; border-radius: 50%; background: rgba(255,255,255,.12); transition: background .12s; }
-  .cs .ca-overlay .ca-btn:hover svg, .cs .ca-overlay .ca-btn.open svg { background: rgba(255,255,255,.24); }
-  .cs .ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.22); }
-  .cs .ca-overlay .ca-btn.ca-icon { width: 60px; }
-  .cs .ca-overlay .ca-views, .cs .ca-overlay .ca-grow { display: none; }
-  .cs .ca-overlay .ca-more { position: relative; }
+  /* the column of buttons stays ON the video, down its right edge (same as a phone), so it is always visible */
+  .cs .clip.reel .vp-bottom { padding: 0 12px 30px 0; }
 
-  /* creator and caption over the video */
-  .cs .clip.reel .vp-info { display: flex; left: 18px; right: 18px; bottom: 26px; }
+  /* creator and caption over the video, clear of the buttons */
+  .cs .clip.reel .vp-info { display: flex; left: 18px; right: 88px; bottom: 26px; }
   .cs .vp-info a.vp-info-name { color: #fff; font-size: 15px; }
   .cs .vp-info .vp-info-ava { display: block; border-radius: 50%; }
   .cs .vp-info .vp-info-meta { font-size: 12px; opacity: .85; }

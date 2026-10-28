@@ -25,16 +25,6 @@
 .ca-overlay .ca-views, .ca-overlay .ca-grow { display: none; }
 .ca-overlay .ca-more { position: relative; }
 
-/* The clip shown on its own (the viewer over a chat, a clip's own page) on a wide screen: the column sits outside the video on its right */
-@media (min-width: 900px) {
-  .cv-stage .ca-overlay, .watch-player .ca-overlay { width: 100%; }
-  .cv-stage .ca-overlay .ca-btn, .watch-player .ca-overlay .ca-btn { width: 60px; text-shadow: none; }
-  .cv-stage .ca-overlay .ca-btn svg, .watch-player .ca-overlay .ca-btn svg { width: 52px; height: 52px; padding: 14px; background: rgba(255,255,255,.12); -webkit-backdrop-filter: none; backdrop-filter: none; }
-  .cv-stage .ca-overlay .ca-btn:hover svg, .cv-stage .ca-overlay .ca-btn.open svg,
-  .watch-player .ca-overlay .ca-btn:hover svg, .watch-player .ca-overlay .ca-btn.open svg { background: rgba(255,255,255,.24); }
-  .cv-stage .ca-overlay .ca-btn.on svg, .watch-player .ca-overlay .ca-btn.on svg { background: rgba(255,255,255,.22); }
-  .cv-stage .ca-overlay .ca-btn.ca-icon, .watch-player .ca-overlay .ca-btn.ca-icon { width: 60px; }
-}
 
 /* The comments popup (drawn outside the page, so it has its own dark colours; the card itself is .ss-panel from sharesheet.css) */
 .cs-panel { display: flex; flex-direction: column; height: min(74vh, 640px); height: min(74dvh, 640px); padding-bottom: 12px; overflow: hidden; }
