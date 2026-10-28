@@ -78,17 +78,21 @@ export default function ClipsSite({ userId = null }) {
     }).catch((e) => { if (e.status === 404) setState('notfound'); });
   }, [userId]);
 
+  const reqId = useRef(0); // only the newest request may change the screen (switching tabs quickly must not show the wrong tab's clips)
   const load = useCallback(async (append, list) => {
+    const my = ++reqId.current;
     const sort = userId ? 'new' : tab === 'top' ? 'top' : tab === 'following' ? 'following' : 'new';
     const q = new URLSearchParams({ sort, limit: '10' });
     if (userId) q.set('owner', userId);
     if (append && list.length) { if (sort === 'top') q.set('offset', String(list.length)); else q.set('before', String(list[list.length - 1].createdAt)); }
     try {
       const r = await api('/clips?' + q);
-      setClips(append ? [...list, ...r.clips] : r.clips);
+      if (my !== reqId.current) return;
+      setClips(append ? [...list, ...r.clips.filter((c) => !list.some((x) => x.id === c.id))] : r.clips);
       setMore(r.clips.length >= 10);
       setState('ready');
     } catch (e) {
+      if (my !== reqId.current) return;
       if (append) { setMore(false); return; } // a failed "next page" never throws away the clips already on screen
       setState(e.status === 401 ? 'signedout' : e.status === 503 ? 'off' : 'error');
     }

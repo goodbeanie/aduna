@@ -32,7 +32,7 @@ export default function ClipSearch({ onClose }) {
     const t = q.trim();
     const n = ++seq.current;
     if (!t) { setRes(null); setBusy(false); setErr(''); return undefined; }
-    setBusy(true);
+    setBusy(true); setErr(''); // a new search starts clean: an old error must not hide the new answer
     const timer = setTimeout(() => {
       api('/clips/search?q=' + encodeURIComponent(t))
         .then((r) => { if (n === seq.current) { setRes(r); setErr(''); setBusy(false); } })
@@ -57,6 +57,7 @@ export default function ClipSearch({ onClose }) {
 
       <div className="sp-body">
         {err && <p className="sp-note sp-err" role="alert">{err}</p>}
+        {!err && res && busy && <p className="sp-note" role="status">Searching…</p>}
         {!err && !res && <p className="sp-note">{busy ? 'Searching…' : 'Find creators by name, and clips by what is in their caption.'}</p>}
         {!err && none && !busy && <p className="sp-note">Nothing matches “{q.trim()}”.</p>}
 

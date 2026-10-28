@@ -17,6 +17,10 @@ const SoundGlyph = ({ off }) => (
 );
 const BurstHeart = () => <svg width="96" height="96" viewBox="0 0 24 24" fill="#fff" aria-hidden="true"><path d="M12 20.5s-7.5-4.6-9.3-9.4C1.5 7.8 3.7 4.5 7 4.5c2 0 3.5 1.1 5 3 1.5-1.9 3-3 5-3 3.3 0 5.5 3.3 4.3 6.6-1.8 4.8-9.3 9.4-9.3 9.4z" /></svg>;
 
+// What the person last chose with the sound button, kept for every clip they scroll through in this visit (a clip that was only
+// muted because the browser refused autoplay does not count as a choice).
+let chosenMuted = false;
+
 export function VideoPlayer({ src, poster, ratio = 9 / 16, autoPlay, inView, onPlay, onDoubleLike, info, children }) {
   const box = useRef(null);
   const inner = useRef(null);
@@ -100,7 +104,7 @@ export function VideoPlayer({ src, poster, ratio = 9 / 16, autoPlay, inView, onP
       <div className="vp-inner" ref={inner}>
         <video
           key={tries} ref={vid} className="vp-video" src={url} poster={poster} loop playsInline preload="metadata"
-          onLoadedMetadata={ready} onCanPlay={ready} onPlaying={ready}
+          onLoadedMetadata={(e) => { if (chosenMuted) e.currentTarget.muted = true; ready(); }} onCanPlay={ready} onPlaying={ready}
           onLoadedData={() => { ready(); startAuto(); }}
           onPlay={(e) => { setPaused(false); if (onPlay) onPlay(e); }}
           onPause={() => setPaused(true)}
@@ -111,7 +115,7 @@ export function VideoPlayer({ src, poster, ratio = 9 / 16, autoPlay, inView, onP
         <button type="button" className="vp-tap" onClick={onTap} aria-label={paused ? 'Play video' : 'Pause video'} />
         {paused && status === 'ready' && <span className="vp-bigplay" aria-hidden="true"><PlayGlyph /></span>}
         <div className="vp-shade" aria-hidden="true" />
-        <button type="button" className="vp-mute" onClick={() => { const v = vid.current; if (v) v.muted = !v.muted; }} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} title={muted ? 'Sound off' : 'Sound on'}><SoundGlyph off={muted} /></button>
+        <button type="button" className="vp-mute" onClick={() => { const v = vid.current; if (v) { v.muted = !v.muted; chosenMuted = v.muted; } }} aria-label={muted ? 'Turn sound on' : 'Turn sound off'} title={muted ? 'Sound off' : 'Sound on'}><SoundGlyph off={muted} /></button>
         {info && <div className="vp-info">{info}</div>}
         <div
           className="vp-seek" ref={bar} role="slider" aria-label="Position in the video" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(pos * 100)}

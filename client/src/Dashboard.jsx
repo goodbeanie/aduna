@@ -126,7 +126,7 @@ function totalsOf(rows) {
 }
 
 // The front page: the numbers that matter and the latest clips.
-function Overview({ rows, followers, go }) {
+function Overview({ rows, followers, go, open }) {
   const t = totalsOf(rows || []);
   const latest = (rows || []).slice(0, 3);
   return (
@@ -152,7 +152,7 @@ function Overview({ rows, followers, go }) {
             <div className="clip-mine">
               {latest.map((c) => (
                 <div key={c.id} className="clip-row dash-row2">
-                  <div className="clip-row-main"><b>{c.caption || 'No caption'}</b><span className="muted">{STATE[c.state] || c.state}</span></div>
+                  <div className="clip-row-main"><button type="button" className="clip-open" onClick={() => open(c.id)} title="See analytics for this video"><b>{c.caption || 'No caption'}</b></button><span className="muted">{STATE[c.state] || c.state}</span></div>
                   <div className="clip-row-nums muted">{n0(c.views)} views · {n0(c.likes)} likes</div>
                 </div>
               ))}
@@ -285,8 +285,7 @@ export default function Dashboard() {
   const loadRows = () => api('/clips/mine').then((r) => setRows(r.clips)).catch(() => setRows([]));
   const load = async () => {
     try {
-      const c = await api('/clips/creator');
-      const f = await api('/clips?limit=1');
+      const [c, f] = await Promise.all([api('/clips/creator'), api('/clips?limit=1')]);
       setLimits(f.limits);
       setFollowers(c.followers || 0);
       setState(c.creator ? 'ready' : 'apply');
@@ -297,7 +296,7 @@ export default function Dashboard() {
   };
   useEffect(() => { document.title = 'Clips dashboard · Aduna'; load(); }, []);
   useEffect(() => {
-    const h = () => setPage(pageFromHash());
+    const h = () => { setPage(pageFromHash()); setOpenId(null); };
     window.addEventListener('hashchange', h);
     return () => window.removeEventListener('hashchange', h);
   }, []);
@@ -305,6 +304,7 @@ export default function Dashboard() {
   // sidebar and tabs: show that page, keep it in the address (#upload...) so reload and back/forward work, and scroll to the top
   const go = (id) => {
     setPage(id);
+    setOpenId(null); // choosing a page always shows its list, never a video left open from before
     try { history.pushState(null, '', id === 'dashboard' ? location.pathname : '#' + id); } catch { /* the page still switched */ }
     window.scrollTo(0, 0);
   };
@@ -365,7 +365,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {state === 'ready' && limits && page === 'dashboard' && <Overview rows={rows} followers={followers} go={go} />}
+          {state === 'ready' && limits && page === 'dashboard' && <Overview rows={rows} followers={followers} go={go} open={(id) => { go('content'); setOpenId(id); }} />}
 
           {state === 'ready' && limits && page === 'upload' && (
             <div className="dash-card" id="upload">

@@ -98,6 +98,12 @@ export function Uploader({ limits, onDone }) {
   }, [coverImg]);
 
   const cancel = () => { ctl.current?.abort(); };
+  useEffect(() => { // closing the tab while a clip is being made or sent would lose it: ask first
+    if (!busy) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [busy]);
   const go = async () => {
     if (!file || busy) return;
     ctl.current = new AbortController();
@@ -291,23 +297,33 @@ export default function Clips({ onBack }) {
   const [state, setState] = useState('loading'); // 'loading' | 'ready' | 'off' | 'error'
   const [more, setMore] = useState(false);
   const [rev, setRev] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const reqId = useRef(0); // only the newest request may change the screen (switching tabs quickly must not show the wrong tab's clips)
 
   const load = useCallback(async (append, list) => {
+    const my = ++reqId.current;
     const sort = tab === 'top' ? 'top' : tab === 'following' ? 'following' : 'new';
     const q = new URLSearchParams({ sort, limit: '10' });
     if (append && list.length) { if (sort === 'top') q.set('offset', String(list.length)); else q.set('before', String(list[list.length - 1].createdAt)); }
+    if (append) setLoadingMore(true); else setState((s) => (s === 'ready' ? s : 'loading'));
     try {
       const r = await api('/clips?' + q);
+      if (my !== reqId.current) return;
       setLimits(r.limits);
-      setClips(append ? [...list, ...r.clips] : r.clips);
+      setClips(append ? [...list, ...r.clips.filter((c) => !list.some((x) => x.id === c.id))] : r.clips);
       setMore(r.clips.length >= 10);
       setState('ready');
     } catch (e) {
-      setState(e.status === 503 ? 'off' : 'error');
+      if (my !== reqId.current) return;
+      if (append) toast('Could not load more clips', 'error'); else setState(e.status === 503 ? 'off' : 'error');
+    } finally {
+      if (my === reqId.current) setLoadingMore(false);
     }
   }, [tab]);
 
-  useEffect(() => { if (tab !== 'mine') load(false, []); }, [load, tab, rev]);
+  // a new tab starts empty with a loading note instead of showing the previous tab's clips
+  useEffect(() => { if (tab !== 'mine') { setClips([]); setMore(false); setState('loading'); load(false, []); } }, [tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (tab !== 'mine' && rev > 0) load(false, []); }, [rev]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // a change to one clip (a like, a follow...) is kept; following a creator also updates their other clips on screen
   const swap = (c) => setClips((p) => p.map((x) => (x.id === c.id ? c : x.owner.id === c.owner.id ? { ...x, following: c.following, owner: { ...x.owner, followers: c.owner.followers } } : x)));
@@ -337,7 +353,7 @@ export default function Clips({ onBack }) {
           <>
             {clips.length === 0 && <p className="muted clip-note">{tab === 'following' ? 'Nothing here yet. Tap Follow on a creator and their new clips show up here.' : 'No clips yet. Be the first to post one.'}</p>}
             <div className="clip-list">{clips.map((c) => <ClipCard key={c.id} clip={c} onChange={swap} onGone={gone} />)}</div>
-            {more && <button className="btn clip-more" onClick={() => load(true, clips)}>Load more</button>}
+            {more && <button className="btn clip-more" disabled={loadingMore} onClick={() => load(true, clips)}>{loadingMore ? 'Loading…' : 'Load more'}</button>}
           </>
         )}
       </div>
