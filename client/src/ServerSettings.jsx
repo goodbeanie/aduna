@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, Icon, Modal, ServerIcon } from './ui.jsx';
 import { PanelSkeleton } from './ShellBits.jsx';
+import { askConfirm } from './Dialogs.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout } from './layout.js';
 import { processImage, uploadImage, imageUrl, ACCEPT_ATTR, SERVER_ICON_SIZE, SERVER_BANNER_SIZE } from './image.js';
 import { THEMES, DEFAULT_CUSTOM, setServerTheme } from './themes.js';
@@ -50,11 +51,29 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
   const iconInput = useRef(null);
   const bannerInput = useRef(null);
 
+  // Leaving with unsaved changes asks first (Esc, the X and Cancel all go through here); Esc is left to a dialog that is open on top.
+  const themeDirty = themeOn !== !!server.theme || (themeOn && !!server.theme && !sameSeed(theme, server.theme));
+  const dirty = name !== server.name || code.trim().toLowerCase() !== server.inviteCode || JSON.stringify(tags) !== JSON.stringify(server.tags || [])
+    || themeDirty || staged.icon !== undefined || staged.banner !== undefined;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+  const askingRef = useRef(false);
+  const requestClose = useRef(async () => {});
+  requestClose.current = async () => {
+    if (!dirtyRef.current) return onClose();
+    if (askingRef.current) return undefined;
+    askingRef.current = true;
+    const discard = await askConfirm({ title: 'Discard your changes?', body: 'You have changes that are not saved yet.', confirmLabel: 'Discard', cancelLabel: 'Keep editing', danger: true });
+    askingRef.current = false;
+    if (discard) onClose();
+    return undefined;
+  };
+  const close = () => requestClose.current();
   useEffect(() => {
-    const h = (e) => e.key === 'Escape' && onClose();
+    const h = (e) => { if (e.key !== 'Escape' || e.defaultPrevented || document.querySelector('.overlay, .dlg-layer')) return; requestClose.current(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
+  }, []);
   // Ask the server whether the typed invite code is free (debounced while typing)
   useEffect(() => {
     const c = code.trim().toLowerCase();
@@ -118,7 +137,7 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
   return (
     <div className="settings-screen" role="dialog" aria-label="Server settings">
       <nav className="settings-nav">
-        <button className="icon-btn settings-navclose" onClick={onClose} aria-label="Close server settings"><Icon name="close" size={20} /></button>
+        <button className="icon-btn settings-navclose" onClick={close} aria-label="Close server settings"><Icon name="close" size={20} /></button>
         <h2>{server.name}</h2>
         {tabs.map(([id, label, icon]) => (
           <button key={id} className={'settings-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>
@@ -127,7 +146,7 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
         ))}
       </nav>
       <main className="settings-main">
-        <button className="icon-btn settings-close" onClick={onClose} aria-label="Close server settings" title="Close (Esc)"><Icon name="close" size={20} /></button>
+        <button className="icon-btn settings-close" onClick={close} aria-label="Close server settings" title="Close (Esc)"><Icon name="close" size={20} /></button>
         <div className="settings-content">
           <input ref={iconInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('icon', e)} />
           <input ref={bannerInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('banner', e)} />
@@ -231,7 +250,7 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
 
           {(tab === 'overview' || tab === 'theme') && err && <div className="error">{err}</div>}
           {(tab === 'overview' || tab === 'theme') && <div className="settings-foot">
-            <button className="btn" onClick={onClose}>Cancel</button> <button className="btn primary" onClick={save} disabled={saving}>Save changes</button>
+            <button className="btn" onClick={close}>Cancel</button> <button className="btn primary" onClick={save} disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save changes'}</button>
           </div>}
         </div>
       </main>
@@ -267,7 +286,7 @@ function ChannelsTab({ server, onChange }) {
   };
   const nameCell = (kind, item, icon) => (editing?.kind === kind && editing.id === item.id ? (
     <form className="ch-edit" onSubmit={saveName}>
-      <input autoFocus value={editing.text} maxLength={30} onChange={(e) => setEditing({ ...editing, text: e.target.value })} onKeyDown={(e) => e.key === 'Escape' && setEditing(null)} />
+      <input autoFocus value={editing.text} maxLength={30} onChange={(e) => setEditing({ ...editing, text: e.target.value })} onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setEditing(null); } }} />
       <button className="btn primary" disabled={busy}>Save</button>
       <button type="button" className="btn" onClick={() => setEditing(null)}>Cancel</button>
     </form>
