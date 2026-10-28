@@ -116,7 +116,7 @@ function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone }) {
         onChange={(e) => { setV(e.target.value); mc.track(e); }}
         onKeyDown={(e) => {
           if (mc.onKeyDown(e)) return;
-          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent?.isComposing && e.keyCode !== 229) { e.preventDefault(); save(); }
           if (e.key === 'Escape') { e.stopPropagation(); onCancel(); }
         }} />
       <div className="edit-hint">
@@ -493,12 +493,14 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     } catch (e) { setErr(e.message); }
   }
 
+  const sending = useRef(false); // a second Enter / tap while the first send is still on its way must not send the message twice
   async function submit() {
     const t = encode(text.trim());
     const atts = pending.filter((p) => p.att).map((p) => p.att);
-    if ((!t && !atts.length) || uploading) return;
+    if ((!t && !atts.length) || uploading || sending.current) return;
     if (t.length > 2000) return setErr('That message is too long once emoji and mentions are expanded');
     setErr('');
+    sending.current = true;
     try {
       await onSend(t, replyTo?.id || null, atts, typed.proof());
       typed.reset();
@@ -506,14 +508,26 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
       clearPending(false);
       setReplyTo(null);
       stick.current = true;
-    } catch (e) { setErr(e.message); }
+    } catch (e) { setErr(e.message); } finally { sending.current = false; }
+  }
+
+  // Images, GIFs and videos change height when they finish loading: if you were at the bottom, stay there.
+  const keepBottom = () => { const el = scroller.current; if (el && stick.current) el.scrollTop = el.scrollHeight; };
+
+  // Emoji from the picker go where the cursor is, not always at the end.
+  function insertAtCaret(s) {
+    const el = inputRef.current;
+    const a = el && typeof el.selectionStart === 'number' ? el.selectionStart : text.length;
+    const b = el && typeof el.selectionEnd === 'number' ? el.selectionEnd : a;
+    setText((t) => t.slice(0, a) + s + t.slice(b));
+    requestAnimationFrame(() => { const x = inputRef.current; if (x) { x.focus(); x.setSelectionRange(a + s.length, a + s.length); } });
   }
 
   function onKey(e) {
     if (mc.onKeyDown(e)) return;
     if (e.key === 'Tab' && suggestions.length && !e.shiftKey) { e.preventDefault(); pickSuggestion(suggestions[0]); return; }
     // on a touch screen Enter adds a new line and the send button sends
-    if (e.key === 'Enter' && !e.shiftKey && !window.matchMedia?.('(pointer: coarse)').matches) { e.preventDefault(); submit(); }
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent?.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) { e.preventDefault(); submit(); }
     if (e.key === 'Escape') setReplyTo(null);
     if (e.key === 'ArrowUp' && !text) {
       const last = [...messages].reverse().find((m) => !m.system && !m.poll && m.authorId === me.id);
@@ -585,7 +599,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
         </div>
       )}
       {stage}
-      <div className="scroll" ref={scroller} role="log" aria-live="polite" aria-relevant="additions" aria-label="Messages" onScroll={(e) => { const el = e.currentTarget; const gap = el.scrollHeight - el.scrollTop - el.clientHeight; stick.current = gap < 80; setAway(gap > 200); if (gap < 80) setFresh(0); }}>
+      <div className="scroll" ref={scroller} role="log" aria-live="polite" aria-relevant="additions" aria-label="Messages" onLoadCapture={keepBottom} onLoadedMetadataCapture={keepBottom} onScroll={(e) => { const el = e.currentTarget; const gap = el.scrollHeight - el.scrollTop - el.clientHeight; stick.current = gap < 80; setAway(gap > 200); if (gap < 80) setFresh(0); }}>
         {notice && <div className="notice">{notice}</div>}
         {!messages.some((m) => !m.system) && (loading ? <MessageSkeleton /> : <EmptyChat title={title} subtitle={subtitle} />)}
         {q && shownMessages.length === 0 && <EmptyState icon="search" title={`No messages match “${query.trim()}”`}>Only the messages loaded in this conversation are searched.</EmptyState>}
@@ -666,7 +680,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
             <button className="icon-btn gif-btn" title="GIF" onClick={() => setPop(pop === 'gif' ? null : 'gif')}>GIF</button>
           </div>
           <button className="icon-btn send-btn" title="Send" data-kbd="Enter" aria-label="Send" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={uploading || (!text.trim() && !pending.some((p) => p.att))}><Icon name="send" size={19} /></button>
-          {pop === 'emoji' && <EmojiPop onClose={() => setPop(null)} onPick={(e) => { setText((t) => t + e); setPop(null); inputRef.current?.focus(); }} />}
+          {pop === 'emoji' && <EmojiPop onClose={() => setPop(null)} onPick={(e) => { insertAtCaret(e); setPop(null); }} />}
           {pop === 'gif' && <GifPop enabled={gifEnabled} onClose={() => setPop(null)} onPick={sendGif} />}
         </div>
         <div className="typing" aria-live="polite">{typingNames.length ? `${typingNames.join(', ')} ${typingNames.length > 1 ? 'are' : 'is'} typing…` : ' '}</div>
