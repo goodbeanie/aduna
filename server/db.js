@@ -286,6 +286,17 @@ function makeClipsBucket(client, base) {
       const r = await client.fetch(base + key, { method: 'DELETE' });
       if (!r.ok && r.status !== 404) throw new Error(`R2 DELETE ${key} failed: ${r.status}`);
     },
+    // the whole object (or null when it is missing). Only for the screening of a clip that already passed the size check; `max` is a second
+    // safety so that a surprise object can never fill this server's memory.
+    async get(key, max = 16 * 1024 * 1024) {
+      const r = await client.fetch(base + key);
+      if (r.status === 404) return null;
+      ok(r, `GET ${key}`);
+      if (Number(r.headers.get('content-length')) > max) throw new Error(`R2 GET ${key}: object is bigger than ${max} bytes`);
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length > max) throw new Error(`R2 GET ${key}: object is bigger than ${max} bytes`);
+      return buf;
+    },
   };
 }
 // Storage limit: new uploads are refused once the bytes held in R2 would pass STORAGE_LIMIT_GB

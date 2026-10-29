@@ -8,6 +8,7 @@ import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
 import { BotTag } from './Bots.jsx';
 import { useLang } from './i18n.js';
+import { PlayingLine } from './Activity.jsx';
 
 export function ServerModal({ onClose, onDone }) {
   const [tab, setTab] = useState('create');
@@ -224,6 +225,8 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
           <h3 data-nc style={{ '--nc': user.accentColor }}>{user.displayName}{user.bot && <> <BotTag /></>} <BadgeIcons user={user} size={20} /></h3>
           <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username} · ${STATUS_LABEL[presence || 'offline']}`}</div>
           {user.bio && (<><h4>ABOUT ME</h4><p className="bio">{user.bio}</p></>)}
+          {/* the game they are playing right now; the server only sends it when they are online and have it switched on */}
+          {!user.bot && <PlayingLine activity={user.activity} />}
           <ProfileLinks links={user.links} />
           {/* a Clips creator who switched their page link on (Clips dashboard) shows it here */}
           {!user.bot && typeof user.clipsPage === 'string' && user.clipsPage.startsWith('/clips/user/') && (

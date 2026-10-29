@@ -18,7 +18,9 @@ const { createPush, cleanPrefs } = require('./push');
 const { createFcm } = require('./fcm');
 const np = require('./notifprefs');
 const listing = require('./listing');
+const activityLib = require('./activity');
 const clipsLib = require('./clips'); // clips: short vertical videos (see the "clips" block below)
+const screenLib = require('./screen'); // clip screening: OpenAI moderation of frames, music recognition, re-post matching (see POST /api/clips/:id/complete)
 const polls = require('./polls');
 const calllog = require('./calllog');
 const groupsLib = require('./groups');
@@ -196,11 +198,15 @@ function usernameTaken(name, exceptId) {
 // A Clips creator can switch on a link to their Clips page (/clips/user/<id>) from the creator dashboard. It is off until they do,
 // and only while it is on does their profile carry it (publicUser.clipsPage); null otherwise.
 const clipsPageOf = (u) => (u && !u.bot && u.clipCreator && u.clipCreator.pageLink === true ? '/clips/user/' + u.id : null);
+// The game someone is playing right now (server/activity.js). Memory only: it is not saved, and a restart simply forgets it.
+const activities = new Map(); // userId -> { name, source, since, seen, changedAt }
+const activityOf = (u) => activityLib.view(u, activityLib.current(activities, u.id, now()), isOnline(u.id) && u.status !== 'invisible');
 function publicUser(u) {
   return {
     id: u.id,
     creator: isCreator(u),
     clipsPage: clipsPageOf(u),
+    activity: activityOf(u), // { name, since, source } or null: "Playing ..." on the profile (hidden when the person turned it off, is offline or Invisible)
     badges: badgeViews(u),
     frame: wornFrame(u),
     username: u.username,
@@ -227,7 +233,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -1019,6 +1025,9 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (b.avatarEmoji !== undefined) u.avatarEmoji = clip(b.avatarEmoji, 8);
   for (const k of ['avatarColor', 'bannerColor', 'accentColor']) if (b[k] !== undefined && hex.test(b[k])) u[k] = b[k];
   if (b.status !== undefined && ['online', 'idle', 'dnd', 'invisible'].includes(b.status)) u.status = b.status;
+  if (b.showActivity !== undefined) { // "Show what I'm playing": off removes the game straight away and nothing is shown or stored while it stays off
+    if (b.showActivity === false) { u.showActivity = false; activityLib.clear(activities, u.id); } else delete u.showActivity;
+  }
   store.save();
   emitUserUpdate(u);
   broadcastPresence(u.id);
@@ -2190,6 +2199,7 @@ const clipUploadHits = new security.RateWindow(20, 3600_000);      // upload lin
 const clipActHits = new security.RateWindow(240, 60_000);          // feed pages, views and likes per person per minute
 const clipReportHits = new security.RateWindow(listing.LISTING.perHour, 3600_000);
 const clipViewSeen = new security.RateWindow(1, 24 * 3600_000);    // one counted view per person per clip per day
+const clipsScreening = new Set();                                  // ids of clips being screened right now (a second "complete" for one of them waits)
 const clipList = () => Object.values(db().clips);
 const clipsFull = 'Clips are full right now. Older clips are removed every day, so try again later.';
 
@@ -2379,6 +2389,7 @@ app.post('/api/clips/:id/complete', auth, needClips, needClipCreator, ah(async (
   const c = db().clips[req.params.id];
   if (!c || c.owner !== req.user.id) return res.status(404).json({ error: 'Not found' });
   if (c.state === 'live') return res.json({ clip: clipsLib.view(c, db().users, req.user.id, cfg) }); // asked twice
+  if (c.state === 'hidden' && !c.purgedAt && c.hold && c.hold.by === 'screening') return res.json({ clip: clipsLib.ownerView(c), held: true, message: 'Your clip is waiting for a moderator to check it before it goes live.' }); // asked twice, held by the automatic check
   if (c.state !== 'pending') return res.status(409).json({ error: 'This upload is no longer open', why: c.why || null });
   const b = store.clipsR2;
   const reject = async (status, message) => { if (c.state === 'pending') { refundClip(c); await endClip(c, 'rejected', message); } return res.status(status).json({ error: message }); };
@@ -2398,8 +2409,35 @@ app.post('/api/clips/:id/complete', auth, needClips, needClipCreator, ah(async (
   if (!pic || !sniffImage(pic)) return reject(400, 'The cover picture is not a valid image');
   if (c.state !== 'pending') return res.status(409).json({ error: 'This upload is no longer open' }); // the sweep dropped it while we were looking
   if (!clipsLib.hasRoom(clipList(), vh.size + ph.size, cfg, c.id)) return reject(507, clipsFull);
-  Object.assign(c, { size: vh.size, posterSize: ph.size, seconds: Math.round(mp4.seconds * 10) / 10, state: 'live', liveAt: now(), expiresAt: now() + cfg.ttlMs });
+  const facts = { size: vh.size, posterSize: ph.size, seconds: Math.round(mp4.seconds * 10) / 10 };
+  // The automatic checks before it goes live (screen.js): OpenAI moderation of frames and cover, music recognition, re-post matching.
+  // Nothing is checked until OPENAI_API_KEY and/or AUDD_API_TOKEN is set, so without them this behaves exactly as before.
+  // block -> rejected (refunded, bytes deleted); review -> hidden with hold.by 'screening' until a moderator looks; pass -> live.
+  let held = null;
+  const scfg = screenLib.settings();
+  if (scfg.on) {
+    if (clipsScreening.has(c.id)) return res.status(409).json({ error: 'Your clip is still being checked', code: 'screening' }); // the app asked again while the first check still runs
+    clipsScreening.add(c.id);
+    try {
+      let video = null, poster = null;
+      try { [video, poster] = await Promise.all([b.get(c.key, cfg.maxBytes), b.get(c.posterKey, clipsLib.MAX_POSTER)]); }
+      catch (e) { console.error('Clip screening could not read the upload:', e.message); }
+      const found = video
+        ? await screenLib.screenClip({ video, seconds: facts.seconds, poster: poster ? { buf: poster, type: ph.type } : null, known: { clips: clipList(), ownerId: c.owner, selfId: c.id } }, scfg)
+        : { mod: null, music: null, dupe: null, hashes: [], errors: ['video: could not be read back from storage'] };
+      if (c.state !== 'pending') return res.status(409).json({ error: 'This upload is no longer open' }); // the sweep dropped it while it was being checked
+      const d = screenLib.decide(found, scfg);
+      c.screen = screenLib.record(found, d, now()); // kept for moderators (and its picture fingerprints for matching later re-posts); never sent to the poster
+      if (d.verdict === 'block') return await reject(422, d.message);
+      if (d.verdict === 'review') held = d;
+    } finally { clipsScreening.delete(c.id); }
+  }
+  const t = now();
+  Object.assign(c, facts, held
+    ? { state: 'hidden', hold: { state: 'hidden', by: 'screening', at: t }, expiresAt: t + cfg.ttlMs }
+    : { state: 'live', liveAt: t, expiresAt: t + cfg.ttlMs });
   store.save();
+  if (held) return res.json({ clip: clipsLib.ownerView(c), held: true, message: held.message });
   res.json({ clip: clipsLib.view(c, db().users, req.user.id, cfg) });
 }));
 
@@ -2526,6 +2564,7 @@ app.get('/api/admin/clips', auth, adminOnly, ah(async (_req, res) => {
     id: c.id, state: c.state, caption: c.caption, owner: users[c.owner]?.username || null, views: c.views || 0, likes: c.likes || 0,
     url: c.key && cfg.publicUrl ? `${cfg.publicUrl}/${c.key}` : null, poster: c.posterKey && cfg.publicUrl ? `${cfg.publicUrl}/${c.posterKey}` : null,
     counted: listing.countedReports(c.reports, users, now()), hold: c.hold || null,
+    screen: c.screen ? { verdict: c.screen.verdict, summary: c.screen.summary, reasons: c.screen.reasons || [], at: c.screen.at } : null, // what the automatic check found (moderators only)
     reports: (c.reports || []).map((r) => ({ by: users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at })),
   }));
   res.json({
@@ -2538,9 +2577,9 @@ app.post('/api/admin/clips/:id', auth, adminOnly, ah(async (req, res) => {
   const c = db().clips[req.params.id];
   if (!c) return res.status(404).json({ error: 'Not found' });
   const action = req.body?.action;
-  if (action === 'restore') { if (c.state === 'hidden' && !c.purgedAt) c.state = 'live'; delete c.hold; c.reports = []; }
+  if (action === 'restore') { if (c.state === 'hidden' && !c.purgedAt) { c.state = 'live'; if (!c.liveAt) c.liveAt = now(); } delete c.hold; c.reports = []; } // a clip held by screening has no liveAt yet
   else if (action === 'dismiss') c.reports = [];
-  else if (action === 'remove') { if (c.state === 'pending') refundClip(c); if (!c.purgedAt) await endClip(c, 'removed', 'Removed by a moderator'); }
+  else if (action === 'remove') { if (c.state === 'pending') refundClip(c); if (!c.purgedAt) { c.takedown = { at: now(), by: 'moderator' }; await endClip(c, 'removed', 'Removed by a moderator'); } } // takedown: the screening refuses a re-post of it
   else return res.status(400).json({ error: 'action must be restore, dismiss or remove' });
   store.save();
   res.json({ ok: true, state: c.state });
@@ -3816,6 +3855,25 @@ app.put('/api/me/notifications', auth, (req, res) => {
   store.save();
   res.json({ notifPrefs: req.user.notifPrefs });
 });
+// "Playing ..." on the profile (server/activity.js). PUT { name, source: 'auto' | 'manual' } sets or refreshes the game; { name: null, source } clears it.
+// The desktop app reports a detected game ('auto') about once a minute; Settings > Activity types one ('manual'). While the person has
+// "Show what I'm playing" off, nothing is stored or shown and this answers { activity: null, off: true }.
+const activityHits = new security.RateWindow(60, 60_000); // changes and refreshes per person per minute
+app.put('/api/me/activity', auth, (req, res) => {
+  const u = req.user;
+  if (u.showActivity === false) return res.json({ activity: null, off: true });
+  if (!activityHits.allow(u.id)) return res.status(429).json({ error: 'Too many changes. Try again in a minute.' });
+  const source = req.body?.source;
+  if (req.body?.name === null || req.body?.name === '') { // clear: the desktop app may only clear what it reported itself
+    if (source !== undefined && source !== 'auto' && source !== 'manual') return res.status(400).json({ error: 'Unknown source' });
+    if (activityLib.clear(activities, u.id, source)) emitUserUpdate(u);
+    return res.json({ activity: activityOf(u) });
+  }
+  const r = activityLib.set(activities, u.id, req.body?.name, source, now(), BLOCKED_WORDS);
+  if (r.error) return res.status(r.wait ? 429 : 400).json({ error: r.error });
+  if (r.changed) emitUserUpdate(u);
+  res.json({ activity: activityOf(u) });
+});
 // Encrypted group chats and group calls (server/groups.js). Must be registered before the /api 404 handler below.
 const groups = groupsLib.create({
   get io() { return io; }, store, db, now, ah, auth, publicUser, areFriends, pushSafe, isOnline,
@@ -3923,7 +3981,7 @@ function broadcastPresence(uid) {
 // The audience sees the public profile (Invisible shows as offline); the person's own devices get the real status.
 function emitUserUpdate(u) {
   toAudience(u.id).except('user:' + u.id).emit('user:update', publicUser(u));
-  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u) }); // their own devices also learn which badges they own and wear
+  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), showActivity: u.showActivity !== false }); // their own devices also learn which badges they own and wear, and whether their game is shown
 }
 // Two people just became able to see each other (friend request, joining a server): each learns the other's current presence.
 function introduce(a, b) {

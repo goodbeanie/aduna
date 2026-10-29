@@ -130,13 +130,19 @@ export function Uploader({ limits, onDone }) {
       } });
       await Promise.all([put(up.video, out), put(up.poster, cover)]);
       setStep('Checking');
-      let done = null;
-      for (let i = 0; i < 5 && !done; i++) {
+      let done = null, tries = 0;
+      const until = Date.now() + 120_000; // the automatic check (nudity, violence, music, re-posts) can take a minute on a busy server
+      while (!done) {
         try { done = await api(`/clips/${up.id}/complete`, { method: 'POST' }); }
-        catch (e) { if (e.code !== 'not_uploaded' && e.status !== 409) throw e; await new Promise((r) => setTimeout(r, 1500)); }
+        catch (e) {
+          const checking = e.code === 'screening';
+          if (!checking && e.code !== 'not_uploaded' && e.status !== 409) throw e; // a refusal (for example 422 "it looks like it contains...") ends here and its reason is shown
+          if (checking ? Date.now() > until : ++tries >= 5) break;
+          await new Promise((r) => setTimeout(r, checking ? 2500 : 1500));
+        }
       }
       if (!done) throw new Error('The upload did not arrive. Try again.');
-      toast('Clip posted');
+      toast(done.held ? (done.message || 'Your clip is waiting for a moderator to check it before it goes live.') : 'Clip posted');
       setFile(null); setCaption(''); setRights(false);
       onDone();
     } catch (e) {

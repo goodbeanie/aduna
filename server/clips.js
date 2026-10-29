@@ -185,6 +185,7 @@ function ownerView(c) {
     viewsByDay: c.viewsByDay || {},
     createdAt: c.createdAt, liveAt: c.liveAt || null, expiresAt: c.expiresAt || null, purgedAt: c.purgedAt || null,
     available: !c.purgedAt && (c.state === 'live' || c.state === 'hidden'),
+    reviewing: c.state === 'hidden' && !c.purgedAt && !!(c.hold && c.hold.by === 'screening'), // held by the automatic check, waiting for a moderator
   };
 }
 // sort 'new' pages with `before` (the liveAt of the last clip seen); sort 'top' pages with `offset`; sort 'following' is 'new' limited to creators you follow

@@ -231,7 +231,8 @@ function ClipReports() {
           {c.poster && <img src={c.poster} alt="" loading="lazy" />}
           <div>
             <h3>{c.caption || '(no caption)'}</h3>
-            <span className="adm-muted">by {c.owner || '—'} · {c.state}{c.hold ? ` (${c.hold.state || 'held'})` : ''} · {c.views} views · {c.likes} likes · {c.counted}/{data.toHide} counted reports</span>
+            <span className="adm-muted">by {c.owner || '—'} · {c.state}{c.hold ? (c.hold.by === 'screening' ? ' (held by the automatic check)' : ` (${c.hold.state || 'held'})`) : ''} · {c.views} views · {c.likes} likes · {c.counted}/{data.toHide} counted reports</span>
+            {c.screen && c.screen.verdict !== 'pass' && <div className="adm-muted">Automatic check: {c.screen.summary}</div>}
             {c.url && <div><a href={c.url} target="_blank" rel="noopener noreferrer">Watch the video</a></div>}
           </div>
         </div>

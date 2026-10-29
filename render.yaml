@@ -42,6 +42,18 @@ services:
         sync: false
       - key: CLIPS_PUBLIC_URL
         sync: false
+      # optional: automatic checks on every clip before it goes live. Nothing is checked until at least one of the two keys is set.
+      #   OPENAI_API_KEY: a few frames and the cover picture go to OpenAI's moderation endpoint (omni-moderation-latest, free) for nudity / sexual content
+      #   and graphic violence. A confident score on more than one frame rejects the clip; a middling one holds it (hidden) for a moderator.
+      #   AUDD_API_TOKEN: the soundtrack goes to AudD, which says whether it recognises a commercial recording (AudD's free allowance is small).
+      #   Re-posts of other people's clips, and of clips a moderator removed, are matched with picture fingerprints (needs no key, but only runs while checks are on).
+      # Knobs, with their defaults: CLIP_SCREEN=on (off switches everything off), CLIP_SCREEN_REVIEW=0.5, CLIP_SCREEN_BLOCK=0.85, CLIP_SCREEN_FRAMES=6,
+      # CLIP_COPYRIGHT_ACTION=block (block, review or off), CLIP_DUPES_ACTION=review (block, review or off), CLIP_SCREEN_FAIL=review (a check that could
+      # not finish holds the clip; "open" lets it through), CLIP_SCREEN_TIMEOUT_S=60, CLIP_SCREEN_CONCURRENCY=1 (the free plan has little memory).
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: AUDD_API_TOKEN
+        sync: false
       # optional: public address of a SEPARATE public R2 bucket that holds the Windows installer (e.g. https://pub-xxxx.r2.dev or
       # https://downloads.yourdomain.com). Without it the installer is served from this site.
       - key: DOWNLOAD_BASE_URL

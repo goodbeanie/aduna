@@ -10,14 +10,16 @@ import { BadgeSettings } from './Badges.jsx';
 import { ArtistSettings } from './Artist.jsx';
 import { WhatsNewSettings } from './WhatsNew.jsx';
 import { LanguageSettings } from './Setup.jsx';
+import { ActivitySettings } from './Activity.jsx';
 import { useLang } from './i18n.js';
 import { askConfirm } from './Dialogs.jsx';
 
-const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['whatsnew', 'tabWhatsNew', 'bulb'], ['developer', 'tabDeveloper', 'code'], ['artist', 'tabArtist', 'palette']];
+const TABS = [['profile', 'tabProfile', 'smile'], ['activity', 'tabActivity', 'play'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['whatsnew', 'tabWhatsNew', 'bulb'], ['developer', 'tabDeveloper', 'code'], ['artist', 'tabArtist', 'palette']];
 
 // Extra words the settings search also matches, so "password" finds Security and "theme" finds Appearance.
 const KEYWORDS = {
   profile: 'avatar picture name bio banner frame status',
+  activity: 'game playing status presence hide show',
   appearance: 'theme colour color dark light font accent',
   language: 'translate locale',
   notifications: 'sound alerts mute desktop',
@@ -80,6 +82,7 @@ export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, o
           {/* The profile editor stays mounted (just hidden) while another tab is open, so edits you have not saved yet are not lost by looking at Appearance or Security. */}
           <div style={tab === 'profile' ? undefined : { display: 'none' }}><h1>{t('tabProfile')}</h1><ProfileEditor me={me} onClose={onClose} onSaved={onSaved} onLogout={onLogout} /></div>
           {tab === 'notifications' && <><h1>{t('tabNotifications')}</h1><NotificationSettings me={me} onPrefs={onPrefs} /></>}
+          {tab === 'activity' && <><h1>{t('tabActivity')}</h1><ActivitySettings me={me} onSaved={onSaved} /></>}
           {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings /></>}
           {tab === 'security' && <><h1>{t('tabSecurity')}</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
           {tab === 'whatsnew' && <><h1>{t('tabWhatsNew')}</h1><WhatsNewSettings /></>}

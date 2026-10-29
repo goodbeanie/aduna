@@ -196,7 +196,7 @@ const DAY = 24 * 3600 * 1000;
   step('feed, one counted view per person per day, likes that toggle');
 
   // ---- what the server refuses, and the bytes it deletes ----
-  const before = clipObjects().length;
+  const objectsBefore = clipObjects().length;
   const refused = async (opts, status, re) => {
     const r = await post(cat, opts);
     const res = r.done || r.up;
@@ -207,7 +207,7 @@ const DAY = 24 * 3600 * 1000;
   await refused({ declared: 130000 }, 400, /at most 0\.1 MB/);               // claimed over the limit: no link at all
   await refused({ seconds: 31 }, 400, /at most 30 seconds/);
   await refused({ caption: 'visit www.example.com' }, 400, /links/);
-  assert.strictEqual(clipObjects().length, before, 'a refused request creates nothing');
+  assert.strictEqual(clipObjects().length, objectsBefore, 'a refused request creates nothing');
   const html = await refused({ video: Buffer.from('<html><script>alert(1)</script></html>'.padEnd(3000, ' ')) }, 400, /not an MP4/);
   assert.ok(!objects.has('/clips-test/' + store.db.clips[html.id].key) && store.db.clips[html.id].state === 'rejected' && store.db.clips[html.id].key === null, 'a fake video is deleted at once');
   await refused({ video: vid(10, 120000), declared: 3000 }, 413, /at most 0\.1 MB/);        // claimed small, uploaded big
@@ -215,7 +215,7 @@ const DAY = 24 * 3600 * 1000;
   await refused({ video: vid(10, 3000, { faststart: false }) }, 400, /fast start/);
   await refused({ video: vid(40), seconds: 10 }, 400, /at most 30 seconds/);                // claimed 10 s, really 40 s
   await refused({ poster: Buffer.from('not an image'), posterType: 'image/png' }, 400, /cover picture/);
-  assert.strictEqual(clipObjects().length, before, 'everything that failed was deleted from R2');
+  assert.strictEqual(clipObjects().length, objectsBefore, 'everything that failed was deleted from R2');
   const early = await post(cat, { upload: false });
   assert.deepStrictEqual([early.done.status, early.done.code], [409, 'not_uploaded']);
   assert.strictEqual(store.db.clips[early.id].state, 'pending', 'nothing arrived yet: still open, the app can ask again');
