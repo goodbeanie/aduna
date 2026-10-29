@@ -86,7 +86,7 @@
 .adm-person > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .adm-person:hover { background: var(--hover); }
 .adm-person.on { background: var(--bg3); }
-.adm-face { display: inline-flex; align-items: center; justify-content: center; flex: none; overflow: hidden; border-radius: 50%; color: #fff; font-weight: 600; }
+.adm-face { display: inline-flex; align-items: center; justify-content: center; flex: none; overflow: hidden; border-radius: 26%; color: #fff; font-weight: 600; }
 .adm-face img { width: 100%; height: 100%; object-fit: cover; }
 
 /* overview */

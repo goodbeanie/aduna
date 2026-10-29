@@ -10,9 +10,9 @@
 .ss-row { display: flex; gap: 12px; overflow-x: auto; padding: 4px 2px 8px; scrollbar-width: thin; }
 .ss-tile { flex: none; width: 72px; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: inherit; cursor: pointer; font: inherit; font-size: 12px; }
 .ss-tile:disabled { cursor: default; opacity: .75; }
-.ss-ava { position: relative; width: 52px; height: 52px; border-radius: 50%; display: block; }
+.ss-ava { position: relative; width: 52px; height: 52px; border-radius: 26%; display: block; }
 .ss-tile:hover .ss-ava { box-shadow: 0 0 0 3px rgba(255,255,255,.18); }
-.ss-check { position: absolute; inset: 0; border-radius: 50%; background: rgba(0,0,0,.62); display: grid; place-items: center; font-style: normal; font-size: 22px; color: #fff; }
+.ss-check { position: absolute; inset: 0; border-radius: 26%; background: rgba(0,0,0,.62); display: grid; place-items: center; font-style: normal; font-size: 22px; color: #fff; }
 .ss-name { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #d6d6d9; }
 .ss-acts { display: flex; gap: 22px; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,.1); }
 .ss-act { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: #d6d6d9; cursor: pointer; font: inherit; font-size: 12px; }

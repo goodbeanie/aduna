@@ -54,7 +54,7 @@
 /* creator + caption over the bottom-left of the video. Clear of the buttons when they are drawn over the video. */
 .cv-stage .vp-info { display: flex; right: 84px; bottom: 30px; }
 .cv-stage .vp-shade { height: 55%; }
-.vp-info-ava { display: block; border-radius: 50%; flex: none; }
+.vp-info-ava { display: block; border-radius: 26%; flex: none; }
 .vp-info-name { font-weight: 600; }
 .vp-info-meta { letter-spacing: .01em; }
 
