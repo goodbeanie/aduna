@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Avatar, BadgeIcons, Icon, STATUS_LABEL } from './ui.jsx';
 import { useLang } from './i18n.js';
-import { PopMenu } from './ShellBits.jsx';
+import { EmptyState, PopMenu } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
 
 const TABS = [['all', 'fAll'], ['online', 'fOnline'], ['pending', 'fPending'], ['add', 'fAdd']];
@@ -108,17 +108,18 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
               </>,
               () => onMessage(u)))}
             {shown.length === 0 && (
-              <div className="friends-empty">
-                <p className="muted">{q.trim() && fr.friends.length > 0 ? `No friends match “${q.trim()}”.` : fr.friends.length === 0 ? t('noFriends') : t('noOneOnline')}</p>
-                {fr.friends.length === 0 && <button className="btn primary" onClick={() => setTab('add')}>{t('fAdd')}</button>}
-              </div>
+              <EmptyState
+                icon={q.trim() && fr.friends.length > 0 ? 'search' : 'users'}
+                title={q.trim() && fr.friends.length > 0 ? `No friends match “${q.trim()}”` : fr.friends.length === 0 ? t('noFriends') : t('noOneOnline')}
+                action={fr.friends.length === 0 ? <button className="btn primary" onClick={() => setTab('add')}>{t('fAdd')}</button> : undefined}
+              />
             )}
           </>
         )}
 
         {tab === 'pending' && (
           <>
-            {pending === 0 && <div className="friends-empty"><p className="muted">{t('noPending')}</p></div>}
+            {pending === 0 && <EmptyState icon="users" title={t('noPending')} />}
             {fr.incoming.length > 0 && <div className="side-label">{t('lblIncoming')} — {fr.incoming.length}</div>}
             {fr.incoming.map(({ user }) => row(user, t('incomingReq'),
               <>

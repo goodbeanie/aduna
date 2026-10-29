@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
-import { PanelSkeleton } from './ShellBits.jsx';
-import { askConfirm } from './Dialogs.jsx';
+import { EmptyState, PanelSkeleton } from './ShellBits.jsx';
+import { askConfirm, toast } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
@@ -21,7 +21,7 @@ function Quest({ q, locked, busy, onClaim }) {
       <span className="reward"><Icon name="coin" size={15} />{q.reward}</span>
       {q.claimed
         ? <span className="quest-done"><Icon name="check" size={16} /> {q.daily ? 'Done today' : 'Claimed'}</span>
-        : <button className="btn primary small-btn" disabled={!q.done || locked || busy === q.id} onClick={() => onClaim(q)}>{q.done ? 'Claim' : `${q.have}/${q.need}`}</button>}
+        : <button className="btn primary small-btn" disabled={!q.done || locked || busy === q.id} onClick={() => onClaim(q)}>{busy === q.id ? 'Claiming…' : q.done ? 'Claim' : `${q.have}/${q.need}`}</button>}
     </div>
   );
 }
@@ -322,6 +322,10 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
   const shownBalance = useCountUp(d ? d.balance : null);
   const [bump, setBump] = useState(0);
   useEffect(() => { if (d) setBump((n) => n + 1); }, [d?.balance]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The messages sit at the top of the page, which may be scrolled out of sight (you claimed a quest further down): also show them as a toast,
+  // and let the inline copy fade away by itself.
+  useEffect(() => { if (!note) return undefined; toast(note); const t = setTimeout(() => setNote(''), 8000); return () => clearTimeout(t); }, [note]);
+  useEffect(() => { if (err) toast(err, 'error'); }, [err]);
 
   const load = useCallback(() => api('/credits').then((r) => { setD(r); setErr(''); }).catch((e) => setErr(e.message)), []);
   useEffect(() => { load(); }, [load, rev]);
@@ -469,7 +473,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
             </div>
             <p className="muted small shop-intro">Spend your credits on badges that show next to your name everywhere in Aduna, and on profile frames that go around your picture. Each one is yours to keep.</p>
             {d.shop.length === 0
-              ? <div className="shop-empty muted">{creator ? 'No badges are for sale yet. Add one with a picture and a price.' : 'No badges are for sale right now. Check back soon.'}</div>
+              ? <EmptyState compact icon="bag" title={creator ? 'No badges for sale yet' : 'Nothing for sale right now'}>{creator ? 'Add one with a picture and a price.' : 'Check back soon.'}</EmptyState>
               : (() => {
                 const tile = (it) => <ShopTile key={it.id} item={it} balance={d.balance} busy={busy} creator={creator} onOpen={setConfirm} onOffSale={takeOffSale} onPin={togglePin} onDaily={toggleDaily} onEdit={setEditing} />;
                 const regular = d.shop.filter((it) => !it.daily), daily = d.shop.filter((it) => it.daily);
