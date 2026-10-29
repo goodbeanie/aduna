@@ -24,6 +24,7 @@ import Dashboard from './Dashboard.jsx';
 import AdminPage from './AdminPage.jsx';
 import ClipPage from './ClipPage.jsx';
 import ClipsSite from './ClipsSite.jsx';
+import ErrorBoundary from './ErrorBoundary.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';
 import { initKeyboard } from './keyboard.js';
@@ -43,10 +44,12 @@ const onClipsFeed = /^\/clips\/?$/.test(path);
 const clipsUser = /^\/clips\/user\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null;
 const clipId = /^\/clips\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null;
 createRoot(document.getElementById('root')).render(
-  onDashboard ? <Dashboard />
-    : onAdmin ? <AdminPage />
-      : onClipsFeed ? <ClipsSite />
-        : clipsUser ? <ClipsSite userId={clipsUser} />
-          : clipId ? <ClipPage id={clipId} />
-            : <App />
+  <ErrorBoundary>
+    {onDashboard ? <Dashboard />
+      : onAdmin ? <AdminPage />
+        : onClipsFeed ? <ClipsSite />
+          : clipsUser ? <ClipsSite userId={clipsUser} />
+            : clipId ? <ClipPage id={clipId} />
+              : <App />}
+  </ErrorBoundary>
 );

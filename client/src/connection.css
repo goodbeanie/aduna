@@ -1,0 +1,11 @@
+/* The "you are offline / reconnecting" pill (ConnectionBar.jsx). Same look as the other floating notices (toast, notify-prompt). */
+.conn-wrap { position: fixed; top: max(10px, env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 90; display: flex; justify-content: center; max-width: calc(100vw - 24px); pointer-events: none; }
+.conn-bar { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 999px; background: var(--raised, var(--bg2)); color: var(--text); font-size: 14px; line-height: 1.3; box-shadow: 0 8px 28px rgba(0,0,0,.22), inset 0 0 0 1px var(--line); animation: conn-in .22s ease-out; }
+.conn-bar:not(.reconnecting) { padding-right: 16px; }
+.conn-dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--danger); }
+.conn-bar.reconnecting .conn-dot { background: var(--gold, #d9a21b); animation: conn-pulse 1.2s ease-in-out infinite; }
+.conn-bar.back .conn-dot { background: var(--ok-fg); }
+.conn-bar .conn-retry { flex: none; padding: 5px 14px; font-size: 13px; }
+@keyframes conn-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+@keyframes conn-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.7); } }
+@media (prefers-reduced-motion: reduce) { .conn-bar, .conn-dot { animation: none !important; } }

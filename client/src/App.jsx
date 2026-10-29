@@ -40,6 +40,8 @@ import { NotifyPrompt } from './NotifyPrompt.jsx';
 import { CommandPalette } from './CommandPalette.jsx';
 import { FirstRun } from './FirstRun.jsx';
 import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
+import { ConnectionBar } from './ConnectionBar.jsx';
+import { watchSocket } from './connection.js';
 import { RailUpdateChip } from './RailUpdate.jsx';
 import { WhatsNewPopup } from './WhatsNew.jsx';
 import { withCalls, mergeRecords } from './callhistory.js';
@@ -201,6 +203,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   const socketRef = useRef(null);
   const [toast, setToast] = useState(null); // an announcement banner: { key, serverId, channelId, title, body }
+  const [syncTick, setSyncTick] = useState(0); // goes up each time the live connection comes back after a drop: the open chat then fetches what it missed
   const serversRef = useRef([]);
   const viewRef = useRef(view);
   const meRef = useRef(me);
@@ -391,6 +394,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     const s = connectSocket();
     socketRef.current = s;
     groupsRef.current.attach(s); // group:* events (messages, key changes, call state) and the group halves of the shared events below
+    const unwatch = watchSocket(s); // feeds the "offline / reconnecting" pill
 
     s.on('connect_error', (e) => { if (e.message === 'unauthorized') logout(); });
     s.on('session:revoked', () => logout()); // "log out everywhere" was used on another device
@@ -518,7 +522,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       setUnread(drop); setMentions(drop);
     });
     let connectedBefore = false; // after a dropped connection, messages that arrived meanwhile are counted again from the server
-    s.on('connect', () => { if (connectedBefore) loadNotes().catch(() => {}); connectedBefore = true; });
+    s.on('connect', () => { if (connectedBefore) { loadNotes().catch(() => {}); setSyncTick((n) => n + 1); } connectedBefore = true; });
     s.on('presence', ({ userId, status }) => setPresence((p) => ({ ...p, [userId]: status })));
     s.on('user:update', (u) => { addUsers([u]); if (u.id === me.id) setMe((m) => ({ ...m, ...u })); });
     s.on('server:update', (sv) => {
@@ -539,7 +543,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     });
 
     const iv = setInterval(() => tick((n) => n + 1), 1000);
-    return () => { clearInterval(iv); s.disconnect(); };
+    return () => { clearInterval(iv); unwatch(); s.disconnect(); };
   }, [me.id, setMe, addUsers, logout, loadFriends, loadNotes]);
 
   const voice = useVoice({ socketRef, ready: me.id });
@@ -561,7 +565,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       clearUnread('g:' + view.groupId);
       groupsRef.current.loadMessages(view.groupId).catch(() => {}).finally(() => markLoaded('g:' + view.groupId));
     }
-  }, [view?.kind, view?.channelId, view?.userId, view?.groupId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view?.kind, view?.channelId, view?.userId, view?.groupId, syncTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Coming back to the tab counts as reading whatever channel / DM is open (messages that arrived while it was hidden were badged).
   useEffect(() => {
@@ -1171,6 +1175,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         onDm={openDm} onSettings={(tab) => setModal({ type: 'edit', tab })} />
       <UpdatePrompt />
       <SiteUpdateNotice />
+      <ConnectionBar />
       <WhatsNewPopup />
       {gain && <div className="credit-gain" key={gain.key} aria-live="polite"><Icon name="coin" size={16} />+{gain.delta} credits</div>}
       <CallUI call={call.call} actions={call.actions} users={users} onOpen={goToCall} showStrip={!stageHere} />

@@ -1,0 +1,10 @@
+/* The screen shown instead of a blank page when something breaks while drawing (ErrorBoundary.jsx).
+   The fallbacks after each var() keep it readable even if the theme itself is what failed. */
+.crash { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; overflow: auto; background: var(--bg, #f4efe4); color: var(--text, #2a251e); }
+.crash-card { width: min(460px, 100%); display: flex; flex-direction: column; gap: 14px; padding: 28px; border-radius: 18px; background: var(--bg2, #fffaf0); box-shadow: inset 0 0 0 1px var(--line, rgba(0,0,0,.12)), 0 12px 40px rgba(0,0,0,.14); }
+.crash-card h1 { margin: 0; font-size: 22px; color: var(--head, inherit); }
+.crash-card p { margin: 0; line-height: 1.5; color: var(--muted, inherit); }
+.crash-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.crash-card details { font-size: 13px; color: var(--muted, inherit); }
+.crash-card summary { cursor: pointer; width: fit-content; }
+.crash-card pre { margin: 8px 0 0; max-height: 180px; overflow: auto; padding: 10px; border-radius: 10px; background: var(--bg3, rgba(0,0,0,.06)); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
