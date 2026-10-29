@@ -1,3 +1,4 @@
+import { t as tr } from './i18n.js';
 
 export const imageUrl = (id) => (id ? `/api/images/${id}` : null);
 
@@ -19,8 +20,8 @@ function toBlob(canvas, type, quality) {
 // and zoom (1 or more) zooms in. Without it the middle of the picture is used. The result is the same "cover" fit the crop window shows.
 // This also strips EXIF data (e.g. GPS location) and keeps uploads small. Animated GIFs become still images (first frame).
 export function checkImageFile(file) {
-  if (!ACCEPT.includes(file.type)) throw new Error('Choose a PNG, JPEG, WebP or GIF image');
-  if (file.size > MAX_INPUT) throw new Error('That image is too big (max 15 MB)');
+  if (!ACCEPT.includes(file.type)) throw new Error(tr('imgType'));
+  if (file.size > MAX_INPUT) throw new Error(tr('imgBig'));
 }
 
 async function drawCover(file, w, h, crop) {
@@ -28,7 +29,7 @@ async function drawCover(file, w, h, crop) {
 
   let bmp;
   try { bmp = await createImageBitmap(file); }
-  catch { throw new Error("Couldn't read that image"); }
+  catch { throw new Error(tr('imgRead')); }
 
   const canvas = document.createElement('canvas');
   canvas.width = w;
@@ -168,11 +169,11 @@ export async function makeFrameTemplate() {
 // A frame picture from the artist's file: fitted (not cropped) into the 512px square, kept as a PNG so the see-through parts stay see-through.
 // Refuses a picture whose middle is filled in, because it would cover the profile picture, and one that has no ring at all.
 export async function processFrame(file) {
-  if (!ACCEPT.includes(file.type)) throw new Error('Choose a PNG, JPEG, WebP or GIF image');
-  if (file.size > MAX_INPUT) throw new Error('That image is too big (max 15 MB)');
+  if (!ACCEPT.includes(file.type)) throw new Error(tr('imgType'));
+  if (file.size > MAX_INPUT) throw new Error(tr('imgBig'));
   let bmp;
   try { bmp = await createImageBitmap(file); }
-  catch { throw new Error("Couldn't read that image"); }
+  catch { throw new Error(tr('imgRead')); }
   const S = FRAME.side;
   const canvas = document.createElement('canvas');
   canvas.width = S; canvas.height = S;
@@ -200,11 +201,11 @@ export async function processFrame(file) {
 // A piece of art for an artist application: scaled down to fit inside maxSide x maxSide, NOT cropped (a reviewer needs to see all of it).
 // WebP when the browser can make it, otherwise JPEG; re-encoding also strips EXIF data. Stays under the server's 1 MB upload limit.
 export async function processPiece(file, maxSide = 1600) {
-  if (!ACCEPT.includes(file.type)) throw new Error('Choose a PNG, JPEG, WebP or GIF image');
-  if (file.size > MAX_INPUT) throw new Error('That image is too big (max 15 MB)');
+  if (!ACCEPT.includes(file.type)) throw new Error(tr('imgType'));
+  if (file.size > MAX_INPUT) throw new Error(tr('imgBig'));
   let bmp;
   try { bmp = await createImageBitmap(file); }
-  catch { throw new Error("Couldn't read that image"); }
+  catch { throw new Error(tr('imgRead')); }
   for (const side of [maxSide, Math.round(maxSide * 0.75), Math.round(maxSide * 0.55)]) { // a big, busy picture may need a smaller size to fit
     const scale = Math.min(1, side / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));

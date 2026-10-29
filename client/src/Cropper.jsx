@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './ui.jsx';
 import { processImage } from './image.js';
+import { useLang } from './i18n.js';
 import './cropper.css';
 
 // Crop and position a picture before it is used as a profile picture, banner or server icon.
@@ -10,7 +11,8 @@ import './cropper.css';
 const MAX_ZOOM = 4;
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
-export default function Cropper({ file, size, shape = 'wide', title = 'Position your picture', onApply, onCancel }) {
+export default function Cropper({ file, size, shape = 'wide', title, onApply, onCancel }) {
+  const { t } = useLang();
   const url = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
 
@@ -91,9 +93,9 @@ export default function Cropper({ file, size, shape = 'wide', title = 'Position 
   }
 
   return (
-    <Modal title={title} onClose={onCancel}>
+    <Modal title={title || t('cropTitle')} onClose={onCancel}>
       <div className="crop">
-        <p className="muted small">Drag the picture to move it. Use the slider to zoom. Only what is inside the frame is kept.</p>
+        <p className="muted small">{t('cropHelp')}</p>
         {view && (
           <div
             ref={box}
@@ -101,26 +103,26 @@ export default function Cropper({ file, size, shape = 'wide', title = 'Position 
             style={{ width: view.w, height: view.h }}
             tabIndex={0}
             role="img"
-            aria-label="Crop area. Arrow keys move the picture, plus and minus zoom."
+            aria-label={t('cropArea')}
             onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onKeyDown={key}
           >
             <img
               src={url} alt="" draggable={false}
               onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
-              onError={() => setErr("Couldn't read that image")}
+              onError={() => setErr(t('imgRead'))}
               style={geo ? { width: geo.w, height: geo.h, transform: `translate(${left}px, ${top}px)` } : { visibility: 'hidden' }}
             />
             <span className="crop-grid" aria-hidden="true" />
           </div>
         )}
         <label className="crop-zoom">
-          <span className="muted small">Zoom</span>
-          <input type="range" min="1" max={MAX_ZOOM} step="0.01" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} aria-label="Zoom" />
+          <span className="muted small">{t('cropZoom')}</span>
+          <input type="range" min="1" max={MAX_ZOOM} step="0.01" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} aria-label={t('cropZoom')} />
         </label>
         {err && <p className="error-text" role="alert">{err}</p>}
         <div className="modal-foot">
-          <button type="button" className="btn" onClick={onCancel} disabled={busy}>Cancel</button>
-          <button type="button" className="btn primary" onClick={apply} disabled={busy || !geo}>{busy ? 'Applying…' : 'Apply'}</button>
+          <button type="button" className="btn" onClick={onCancel} disabled={busy}>{t('cropCancel')}</button>
+          <button type="button" className="btn primary" onClick={apply} disabled={busy || !geo}>{busy ? t('cropApplying') : t('cropApply')}</button>
         </div>
       </div>
     </Modal>

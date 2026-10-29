@@ -437,7 +437,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           <ColorRow label={t('bannerColor')} value={f.bannerColor} onChange={set('bannerColor')} colors={BANNER_COLORS} />
           {hasBanner && <div className="upload-row"><button type="button" className="btn" onClick={removeBanner}>{t('removeBanner')}</button></div>}
           <input ref={bannerInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('banner', e)} />
-          {cropping && <Cropper file={cropping.file} size={cropping.kind === 'avatar' ? AVATAR_SIZE : BANNER_SIZE} shape={cropping.kind === 'avatar' ? 'square' : 'wide'} title={cropping.kind === 'avatar' ? 'Position your profile picture' : 'Position your banner'} onApply={applyCrop} onCancel={() => setCropping(null)} />}
+          {cropping && <Cropper file={cropping.file} size={cropping.kind === 'avatar' ? AVATAR_SIZE : BANNER_SIZE} shape={cropping.kind === 'avatar' ? 'square' : 'wide'} title={cropping.kind === 'avatar' ? t('cropTitleAvatar') : t('cropTitleBanner')} onApply={applyCrop} onCancel={() => setCropping(null)} />}
 
           <label>Profile theme</label>
           <div className="pt-grid" role="radiogroup" aria-label="Profile theme">

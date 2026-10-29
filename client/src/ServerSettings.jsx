@@ -6,6 +6,7 @@ import { askConfirm } from './Dialogs.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout } from './layout.js';
 import { uploadImage, checkImageFile, imageUrl, ACCEPT_ATTR, SERVER_ICON_SIZE, SERVER_BANNER_SIZE } from './image.js';
 import Cropper from './Cropper.jsx';
+import { t as tr } from './i18n.js';
 import { THEMES, DEFAULT_CUSTOM, setServerTheme } from './themes.js';
 import { ThemeGallery, PublishTheme } from './ThemeGallery.jsx';
 import { Swatch } from './Appearance.jsx';
@@ -154,7 +155,7 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
         <div className="settings-content">
           <input ref={iconInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('icon', e)} />
           <input ref={bannerInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('banner', e)} />
-          {cropping && <Cropper file={cropping.file} size={cropping.kind === 'icon' ? SERVER_ICON_SIZE : SERVER_BANNER_SIZE} shape={cropping.kind === 'icon' ? 'square' : 'wide'} title={cropping.kind === 'icon' ? 'Position the server icon' : 'Position the server banner'} onApply={applyCrop} onCancel={() => setCropping(null)} />}
+          {cropping && <Cropper file={cropping.file} size={cropping.kind === 'icon' ? SERVER_ICON_SIZE : SERVER_BANNER_SIZE} shape={cropping.kind === 'icon' ? 'square' : 'wide'} title={cropping.kind === 'icon' ? tr('cropTitleIcon') : tr('cropTitleServerBanner')} onApply={applyCrop} onCancel={() => setCropping(null)} />}
 
           {tab === 'overview' && (
             <>
