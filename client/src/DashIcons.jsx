@@ -37,6 +37,15 @@ export function IconContent({ size = 18, label }) {
   ), label);
 }
 
+export function IconProfile({ size = 18, label }) {
+  return svg('0 0 24 24', size, (
+    <g fill={W}>
+      <circle cx="12" cy="8" r="4.2" />
+      <path d="M3.8 20.4c.5-4.1 3.7-6.6 8.2-6.6s7.7 2.5 8.2 6.6a1 1 0 0 1-1 1.1H4.8a1 1 0 0 1-1-1.1z" />
+    </g>
+  ), label);
+}
+
 export function IconUpload({ size = 18, label }) {
   return svg('1070 1070 690 690', size, (
     <g fill="none" stroke={W} strokeLinecap="round" strokeLinejoin="round">

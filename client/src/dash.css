@@ -66,6 +66,9 @@
 .yt-dash .dash-check.off { opacity: .5; cursor: default; }
 .yt-dash .dash-check { display: flex; gap: 10px; align-items: flex-start; margin: 0; font-size: 14px; line-height: 1.45; color: var(--text); letter-spacing: 0; cursor: pointer; }
 .yt-dash .dash-check input { width: auto; margin-top: 3px; flex: none; }
+/* "Your Clips page" card: the on/off switch, then the link with Copy and Open once it is on */
+.yt-dash .dash-page-link { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+.yt-dash .dash-page-url { flex: 1 1 220px; min-width: 0; margin: 0; padding: 8px 10px; border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line); font-size: 13px; overflow-wrap: anywhere; user-select: all; }
 .yt-dash .dash-rules { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--muted); }
 
 /* buttons: pill shaped like YouTube's */
@@ -101,6 +104,43 @@
 .yt-dash .btn.primary.danger-fill:hover { background: var(--danger-h); }
 .yt-dash .dash-link { background: none; border: 0; padding: 0; color: var(--link); cursor: pointer; font: inherit; }
 .yt-dash .dash-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* the creator profile: the pop-up after joining, the Profile page, and the identity row on the front page (CreatorProfile.jsx) */
+.yt-dash { --r-md: 12px; --r-lg: 16px; }
+.yt-dash .cp-menu { max-width: 520px; }
+.yt-dash .cp-body { background: var(--bg2); display: flex; flex-direction: column; gap: 14px; }
+.yt-dash .cp-form { display: flex; flex-direction: column; gap: 16px; }
+.yt-dash .cp-preview { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); overflow: hidden; }
+.yt-dash .cp-banner { position: relative; height: 110px; background: var(--bg3) center / cover no-repeat; }
+.yt-dash .cp-banner.empty { background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.035) 0 12px, transparent 12px 24px); }
+.yt-dash .cp-pick { position: absolute; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 0; background: rgba(0,0,0,.62); color: #fff; font-size: 12px; font-weight: 500; cursor: pointer; backdrop-filter: blur(4px); }
+.yt-dash .cp-pick:hover:not(:disabled) { background: rgba(0,0,0,.8); }
+.yt-dash .cp-pick-banner { right: 10px; bottom: 10px; }
+.yt-dash .cp-pick-x { right: 10px; top: 10px; padding: 7px; }
+.yt-dash .cp-who { display: flex; align-items: flex-end; gap: 14px; padding: 0 16px 14px; margin-top: -34px; position: relative; }
+.yt-dash .cp-avatar-wrap { position: relative; flex: none; }
+.yt-dash .cp-avatar { position: relative; width: 84px; height: 84px; border-radius: 26%; border: 4px solid var(--bg); background: var(--bg3); color: var(--head); overflow: hidden; display: grid; place-items: center; padding: 0; cursor: pointer; font-size: 32px; font-weight: 500; }
+.yt-dash .cp-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.yt-dash .cp-avatar i { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.55); color: #fff; opacity: 0; transition: opacity .12s; }
+.yt-dash .cp-avatar:hover:not(:disabled) i, .yt-dash .cp-avatar:focus-visible i { opacity: 1; }
+.yt-dash .cp-avatar:focus-visible { outline: 2px solid #3ea6ff; outline-offset: 2px; }
+.yt-dash .cp-avatar-x { position: absolute; top: -4px; right: -4px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--bg); background: var(--bg3); color: var(--text); display: grid; place-items: center; padding: 0; cursor: pointer; }
+.yt-dash .cp-avatar-x:hover:not(:disabled) { background: var(--danger); color: #fff; }
+.yt-dash .cp-avatar.sm { width: 44px; height: 44px; border-width: 0; font-size: 18px; cursor: default; flex: none; }
+.yt-dash .cp-names { display: flex; flex-direction: column; min-width: 0; padding-bottom: 4px; }
+.yt-dash .cp-names b { font-weight: 500; color: var(--head); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yt-dash .cp-names .muted { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.yt-dash .cp-field { display: flex; flex-direction: column; gap: 6px; }
+.yt-dash .cp-field > span { font-size: 13px; font-weight: 500; color: var(--head); }
+.yt-dash .cp-field input { height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit; }
+.yt-dash .cp-field input:focus { border-color: #1c62b9; outline: none; }
+.yt-dash .cp-field input:disabled { opacity: .55; }
+.yt-dash .cp-field small { font-size: 12px; }
+.yt-dash .cp-note { margin: 0; font-size: 12px; }
+.yt-dash .cp-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.yt-dash .cp-row { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+.yt-dash .cp-row .cp-names { flex: 1; padding: 0; }
+@media (max-width: 520px) { .yt-dash .cp-banner { height: 84px; } .yt-dash .cp-avatar { width: 72px; height: 72px; } .yt-dash .cp-who { margin-top: -28px; } }
 
 /* numbers */
 .yt-dash .dash-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }

@@ -156,11 +156,20 @@ function toggleLike(c, uid) {
 // ---------- what clients see ----------
 const isLive = (c, now) => c.state === 'live' && !c.purgedAt && c.expiresAt > now;
 const followsOf = (users, uid) => (users[uid] && users[uid].clipFollowing) || [];
+// Who a person is on Clips. A creator can set their own username, display name, icon and banner (u.clipCreator.profile); when they have, ONLY those
+// are shown on Clips (nothing falls back to the Aduna profile, or the two accounts could be linked). Without one, the Aduna profile is used.
+function identity(u) {
+  if (!u) return { username: null, displayName: null, avatarImage: null, bannerImage: null };
+  const p = u.clipCreator && u.clipCreator.profile;
+  if (!p) return { username: u.username, displayName: u.displayName || u.username, avatarImage: u.avatarImage || null, bannerImage: u.bannerImage || null };
+  return { username: p.username, displayName: p.displayName || p.username, avatarImage: p.avatarImage || null, bannerImage: p.bannerImage || null };
+}
 function view(c, users, uid, cfg) {
   const o = users[c.owner];
+  const who = identity(o);
   return {
     id: c.id, caption: c.caption || '',
-    owner: { id: c.owner, username: o ? o.username : null, avatarImage: o ? o.avatarImage || null : null, followers: o ? o.clipFollowerCount || 0 : 0 },
+    owner: { id: c.owner, username: who.username, displayName: who.displayName, avatarImage: who.avatarImage, followers: o ? o.clipFollowerCount || 0 : 0 },
     following: followsOf(users, uid).includes(c.owner),
     url: `${cfg.publicUrl}/${c.key}`, poster: `${cfg.publicUrl}/${c.posterKey}`,
     seconds: c.seconds, width: c.width, height: c.height,
@@ -207,12 +216,12 @@ function search(clips, users, { uid, q, now = Date.now(), limit = 12 }, cfg) {
   for (const c of live) count[c.owner] = (count[c.owner] || 0) + 1;
   const follows = new Set(followsOf(users, uid));
   const creators = Object.values(users)
-    .filter((u) => u && !u.bot && u.clipCreator && hit(u.username))
-    .sort((a, b) => (b.clipFollowerCount || 0) - (a.clipFollowerCount || 0) || String(a.username).localeCompare(String(b.username)))
+    .filter((u) => u && !u.bot && u.clipCreator && (hit(identity(u).username) || hit(identity(u).displayName))) // the Clips name, never the Aduna one a creator keeps private
+    .sort((a, b) => (b.clipFollowerCount || 0) - (a.clipFollowerCount || 0) || String(identity(a).username).localeCompare(String(identity(b).username)))
     .slice(0, Math.min(Math.max(1, limit), 20))
-    .map((u) => ({ id: u.id, username: u.username, avatarImage: u.avatarImage || null, followers: u.clipFollowerCount || 0, clips: count[u.id] || 0, following: follows.has(u.id), mine: u.id === uid }));
+    .map((u) => { const who = identity(u); return { id: u.id, username: who.username, displayName: who.displayName, avatarImage: who.avatarImage, followers: u.clipFollowerCount || 0, clips: count[u.id] || 0, following: follows.has(u.id), mine: u.id === uid }; });
   const found = live
-    .filter((c) => hit(c.caption) || hit(users[c.owner].username))
+    .filter((c) => hit(c.caption) || hit(identity(users[c.owner]).username))
     .sort((a, b) => (b.likes || 0) * 5 + (b.views || 0) - ((a.likes || 0) * 5 + (a.views || 0)) || b.liveAt - a.liveAt)
     .slice(0, Math.min(Math.max(1, limit), 20))
     .map((c) => view(c, users, uid, cfg));
@@ -268,10 +277,10 @@ function removeComment(c, commentId, uid) {
 }
 function commentViews(c, users, uid) {
   return (c.comments || []).slice().reverse().map((x) => {
-    const u = users[x.by];
+    const who = identity(users[x.by]); // a creator with their own Clips identity comments as that identity
     return {
       id: x.id, text: x.text, at: x.at,
-      user: { id: x.by, username: u ? u.username : null, avatarImage: u ? u.avatarImage || null : null },
+      user: { id: x.by, username: who.username, avatarImage: who.avatarImage },
       mine: x.by === uid, canDelete: x.by === uid || c.owner === uid,
     };
   });
@@ -295,6 +304,6 @@ function addView(c, now) {
 module.exports = {
   MB, GB, DAY, MAX_POSTER, POSTER_TYPES, MAX_CAPTION, MAX_COMMENT, FIRST_BYTES, HOLDING,
   settings, checkRequest, sniffMp4, usedBytes, hasRoom, uploadsToday, pendingOf, due, purge, objectsOf,
-  addReport, shouldHide, toggleLike, isLive, view, ownerView, feed, search,
+  addReport, shouldHide, toggleLike, isLive, identity, view, ownerView, feed, search,
   checkComment, addComment, removeComment, commentViews, addShare, addView, dayKey, toggleFollow, MAX_FOLLOWING,
 };

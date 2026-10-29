@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
+import { imageUrl } from './image.js';
 import { Avatar } from './ui.jsx';
 import { DialogHost, toast } from './Dialogs.jsx';
 import { ClipCard } from './Clips.jsx';
@@ -216,13 +217,16 @@ export default function ClipsSite({ userId = null }) {
       </header>
 
       {userId && profile && (
-        <div className="cs-profile">
-          <Avatar user={profile} size={48} />
-          <div className="cs-profile-info">
-            <h1>{profile.username || 'Someone'}</h1>
-            <span className="muted">{Number(profile.followers || 0).toLocaleString()} {profile.followers === 1 ? 'follower' : 'followers'}</span>
+        <div className="cs-profile-wrap">
+          {profile.bannerImage && <div className="cs-banner" style={{ backgroundImage: `url("${imageUrl(profile.bannerImage)}")` }} />}
+          <div className="cs-profile">
+            <Avatar user={profile} size={48} />
+            <div className="cs-profile-info">
+              <h1>{profile.displayName || profile.username || 'Someone'}</h1>
+              <span className="muted">@{profile.username || 'someone'} · {Number(profile.followers || 0).toLocaleString()} {profile.followers === 1 ? 'follower' : 'followers'}</span>
+            </div>
+            {!profile.mine && profile.creator && <button className={'btn' + (profile.following ? '' : ' primary')} disabled={busy} onClick={follow} aria-pressed={!!profile.following}>{profile.following ? 'Following' : 'Follow'}</button>}
           </div>
-          {!profile.mine && profile.creator && <button className={'btn' + (profile.following ? '' : ' primary')} disabled={busy} onClick={follow} aria-pressed={!!profile.following}>{profile.following ? 'Following' : 'Follow'}</button>}
         </div>
       )}
 

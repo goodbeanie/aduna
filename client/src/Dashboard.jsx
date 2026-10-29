@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Uploader, Mine } from './Clips.jsx';
 import { DialogHost, toast } from './Dialogs.jsx';
-import { IconAnalytics, IconContent, IconDashboard, IconUpload } from './DashIcons.jsx';
+import { IconAnalytics, IconContent, IconDashboard, IconProfile, IconUpload } from './DashIcons.jsx';
+import { IdentityRow, ProfilePage, SetupPopup } from './CreatorProfile.jsx';
 import './dash.css';
 
 // What a creator agrees to. Shown in a pop-up on /dashboard before anyone can post. The numbers here (30 seconds, 720p, 7 days) match the server's limits.
@@ -104,6 +105,7 @@ const PAGES = [
   ['upload', 'Upload', <IconUpload key="u" />],
   ['content', 'Content', <IconContent key="c" />],
   ['analytics', 'Analytics', <IconAnalytics key="a" />],
+  ['profile', 'Profile', <IconProfile key="p" />],
 ];
 const pageFromHash = () => { const h = (typeof location !== 'undefined' ? location.hash : '').replace('#', ''); return PAGES.some((p) => p[0] === h) ? h : 'dashboard'; };
 const n0 = (n) => Number(n || 0).toLocaleString();
@@ -126,12 +128,13 @@ function totalsOf(rows) {
 }
 
 // The front page: the numbers that matter and the latest clips.
-function Overview({ rows, followers, go, open }) {
+function Overview({ rows, followers, go, open, profile }) {
   const t = totalsOf(rows || []);
   const latest = (rows || []).slice(0, 3);
   return (
     <>
       <div className="dash-card">
+        <IdentityRow profile={profile} onEdit={() => go('profile')} />
         <h2>Your channel</h2>
         <div className="dash-stats">
           <Stat value={followers} label="Followers" />
@@ -271,9 +274,51 @@ function Analytics({ rows, followers }) {
   );
 }
 
+// "Your Clips page": a creator can switch on a link to their page (/clips/user/<id>). It is off until they do; while it is on, it shows on their
+// Aduna profile, and here they can copy it to share anywhere.
+function PageLinkCard({ on, path, onChange }) {
+  const [busy, setBusy] = useState(false);
+  const url = location.origin + (path || '');
+  const flip = async (enabled) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await api('/clips/creator/page-link', { method: 'POST', body: { enabled } });
+      onChange(r.pageLink, r.page);
+      toast(r.pageLink ? 'Your Clips page link is on' : 'Your Clips page link is off');
+    } catch (e) { toast(e.message, 'error'); }
+    finally { setBusy(false); }
+  };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(url); toast('Link copied'); }
+    catch { toast('Could not copy. Select the link and copy it.', 'error'); }
+  };
+  return (
+    <div className="dash-card" id="page-link">
+      <h2>Your Clips page</h2>
+      <p className="muted">Your page shows your clips and how many people follow you. Switch the link on to show it on your Aduna profile and share it anywhere.</p>
+      <label className="dash-check">
+        <input type="checkbox" checked={!!on} disabled={busy} onChange={(e) => flip(e.target.checked)} />
+        <span>Show a link to my Clips page on my profile</span>
+      </label>
+      {on && (
+        <div className="dash-page-link">
+          <p className="dash-page-url">{url}</p>
+          <button className="btn" onClick={copy}>Copy link</button>
+          <a className="btn" href={path} target="_blank" rel="noopener noreferrer">Open page</a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [state, setState] = useState('loading'); // 'loading' | 'signedout' | 'off' | 'error' | 'apply' | 'ready'
+  const [pageLink, setPageLink] = useState(false); // the creator's link to their Clips page is switched on
+  const [pagePath, setPagePath] = useState('');    // /clips/user/<their id>
   const [limits, setLimits] = useState(null);
+  const [profile, setProfile] = useState(null); // the creator's Clips identity (see CreatorProfile.jsx)
+  const [setup, setSetup] = useState(false);    // the customize-your-profile pop-up is due (offered once, right after joining)
   const [terms, setTerms] = useState(false); // the terms pop-up is open
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(pageFromHash);
@@ -288,6 +333,8 @@ export default function Dashboard() {
       const [c, f] = await Promise.all([api('/clips/creator'), api('/clips?limit=1')]);
       setLimits(f.limits);
       setFollowers(c.followers || 0);
+      setPageLink(!!c.pageLink); setPagePath(c.page || '');
+      setProfile(c.profile || null); setSetup(!!c.setupPending);
       setState(c.creator ? 'ready' : 'apply');
       if (c.creator) loadRows();
     } catch (e) {
@@ -321,6 +368,11 @@ export default function Dashboard() {
     finally { setBusy(false); }
   };
   const refreshLimits = () => api('/clips?limit=1').then((f) => setLimits(f.limits)).catch(() => {});
+  // "Skip" on the set-up pop-up: keep the Aduna profile on Clips and do not ask again (the Profile page is always there)
+  const skipSetup = async () => {
+    try { await api('/clips/creator/setup-done', { method: 'POST', body: {} }); } catch { /* the pop-up closes either way */ }
+    setSetup(false);
+  };
   // after a post or a delete: the posts left today, the list and the numbers all change
   const changed = () => { refreshLimits(); loadRows(); };
 
@@ -365,7 +417,8 @@ export default function Dashboard() {
             </div>
           )}
 
-          {state === 'ready' && limits && page === 'dashboard' && <Overview rows={rows} followers={followers} go={go} open={(id) => { go('content'); setOpenId(id); }} />}
+          {state === 'ready' && limits && page === 'dashboard' && <Overview rows={rows} followers={followers} go={go} profile={profile} open={(id) => { go('content'); setOpenId(id); }} />}
+          {state === 'ready' && limits && page === 'dashboard' && <PageLinkCard on={pageLink} path={pagePath} onChange={(on, path) => { setPageLink(on); if (path) setPagePath(path); }} />}
 
           {state === 'ready' && limits && page === 'upload' && (
             <div className="dash-card" id="upload">
@@ -395,11 +448,14 @@ export default function Dashboard() {
 
           {state === 'ready' && limits && page === 'analytics' && <Analytics rows={rows} followers={followers} />}
 
+          {state === 'ready' && limits && page === 'profile' && <ProfilePage profile={profile} onChange={setProfile} />}
+
           <DialogHost />
         </main>
       </div>
 
       {terms && <TermsMenu limits={limits} busy={busy} onAccept={join} onClose={() => setTerms(false)} />}
+      {state === 'ready' && limits && setup && <SetupPopup onSaved={(p) => { setProfile(p); setSetup(false); }} onSkip={skipSetup} />}
     </div>
   );
 }

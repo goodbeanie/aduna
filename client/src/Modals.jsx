@@ -225,6 +225,15 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
           <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username} · ${STATUS_LABEL[presence || 'offline']}`}</div>
           {user.bio && (<><h4>ABOUT ME</h4><p className="bio">{user.bio}</p></>)}
           <ProfileLinks links={user.links} />
+          {/* a Clips creator who switched their page link on (Clips dashboard) shows it here */}
+          {!user.bot && typeof user.clipsPage === 'string' && user.clipsPage.startsWith('/clips/user/') && (
+            <>
+              <h4>CLIPS</h4>
+              <div className="plinks">
+                <a className="plink" href={user.clipsPage} target="_blank" rel="noopener noreferrer"><Icon name="link" size={14} /><span>Clips page</span></a>
+              </div>
+            </>
+          )}
           <h4>MEMBER SINCE</h4>
           <p>{new Date(user.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</p>
           {relation === 'self' && <button className="btn primary full" onClick={onEdit}>Edit profile</button>}

@@ -47,6 +47,7 @@ const db = () => store.db;
 // drop uploaded images that no profile points at (e.g. left over from a crash mid-upload)
 const referencedImages = () => new Set([
   ...Object.values(store.db.users).flatMap((u) => [u.avatarImage, u.bannerImage]),
+  ...Object.values(store.db.users).flatMap((u) => (u.clipCreator && u.clipCreator.profile ? [u.clipCreator.profile.avatarImage, u.clipCreator.profile.bannerImage] : [])), // a Clips creator's own icon and banner
   ...Object.values(store.db.servers).flatMap((sv) => [sv.iconImage, sv.bannerImage]), // server icon + banner
   ...Object.values(store.db.bots || {}).map((b) => b.avatarImage), // bot pictures (the bot's account points at the same image)
   ...Object.values(store.db.emojis).map((e) => e.imageId), // custom emoji pictures live in the same table
@@ -186,10 +187,20 @@ function frameOf(id) { const b = id && db().badges && Object.prototype.hasOwnPro
 const wornFrame = (u) => { const b = u.frame && ownsBadge(u, u.frame) ? frameOf(u.frame) : null; return b ? b.image : null; };
 // the frames a person owns, for Settings: each marked worn or not
 const ownedFrameViews = (u) => (Array.isArray(u.badges) ? u.badges : []).map(frameOf).filter(Boolean).map((b) => ({ id: b.id, name: b.name, image: b.image, worn: u.frame === b.id && wornFrame(u) === b.image }));
+// A username is taken when an account has it OR another Clips creator uses it as their Clips name (u.clipCreator.profile.username), so nobody can
+// register or rename into someone's Clips name. `exceptId` is the person asking (their own names never clash with each other).
+function usernameTaken(name, exceptId) {
+  const l = String(name).toLowerCase();
+  return Object.values(db().users).some((x) => x.id !== exceptId && (String(x.username).toLowerCase() === l || String((x.clipCreator && x.clipCreator.profile && x.clipCreator.profile.username) || '').toLowerCase() === l));
+}
+// A Clips creator can switch on a link to their Clips page (/clips/user/<id>) from the creator dashboard. It is off until they do,
+// and only while it is on does their profile carry it (publicUser.clipsPage); null otherwise.
+const clipsPageOf = (u) => (u && !u.bot && u.clipCreator && u.clipCreator.pageLink === true ? '/clips/user/' + u.id : null);
 function publicUser(u) {
   return {
     id: u.id,
     creator: isCreator(u),
+    clipsPage: clipsPageOf(u),
     badges: badgeViews(u),
     frame: wornFrame(u),
     username: u.username,
@@ -486,8 +497,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
   if (!validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing key backup' });
   const recovery = req.body?.recovery == null ? null : recoveryRecord(req.body.recovery);
   if (req.body?.recovery != null && !recovery) return res.status(400).json({ error: 'Bad recovery key backup' });
-  const taken = Object.values(db().users).some((u) => u.username.toLowerCase() === username.toLowerCase());
-  if (taken) return res.status(409).json({ error: 'Username already taken' });
+  if (usernameTaken(username)) return res.status(409).json({ error: 'Username already taken' });
   // With email verification on, a taken address is NOT reported here (that would reveal who is registered): the account is created unverified
   // and uniqueness is decided when the address is verified. With it off nothing can be verified, so the check has to happen now.
   if (!mailer.enabled() && emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
@@ -979,8 +989,7 @@ app.patch('/api/me', authAny, async (req, res) => {
       const when = new Date(u.usernameChangedAt + USERNAME_COOLDOWN_MS).toISOString();
       return res.status(429).json({ error: 'You can only change your username once every 7 days', availableAt: when });
     }
-    const taken = Object.values(db().users).some((x) => x.id !== u.id && x.username.toLowerCase() === newUsername.toLowerCase());
-    if (taken) return res.status(409).json({ error: 'Username already taken' });
+    if (usernameTaken(newUsername, u.id)) return res.status(409).json({ error: 'Username already taken' });
   }
 
   let newEmail;
@@ -2219,13 +2228,14 @@ async function sweepClips() {
 }
 
 // creator registration: ask whether you are one, and become one by accepting the terms
-app.get('/api/clips/creator', auth, (req, res) => res.json({ creator: isClipCreator(req.user), since: req.user.clipCreator ? req.user.clipCreator.at : null, terms: CLIP_TERMS_VERSION, followers: req.user.clipFollowerCount || 0 }));
+app.get('/api/clips/creator', auth, (req, res) => res.json({ creator: isClipCreator(req.user), since: req.user.clipCreator ? req.user.clipCreator.at : null, terms: CLIP_TERMS_VERSION, followers: req.user.clipFollowerCount || 0, pageLink: !!clipsPageOf(req.user), page: '/clips/user/' + req.user.id, profile: isClipCreator(req.user) ? creatorProfileView(req.user) : null, setupPending: !!(req.user.clipCreator && req.user.clipCreator.setupPending) }));
 // a creator's own page (/clips/user/<id>): who they are, how many follow them, and whether you do. Anyone signed in can look.
 app.get('/api/clips/creator/:userId', auth, needClips, (req, res) => {
   const u = db().users[req.params.userId];
   if (!u || u.bot) return res.status(404).json({ error: 'That page was not found' });
   if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  res.json({ user: { id: u.id, username: u.username, avatarImage: u.avatarImage || null, followers: u.clipFollowerCount || 0, creator: isClipCreator(u), following: (req.user.clipFollowing || []).includes(u.id), mine: u.id === req.user.id } });
+  const who = clipsLib.identity(u); // a creator's own Clips name, display name, icon and banner when they set them
+  res.json({ user: { id: u.id, username: who.username, displayName: who.displayName, avatarImage: who.avatarImage, bannerImage: who.bannerImage, followers: u.clipFollowerCount || 0, creator: isClipCreator(u), following: (req.user.clipFollowing || []).includes(u.id), mine: u.id === req.user.id } });
 });
 // follow or unfollow a creator (a second call undoes the first). Only the number of followers is ever shown, never who they are.
 const clipFollowHits = new security.RateWindow(60, 3600_000);
@@ -2240,8 +2250,89 @@ app.post('/api/clips/follow/:userId', auth, needClips, (req, res) => {
 });
 app.post('/api/clips/creator/join', auth, (req, res) => {
   if (req.body?.accept !== true) return res.status(400).json({ error: 'Please accept the creator terms' });
-  if (!req.user.clipCreator) { req.user.clipCreator = { at: now(), terms: CLIP_TERMS_VERSION }; store.save(); }
+  if (!req.user.clipCreator) { req.user.clipCreator = { at: now(), terms: CLIP_TERMS_VERSION, setupPending: true }; store.save(); } // setupPending: the dashboard offers the customize-your-creator-profile popup once
   res.json({ creator: true, since: req.user.clipCreator.at });
+});
+// a creator switches the link to their Clips page on or off (off by default). While it is on, their profile shows it; the page itself is unchanged.
+app.post('/api/clips/creator/page-link', auth, needClipCreator, (req, res) => {
+  if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ error: 'Say whether the link should be on or off' });
+  if ((req.user.clipCreator.pageLink === true) !== req.body.enabled) {
+    if (req.body.enabled) req.user.clipCreator.pageLink = true; else delete req.user.clipCreator.pageLink;
+    store.save();
+    emitUserUpdate(req.user); // profile cards other people have open pick the change up
+  }
+  res.json({ pageLink: !!clipsPageOf(req.user), page: '/clips/user/' + req.user.id });
+});
+
+// ----- a creator's own Clips identity -----
+// On joining, the creator is offered a popup (setupPending) to pick a username, display name, icon and banner that are used on Clips INSTEAD of their
+// Aduna profile (clips.js identity()). Skipping it, or "Use my Aduna profile" on the dashboard's Profile page, leaves them showing as themselves.
+// u.clipCreator.profile = { username, displayName, avatarImage, bannerImage, usernameChangedAt }. Rules mirror the Aduna profile: 3-20 letters, numbers or
+// underscores, not taken by any account or other creator, changeable once a week; display name up to 32 characters.
+function creatorProfileView(u) {
+  const who = clipsLib.identity(u), p = u.clipCreator && u.clipCreator.profile;
+  return {
+    custom: !!p, username: who.username, displayName: who.displayName, avatarImage: who.avatarImage, bannerImage: who.bannerImage,
+    usernameChangedAt: (p && p.usernameChangedAt) || null, accountUsername: u.username, // the Aduna username, shown to the person themself as the starting point
+  };
+}
+app.patch('/api/clips/creator/profile', auth, needClipCreator, (req, res) => {
+  const u = req.user, c = u.clipCreator, b = req.body || {}, cur = c.profile || null;
+  const want = String(b.username ?? (cur ? cur.username : u.username)).trim().replace(/^@/, '');
+  if (!/^[a-zA-Z0-9_]{3,20}$/.test(want)) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
+  const renamed = !!cur && want.toLowerCase() !== cur.username.toLowerCase();
+  if (renamed) {
+    const wait = (cur.usernameChangedAt || 0) + USERNAME_COOLDOWN_MS - now();
+    if (wait > 0) return res.status(429).json({ error: 'You can only change your Clips username once every 7 days', availableAt: new Date(cur.usernameChangedAt + USERNAME_COOLDOWN_MS).toISOString() });
+  }
+  if ((!cur || renamed) && usernameTaken(want, u.id)) return res.status(409).json({ error: 'Username already taken' });
+  const p = cur || {};
+  const oldName = p.username;
+  p.username = want;
+  if (renamed) p.usernameChangedAt = now();
+  if (b.displayName !== undefined) p.displayName = clip(b.displayName, 32).trim() || want;
+  else if (!cur || (renamed && p.displayName === oldName)) p.displayName = want; // never picked one: it follows the username
+  c.profile = p;
+  delete c.setupPending;
+  store.save();
+  res.json({ profile: creatorProfileView(u) });
+});
+async function setCreatorImage(u, field, buf) {
+  const p = u.clipCreator.profile, old = p[field];
+  if (buf) p[field] = await store.putImage(buf); else delete p[field];
+  await store.flush(); // the profile must point at the new picture before the old one is deleted
+  await store.deleteImage(old);
+  return creatorProfileView(u);
+}
+for (const [kind, rule] of Object.entries(IMAGE_RULES)) {
+  app.put(`/api/clips/creator/profile/${kind}`, auth, needClipCreator, uploadLimiter, rawImage, ah(async (req, res) => {
+    if (!req.user.clipCreator.profile) return res.status(400).json({ error: 'Choose your Clips username first' });
+    const buf = req.body;
+    if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a PNG, JPEG or WebP image' });
+    const info = sniffImage(buf);
+    if (!info) return res.status(400).json({ error: 'That file is not a valid PNG, JPEG or WebP image' });
+    if (info.width > rule.maxDim || info.height > rule.maxDim) return res.status(400).json({ error: `Image is too large (max ${rule.maxDim}px per side)` });
+    res.json({ profile: await setCreatorImage(req.user, rule.field, buf) });
+  }));
+  app.delete(`/api/clips/creator/profile/${kind}`, auth, needClipCreator, ah(async (req, res) => {
+    if (!req.user.clipCreator.profile) return res.json({ profile: creatorProfileView(req.user) });
+    res.json({ profile: await setCreatorImage(req.user, rule.field, null) });
+  }));
+}
+// back to showing the Aduna profile on Clips: the Clips identity and its pictures are deleted
+app.delete('/api/clips/creator/profile', auth, needClipCreator, ah(async (req, res) => {
+  const c = req.user.clipCreator, p = c.profile;
+  delete c.profile;
+  delete c.setupPending;
+  store.save();
+  await store.flush();
+  if (p) { await store.deleteImage(p.avatarImage); await store.deleteImage(p.bannerImage); }
+  res.json({ profile: creatorProfileView(req.user) });
+}));
+// "Skip" on the popup: keep showing the Aduna profile, and do not ask again
+app.post('/api/clips/creator/setup-done', auth, needClipCreator, (req, res) => {
+  if (req.user.clipCreator.setupPending) { delete req.user.clipCreator.setupPending; store.save(); }
+  res.json({ setupPending: false });
 });
 
 app.post('/api/clips/upload-url', auth, needClips, needClipCreator, ah(async (req, res) => {

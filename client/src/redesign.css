@@ -75,7 +75,7 @@
 
 /* profile card and friends */
 .card { border-radius: var(--r-lg); }
-.card-avatar { border-radius: 22%; }
+.card-avatar { border-radius: calc(26% + 2px); } /* concentric with the 26% avatar inside: outer radius = inner radius (26% of size) + the 4px ring, so the ring's corners sit evenly along the picture's edges */
 .card-body h4 { letter-spacing: .02em; }
 
 
