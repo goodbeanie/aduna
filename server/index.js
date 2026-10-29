@@ -2235,7 +2235,10 @@ app.get('/api/clips/creator/:userId', auth, needClips, (req, res) => {
   if (!u || u.bot) return res.status(404).json({ error: 'That page was not found' });
   if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
   const who = clipsLib.identity(u); // a creator's own Clips name, display name, icon and banner when they set them
-  res.json({ user: { id: u.id, username: who.username, displayName: who.displayName, avatarImage: who.avatarImage, bannerImage: who.bannerImage, followers: u.clipFollowerCount || 0, creator: isClipCreator(u), following: (req.user.clipFollowing || []).includes(u.id), mine: u.id === req.user.id } });
+  const likes = clipList().reduce((n, c) => (c.owner === u.id ? n + (c.likes || 0) : n), 0); // every like on their clips (the numbers stay after a clip expires)
+  res.json({ user: { id: u.id, username: who.username, displayName: who.displayName, avatarImage: who.avatarImage, bannerImage: who.bannerImage, followers: u.clipFollowerCount || 0, likes, creator: isClipCreator(u), following: (req.user.clipFollowing || []).includes(u.id), mine: u.id === req.user.id,
+    // their Aduna profile theme, so their Clips page can wear the same colours
+    profileTheme: credits.pthemes.wornId(u), profileGradient: credits.pthemes.customOf(u), accentColor: u.accentColor || null, bannerColor: u.bannerColor || null } });
 });
 // follow or unfollow a creator (a second call undoes the first). Only the number of followers is ever shown, never who they are.
 const clipFollowHits = new security.RateWindow(60, 3600_000);

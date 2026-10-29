@@ -120,6 +120,8 @@ const DAY = 24 * 3600 * 1000;
   assert.strictEqual((await call('/clips/creator', { token: newbie.token })).setupPending, false, 'saving ends the popup');
   const page = await call('/clips/creator/' + newbie.user.id, { token: bob.token });
   assert.deepStrictEqual([page.user.username, page.user.displayName], ['Star_Maker', 'Star Maker'], "their page shows the Clips identity, not 'clipnewbie'");
+  assert.strictEqual(typeof page.user.likes, 'number', "their page carries the total likes on their clips, and 'profileTheme' for their colours");
+  assert.ok('profileTheme' in page.user, 'their profile theme comes with the page so it can wear the same colours');
   assert.ok((await call('/clips/search?q=star', { token: bob.token })).creators.some((x) => x.id === newbie.user.id && x.username === 'Star_Maker'), 'found by the Clips name');
   assert.ok(!(await call('/clips/search?q=clipnewbie', { token: bob.token })).creators.some((x) => x.id === newbie.user.id), 'not found by the private Aduna name');
   assert.strictEqual((await call('/clips/creator/profile', { method: 'PATCH', token: newbie.token, body: { username: 'Other_Name' } })).status, 429, 'a Clips username can change once a week');

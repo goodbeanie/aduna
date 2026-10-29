@@ -13,12 +13,34 @@
 .cs-main > * { width: 100%; max-width: 440px; }
 .cs-note { text-align: center; }
 
-/* a person's page header (stays above the feed) */
+/* a person's page header (stays above the feed): avatar, name and handle, then followers and likes beside them, then Follow */
 .cs-profile-wrap { flex: none; width: 100%; max-width: 440px; margin: 0 auto; }
 .cs-banner { height: 110px; background: var(--bg3) center / cover no-repeat; border-radius: 0 0 12px 12px; }
-.cs-profile { flex: none; display: flex; align-items: center; gap: 14px; width: 100%; max-width: 440px; margin: 0 auto; padding: 12px 16px; box-sizing: border-box; border-bottom: 1px solid var(--line); }
+.cs-profile { flex: none; display: flex; align-items: center; gap: 12px; width: 100%; margin: 0 auto; padding: 12px 16px; box-sizing: border-box; border-bottom: 1px solid var(--line); }
+.cs-profile-ava { flex: none; border-radius: 50%; display: flex; }
 .cs-profile-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
 .cs-profile-info h1 { margin: 0; font-size: 20px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-handle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-stats { flex: none; display: flex; gap: 14px; }
+.cs-stat { display: flex; flex-direction: column; align-items: center; line-height: 1.15; }
+.cs-stat b { font-size: 16px; font-weight: 700; color: var(--head); }
+.cs-stat span { font-size: 11px; color: var(--muted); }
+.cs-follow { flex: none; }
+@media (max-width: 420px) { .cs-profile { gap: 10px; padding: 10px 12px; } .cs-stats { gap: 10px; } .cs-profile-info h1 { font-size: 17px; } }
+
+/* ---- a person's page wearing their profile theme (.cs-themed: the gradient and colours come inline from themePageStyle) ---- */
+.cs-themed.cs-anim { background-size: 300% 300%; animation: cs-pt-move 9s ease-in-out infinite; }
+@keyframes cs-pt-move { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@media (prefers-reduced-motion: reduce) { .cs-themed.cs-anim { animation: none; background-size: cover; } }
+.yt-dash.cs-themed .yt-top { background: rgba(var(--pt-veil), .08); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.cs-themed .cs-tab:hover, .cs-themed .cs-search-btn:hover, .cs-themed .yt-top .yt-back:hover, .cs-themed .btn:hover, .cs-themed .cs-nav-btn:hover:not(:disabled) { background: var(--hover); }
+.cs-themed .cs-tab.on { background: var(--pt-ink); color: var(--pt-inv); }
+.yt-dash.cs-themed .btn.primary { background: var(--pt-ink); color: var(--pt-inv) !important; }
+.yt-dash.cs-themed .btn.primary:hover { background: var(--pt-ink); opacity: .88; }
+.cs-themed .cs-me-menu { background: var(--bg2); }
+.cs-themed .cs-me-btn { background: var(--bg2); }
+.cs-themed .cs-profile { border-bottom-color: var(--line); }
+.cs-themed .cs-profile-ava { box-shadow: 0 0 0 3px rgba(var(--pt-veil), .35); }
 
 /* nothing posted */
 .cs-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 0; text-align: center; color: var(--muted); font-size: 16px; }
@@ -74,6 +96,21 @@
 @media (min-width: 900px) {
   .cs-slide { padding: 16px 0; }
 
+  /* a person's page: a wide banner, the picture overlapping it, and the name with the followers / likes beside it */
+  .cs-profile-wrap { max-width: 900px; padding: 12px 20px 0; box-sizing: border-box; }
+  .cs-banner { height: 130px; border-radius: 18px; }
+  .cs-profile { gap: 18px; padding: 0 4px 14px; align-items: flex-end; }
+  .cs-profile-wrap.has-banner .cs-profile-ava { margin-top: -38px; }
+  .cs-profile-ava { box-shadow: 0 0 0 4px var(--bg); position: relative; }
+  .cs-profile-info { padding-bottom: 4px; gap: 3px; }
+  .cs-profile-info h1 { font-size: 26px; line-height: 1.15; }
+  .cs-handle { font-size: 14px; }
+  .cs-stats { gap: 10px; padding-bottom: 2px; }
+  .cs-stat { min-width: 84px; padding: 8px 14px; border-radius: 14px; background: var(--bg3); }
+  .cs-stat b { font-size: 20px; }
+  .cs-stat span { font-size: 12px; }
+  .cs-follow { padding: 11px 26px; font-size: 15px; margin-bottom: 2px; }
+  .cs-themed .cs-profile-ava { box-shadow: 0 0 0 4px rgba(var(--pt-veil), .35); }
   /* video height = the slide minus its padding (container units where supported, the viewport otherwise) */
   /* the video is as big as the space allows, whatever its shape: it is fitted inside (height of the slide) x (width minus room for the button column) */
   .cs .clip.reel { --vh: calc(100dvh - 56px - 32px); --vw: calc(100vw - 120px); position: relative; width: min(var(--vw), calc(var(--vh) * var(--ratio, .5625))); max-width: none; gap: 0; }
@@ -130,8 +167,9 @@
   .yt-dash.cs-over .cs-main:not(.cs-feeding) { padding-top: calc(76px + env(safe-area-inset-top, 0px)); }
   .yt-dash.cs-over .vp-mute { top: calc(60px + env(safe-area-inset-top, 0px)); }
 
-  /* your picture: top right, with its menu opening below it */
-  .yt-dash.cs .cs-me { top: calc(8px + env(safe-area-inset-top, 0px)); bottom: auto; right: 10px; flex-direction: column-reverse; }
+  /* your picture: top right, with its menu opening below it. It must sit ABOVE the floating top bar (z-index 25), otherwise the bar
+     catches the tap and the menu (Return to Aduna, dashboard, your page) never opens on a phone. */
+  .yt-dash.cs .cs-me { top: calc(8px + env(safe-area-inset-top, 0px)); bottom: auto; right: 10px; flex-direction: column-reverse; z-index: 40; }
   .yt-dash.cs .cs-me-btn { width: 40px; height: 40px; padding: 2px; overflow: hidden; background: rgba(0,0,0,.4); }
   .yt-dash.cs .cs-me-btn > * { transform: scale(.64); flex: none; }
 }

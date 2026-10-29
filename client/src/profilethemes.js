@@ -57,3 +57,22 @@ export function themeCardStyle(t) {
     color: ink,
   };
 }
+
+// The same idea for a whole page (a creator's Clips page): the gradient fills the page and the dark page palette (.yt-dash in dash.css)
+// is swapped for one that reads on it. Used with the .cs-themed rules in clipssite.css, which cover the places that hard-code a colour.
+export function themePageStyle(t) {
+  const light = t.colors.reduce((s, c) => s + lightness(c), 0) / t.colors.length > 0.4;
+  const ink = light ? '#14110d' : '#fbf8f1';
+  const inv = light ? '#fbf8f1' : '#14110d';
+  const veil = light ? '20,17,13' : '255,255,255';
+  return {
+    backgroundImage: themeGradient(t),
+    '--bg': t.colors[0], '--bg2': t.colors[0], '--bg3': `rgba(${veil},.14)`, '--field': `rgba(${veil},.1)`, '--raised': `rgba(${veil},.18)`,
+    '--line': `rgba(${veil},.22)`, '--line2': `rgba(${veil},.45)`,
+    '--text': ink, '--head': ink, '--muted': light ? '#14110dc0' : '#fbf8f1c4', '--placeholder': light ? '#14110d8c' : '#fbf8f18c',
+    '--ink': ink, '--ink-h': ink, '--on-ink': inv, '--chip-on': ink, '--link': ink,
+    '--hover': `rgba(${veil},.16)`, '--sel': `rgba(${veil},.16)`,
+    '--pt-ink': ink, '--pt-inv': inv, '--pt-veil': veil,
+    color: ink,
+  };
+}

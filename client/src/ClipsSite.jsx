@@ -2,11 +2,28 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { imageUrl } from './image.js';
 import { Avatar } from './ui.jsx';
+import { useUserTheme, themePageStyle } from './profilethemes.js';
 import { DialogHost, toast } from './Dialogs.jsx';
 import { ClipCard } from './Clips.jsx';
 import ClipSearch, { SearchIcon } from './ClipSearch.jsx';
 import './dash.css';
 import './clipssite.css';
+
+// true on a wide screen (the profile header is laid out differently there)
+function useWide() {
+  const q = '(min-width: 900px)';
+  const [wide, setWide] = useState(() => (typeof matchMedia === 'function' ? matchMedia(q).matches : true));
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return undefined;
+    const m = matchMedia(q);
+    const on = () => setWide(m.matches);
+    on();
+    m.addEventListener ? m.addEventListener('change', on) : m.addListener(on);
+    return () => { m.removeEventListener ? m.removeEventListener('change', on) : m.removeListener(on); };
+  }, []);
+  return wide;
+}
+const compact = (n) => { n = Number(n || 0); return n >= 10000 ? new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 }).format(n) : n.toLocaleString(); };
 
 // The Clips website: /clips is the feed, /clips/user/<id> is one person's page. It is its own page (the Clips button in Aduna opens it),
 // dark like the creator dashboard. Your picture sits bottom right; it opens a small menu: back to Aduna, your dashboard, your page.
@@ -25,9 +42,9 @@ function MeMenu({ me }) {
     if (!open) return undefined;
     const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
     const key = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', away);
+    document.addEventListener('pointerdown', away);
     document.addEventListener('keydown', key);
-    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', key); };
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', key); };
   }, [open]);
   return (
     <div className="cs-me" ref={box}>
@@ -62,7 +79,8 @@ export default function ClipsSite({ userId = null }) {
   const [busy, setBusy] = useState(false);
   const [idx, setIdx] = useState(0); // which clip is on screen
   const [searching, setSearching] = useState(false);
-
+  const wide = useWide();
+  const theme = useUserTheme(userId ? profile : null); // a person's page wears their own profile theme
   const feedRef = useRef(null);
   const lockUntil = useRef(0);
   const target = useRef(0);
@@ -109,7 +127,12 @@ export default function ClipsSite({ userId = null }) {
   // a like or a follow on one clip is kept; following a creator also updates their other clips and their page
   const swap = (c) => {
     setClips((p) => p.map((x) => (x.id === c.id ? c : x.owner.id === c.owner.id ? { ...x, following: c.following, owner: { ...x.owner, followers: c.owner.followers } } : x)));
-    setProfile((p) => (p && p.id === c.owner.id ? { ...p, following: c.following, followers: c.owner.followers } : p));
+    setProfile((p) => {
+      if (!p || p.id !== c.owner.id) return p;
+      const was = clips.find((x) => x.id === c.id);
+      const d = was ? (c.likes || 0) - (was.likes || 0) : 0; // a like given or taken back on this page moves the total
+      return { ...p, following: c.following, followers: c.owner.followers, likes: Math.max(0, (p.likes || 0) + d) };
+    });
   };
   const gone = (id) => setClips((p) => p.filter((x) => x.id !== id));
 
@@ -207,7 +230,7 @@ export default function ClipsSite({ userId = null }) {
   }, [shownId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className={'yt-dash cs' + (!userId ? ' cs-over' : '')}>
+    <div className={'yt-dash cs' + (!userId ? ' cs-over' : '') + (theme ? ' cs-themed' + (theme.animated ? ' cs-anim' : '') : '')} style={theme ? themePageStyle(theme) : undefined}>
       <header className="yt-top">
         <a className="yt-logo" href="/clips"><i aria-hidden="true" /><span className="yt-logo-name">Aduna</span><small>Clips</small></a>
         {!userId
@@ -217,15 +240,19 @@ export default function ClipsSite({ userId = null }) {
       </header>
 
       {userId && profile && (
-        <div className="cs-profile-wrap">
-          {profile.bannerImage && <div className="cs-banner" style={{ backgroundImage: `url("${imageUrl(profile.bannerImage)}")` }} />}
+        <div className={'cs-profile-wrap' + (profile.bannerImage || profile.bannerColor ? ' has-banner' : '')}>
+          {(profile.bannerImage || profile.bannerColor) && <div className="cs-banner" style={{ backgroundColor: profile.bannerImage ? undefined : profile.bannerColor, backgroundImage: profile.bannerImage ? `url("${imageUrl(profile.bannerImage)}")` : undefined }} />}
           <div className="cs-profile">
-            <Avatar user={profile} size={48} />
+            <div className="cs-profile-ava"><Avatar user={profile} size={wide ? 88 : 56} /></div>
             <div className="cs-profile-info">
               <h1>{profile.displayName || profile.username || 'Someone'}</h1>
-              <span className="muted">@{profile.username || 'someone'} · {Number(profile.followers || 0).toLocaleString()} {profile.followers === 1 ? 'follower' : 'followers'}</span>
+              <span className="muted cs-handle">@{profile.username || 'someone'}</span>
             </div>
-            {!profile.mine && profile.creator && <button className={'btn' + (profile.following ? '' : ' primary')} disabled={busy} onClick={follow} aria-pressed={!!profile.following}>{profile.following ? 'Following' : 'Follow'}</button>}
+            <div className="cs-stats" aria-label="Followers and likes">
+              <div className="cs-stat" title={Number(profile.followers || 0).toLocaleString()}><b>{compact(profile.followers)}</b><span>{profile.followers === 1 ? 'Follower' : 'Followers'}</span></div>
+              <div className="cs-stat" title={Number(profile.likes || 0).toLocaleString()}><b>{compact(profile.likes)}</b><span>{profile.likes === 1 ? 'Like' : 'Likes'}</span></div>
+            </div>
+            {!profile.mine && profile.creator && <button className={'btn cs-follow' + (profile.following ? '' : ' primary')} disabled={busy} onClick={follow} aria-pressed={!!profile.following}>{profile.following ? 'Following' : 'Follow'}</button>}
           </div>
         </div>
       )}
