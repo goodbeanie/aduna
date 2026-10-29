@@ -202,3 +202,106 @@ html[data-season]:has(.yt-dash) body::before, html[data-season]:has(.yt-dash) bo
   .yt-top { justify-content: space-between; }
   .yt-main { padding: 16px 12px 60px; }
 }
+
+/* =====================================================================
+   The creator Studio (/dashboard) on every screen size. Everything here is scoped to .yt-studio so the Clips site, which shares
+   .yt-dash / .yt-top, keeps its own layout.
+   >1200 wide: content centred   821-1100 laptop/tablet: narrower sidebar, clip rows stack   <=820 phone: tab row   <=520 small phone
+   ===================================================================== */
+.yt-studio { --top: calc(56px + env(safe-area-inset-top, 0px)); overflow-x: clip; }
+.yt-studio .yt-top { height: var(--top); padding-top: env(safe-area-inset-top, 0px); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); box-sizing: border-box; }
+.yt-studio .yt-logo { flex: none; }
+.yt-studio .yt-back { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.yt-studio .yt-back-arrow { font-size: 15px; line-height: 1; }
+.yt-studio .yt-side { top: var(--top); height: calc(100vh - var(--top)); height: calc(100dvh - var(--top)); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.yt-studio .yt-nav { flex: none; }
+.yt-studio .yt-main { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
+.yt-studio .yt-title { overflow-wrap: anywhere; }
+.yt-studio .dash-card { min-width: 0; overflow-wrap: anywhere; }
+.yt-studio .dash-card h2 { overflow-wrap: anywhere; }
+.yt-studio .dash-card .btn, .yt-studio .dash-actions .btn { max-width: 100%; text-align: center; }
+
+/* a wide screen: the content sits in the middle of what is left of the window instead of hugging the sidebar */
+@media (min-width: 1200px) {
+  .yt-studio .yt-main > * { margin-left: auto; margin-right: auto; }
+}
+
+/* laptop / tablet with the sidebar still showing */
+@media (max-width: 1100px) {
+  .yt-studio .yt-side { width: 196px; padding: 10px; }
+  .yt-studio .yt-nav { gap: 14px; }
+  .yt-studio .yt-main { padding: 20px 18px 80px; }
+  /* a clip row: the title and Delete on the first line, the numbers wrap on the second (they were squeezing the title to nothing) */
+  .yt-studio .clip-row, .yt-studio .clip-row.dash-row2 { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "main del" "nums nums"; gap: 6px 12px; padding: 12px 14px; }
+  .yt-studio .clip-row-main { grid-area: main; }
+  .yt-studio .clip-row-nums { grid-area: nums; white-space: normal; line-height: 1.5; }
+  .yt-studio .clip-row .clip-del { grid-area: del; align-self: start; }
+  .yt-studio .clip-row.dash-row2 { grid-template-areas: "main" "nums"; grid-template-columns: minmax(0, 1fr); }
+}
+
+/* phone / narrow window: the sidebar becomes a row of tabs that stays under the top bar, and the search moves into the bar */
+@media (max-width: 820px) {
+  .yt-studio .yt-top { gap: 10px; }
+  .yt-studio .yt-search { display: block; flex: 1 1 auto; min-width: 0; max-width: none; margin: 0; }
+  .yt-studio .yt-search input { height: 36px; padding: 0 14px; font-size: 14px; }
+  .yt-studio .yt-top .yt-back { padding: 7px 12px; }
+  .yt-studio .yt-tabs { position: sticky; top: var(--top); z-index: 4; padding: 8px max(12px, env(safe-area-inset-left, 0px)); gap: 6px; scroll-snap-type: x proximity; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  .yt-studio .yt-tabs::-webkit-scrollbar { display: none; }
+  .yt-studio .yt-tabs .yt-nav { scroll-snap-align: center; height: 38px; }
+  .yt-studio .yt-nav.on { background: var(--hover); box-shadow: inset 0 0 0 1px var(--line2); }
+  .yt-studio .yt-main { padding: 16px max(12px, env(safe-area-inset-right, 0px)) calc(60px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)); gap: 16px; }
+  .yt-studio .yt-title { font-size: 21px; }
+  .yt-studio .dash-card { padding: 16px; gap: 12px; }
+  .yt-studio .dash-stats { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .yt-studio .dash-bars { height: 180px; }
+  .yt-studio .dash-menu { max-height: min(92vh, 720px); max-height: min(92dvh, 720px); }
+}
+
+/* small phone */
+@media (max-width: 560px) {
+  .yt-studio .yt-top { padding-left: max(12px, env(safe-area-inset-left, 0px)); padding-right: max(12px, env(safe-area-inset-right, 0px)); }
+  .yt-studio .yt-logo-name, .yt-studio .yt-logo small { display: none; } /* the logo mark alone is enough here */
+  .yt-studio .yt-back-text { display: none; }
+  .yt-studio .yt-top .yt-back { width: 38px; height: 38px; padding: 0; justify-content: center; }
+  .yt-studio .yt-back-arrow { font-size: 18px; }
+  .yt-studio .yt-main { gap: 14px; }
+  .yt-studio .yt-title { font-size: 19px; }
+  .yt-studio .dash-card { padding: 14px; border-radius: 10px; }
+  .yt-studio .dash-card h2 { font-size: 16px; }
+  .yt-studio .dash-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .yt-studio .dash-stat { padding: 12px; }
+  .yt-studio .dash-stat b { font-size: 21px; }
+  .yt-studio .dash-actions, .yt-studio .cp-actions { flex-direction: column; align-items: stretch; }
+  .yt-studio .dash-actions .btn, .yt-studio .cp-actions .btn { justify-content: center; width: 100%; box-sizing: border-box; }
+  .yt-studio .dash-page-link .btn { flex: 1 1 120px; justify-content: center; }
+  .yt-studio .clip-up-row > .btn { flex: 1 1 auto; justify-content: center; }
+  .yt-studio .clip-file { max-width: 100%; }
+  .yt-studio .cp-row { flex-wrap: wrap; }
+  .yt-studio .cp-row .btn { margin-left: auto; }
+  .yt-studio .dash-table th, .yt-studio .dash-table td { padding: 8px 10px; }
+  .yt-studio .dash-table .dash-cap { max-width: 150px; }
+  /* pop-ups: the buttons stack and fill the width */
+  .yt-dash .dash-scrim { padding: 8px; align-items: flex-end; }
+  .yt-dash .dash-menu { max-height: 94vh; max-height: 94dvh; border-radius: 16px 16px 12px 12px; }
+  .yt-dash .dash-menu-head { padding: 14px 14px; }
+  .yt-dash .dash-menu-body { padding: 14px; }
+  .yt-dash .dash-menu-foot { padding: 12px 14px calc(14px + env(safe-area-inset-bottom, 0px)); }
+  .yt-dash .dash-menu-actions { flex-direction: column-reverse; }
+  .yt-dash .dash-menu-actions .btn { width: 100%; justify-content: center; box-sizing: border-box; }
+}
+
+/* touch screens: fields at 16px (iOS zooms into anything smaller), comfortable tap targets */
+@media (pointer: coarse) {
+  .yt-dash input, .yt-dash textarea, .yt-dash select { font-size: 16px; }
+  .yt-dash .btn { min-height: 40px; }
+  .yt-dash .yt-nav { min-height: 44px; }
+  .yt-dash .dash-menu-x { width: 40px; height: 40px; }
+  .yt-dash .cp-field .cp-input, .yt-dash .clip-caption { min-height: 44px; }
+  .yt-dash .dash-check input { width: 20px; height: 20px; margin-top: 1px; }
+}
+
+/* a short window (a phone on its side): the pop-ups never grow taller than the screen */
+@media (max-height: 520px) {
+  .yt-dash .dash-scrim { align-items: center; padding: 8px; }
+  .yt-dash .dash-menu { max-height: calc(100dvh - 16px); }
+}

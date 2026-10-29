@@ -386,11 +386,11 @@ export default function Dashboard() {
   );
 
   return (
-    <div className="yt-dash">
+    <div className="yt-dash yt-studio">
       <header className="yt-top">
-        <a className="yt-logo" href="/dashboard" onClick={(e) => { e.preventDefault(); go('dashboard'); }}><i aria-hidden="true" />Aduna<small>Studio</small></a>
+        <a className="yt-logo" href="/dashboard" onClick={(e) => { e.preventDefault(); go('dashboard'); }}><i aria-hidden="true" /><span className="yt-logo-name">Aduna</span><small>Studio</small></a>
         <div className="yt-search"><input type="search" placeholder="Search your clips" aria-label="Search your clips" value={q} onChange={search} /></div>
-        <a className="yt-back" href="/app">Back to Aduna</a>
+        <a className="yt-back" href="/app" aria-label="Back to Aduna"><span className="yt-back-arrow" aria-hidden="true">←</span><span className="yt-back-text">Back to Aduna</span></a>
       </header>
 
       <nav className="yt-tabs" aria-label="Clips dashboard pages">{PAGES.map(nav)}</nav>
