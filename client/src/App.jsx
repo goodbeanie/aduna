@@ -37,6 +37,7 @@ import { GroupCallUI, GroupCallStage, GroupCallDock, GroupCallBanner, inGroupCal
 import { NewGroupModal, GroupInfoModal, GroupIcon } from './Groups.jsx';
 import * as notify from './notify.js';
 import { NotifyPrompt } from './NotifyPrompt.jsx';
+import { useGameDetection } from './Activity.jsx';
 import { CommandPalette } from './CommandPalette.jsx';
 import { FirstRun } from './FirstRun.jsx';
 import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
@@ -633,6 +634,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     const off = window.adunaDesktop?.onClick?.((t) => openTargetRef.current(t));
     return () => { navigator.serviceWorker?.removeEventListener('message', fromSw); window.removeEventListener('aduna:open', fromPage); off?.(); };
   }, []);
+  useGameDetection(me?.id, me?.showActivity !== false); // desktop app: "Playing ..." found automatically, like Discord (client/src/Activity.jsx)
   useEffect(() => { // keep this device's push subscription fresh (browsers rotate them now and then)
     if (notify.pushSupported() && notify.permission() === 'granted') notify.subscribe().catch(() => {});
   }, []);

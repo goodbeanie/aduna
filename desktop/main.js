@@ -6,7 +6,7 @@ const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
-
+const games = require('./games');
 
 const ORIGIN = 'https://aduna.onrender.com';
 const APP_URL = ORIGIN + '/app';
@@ -336,10 +336,34 @@ function buildTray() {
     { label: 'Check for updates\u2026', click: () => { showWindow(); runCheck(true); } },
     { type: 'separator' },
     { label: 'Start with Windows', type: 'checkbox', checked: startsWithWindows(), enabled: app.isPackaged, click: (item) => setStartsWithWindows(item.checked) },
+    { label: 'Show the game I’m playing', type: 'checkbox', checked: readPrefs().detectGames !== false, click: (item) => setDetectGames(item.checked) },
     { type: 'separator' },
     { label: 'Quit Aduna', click: () => { quitting = true; app.quit(); } },
   ]));
 }
+
+// ----- "Playing ..." on the profile, found automatically (like Discord) -----
+// Every 30 seconds the app reads the NAMES of the running programs, and only if one is on the fixed list in games.js does it tell the page
+// which game it is. The page then reports it to Aduna (which refreshes it about once a minute and drops it a few minutes after the game
+// closes). Nothing else is read or sent. Tray > "Show the game I'm playing" turns the looking off on this PC.
+let gameNow = null, scanning = false;
+function setGame(name) {
+  if (name === gameNow) return;
+  gameNow = name;
+  if (alive(page)) page.webContents.send('game', gameNow);
+}
+function scanGames() {
+  if (process.platform !== 'win32' || scanning) return;
+  if (readPrefs().detectGames === false) { setGame(null); return; }
+  scanning = true;
+  execFile('tasklist', ['/fo', 'csv', '/nh'], { windowsHide: true, timeout: 8000, maxBuffer: 8 * 1024 * 1024 }, (err, out) => {
+    scanning = false;
+    if (err) return; // keep what we had; the next scan tries again
+    setGame(games.pick(games.parseTasklist(String(out || '')), gameNow));
+  });
+}
+ipcMain.on('game-get', (e) => { if (fromPage(e) && alive(page)) page.webContents.send('game', gameNow); });
+function setDetectGames(on) { const p = readPrefs(); p.detectGames = !!on; writePrefs(p); if (on) scanGames(); else setGame(null); buildTray(); }
 
 // ----- screen sharing -----
 // Electron has no built-in screen picker: without a handler, getDisplayMedia() simply fails. So the page shows its own picker
@@ -401,6 +425,8 @@ else {
     buildTray();
     applyIcons(); // correct the first guess with the real taskbar mode
     setupUpdates();
+    setTimeout(scanGames, 5000);
+    setInterval(scanGames, 30 * 1000);
   });
   // No 'window-all-closed' quit: closing the window hides it to the tray (see createWindow). "Quit" in the tray really exits.
   app.on('window-all-closed', () => { /* keep running in the tray */ });

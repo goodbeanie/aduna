@@ -20,6 +20,16 @@ if (location.protocol === 'https:') {
       sources: () => ipcRenderer.invoke('screen:sources'),
       choose: (id) => ipcRenderer.invoke('screen:choose', String(id || '')),
     },
+    // The game the app found running (desktop/games.js): the callback gets its name, or null when none is running. It also fires once at the start.
+    game: {
+      onChange: (cb) => {
+        if (typeof cb !== 'function') return () => {};
+        const h = (_e, name) => cb(typeof name === 'string' ? name : null);
+        ipcRenderer.on('game', h);
+        ipcRenderer.send('game-get');
+        return () => ipcRenderer.removeListener('game', h);
+      },
+    },
     // The AI bot builder (desktop/ai/ai-service.js). A fixed list of actions: the page cannot reach Node, files or any other channel.
     ai: Object.assign(
       Object.fromEntries(['status', 'startOllama', 'installOllama', 'autoSetup', 'pull', 'cancelPull', 'remove', 'run', 'resume', 'stop', 'jobs', 'job', 'deleteJob', 'panel']
