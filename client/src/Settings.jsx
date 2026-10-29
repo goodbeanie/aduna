@@ -11,6 +11,7 @@ import { ArtistSettings } from './Artist.jsx';
 import { WhatsNewSettings } from './WhatsNew.jsx';
 import { LanguageSettings } from './Setup.jsx';
 import { useLang } from './i18n.js';
+import { askConfirm } from './Dialogs.jsx';
 
 const TABS = [['profile', 'tabProfile', 'smile'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['whatsnew', 'tabWhatsNew', 'bulb'], ['developer', 'tabDeveloper', 'code'], ['artist', 'tabArtist', 'palette']];
 
@@ -38,10 +39,14 @@ export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, o
   const needle = q.trim().toLowerCase();
   const shown = needle ? all.filter(([id, label]) => (t(label) + ' ' + id + ' ' + (KEYWORDS[id] || '')).toLowerCase().includes(needle)) : all;
   useEffect(() => {
-    const h = (e) => e.key === 'Escape' && !e.defaultPrevented && onClose();
+    // Esc closes settings, unless something on top of it (a dialog, a confirm) wants the key first
+    const h = (e) => { if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('.overlay, .dlg-layer')) onClose(); };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
+  const confirmLogout = async () => {
+    if (await askConfirm({ title: 'Log out?', body: 'You will be signed out of Aduna on this device.', confirmLabel: t('logOut') })) onLogout();
+  };
 
   return (
     <div className="settings-screen" role="dialog" aria-label="Settings">
@@ -67,12 +72,13 @@ export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, o
         ))}
         {!shown.length && <p className="muted small settings-nomatch">No settings match “{q}”.</p>}
         <div className="spacer" />
-        <button className="settings-tab danger-text" onClick={onLogout}><span>{t('logOut')}</span></button>
+        <button className="settings-tab danger-text" onClick={confirmLogout}><span>{t('logOut')}</span></button>
       </nav>
       <main className="settings-main">
         <button className="icon-btn settings-close" onClick={onClose} aria-label={t('closeSettings')} title={t('closeEsc')}><Icon name="close" size={20} /></button>
         <div className="settings-content">
-          {tab === 'profile' && <><h1>{t('tabProfile')}</h1><ProfileEditor me={me} onClose={onClose} onSaved={onSaved} onLogout={onLogout} /></>}
+          {/* The profile editor stays mounted (just hidden) while another tab is open, so edits you have not saved yet are not lost by looking at Appearance or Security. */}
+          <div style={tab === 'profile' ? undefined : { display: 'none' }}><h1>{t('tabProfile')}</h1><ProfileEditor me={me} onClose={onClose} onSaved={onSaved} onLogout={onLogout} /></div>
           {tab === 'notifications' && <><h1>{t('tabNotifications')}</h1><NotificationSettings me={me} onPrefs={onPrefs} /></>}
           {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings /></>}
           {tab === 'security' && <><h1>{t('tabSecurity')}</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}

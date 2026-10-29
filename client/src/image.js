@@ -14,12 +14,17 @@ function toBlob(canvas, type, quality) {
   return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
 }
 
-// Centre-crops the picture to the target aspect ratio, scales it down, and re-encodes it.
-// This also strips EXIF data (e.g. GPS location) and keeps uploads small. Animated GIFs become
-// still images (first frame).
-async function drawCover(file, w, h) {
+// Crops the picture to the target aspect ratio, scales it down, and re-encodes it.
+// `crop` is optional: { x, y, zoom } where x and y (0 to 1) are the middle of the part you want, as a share of the picture's width and height,
+// and zoom (1 or more) zooms in. Without it the middle of the picture is used. The result is the same "cover" fit the crop window shows.
+// This also strips EXIF data (e.g. GPS location) and keeps uploads small. Animated GIFs become still images (first frame).
+export function checkImageFile(file) {
   if (!ACCEPT.includes(file.type)) throw new Error('Choose a PNG, JPEG, WebP or GIF image');
   if (file.size > MAX_INPUT) throw new Error('That image is too big (max 15 MB)');
+}
+
+async function drawCover(file, w, h, crop) {
+  checkImageFile(file);
 
   let bmp;
   try { bmp = await createImageBitmap(file); }
@@ -31,15 +36,19 @@ async function drawCover(file, w, h) {
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingQuality = 'high';
 
-  const scale = Math.max(w / bmp.width, h / bmp.height); // "cover"
+  const zoom = Math.max(1, crop?.zoom || 1);
+  const scale = Math.max(w / bmp.width, h / bmp.height) * zoom; // "cover", then zoomed in
   const sw = w / scale, sh = h / scale;
-  ctx.drawImage(bmp, (bmp.width - sw) / 2, (bmp.height - sh) / 2, sw, sh, 0, 0, w, h);
+  const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
+  const sx = clamp((crop?.x ?? 0.5) * bmp.width - sw / 2, 0, bmp.width - sw);
+  const sy = clamp((crop?.y ?? 0.5) * bmp.height - sh / 2, 0, bmp.height - sh);
+  ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, w, h);
   bmp.close?.();
   return canvas;
 }
 
-export async function processImage(file, { w, h }) {
-  const canvas = await drawCover(file, w, h);
+export async function processImage(file, { w, h }, crop) {
+  const canvas = await drawCover(file, w, h, crop);
 
   // WebP keeps transparency and is small; some browsers (Safari) can't encode it, so fall back to JPEG.
   let blob = await toBlob(canvas, 'image/webp', 0.88);

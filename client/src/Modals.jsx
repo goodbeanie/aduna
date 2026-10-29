@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, BadgeIcons, Banner, Icon, Modal, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, CUSTOM_THEME_ID } from './profilethemes.js';
-import { processImage, uploadImage, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
+import { uploadImage, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
+import Cropper from './Cropper.jsx';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
 import { BotTag } from './Bots.jsx';
@@ -305,16 +306,20 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   function stage(kind, value) {
     setStaged((s) => { if (s[kind]) URL.revokeObjectURL(s[kind].url); return { ...s, [kind]: value }; });
   }
+  const [cropping, setCropping] = useState(null); // { kind, file }: a picture just chosen, waiting for the person to crop and position it
   async function pick(kind, e) {
     const file = e.target.files?.[0];
     e.target.value = ''; // allow choosing the same file again
     if (!file) return;
     setErr('');
-    try {
-      const blob = await processImage(file, kind === 'avatar' ? AVATAR_SIZE : BANNER_SIZE);
-      stage(kind, { blob, url: URL.createObjectURL(blob) });
-      if (kind === 'avatar') setMode('image');
-    } catch (ex) { setErr(ex.message); }
+    try { checkImageFile(file); setCropping({ kind, file }); }
+    catch (ex) { setErr(ex.message); }
+  }
+  function applyCrop(blob) {
+    const { kind } = cropping;
+    stage(kind, { blob, url: URL.createObjectURL(blob) });
+    if (kind === 'avatar') setMode('image');
+    setCropping(null);
   }
   const hasAvatarImage = staged.avatar === undefined ? !!me.avatarImage : staged.avatar !== null;
   const hasBanner = staged.banner === undefined ? !!me.bannerImage : staged.banner !== null;
@@ -432,6 +437,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           <ColorRow label={t('bannerColor')} value={f.bannerColor} onChange={set('bannerColor')} colors={BANNER_COLORS} />
           {hasBanner && <div className="upload-row"><button type="button" className="btn" onClick={removeBanner}>{t('removeBanner')}</button></div>}
           <input ref={bannerInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('banner', e)} />
+          {cropping && <Cropper file={cropping.file} size={cropping.kind === 'avatar' ? AVATAR_SIZE : BANNER_SIZE} shape={cropping.kind === 'avatar' ? 'square' : 'wide'} title={cropping.kind === 'avatar' ? 'Position your profile picture' : 'Position your banner'} onApply={applyCrop} onCancel={() => setCropping(null)} />}
 
           <label>Profile theme</label>
           <div className="pt-grid" role="radiogroup" aria-label="Profile theme">

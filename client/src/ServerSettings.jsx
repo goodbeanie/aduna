@@ -4,7 +4,8 @@ import { Avatar, Icon, Modal, ServerIcon } from './ui.jsx';
 import { PanelSkeleton } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout } from './layout.js';
-import { processImage, uploadImage, imageUrl, ACCEPT_ATTR, SERVER_ICON_SIZE, SERVER_BANNER_SIZE } from './image.js';
+import { uploadImage, checkImageFile, imageUrl, ACCEPT_ATTR, SERVER_ICON_SIZE, SERVER_BANNER_SIZE } from './image.js';
+import Cropper from './Cropper.jsx';
 import { THEMES, DEFAULT_CUSTOM, setServerTheme } from './themes.js';
 import { ThemeGallery, PublishTheme } from './ThemeGallery.jsx';
 import { Swatch } from './Appearance.jsx';
@@ -96,15 +97,18 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
   function stage(kind, value) {
     setStaged((s) => { if (s[kind]) URL.revokeObjectURL(s[kind].url); return { ...s, [kind]: value }; });
   }
+  const [cropping, setCropping] = useState(null); // { kind, file }: a picture just chosen, waiting to be cropped and positioned
   async function pick(kind, e) {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
     setErr('');
-    try {
-      const blob = await processImage(file, kind === 'icon' ? SERVER_ICON_SIZE : SERVER_BANNER_SIZE);
-      stage(kind, { blob, url: URL.createObjectURL(blob) });
-    } catch (ex) { setErr(ex.message); }
+    try { checkImageFile(file); setCropping({ kind, file }); }
+    catch (ex) { setErr(ex.message); }
+  }
+  function applyCrop(blob) {
+    stage(cropping.kind, { blob, url: URL.createObjectURL(blob) });
+    setCropping(null);
   }
   const has = (kind) => (staged[kind] === undefined ? !!server[kind === 'icon' ? 'iconImage' : 'bannerImage'] : staged[kind] !== null);
   const remove = (kind) => stage(kind, server[kind === 'icon' ? 'iconImage' : 'bannerImage'] ? null : undefined);
@@ -150,6 +154,7 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
         <div className="settings-content">
           <input ref={iconInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('icon', e)} />
           <input ref={bannerInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('banner', e)} />
+          {cropping && <Cropper file={cropping.file} size={cropping.kind === 'icon' ? SERVER_ICON_SIZE : SERVER_BANNER_SIZE} shape={cropping.kind === 'icon' ? 'square' : 'wide'} title={cropping.kind === 'icon' ? 'Position the server icon' : 'Position the server banner'} onApply={applyCrop} onCancel={() => setCropping(null)} />}
 
           {tab === 'overview' && (
             <>

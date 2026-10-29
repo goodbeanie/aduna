@@ -1,0 +1,20 @@
+/* Crop and position window (Cropper.jsx), for profile pictures, banners and server icons. */
+.crop { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 100%; }
+.crop h3 { margin: 0; color: var(--head); align-self: flex-start; }
+.crop > p { margin: 0; align-self: flex-start; }
+.crop-window { position: relative; overflow: hidden; background: var(--bg3); border: 1px solid var(--line2); border-radius: var(--r-md); cursor: grab; touch-action: none; user-select: none; max-width: 100%; }
+.crop-window:active { cursor: grabbing; }
+.crop-window:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.crop-window.square { border-radius: 26%; } /* the same rounded square as the profile picture */
+.crop-window img { position: absolute; left: 0; top: 0; max-width: none; pointer-events: none; will-change: transform; }
+/* thirds, so a face or a horizon is easy to line up */
+.crop-grid { position: absolute; inset: 0; pointer-events: none; opacity: .55;
+  background:
+    linear-gradient(to right, transparent calc(33.333% - .5px), rgb(255 255 255 / .6) calc(33.333% - .5px), rgb(255 255 255 / .6) calc(33.333% + .5px), transparent calc(33.333% + .5px), transparent calc(66.666% - .5px), rgb(255 255 255 / .6) calc(66.666% - .5px), rgb(255 255 255 / .6) calc(66.666% + .5px), transparent calc(66.666% + .5px)),
+    linear-gradient(to bottom, transparent calc(33.333% - .5px), rgb(255 255 255 / .6) calc(33.333% - .5px), rgb(255 255 255 / .6) calc(33.333% + .5px), transparent calc(33.333% + .5px), transparent calc(66.666% - .5px), rgb(255 255 255 / .6) calc(66.666% - .5px), rgb(255 255 255 / .6) calc(66.666% + .5px), transparent calc(66.666% + .5px));
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / .25); }
+.crop-zoom { display: flex; align-items: center; gap: 12px; width: 100%; max-width: 360px; }
+.crop-zoom input { flex: 1; min-width: 0; margin: 0; padding: 0; accent-color: var(--ink); background: none; border: 0; box-shadow: none; }
+.crop-zoom input:focus, .crop-zoom input:focus-visible { border: 0; box-shadow: none; outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 999px; }
+.crop .modal-foot { align-self: stretch; display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+@media (max-width: 720px) { .crop .modal-foot .btn { flex: 1; } }
