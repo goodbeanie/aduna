@@ -455,7 +455,7 @@ export default function Dashboard() {
       </div>
 
       {terms && <TermsMenu limits={limits} busy={busy} onAccept={join} onClose={() => setTerms(false)} />}
-      {state === 'ready' && limits && setup && <SetupPopup onSaved={(p) => { setProfile(p); setSetup(false); }} onSkip={skipSetup} />}
+      {state === 'ready' && limits && setup && <SetupPopup profile={profile} onSaved={(p) => { setProfile(p); setSetup(false); }} onSkip={skipSetup} />}
     </div>
   );
 }

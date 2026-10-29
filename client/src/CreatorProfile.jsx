@@ -21,8 +21,8 @@ function lockedUntil(profile) {
 
 function ProfileForm({ profile, submitLabel, onSaved, children }) {
   const custom = !!(profile && profile.custom);
-  const [username, setUsername] = useState(custom ? profile.username : '');
-  const [displayName, setDisplayName] = useState(custom ? profile.displayName : '');
+  const [username, setUsername] = useState(profile ? profile.username : '');          // starts as what Clips shows for you now
+  const [displayName, setDisplayName] = useState(profile ? profile.displayName : '');
   const [avatar, setAvatar] = useState(null);   // { blob, url } picked but not saved yet
   const [banner, setBanner] = useState(null);
   const [dropAvatar, setDropAvatar] = useState(false); // remove the saved picture on save
@@ -38,8 +38,8 @@ function ProfileForm({ profile, submitLabel, onSaved, children }) {
   useEffect(() => () => { if (banner) URL.revokeObjectURL(banner.url); }, [banner]);
 
   const lock = lockedUntil(profile);
-  const savedAvatar = custom && !dropAvatar ? imageUrl(profile.avatarImage) : null;
-  const savedBanner = custom && !dropBanner ? imageUrl(profile.bannerImage) : null;
+  const savedAvatar = profile && !dropAvatar ? imageUrl(profile.avatarImage) : null; // until saved, this is the Aduna picture Clips shows now
+  const savedBanner = profile && !dropBanner ? imageUrl(profile.bannerImage) : null;
   const avatarSrc = avatar ? avatar.url : savedAvatar;
   const bannerSrc = banner ? banner.url : savedBanner;
   const shownName = displayName.trim() || username.trim() || 'Your name';
@@ -58,7 +58,7 @@ function ProfileForm({ profile, submitLabel, onSaved, children }) {
     setPicking(null);
   };
   const removeImage = (kind) => {
-    if (kind === 'avatar') { setAvatar(null); setDropAvatar(custom && !!profile.avatarImage); } else { setBanner(null); setDropBanner(custom && !!profile.bannerImage); }
+    if (kind === 'avatar') { setAvatar(null); setDropAvatar(!!(profile && profile.avatarImage)); } else { setBanner(null); setDropBanner(!!(profile && profile.bannerImage)); }
   };
 
   const save = async (e) => {
@@ -70,10 +70,18 @@ function ProfileForm({ profile, submitLabel, onSaved, children }) {
     try {
       // the name first: the server only accepts pictures once the Clips profile exists
       let p = (await api('/clips/creator/profile', { method: 'PATCH', body: { username: name, displayName: displayName.trim() } })).profile;
+      // the first save creates the Clips identity, which never falls back to the Aduna profile, so the pictures Clips shows now are copied across
+      const carry = async (kind, id) => {
+        const r = await fetch(imageUrl(id));
+        if (!r.ok) throw new Error('Could not read the picture');
+        return (await uploadImage(kind, await r.blob(), BASE)).profile;
+      };
       if (avatar) p = (await uploadImage('avatar', avatar.blob, BASE)).profile;
-      else if (dropAvatar) p = (await api('/clips/creator/profile/avatar', { method: 'DELETE' })).profile;
+      else if (dropAvatar) { if (custom) p = (await api('/clips/creator/profile/avatar', { method: 'DELETE' })).profile; }
+      else if (!custom && profile && profile.avatarImage) { try { p = await carry('avatar', profile.avatarImage); } catch { /* it just starts without one */ } }
       if (banner) p = (await uploadImage('banner', banner.blob, BASE)).profile;
-      else if (dropBanner) p = (await api('/clips/creator/profile/banner', { method: 'DELETE' })).profile;
+      else if (dropBanner) { if (custom) p = (await api('/clips/creator/profile/banner', { method: 'DELETE' })).profile; }
+      else if (!custom && profile && profile.bannerImage) { try { p = await carry('banner', profile.bannerImage); } catch { /* it just starts without one */ } }
       setAvatar(null); setBanner(null); setDropAvatar(false); setDropBanner(false);
       onSaved(p);
     } catch (ex) {
@@ -118,11 +126,11 @@ function ProfileForm({ profile, submitLabel, onSaved, children }) {
           <input className="cp-input" aria-labelledby="cp-un-l" name="clips-handle" value={username} maxLength={21} autoComplete="off" autoCapitalize="off" spellCheck="false" disabled={busy || !!lock} placeholder="3 to 20 letters, numbers or _" onChange={(e) => setUsername(e.target.value)} />
         </div>
         <small className="cp-help">
-          {lock ? `You can change your Clips username again on ${new Date(lock).toLocaleDateString(undefined, { dateStyle: 'medium' })}.` : 'Pick one that is not your Aduna username. After saving you can change it once every 7 days.'}
+          {lock ? `You can change your Clips username again on ${new Date(lock).toLocaleDateString(undefined, { dateStyle: 'medium' })}.` : 'Shown as @username on Clips. After saving you can change it once every 7 days.'}
         </small>
       </div>
 
-      <p className="muted cp-note">Nothing from your Aduna profile is copied here, and your Aduna username is never shown on Clips unless you pick it.</p>
+      <p className="muted cp-note">{custom ? 'Only what is here shows on Clips.' : 'This starts as your Aduna profile. Change anything to make your Clips identity different; once saved, Clips shows only what is here.'}</p>
       {err && <p className="error-text" role="alert">{err}</p>}
       <div className="cp-actions">
         {children}
@@ -144,7 +152,7 @@ function ProfileForm({ profile, submitLabel, onSaved, children }) {
 }
 
 // The pop-up shown once, right after someone becomes a creator. Closing it or choosing Skip keeps the Aduna profile showing on Clips.
-export function SetupPopup({ onSaved, onSkip }) {
+export function SetupPopup({ profile, onSaved, onSkip }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     const key = (e) => { if (e.key === 'Escape' && !document.querySelector('.overlay')) onSkip(); }; // the crop window answers Escape first
@@ -166,7 +174,7 @@ export function SetupPopup({ onSaved, onSkip }) {
         </header>
         <div className="dash-menu-body cp-body">
           <p className="dash-terms-lead">Pick how you show up on Clips. This can be completely different from your Aduna account: its own username, name, icon and banner.</p>
-          <ProfileForm profile={null} submitLabel="Save and continue" onSaved={(p) => { toast('Your creator profile is saved'); onSaved(p); }}>
+          <ProfileForm profile={profile} submitLabel="Save and continue" onSaved={(p) => { toast('Your creator profile is saved'); onSaved(p); }}>
             <button type="button" className="btn" disabled={busy} onClick={skip}>Skip for now</button>
           </ProfileForm>
         </div>
