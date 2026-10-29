@@ -113,11 +113,12 @@
 .yt-dash .cp-preview { border: 1px solid var(--line); border-radius: 12px; background: var(--bg); overflow: hidden; }
 .yt-dash .cp-banner { position: relative; height: 110px; background: var(--bg3) center / cover no-repeat; }
 .yt-dash .cp-banner.empty { background-image: repeating-linear-gradient(135deg, rgba(255,255,255,.035) 0 12px, transparent 12px 24px); }
-.yt-dash .cp-pick { position: absolute; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 0; background: rgba(0,0,0,.62); color: #fff; font-size: 12px; font-weight: 500; cursor: pointer; backdrop-filter: blur(4px); }
+.yt-dash .cp-banner-actions { position: absolute; top: 10px; right: 10px; z-index: 2; display: flex; gap: 6px; }
+.yt-dash .cp-pick { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; border: 0; background: rgba(0,0,0,.62); color: #fff; font-size: 12px; font-weight: 500; cursor: pointer; backdrop-filter: blur(4px); }
 .yt-dash .cp-pick:hover:not(:disabled) { background: rgba(0,0,0,.8); }
-.yt-dash .cp-pick-banner { right: 10px; bottom: 10px; }
-.yt-dash .cp-pick-x { right: 10px; top: 10px; padding: 7px; }
-.yt-dash .cp-who { display: flex; align-items: flex-end; gap: 14px; padding: 0 16px 14px; margin-top: -34px; position: relative; }
+.yt-dash .cp-pick-x { padding: 7px; }
+.yt-dash .cp-who { display: flex; align-items: flex-end; gap: 14px; padding: 0 16px 14px; margin-top: -34px; position: relative; pointer-events: none; }
+.yt-dash .cp-who > * { pointer-events: auto; }
 .yt-dash .cp-avatar-wrap { position: relative; flex: none; }
 .yt-dash .cp-avatar { position: relative; width: 84px; height: 84px; border-radius: 26%; border: 4px solid var(--bg); background: var(--bg3); color: var(--head); overflow: hidden; display: grid; place-items: center; padding: 0; cursor: pointer; font-size: 32px; font-weight: 500; }
 .yt-dash .cp-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -130,12 +131,15 @@
 .yt-dash .cp-names { display: flex; flex-direction: column; min-width: 0; padding-bottom: 4px; }
 .yt-dash .cp-names b { font-weight: 500; color: var(--head); font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .yt-dash .cp-names .muted { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.yt-dash .cp-field { display: flex; flex-direction: column; gap: 6px; }
-.yt-dash .cp-field > span { font-size: 13px; font-weight: 500; color: var(--head); }
-.yt-dash .cp-field input { height: 40px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit; }
-.yt-dash .cp-field input:focus { border-color: #1c62b9; outline: none; }
-.yt-dash .cp-field input:disabled { opacity: .55; }
-.yt-dash .cp-field small { font-size: 12px; }
+.yt-dash .cp-field { display: flex; flex-direction: column; align-items: stretch; gap: 6px; text-align: left; margin: 0; padding: 0; border: 0; }
+.yt-dash .cp-field .cp-label { font-size: 13px; font-weight: 500; color: var(--head); text-align: left; }
+.yt-dash .cp-field .cp-input { display: block; width: 100%; box-sizing: border-box; height: 40px; padding: 0 12px; margin: 0; border-radius: 8px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit; font-weight: 400; text-align: left; box-shadow: none; }
+.yt-dash .cp-field .cp-input:focus { border-color: #1c62b9; outline: none; }
+.yt-dash .cp-field .cp-input:disabled { opacity: .55; }
+.yt-dash .cp-at { position: relative; display: flex; align-items: center; }
+.yt-dash .cp-at i { position: absolute; left: 12px; font-style: normal; color: var(--muted); pointer-events: none; }
+.yt-dash .cp-at .cp-input { padding-left: 28px; }
+.yt-dash .cp-field .cp-help { margin: 0; font-size: 12px; line-height: 1.4; color: var(--muted); text-align: left; text-transform: none; }
 .yt-dash .cp-note { margin: 0; font-size: 12px; }
 .yt-dash .cp-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .yt-dash .cp-row { display: flex; align-items: center; gap: 12px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }

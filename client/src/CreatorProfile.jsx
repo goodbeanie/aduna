@@ -85,8 +85,10 @@ function ProfileForm({ profile, submitLabel, onSaved, children }) {
     <form className="cp-form" onSubmit={save} noValidate>
       <div className="cp-preview">
         <div className={'cp-banner' + (bannerSrc ? '' : ' empty')} style={bannerSrc ? { backgroundImage: `url("${bannerSrc}")` } : undefined}>
-          <button type="button" className="cp-pick cp-pick-banner" onClick={() => choose('banner')} disabled={busy}><Icon name="camera" size={15} /> {bannerSrc ? 'Change banner' : 'Add a banner'}</button>
-          {bannerSrc && <button type="button" className="cp-pick cp-pick-x" onClick={() => removeImage('banner')} disabled={busy} aria-label="Remove banner"><Icon name="trash" size={15} /></button>}
+          <div className="cp-banner-actions">
+            <button type="button" className="cp-pick" onClick={() => choose('banner')} disabled={busy}><Icon name="camera" size={15} /> {bannerSrc ? 'Change banner' : 'Add a banner'}</button>
+            {bannerSrc && <button type="button" className="cp-pick cp-pick-x" onClick={() => removeImage('banner')} disabled={busy} aria-label="Remove banner"><Icon name="trash" size={15} /></button>}
+          </div>
         </div>
         <div className="cp-who">
           <div className="cp-avatar-wrap">
@@ -104,18 +106,21 @@ function ProfileForm({ profile, submitLabel, onSaved, children }) {
       </div>
       <input ref={fileRef} type="file" accept={ACCEPT_ATTR} hidden onChange={onFile} />
 
-      <label className="cp-field">
-        <span>Username</span>
-        <input value={username} maxLength={21} autoComplete="off" autoCapitalize="off" spellCheck="false" disabled={busy || !!lock} placeholder="3 to 20 letters, numbers or _" onChange={(e) => setUsername(e.target.value)} />
-        <small className="muted">
-          {lock ? `You can change your Clips username again on ${new Date(lock).toLocaleDateString(undefined, { dateStyle: 'medium' })}.` : 'Shown as @username on Clips. After this you can change it once every 7 days.'}
+      <div className="cp-field">
+        <span className="cp-label" id="cp-dn-l">Display name</span>
+        <input className="cp-input" aria-labelledby="cp-dn-l" name="clips-display-name" value={displayName} maxLength={32} autoComplete="off" disabled={busy} placeholder="How your name looks on Clips" onChange={(e) => setDisplayName(e.target.value)} />
+        <small className="cp-help">Up to 32 characters. Leave it empty to use your username. You can change it any time.</small>
+      </div>
+      <div className="cp-field">
+        <span className="cp-label" id="cp-un-l">Username</span>
+        <div className="cp-at">
+          <i aria-hidden="true">@</i>
+          <input className="cp-input" aria-labelledby="cp-un-l" name="clips-handle" value={username} maxLength={21} autoComplete="off" autoCapitalize="off" spellCheck="false" disabled={busy || !!lock} placeholder="3 to 20 letters, numbers or _" onChange={(e) => setUsername(e.target.value)} />
+        </div>
+        <small className="cp-help">
+          {lock ? `You can change your Clips username again on ${new Date(lock).toLocaleDateString(undefined, { dateStyle: 'medium' })}.` : 'Pick one that is not your Aduna username. After saving you can change it once every 7 days.'}
         </small>
-      </label>
-      <label className="cp-field">
-        <span>Display name</span>
-        <input value={displayName} maxLength={32} autoComplete="off" disabled={busy} placeholder={username.trim() || 'Same as your username'} onChange={(e) => setDisplayName(e.target.value)} />
-        <small className="muted">Up to 32 characters. You can change it any time.</small>
-      </label>
+      </div>
 
       <p className="muted cp-note">Nothing from your Aduna profile is copied here, and your Aduna username is never shown on Clips unless you pick it.</p>
       {err && <p className="error-text" role="alert">{err}</p>}
