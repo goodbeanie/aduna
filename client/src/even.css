@@ -1,0 +1,17 @@
+/* Evenness pass. Loaded last (see main.jsx), so these small fixes win over the older layers (redesign, refine, zen, plain, studio).
+   Each rule below fixes something that looked uneven in a screenshot; the comment says what. */
+
+/* ---------- sign in / register ---------- */
+/* "Forgot your password?" belongs to the password field above it; the button and the "Need an account?" line get one rhythm of their own */
+.auth-card .auth-forgot { margin-top: 10px; }
+.auth-card .btn.full { margin-top: 18px; }
+.auth-card .auth-switch { margin-top: 14px; text-align: center; }
+/* the language picker: same corner radius as every input, one height (it was 34px next to 40px inputs, with its own 8px corners) */
+.auth-lang { height: 40px; min-height: 40px; min-width: 140px; margin-top: 20px; border-radius: var(--r-md); }
+@media (pointer: coarse) { .auth-lang { height: 44px; min-height: 44px; } }
+
+/* ---------- Clips website on a phone ---------- */
+/* the top bar keeps 64px free on the right for your picture; signed out there is no picture, so the bar looked lopsided (12px left, 64px right) */
+@media (max-width: 899px) {
+  .yt-dash.cs:not(:has(.cs-me)) .yt-top { padding-right: 12px; }
+}

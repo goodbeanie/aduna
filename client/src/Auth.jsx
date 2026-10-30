@@ -165,7 +165,7 @@ export default function Auth({ onAuthed }) {
             {ferr('again')}
           </>
         )}
-        {mode === 'login' && <p className="muted small"><a href="#" onClick={(e) => { e.preventDefault(); switchMode('recover'); }}>{t('forgot')}</a></p>}
+        {mode === 'login' && <p className="muted small auth-forgot"><a href="#" onClick={(e) => { e.preventDefault(); switchMode('recover'); }}>{t('forgot')}</a></p>}
 
         {(mode === 'login' || (mode === 'recover' && method === 'key')) && needCode && (
           <>
@@ -179,7 +179,7 @@ export default function Auth({ onAuthed }) {
         {error && <div className="error">{error}</div>}
 
         <button className="btn primary full" disabled={busy}>{busy ? t('working') : mode === 'login' ? t('logIn') : mode === 'recover' ? (method === 'email' ? (mailed ? t('sendAgain') : t('sendLink')) : t('resetBtn')) : t('continue')}</button>
-        <p className="muted small">
+        <p className="muted small auth-switch">
           {mode === 'login' ? t('needAccount') : mode === 'recover' ? t('remembered') : t('haveAccount')}
           <a href="#" onClick={(e) => { e.preventDefault(); switchMode(mode === 'login' ? 'register' : 'login'); }}>
             {mode === 'login' ? t('register') : t('logInLink')}

@@ -59,7 +59,7 @@ h2{font-weight:400;font-size:clamp(36px,5vw,64px);line-height:1.08;letter-spacin
 .spec{margin-top:26px;font-size:17px;max-width:520px}
 .themes{display:flex;gap:14px;flex-wrap:wrap;margin-top:34px}
 .sw{cursor:pointer;font-family:inherit;width:84px;height:84px;border-radius:12px;border:2px solid var(--line);display:flex;align-items:flex-end;justify-content:center;padding-bottom:8px;font-size:14px}
-.final{text-align:center;padding:110px 0 80px}
+.final{text-align:center;padding:40px 0 56px}
 .final .logo-ic{margin:0 auto}
 .final h2{font-size:clamp(44px,7vw,92px);margin:18px 0 28px}
 footer{border-top:2px solid var(--line);padding:32px 0 48px;color:var(--muted);font-size:17px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
@@ -87,7 +87,7 @@ footer{border-top:2px solid var(--line);padding:32px 0 48px;color:var(--muted);f
 .is16{background:#17221d !important;color:#6fcf97 !important;border-color:#17221d !important}
 .is17{background:#241a2b !important;color:#d68cf0 !important;border-color:#241a2b !important}
 .is18{background:#271c17 !important;color:#f09a5a !important;border-color:#271c17 !important}
-.is19{margin-top:90px !important;border:none !important;justify-content:center !important}
+.is19{margin-top:24px !important;border:none !important;justify-content:center !important}
 
 /* theme preview: the swatches in "Eleven themes" restyle this page (landing.js sets the variables) */
 .sw[aria-pressed=true]{outline:3px solid var(--fg);outline-offset:3px}
