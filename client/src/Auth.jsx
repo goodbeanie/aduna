@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { api, markSignedIn, endSession } from './api.js';
 import { createIdentity, unlockIdentity, saveKey, hasCrypto, recoverIdentity, isRecoveryKey } from './crypto.js';
 import { RecoveryKeyCard } from './Recovery.jsx';
+import { DeviceSignIn } from './DeviceLogin.jsx';
+import { passkeysSupported, signInWithPasskey } from './passkeys.js';
 import { LANGS, getLang, setLang, useLang } from './i18n.js';
 
 // A problem with one field: submit() shows it under that field and moves focus there, instead of in the general box above the button.
@@ -88,6 +90,24 @@ export default function Auth({ onAuthed }) {
     }
   }
 
+  // Log in with a passkey: no username, no password. The passkey also unlocks the encryption key (see passkeys.js).
+  async function passkeyLogin() {
+    setError(''); setInfo(''); setFe(null);
+    if (!hasCrypto()) { setError('Encryption needs a secure context. Open the app via http://localhost or HTTPS.'); return; }
+    setBusy(true);
+    try {
+      const { user, privateKey } = await signInWithPasskey();
+      markSignedIn(true);
+      await saveKey(user.id, privateKey);
+      onAuthed(user, privateKey);
+    } catch (err) {
+      endSession(); // a login that did not finish must not leave a session behind
+      setError(err.message || 'Something went wrong');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (fresh) return (
     <div className="auth-bg">
       <div className="auth-card">
@@ -97,6 +117,11 @@ export default function Auth({ onAuthed }) {
   );
 
   const switchMode = (m) => { setError(''); setFe(null); setNeedCode(false); setCode(''); setRkey(''); setAgain(''); setMethod('key'); setMailed(false); setInfo(''); setMode(m); };
+  if (mode === 'device') return (
+    <div className="auth-bg">
+      <div className="auth-card"><DeviceSignIn onAuthed={onAuthed} onBack={() => switchMode('login')} /></div>
+    </div>
+  );
   // props for a field that can carry its own error, and the message under it
   const fp = (f) => ({ id: 'f-' + f, 'aria-invalid': fe?.field === f ? true : undefined, 'aria-describedby': fe?.field === f ? 'e-' + f : undefined });
   const ferr = (f) => (fe?.field === f ? <p className="error-text field-error" id={'e-' + f} role="alert">{fe.msg}</p> : null);
@@ -179,6 +204,12 @@ export default function Auth({ onAuthed }) {
         {error && <div className="error">{error}</div>}
 
         <button className="btn primary full" disabled={busy}>{busy ? t('working') : mode === 'login' ? t('logIn') : mode === 'recover' ? (method === 'email' ? (mailed ? t('sendAgain') : t('sendLink')) : t('resetBtn')) : t('continue')}</button>
+        {mode === 'login' && (
+          <div className="auth-alt">
+            {passkeysSupported() && <button type="button" className="btn full" disabled={busy} onClick={passkeyLogin}>{t('passkeyBtn')}</button>}
+            <button type="button" className="btn full" disabled={busy} onClick={() => switchMode('device')}>{t('deviceBtn')}</button>
+          </div>
+        )}
         <p className="muted small auth-switch">
           {mode === 'login' ? t('needAccount') : mode === 'recover' ? t('remembered') : t('haveAccount')}
           <a href="#" onClick={(e) => { e.preventDefault(); switchMode(mode === 'login' ? 'register' : 'login'); }}>

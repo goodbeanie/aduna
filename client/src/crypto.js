@@ -162,6 +162,55 @@ export async function recoverIdentity(recoveryBlob, keyText, newPassword) {
   return { auth, encPrivKey, privateKey: await unlockIdentity(encPrivKey, newPassword) }; // opened once before upload, like rewrapIdentity
 }
 
+// ---- handing the identity key to a device that does not know the password: another signed-in device, or a passkey ----
+// Both start from the key as a plain JWK, which only someone who can open the password's wrap has. Everything below happens in the
+// browser; the server only ever stores or passes on the locked result.
+export async function identityJwk(encPrivKey, password) {
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(encPrivKey.iv) }, await passKey(password, fromB64(encPrivKey.salt)), fromB64(encPrivKey.data));
+  return cleanJwk(JSON.parse(dec.decode(plain)));
+}
+// An AES key from secret bytes. The label means the same bytes can never serve two purposes.
+async function hkdfAes(raw, label) {
+  const base = await crypto.subtle.importKey('raw', raw, 'HKDF', false, ['deriveKey']);
+  return crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: new Uint8Array(32), info: enc.encode(label) }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function lockJwk(key, jwk) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(cleanJwk(jwk))));
+  return { iv: toB64(iv), data: toB64(data) };
+}
+// `publicKey` (the account's, as the server gives it) is checked against the opened key, so a blob for some other account is refused.
+async function unlockJwk(key, blob, publicKey) {
+  const jwk = JSON.parse(dec.decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(blob.iv) }, key, fromB64(blob.data))));
+  if (publicKey) { const p = JSON.parse(publicKey); if (p.x !== jwk.x || p.y !== jwk.y) throw new Error('That key does not belong to this account.'); }
+  return importPrivate(jwk);
+}
+
+// Sign in on a new device by approving it from a signed-in one (server/devicelogin.js). The NEW device makes a throwaway key pair and
+// asks; the SIGNED-IN device opens the identity with the password and locks it to the throwaway public key; only the new device can open it.
+const importPoint = (b64) => crypto.subtle.importKey('raw', fromB64(b64), ECDH, false, []);
+async function sharedKey(priv, pubB64) {
+  return hkdfAes(await crypto.subtle.deriveBits({ name: 'ECDH', public: await importPoint(pubB64) }, priv, 256), 'aduna device login v1');
+}
+export async function newDeviceRequest() {
+  const pair = await crypto.subtle.generateKey(ECDH, false, ['deriveBits']);
+  return { publicKey: toB64(await crypto.subtle.exportKey('raw', pair.publicKey)), privateKey: pair.privateKey };
+}
+// Throws if the password is wrong. Returns { publicKey, iv, data }, the shape the server keeps.
+export async function sealIdentityForDevice(encPrivKey, password, devicePublicKey) {
+  const jwk = await identityJwk(encPrivKey, password);
+  const eph = await crypto.subtle.generateKey(ECDH, false, ['deriveBits']);
+  const sealed = await lockJwk(await sharedKey(eph.privateKey, devicePublicKey), jwk);
+  return { publicKey: toB64(await crypto.subtle.exportKey('raw', eph.publicKey)), ...sealed };
+}
+export async function openSealedIdentity(sealed, devicePrivateKey, accountPublicKey) {
+  return unlockJwk(await sharedKey(devicePrivateKey, sealed.publicKey), sealed, accountPublicKey);
+}
+
+// Passkeys: the authenticator's "prf" output (32 secret bytes only that passkey can make) locks a copy of the identity key.
+export async function lockIdentityWithPasskey(jwk, prf) { return lockJwk(await hkdfAes(prf, 'aduna passkey wrap v1'), jwk); }
+export async function unlockIdentityWithPasskey(wrapped, prf, accountPublicKey) { return unlockJwk(await hkdfAes(prf, 'aduna passkey wrap v1'), wrapped, accountPublicKey); }
+
 // ---- persist the (non-extractable) private key in IndexedDB so reloads keep working ----
 function idb() {
   return new Promise((resolve, reject) => {

@@ -12,6 +12,8 @@ const credits = require('./credits');
 const artistsLib = require('./artists'); // artists: apply, get reviewed, sell badges in the shop (see the "artists" block below)
 const security = require('./security');
 const totp = require('./totp');
+const devicelogin = require('./devicelogin');
+const passkeys = require('./passkeys');
 const mailer = require('./mailer');
 const webpush = require('web-push');
 const { createPush, cleanPrefs } = require('./push');
@@ -233,7 +235,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -693,6 +695,166 @@ app.post('/api/session', authAny, (req, res) => {
   res.json({ ok: true });
 });
 
+// ----- sign in on a new device by approving it from one that is signed in (server/devicelogin.js explains the idea) -----
+// The new device is signed out, so its two calls (start, poll) carry no login; the secret request id is what ties them together. The
+// signed-in device finds the request by its short code, and answering needs the password again (and the two-factor code if it is on),
+// like the other sensitive actions: whoever approves hands over the account AND the key that opens its messages.
+const deviceLogins = new devicelogin.DeviceLogins();
+const deviceStarts = new security.RateWindow(10, 10 * 60_000); // requests per address per 10 minutes
+const devicePolls = new security.RateWindow(150, 60_000);       // polls per address per minute (one every 2 s is 30)
+const deviceLooks = new security.RateWindow(12, 60_000);        // code lookups and answers per account per minute: typing a code is not a guessing game
+app.post('/api/device-login/start', authLimiter, (req, res) => {
+  if (!deviceStarts.allow(req.ip)) return res.status(429).json({ error: 'Too many sign-in requests. Try again in a few minutes.' });
+  const r = deviceLogins.start({ publicKey: req.body?.publicKey, ua: req.get('user-agent'), ip: req.ip });
+  if (r.error === 'bad') return res.status(400).json({ error: 'Bad request' });
+  if (r.error) return res.status(503).json({ error: 'Busy right now. Try again in a minute.' });
+  res.json(r);
+});
+app.post('/api/device-login/poll', ah(async (req, res) => {
+  if (!devicePolls.allow(req.ip)) return res.status(429).json({ error: 'Too many requests. Slow down.' });
+  const id = req.body?.id;
+  const p = deviceLogins.poll(id);
+  if (p.status !== 'approved') return res.json(p);
+  const got = deviceLogins.take(id);
+  const user = got && db().users[got.uid];
+  if (!user || user.bot || user.deleted) return res.json({ status: 'expired' });
+  if (user.suspended) return res.status(403).json({ error: user.suspended.reason ? `This account has been suspended: ${user.suspended.reason}` : 'This account has been suspended.', code: 'suspended' });
+  res.json({ status: 'approved', token: startSession(req, res, user), user: ownUser(user), sealed: got.sealed });
+}));
+// What is asking, so the person can tell it is the device in front of them: its name, how long ago, and whether it is on the same network.
+app.post('/api/me/device-login/lookup', auth, (req, res) => {
+  if (!deviceLooks.allow(req.user.id)) return res.status(429).json({ error: 'Too many tries. Wait a minute.' });
+  const r = deviceLogins.find(req.body?.request);
+  if (!r) return res.status(404).json({ error: 'That code is not right, or it has expired. Ask the other device for a new one.' });
+  res.json({ device: r.device, minutesAgo: Math.max(0, Math.floor((now() - r.createdAt) / 60_000)), sameNetwork: !!r.ip && r.ip === req.ip, publicKey: r.publicKey });
+});
+app.post('/api/me/device-login/approve', auth, ah(async (req, res) => {
+  const u = req.user;
+  if (!deviceLooks.allow(u.id)) return res.status(429).json({ error: 'Too many tries. Wait a minute.' });
+  if (!devicelogin.cleanSealed(req.body?.sealed)) return res.status(400).json({ error: 'Bad request' }); // before the password, so a bad request does not burn a 2FA code
+  if (!deviceLogins.find(req.body?.request)) return res.status(404).json({ error: 'That sign-in request has expired. Ask the other device for a new code.' });
+  if (!(await passwordOk(req, res, u, req.body?.password))) return;
+  if (u.totp && u.totp.enabled && !codeOk(req, res, u, req.body?.code)) return;
+  loginGuard.success(u.username, req.ip);
+  const r = deviceLogins.approve(req.body?.request, u.id, req.body.sealed);
+  if (r !== 'ok') return res.status(404).json({ error: 'That sign-in request has expired. Ask the other device for a new code.' });
+  notifyByEmail(u, 'A new device was signed in to your Aduna account', 'A device was just signed in to your Aduna account by approving it from one that was already signed in. If this was not you, change your password in Settings > Security and use "Log out of all devices".');
+  res.json({ ok: true });
+}));
+app.post('/api/me/device-login/deny', auth, (req, res) => {
+  if (!deviceLooks.allow(req.user.id)) return res.status(429).json({ error: 'Too many tries. Wait a minute.' });
+  res.json({ ok: deviceLogins.deny(req.body?.request) });
+});
+
+// ----- passkeys (server/passkeys.js explains the idea) -----
+// A passkey signs a one-time challenge instead of typing the password, and (through the browser's "prf" extension) unlocks the same
+// end-to-end encryption key the password does: `wrapped` is that key locked by the passkey, opaque to us. Adding or removing one needs the
+// password (and the two-factor code if it is on), because a passkey is a way into the account AND the key that opens its messages.
+// Signing in with one needs no password and no code: the device already asked for a fingerprint, face or PIN (we insist on it).
+const passkeyChallenges = new passkeys.Challenges();
+const passkeyHits = new security.RateWindow(30, 60_000); // challenges and answers per address per minute
+const MAX_PASSKEYS = 10;
+// The site the browser sees: PUBLIC_URL when it is set (same as the payment return addresses), else the address of this request.
+function passkeyRp(req) {
+  try { const u = new URL(String(process.env.PUBLIC_URL || '').trim() || `${req.protocol}://${req.get('host')}`); return { origin: u.origin, id: u.hostname }; }
+  catch { return { origin: '', id: '' }; }
+}
+const passkeyHandle = (u) => crypto.createHash('sha256').update('aduna passkey user:' + u.id).digest('base64url'); // what the passkey stores as "who": nothing readable
+const passkeyList = (u) => (u.passkeys || []).map((p) => ({ id: p.id, name: p.name, createdAt: p.createdAt, lastUsedAt: p.lastUsedAt || null }));
+const cleanPasskeyName = (v) => String(v ?? '').replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 40) || 'Passkey';
+const passkeyBusy = (res) => res.status(429).json({ error: 'Too many tries. Wait a minute.' });
+
+app.get('/api/me/passkeys', auth, (req, res) => res.json({ passkeys: passkeyList(req.user) }));
+
+app.post('/api/me/passkeys/options', auth, (req, res) => {
+  const u = req.user, rp = passkeyRp(req);
+  if (!passkeyHits.allow(req.ip)) return passkeyBusy(res);
+  if (!rp.id) return res.status(503).json({ error: 'Passkeys are not available at this address.' });
+  if ((u.passkeys || []).length >= MAX_PASSKEYS) return res.status(409).json({ error: `You can have up to ${MAX_PASSKEYS} passkeys. Remove one first.` });
+  const c = passkeyChallenges.issue({ kind: 'create', uid: u.id });
+  if (!c) return res.status(503).json({ error: 'Busy right now. Try again in a minute.' });
+  res.json({
+    challengeId: c.id,
+    publicKey: {
+      rp: { id: rp.id, name: 'Aduna' },
+      user: { id: passkeyHandle(u), name: u.username, displayName: u.username },
+      challenge: c.challenge,
+      pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+      authenticatorSelection: { residentKey: 'required', requireResidentKey: true, userVerification: 'required' }, // "required" so the username is not needed to sign in
+      attestation: 'none',
+      timeout: 120000,
+      excludeCredentials: (u.passkeys || []).map((p) => ({ type: 'public-key', id: p.id })),
+    },
+  });
+});
+app.post('/api/me/passkeys/finish', auth, ah(async (req, res) => {
+  const u = req.user, b = req.body || {}, rp = passkeyRp(req);
+  if (!passkeyHits.allow(req.ip)) return passkeyBusy(res);
+  if ((u.passkeys || []).length >= MAX_PASSKEYS) return res.status(409).json({ error: `You can have up to ${MAX_PASSKEYS} passkeys. Remove one first.` });
+  const wrapped = passkeys.cleanWrap(b.wrapped);
+  if (!wrapped) return res.status(400).json({ error: 'Bad request' }); // before the password, so a bad request does not burn a 2FA code
+  const challenge = passkeyChallenges.peek(b.challengeId, 'create', u.id);
+  if (!challenge) return res.status(400).json({ error: 'That took too long. Start again.' });
+  let reg;
+  try { reg = passkeys.verifyRegistration({ clientDataJSON: b.clientDataJSON, attestationObject: b.attestationObject, challenge, origin: rp.origin, rpId: rp.id }); }
+  catch { return res.status(400).json({ error: 'That passkey could not be verified. Try again.' }); }
+  if (Object.values(db().users).some((x) => Array.isArray(x.passkeys) && x.passkeys.some((p) => p.id === reg.id))) return res.status(409).json({ error: 'That passkey is already registered.' });
+  if (!(await passwordOk(req, res, u, b.password))) return;
+  if (u.totp && u.totp.enabled && !codeOk(req, res, u, b.code)) return;
+  if (!passkeyChallenges.take(b.challengeId, 'create', u.id)) return res.status(400).json({ error: 'That took too long. Start again.' });
+  loginGuard.success(u.username, req.ip);
+  if (!Array.isArray(u.passkeys)) u.passkeys = [];
+  u.passkeys.push({ id: reg.id, spki: reg.spki, alg: reg.alg, signCount: reg.signCount, name: cleanPasskeyName(b.name), createdAt: now(), lastUsedAt: null, wrapped });
+  store.save();
+  notifyByEmail(u, 'A passkey was added to your Aduna account', 'A passkey was just added to your Aduna account. It can now be used to log in without your password. If this was not you, change your password in Settings > Security, remove the passkey and use "Log out of all devices".');
+  res.json({ passkeys: passkeyList(u), user: ownUser(u) });
+}));
+app.post('/api/me/passkeys/remove', auth, ah(async (req, res) => {
+  const u = req.user;
+  if (!passkeyHits.allow(req.ip)) return passkeyBusy(res);
+  const i = (u.passkeys || []).findIndex((p) => p.id === req.body?.id);
+  if (i < 0) return res.status(404).json({ error: 'That passkey is already gone.' });
+  if (!(await passwordOk(req, res, u, req.body?.password))) return;
+  if (u.totp && u.totp.enabled && !codeOk(req, res, u, req.body?.code)) return;
+  loginGuard.success(u.username, req.ip);
+  u.passkeys.splice(i, 1);
+  if (!u.passkeys.length) delete u.passkeys;
+  store.save();
+  notifyByEmail(u, 'A passkey was removed from your Aduna account', 'A passkey was just removed from your Aduna account. If this was not you, change your password in Settings > Security and use "Log out of all devices".');
+  res.json({ passkeys: passkeyList(u), user: ownUser(u) });
+}));
+
+// Signing in. The first call needs no login (nobody is signed in) and hands out a one-time challenge; the second checks the device's answer.
+// The account is found from the passkey itself, so the person does not even type a username.
+app.post('/api/passkey/login/options', authLimiter, (req, res) => {
+  const rp = passkeyRp(req);
+  if (!rp.id) return res.status(503).json({ error: 'Passkeys are not available at this address.' });
+  const c = passkeyChallenges.issue({ kind: 'get' });
+  if (!c) return res.status(503).json({ error: 'Busy right now. Try again in a minute.' });
+  res.json({ challengeId: c.id, publicKey: { challenge: c.challenge, rpId: rp.id, userVerification: 'required', timeout: 120000 } });
+});
+app.post('/api/passkey/login/finish', authLimiter, ah(async (req, res) => {
+  const b = req.body || {}, rp = passkeyRp(req);
+  const fail = () => res.status(401).json({ error: 'That passkey could not be used. Try again, or log in with your password.', code: 'passkey_invalid' }); // one answer for every reason
+  const challenge = passkeyChallenges.take(b.challengeId, 'get'); // spent whatever happens next
+  if (!challenge || typeof b.id !== 'string' || b.id.length > 1400) return fail();
+  let owner = null, cred = null;
+  for (const x of Object.values(db().users)) {
+    const p = !x.bot && !x.deleted && Array.isArray(x.passkeys) ? x.passkeys.find((q) => q.id === b.id) : null;
+    if (p) { owner = x; cred = p; break; }
+  }
+  if (!owner) return fail();
+  if (typeof b.userHandle === 'string' && b.userHandle && b.userHandle !== passkeyHandle(owner)) return fail();
+  let out;
+  try { out = passkeys.verifyAssertion({ clientDataJSON: b.clientDataJSON, authenticatorData: b.authenticatorData, signature: b.signature, challenge, origin: rp.origin, rpId: rp.id, credential: cred }); }
+  catch { return fail(); }
+  if (owner.suspended) return res.status(403).json({ error: owner.suspended.reason ? `This account has been suspended: ${owner.suspended.reason}` : 'This account has been suspended.', code: 'suspended' });
+  cred.signCount = out.signCount;
+  cred.lastUsedAt = now();
+  store.save();
+  res.json({ token: startSession(req, res, owner), user: ownUser(owner), wrapped: cred.wrapped });
+}));
+
 // "Log out everywhere": every other token and open connection of this account stops working, and its push registrations are
 // dropped (the device that asked registers itself again). The password is asked again so a stolen token alone cannot be used
 // to lock the owner out, and wrong guesses count toward the same lockout as logging in (5 per address, 25 overall, 15 minutes), which
@@ -877,6 +1039,7 @@ app.post('/api/recover/email/finish', authLimiter, ah(async (req, res) => {
   u.publicKey = publicKey;
   u.encPrivKey = encPrivKey;
   u.recovery = recovery; // the old recovery key opened the old identity: it is replaced along with it
+  delete u.passkeys;     // so did every passkey's locked copy of it: they would sign in but open nothing, so they are removed (add them again)
   await revokeAllSessions(u);
   emitUserUpdate(u); // friends and server mates pick up the new public key (their copy of the old conversation key no longer fits)
   notifyByEmail(u, 'Your Aduna password was reset by email', 'The password on your Aduna account was just reset with a link sent to this address, and a new encryption key was created, so older direct messages can no longer be read. Every device was signed out. If this was not you, someone has access to this mailbox: log in, change your password and turn email recovery off.');

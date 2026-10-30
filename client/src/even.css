@@ -1,6 +1,10 @@
 /* Evenness pass. Loaded last (see main.jsx), so these small fixes win over the older layers (redesign, refine, zen, plain, studio).
    Each rule below fixes something that looked uneven in a screenshot; the comment says what. */
 
+/* a sheet slides up from the edge it sits on, a backdrop fades in (used by the app dialogs and the Clips sheets below) */
+@keyframes ev-sheet { from { transform: translateY(28px); opacity: 0; } }
+@keyframes ev-fade { from { opacity: 0; } }
+
 /* ---------- sign in / register ---------- */
 /* "Forgot your password?" belongs to the password field above it; the button and the "Need an account?" line get one rhythm of their own */
 .auth-card .auth-forgot { margin-top: 10px; }
@@ -15,3 +19,95 @@
 @media (max-width: 899px) {
   .yt-dash.cs:not(:has(.cs-me)) .yt-top { padding-right: 12px; }
 }
+
+/* ---------- the app on a phone ---------- */
+/* 08-responsive.css sets the phone rules for the message bar and for dialogs (bottom sheets), but zen, plain and studio load after it
+   and put desktop padding and corners back. These restore the phone versions. Specificity is kept at .modal level with :where(), so
+   dialogs that set their own padding or corners (the command palette .cp, the bare picture card .bare) are left alone. */
+@media (max-width: 720px) {
+  /* the message bar stays clear of the home indicator and of a landscape notch (the page uses viewport-fit=cover).
+     The bottom tab bar only shows on the list screen, so the chat screen has nothing else below the bar that handles this */
+  .composer-wrap {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    padding-left: max(10px, env(safe-area-inset-left, 0px));
+    padding-right: max(10px, env(safe-area-inset-right, 0px));
+  }
+  /* a dialog is a sheet that sits on the bottom edge: round the top corners only, and keep the buttons above the home indicator */
+  .modal:where(:not(.cp, .bare)) {
+    border-radius: 20px 20px 0 0;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px));
+  }
+  .modal.wide:where(:not(.cp, .bare)) { padding: 18px 16px calc(18px + env(safe-area-inset-bottom, 0px)); }
+  /* and it slides up from the edge it sits on, instead of popping in from the middle of the screen */
+  .modal:where(:not(.cp, .bare)) { animation: ev-sheet .22s cubic-bezier(.2, .8, .2, 1) both; }
+}
+@media (max-width: 720px) and (prefers-reduced-motion: reduce) {
+  .modal:where(:not(.cp, .bare)) { animation: none; }
+}
+/* the close button on a dialog was 30px; a finger needs about 40 */
+@media (pointer: coarse) { .modal-x { width: 40px; height: 40px; } }
+
+/* iOS zooms the whole page when you tap a field under 16px. 08-responsive.css asks for 16px on every field, but these class rules
+   (15px message box, 14px Clips search, 13px channel picker) load later and won, so the page jumped on tap. */
+@media (pointer: coarse), (max-width: 720px) {
+  .composer-row .composer, .note-chan-head select, .yt-studio .yt-search input { font-size: 16px; }
+}
+
+/* ---------- Clips: the comments, share and "..." sheets ---------- */
+/* swiping to the end of a list inside a sheet pulled the clip feed behind it along; keep the scroll inside */
+.ss-back .ss-panel, .ca-list, .sp-body { overscroll-behavior: contain; }
+@media (max-width: 560px) {
+  /* the sheet sat flush on the bottom edge with 12–20px under its last row, which is the home indicator on a modern phone:
+     the comment box, the Send button and the share actions were half under it */
+  .ss-back .ss-panel { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); animation: ev-sheet .22s cubic-bezier(.2, .8, .2, 1) both; }
+  .ss-back { animation: ev-fade .18s ease-out both; }
+}
+@media (max-width: 560px) and (prefers-reduced-motion: reduce) {
+  .ss-back, .ss-back .ss-panel { animation: none; }
+}
+/* small targets on a touch screen: delete comment 26px, Follow about 30px, Send 36px next to a 40px box, close 32px, clear-search 30px,
+   the Following / For you tabs 32px, the search button 36px (it gets a bigger invisible tap area so the top bar keeps its width) */
+@media (pointer: coarse) {
+  .ss-x { width: 40px; height: 40px; }
+  .ca-comment .ca-del { width: 36px; height: 36px; }
+  .ca-follow.ca-follow { min-height: 36px; }
+  .ca-write .ca-send { height: 40px; }
+  .ca:not(.ca-overlay) .ca-btn { height: 40px; }
+  .ca:not(.ca-overlay) .ca-btn.ca-icon { width: 40px; }
+  .sp .sp-clear { width: 36px; height: 36px; }
+  .cs-tab, .yt-dash.cs-over .cs-tab { height: 38px; }
+  .cs-search-btn { position: relative; }
+  .cs-search-btn::after { content: ''; position: absolute; inset: -4px; }
+}
+
+/* ---------- chat on a phone ---------- */
+/* the gap between a picture and its message was 10px by design on a phone, but a later desktop rule put it back to 14px */
+@media (max-width: 720px) { .msg-row { gap: 12px; } }
+/* a wide screen can still have a home indicator (a phone turned sideways, an iPad): keep the message bar above it.
+   Zero on a computer, so nothing moves there. (Under 720px the bar already pads for it, above.) */
+@media (min-width: 721px) { .composer-wrap { margin-bottom: env(safe-area-inset-bottom, 0px); } }
+/* the emoji reactions under a message were 26px tall, the "jump to latest" pill 34px */
+@media (pointer: coarse) {
+  .chip { min-height: 32px; }
+  .jump-btn { height: 40px; }
+}
+/* the full-screen picture: 100vh on a phone counts the space under the browser bar, so a tall picture ran off the bottom;
+   and its bottom bar (download, close) sat under the home indicator */
+.lightbox { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
+.lightbox img { max-height: calc(100vh - 110px); max-height: calc(100dvh - 110px - env(safe-area-inset-bottom, 0px)); }
+.lightbox-bar { box-sizing: border-box; height: calc(52px + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); }
+
+/* ---------- passkeys and "log in with another device" ---------- */
+/* the two alternative ways in, under the Log In button */
+.auth-card .auth-alt { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+/* the code the new device shows: big, spaced, easy to read out and type */
+.device-code { margin: 16px 0 6px; padding: 16px; border-radius: 14px; background: var(--bg3); text-align: center; color: var(--head);
+  font: 600 30px/1.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .12em; user-select: all; }
+.device-code-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; }
+/* Settings > Security: the list of passkeys, and the card that says which device is asking to sign in */
+.pk-list { list-style: none; margin: 12px 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.pk-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: 14px; background: var(--bg3); }
+.pk-list li > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pk-list li strong { overflow-wrap: anywhere; }
+.approve-card { margin: 12px 0; padding: 12px 16px; border-radius: 14px; background: var(--bg3); }
+.approve-card p { margin: 4px 0; }
