@@ -1,0 +1,73 @@
+/* Sidebar pass. Loaded after even.css (see main.jsx), so it wins over the older layers that all touch the sidebar
+   (02-layout, redesign, redesign5, plain, studio, zen, refine). Those layers disagreed with each other:
+   section labels were set four different ways, rows had two competing paddings, icons were drawn at 12 to 20px (so the same
+   stroke looked thin on some and heavy on others), the DM header pushed its first button into the middle, and focus rings were
+   clipped by the scrolling list. This file settles each of those once. Colours all come from the theme variables.
+   To go back one step, remove the import of this file in main.jsx. */
+
+/* ---------- 1. icons: one stroke weight at every size ----------
+   An SVG stroke scales with the icon, so 1.8 in a 24px box is 1.35px at 18px and 0.9px at 12px. In the sidebar the stroke is
+   fixed in screen pixels instead, so the Explorer, Shop, Friends and channel icons all look like one set. */
+.side .icon, .user-panel .icon { stroke-width: 1.6; }
+.side .icon *, .user-panel .icon * { vector-effect: non-scaling-stroke; }
+.side .icon:where([width="12"], [width="13"], [width="15"]) { stroke-width: 1.4; } /* the tiny ones (chevrons, lock, live-call phone) stay light */
+
+/* ---------- 2. section labels: one style ---------- */
+.side .side-label, .side .cat-name {
+  font-size: var(--fs-xs, 12px); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted);
+}
+.side .side-label { padding: 20px 12px 6px; }
+.side .cat-head { padding: 18px 4px 4px 12px; }
+.side-list > .cat-head:first-child, .side-list > .cat:first-child > .cat-head { padding-top: 6px; } /* nothing above it to separate from */
+.side .cat-name { padding: 2px 0; }
+.side .cat-name:not(.static):hover { color: var(--head); }
+.side .cat-name .icon { stroke-width: 1.5; }
+
+/* ---------- 3. rows: even height, even gap, icon and text on fixed columns ---------- */
+.side-list { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }
+.side .chan .hash { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 20px; font-size: 18px; line-height: 1; opacity: .65; }
+.side .chan:hover .hash, .side .chan.on .hash, .side .chan.unread .hash { opacity: 1; }
+
+@media (min-width: 721px) {
+  .side-list { padding: 8px 8px 12px; }
+  html:not([data-density=compact]) .side .chan { min-height: 34px; gap: 10px; padding: 6px 10px 6px 12px; margin-bottom: 2px; }
+  html:not([data-density=compact]) .side .chan.dm { min-height: 44px; }
+  .voice-member { padding: 3px 10px 3px 42px; } /* the member's picture lines up with the channel's name above it */
+}
+
+/* unread reads as "bolder", not only "slightly lighter": the hierarchy is visible at a glance */
+.side .chan.unread:not(.on) { font-weight: 600; }
+
+/* ---------- 4. states: hover, pressed, selected, keyboard focus ---------- */
+.side .chan { transition: background-color var(--t-hover, 120ms) var(--ease, ease), color var(--t-hover, 120ms) var(--ease, ease); }
+.side .chan:active:not(.on) { background: color-mix(in srgb, var(--head) 11%, transparent); }
+.side .chan.on:hover { background-color: color-mix(in srgb, var(--ink) 18%, transparent); } /* keeps the sand bar from studio.css */
+/* the list scrolls, so an outside focus ring was cut off at its edges: draw it inside the row */
+.side-list button:focus-visible, .side-head:focus-visible, .me:focus-visible { outline-offset: -2px; }
+
+/* "+" beside a category: quiet until you point at the category (always visible on touch screens, where there is no hover) */
+@media (hover: hover) and (pointer: fine) {
+  .side .cat-add { opacity: 0; transition: opacity var(--t-hover, 120ms) var(--ease, ease), background-color var(--t-hover, 120ms) var(--ease, ease); }
+  .side .cat-head:hover .cat-add, .side .cat-add:focus-visible { opacity: 1; }
+}
+
+/* ---------- 5. headers ---------- */
+/* the Direct Messages header has text plus two buttons; space-between put the first button in the middle. Both now sit at the right. */
+.side-head.static { gap: 2px; }
+.side-head.static > .icon-btn:first-of-type { margin-left: auto; }
+
+/* ---------- 6. your panel at the bottom: fewer, calmer controls ---------- */
+@media (min-width: 721px) {
+  .user-panel { gap: 2px; padding: 0 8px; }
+  .user-panel .icon-btn { width: 30px; height: 30px; }
+  .user-panel .credit-chip { height: 30px; padding: 0 8px; border-radius: var(--r-md); color: var(--muted); }
+  .user-panel .credit-chip:hover { color: var(--head); }
+}
+.me { gap: 10px; padding: 4px 6px; border-radius: var(--r-md); }
+.me > div { min-width: 0; } /* lets a long name or status shorten with "..." instead of pushing the buttons out */
+.me .me-name { max-width: 100%; }
+.me .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .side .chan, .side .cat-add { transition: none; }
+}

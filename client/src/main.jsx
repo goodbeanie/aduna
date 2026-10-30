@@ -25,6 +25,9 @@ import AdminPage from './AdminPage.jsx';
 import ClipPage from './ClipPage.jsx';
 import ClipsSite from './ClipsSite.jsx';
 import './even.css'; // last on purpose: small evenness fixes that must win over every older layer
+import './sidebar.css'; // after even.css: the one sidebar pass (spacing, labels, icon weight, states)
+import './friends.css'; // after sidebar.css: the Friends page rows (one column, hover, quiet actions)
+import './header.css'; // after friends.css: the top bar (grouped controls, one size, quiet lock chip)
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';

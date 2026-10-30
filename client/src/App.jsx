@@ -1030,16 +1030,16 @@ function Main({ me, setMe, privKey, openServerId }) {
             </div>
             <div className="side-list">
               <button className={'chan' + (view.explore ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}>
-                <span className="hash"><Icon name="globe" size={20} /></span>{tr('serverExplorer')}
+                <span className="hash"><Icon name="globe" size={18} /></span>{tr('serverExplorer')}
               </button>
               <button className={'chan' + (view.shop ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); }}>
-                <span className="hash"><Icon name="bag" size={20} /></span>{tr('shopTab')}{balance !== null && <span className="credit-count">{balance.toLocaleString()}</span>}
+                <span className="hash"><Icon name="bag" size={18} /></span>{tr('shopTab')}{balance !== null && <span className="credit-count">{balance.toLocaleString()}</span>}
               </button>
               <button className={'chan' + (view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, quests: true }); setShowList(false); }}>
-                <span className="hash"><Icon name="flag" size={20} /></span>{tr('questsTab')}
+                <span className="hash"><Icon name="flag" size={18} /></span>{tr('questsTab')}
               </button>
               <button className={'chan' + (!view.userId && !view.groupId && !view.explore && !view.shop && !view.quests && !view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
-                <span className="hash"><Icon name="users" size={20} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
+                <span className="hash"><Icon name="users" size={18} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
               <div className="side-label">{tr('lblDMs')}</div>
               {convos.length === 0 && groups.list.length === 0 && <div className="pad"><p className="muted">{tr('noConvos')}</p>{(view.userId || view.groupId || view.explore || view.shop || view.quests || view.clips) && <button className="btn" onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>{tr('friends')}</button>}</div>}
@@ -1114,7 +1114,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           headerExtra={<>
             <button className="icon-btn" title="Voice call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle' || inGroupCall(gcall.gcall)} onClick={() => call.actions.startCall(dmUser.id, false)}><Icon name="phone" size={18} /></button>
             <button className="icon-btn" title="Video call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle' || inGroupCall(gcall.gcall)} onClick={() => call.actions.startCall(dmUser.id, true)}><Icon name="video" size={18} /></button>
-            <button className="btn small-btn" title="End-to-end encrypted" onClick={() => setModal({ type: 'safety' })}><Icon name="lock" size={14} className="inline-icon" /><span className="hide-sm"> End-to-end encrypted</span></button>
+            <button className="btn small-btn enc-chip" title="End-to-end encrypted" onClick={() => setModal({ type: 'safety' })}><Icon name="lock" size={14} className="inline-icon" /><span className="hide-sm"> End-to-end encrypted</span></button>
           </>}
           notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && <><br />You aren’t friends with {dmUser.displayName}, so you can’t send new messages until you are.</>}</>} />
       )}
@@ -1141,7 +1141,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} />}
       {view.kind === 'dm' && !dmUser && view.clips && <Clips onBack={() => setShowList(true)} />}
       {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && !view.clips && (
-        <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} />
+        <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} servers={servers} me={me} onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }} />
       )}
 
       {/* members */}

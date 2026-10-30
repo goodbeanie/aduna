@@ -189,7 +189,7 @@ async function unlockJwk(key, blob, publicKey) {
 // Sign in on a new device by approving it from a signed-in one (server/devicelogin.js). The NEW device makes a throwaway key pair and
 // asks; the SIGNED-IN device opens the identity with the password and locks it to the throwaway public key; only the new device can open it.
 const importPoint = (b64) => crypto.subtle.importKey('raw', fromB64(b64), ECDH, false, []);
-async function sharedKey(priv, pubB64) {
+async function deviceLoginKey(priv, pubB64) {
   return hkdfAes(await crypto.subtle.deriveBits({ name: 'ECDH', public: await importPoint(pubB64) }, priv, 256), 'aduna device login v1');
 }
 export async function newDeviceRequest() {
@@ -200,11 +200,11 @@ export async function newDeviceRequest() {
 export async function sealIdentityForDevice(encPrivKey, password, devicePublicKey) {
   const jwk = await identityJwk(encPrivKey, password);
   const eph = await crypto.subtle.generateKey(ECDH, false, ['deriveBits']);
-  const sealed = await lockJwk(await sharedKey(eph.privateKey, devicePublicKey), jwk);
+  const sealed = await lockJwk(await deviceLoginKey(eph.privateKey, devicePublicKey), jwk);
   return { publicKey: toB64(await crypto.subtle.exportKey('raw', eph.publicKey)), ...sealed };
 }
 export async function openSealedIdentity(sealed, devicePrivateKey, accountPublicKey) {
-  return unlockJwk(await sharedKey(devicePrivateKey, sealed.publicKey), sealed, accountPublicKey);
+  return unlockJwk(await deviceLoginKey(devicePrivateKey, sealed.publicKey), sealed, accountPublicKey);
 }
 
 // Passkeys: the authenticator's "prf" output (32 secret bytes only that passkey can make) locks a copy of the identity key.

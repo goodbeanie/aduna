@@ -1,0 +1,64 @@
+/* Friends page pass. Loaded after sidebar.css (see main.jsx), so it wins over the older friend-row rules
+   (05-friends-and-messages, members, dialogs, density). What it fixes:
+   - rows ran edge to edge on a wide window, with the buttons far from the name they belong to: the list is now one readable column
+   - rows were split by hairlines and only changed colour on hover: they are now rounded, with a clear hover and focus state
+   - each action was a 40px outlined box (three boxes in a row looked like a form): they are quiet icon buttons that light up with the row
+   - the @username sat on the same line as the name, so long names pushed it around: name on line one, status and @username on line two
+   Colours all come from the theme variables. To go back one step, remove the import of this file in main.jsx. */
+
+/* ---------- 1. one readable column ---------- */
+.friends-body > :not(.add-friend) { max-width: 760px; margin-left: auto; margin-right: auto; }
+.friends-body > .add-friend { margin-left: auto; margin-right: auto; }
+.friends-body .friend-filter { margin-top: 8px; margin-bottom: 4px; }
+.friends-body .side-label { padding: 18px 12px 6px; }
+
+/* ---------- 2. rows ---------- */
+.frow { border-top: 0; border-radius: var(--r-lg); margin-bottom: 2px; transition: background-color var(--t-hover, 120ms) var(--ease, ease); }
+.frow:hover, .frow:focus-within { background: var(--hover); }
+.frow-main { gap: 14px; padding: 10px 12px; border-radius: var(--r-lg); }
+html:not([data-density=compact]) .frow-main { min-height: 60px; }
+.frow-main:focus-visible { outline-offset: -2px; } /* the list scrolls: draw the ring inside the row so it is not cut off */
+
+/* name on the first line, status and @username on the second; both shorten with "..." instead of wrapping */
+.frow-text { display: flex; flex-direction: column; gap: 2px; }
+.frow-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 15px; }
+.frow-name b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.frow-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- 3. actions: quiet until the row is in use ---------- */
+.frow-actions { flex: none; gap: 2px; padding-right: 0; }
+.frow-actions .icon-btn { box-shadow: none; color: var(--muted); }
+.frow-actions .icon-btn:hover { background: color-mix(in srgb, var(--head) 10%, transparent); color: var(--head); }
+.frow-actions .icon-btn.ok { background: var(--ok-bg); } /* "Accept" is the one action that should stand out */
+.frow-actions .icon-btn.ok:hover { background: var(--ok-bg); filter: brightness(1.08); }
+@media (min-width: 721px) {
+  .frow { padding-right: 6px; }
+  .frow-actions .icon-btn { width: 36px; height: 36px; }
+  html[data-density=compact] .frow-actions .icon-btn { width: 32px; height: 32px; }
+}
+/* with a mouse the buttons rest at half strength (still visible, so nothing is hidden); touch screens always show them in full */
+@media (hover: hover) and (pointer: fine) {
+  .frow-actions .icon-btn:not(.ok) { opacity: .55; transition: opacity var(--t-hover, 120ms) var(--ease, ease), background-color var(--t-hover, 120ms) var(--ease, ease), color var(--t-hover, 120ms) var(--ease, ease); }
+  .frow:hover .frow-actions .icon-btn, .frow:focus-within .frow-actions .icon-btn, .frow-actions .icon-btn[aria-expanded="true"] { opacity: 1; }
+}
+
+/* the same stroke weight as the sidebar icons */
+.frow-actions .icon { stroke-width: 1.6; }
+.frow-actions .icon * { vector-effect: non-scaling-stroke; }
+
+/* ---------- 4. "Find more people": the useful part of a short list's empty space ----------
+   Shown under the list only while it is short (see Friends.jsx). Same rows as friends, so nothing new to learn; the two buttons are
+   the two ways to meet people that are not already on this page. */
+.fdiscover { margin-top: 20px; padding-top: 2px; border-top: 1px solid var(--line); }
+.fdiscover .side-label { padding-top: 14px; }
+.frow-actions .fsug-add { min-width: 64px; min-height: 32px; padding: 0 14px; }
+.frow-actions .fsug-add:disabled { opacity: .6; cursor: default; }
+.fsug-err { margin: 6px 12px 0; }
+.fnext { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 12px 0; }
+.fnext .btn { display: inline-flex; align-items: center; gap: 8px; }
+.fnext .icon { stroke-width: 1.6; }
+.fnext .icon * { vector-effect: non-scaling-stroke; }
+
+@media (prefers-reduced-motion: reduce) {
+  .frow, .frow-actions .icon-btn { transition: none; }
+}

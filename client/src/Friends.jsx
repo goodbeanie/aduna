@@ -10,9 +10,10 @@ const TABS = [['all', 'fAll'], ['online', 'fOnline'], ['pending', 'fPending'], [
 const STATUS_ORDER = { online: 0, idle: 1, offline: 2, dnd: 3 };
 const rankOf = (st) => (st in STATUS_ORDER ? STATUS_ORDER[st] : STATUS_ORDER.offline);
 
-export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, onRequest, onAccept, onRemove, onBack }) {
+export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, onRequest, onAccept, onRemove, onBack, servers = [], me, onExplore }) {
   const { t } = useLang();
   const [tab, setTab] = useState('all');
+  const [sugErr, setSugErr] = useState('');
   const [name, setName] = useState('');
   const [msg, setMsg] = useState(null); // { ok, text }
   const [busy, setBusy] = useState(false);
@@ -28,6 +29,29 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
   const online = sorted.filter((u) => statusOf(u.id) !== 'offline');
   const shown = (tab === 'online' ? online : sorted).filter((u) => !q.trim() || (u.displayName + ' ' + u.username).toLowerCase().includes(q.trim().toLowerCase()));
   const pending = fr.incoming.length + fr.outgoing.length;
+
+  // People you share a server with but are not friends with yet, most servers in common first. Anyone who already asked you
+  // (they are under Pending) is left out; someone you just asked stays in the list and shows "Sent".
+  const outgoingIds = new Set(fr.outgoing.map((x) => x.user.id));
+  const skip = new Set([me?.id, ...fr.friends.map((u) => u.id), ...fr.incoming.map((x) => x.user.id)]);
+  const common = new Map(); // user id -> { user, names: [server names] }
+  for (const s of servers) {
+    for (const m of s.members || []) {
+      if (m.bot || skip.has(m.id)) continue;
+      const e = common.get(m.id) || { user: m, names: [] };
+      e.names.push(s.name);
+      common.set(m.id, e);
+    }
+  }
+  const suggestions = [...common.values()]
+    .sort((a, b) => b.names.length - a.names.length || a.user.displayName.localeCompare(b.user.displayName, undefined, { sensitivity: 'base' }))
+    .slice(0, 5);
+  const showDiscover = fr.friends.length <= 6 && !q.trim(); // a long list fills the page by itself
+
+  async function addSuggested(u) {
+    setSugErr('');
+    try { await onRequest(u.username); } catch (err) { setSugErr(err.message); }
+  }
 
   async function add(e) {
     e.preventDefault();
@@ -47,10 +71,10 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
   const row = (u, sub, actions, onMain = () => onUser(u.id)) => (
     <div className="frow" key={u.id} onContextMenu={onUserMenu ? (e) => onUserMenu(e, u.id) : undefined}>
       <button className="frow-main" onClick={onMain}>
-        <Avatar user={u} size={36} presence={statusOf(u.id)} />
+        <Avatar user={u} size={40} presence={statusOf(u.id)} />
         <div className="frow-text">
-          <b data-nc style={{ '--nc': u.accentColor }}>{u.displayName}</b><BadgeIcons user={u} size={16} /><span className="muted"> @{u.username}</span>
-          <div className="muted small">{sub}</div>
+          <div className="frow-name"><b data-nc style={{ '--nc': u.accentColor }}>{u.displayName}</b><BadgeIcons user={u} size={16} /></div>
+          <div className="frow-sub muted small">{sub}<span className="frow-handle"> · @{u.username}</span></div>
         </div>
       </button>
       <div className="frow-actions">{actions}</div>
@@ -113,6 +137,19 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
                 title={q.trim() && fr.friends.length > 0 ? `No friends match “${q.trim()}”` : fr.friends.length === 0 ? t('noFriends') : t('noOneOnline')}
                 action={fr.friends.length === 0 ? <button className="btn primary" onClick={() => setTab('add')}>{t('fAdd')}</button> : undefined}
               />
+            )}
+            {showDiscover && (
+              <div className="fdiscover">
+                <div className="side-label">Find more people</div>
+                {suggestions.map(({ user, names }) => row(user,
+                  names.length === 1 ? `In ${names[0]}` : `${names.length} servers in common`,
+                  <button className="btn fsug-add" disabled={outgoingIds.has(user.id)} onClick={() => addSuggested(user)}>{outgoingIds.has(user.id) ? 'Sent' : 'Add'}</button>))}
+                {sugErr && <p className="error-text field-error fsug-err" role="alert">{sugErr}</p>}
+                <div className="fnext">
+                  {onExplore && <button className="btn" onClick={onExplore}><Icon name="globe" size={16} /> Browse servers</button>}
+                  <button className="btn" onClick={() => { setTab('add'); setMsg(null); }}><Icon name="plus" size={16} /> Add by username</button>
+                </div>
+              </div>
             )}
           </>
         )}

@@ -1,0 +1,45 @@
+/* Header pass. Loaded after friends.css (see main.jsx), so it wins over the older header rules (03-chat, polish, zen, plain, studio).
+   The problem: every control in the top bar had the same size and weight (search, pins, bell, call, video, members, and in a DM an outlined
+   "End-to-end encrypted" pill), so nothing led and the bar read as a row of small marks. This pass groups them and gives them one look:
+   - the message tools (search, pins, notifications) form one cluster; the people and call buttons form a second, with a hairline between
+   - one size and one stroke weight for every header icon button (the same weight as the sidebar icons)
+   - the encryption badge is a quiet lock chip instead of a bordered button
+   - the Friends tabs sit next to the title with one divider, and "Add Friend" stays the single accent
+   Colours all come from the theme variables. To go back one step, remove the import of this file in main.jsx. */
+
+/* ---------- 1. two clusters, one hairline ---------- */
+.chat-head .head-tools { display: flex; align-items: center; gap: 2px; flex: none; }
+.chat-head .head-tools + .head-tools { margin-left: 8px; }
+.chat-head .head-tools + .head-tools::before { content: ''; flex: none; width: 1px; height: 18px; margin-right: 6px; background: var(--line2); }
+
+/* ---------- 2. one size, one stroke ---------- */
+@media (min-width: 721px) {
+  .chat-head .head-tools .icon-btn { width: 32px; height: 32px; }
+}
+.chat-head .head-tools .icon { stroke-width: 1.6; }
+.chat-head .head-tools .icon * { vector-effect: non-scaling-stroke; }
+/* a button that is switched on (search open, pins open, member list shown) keeps the soft highlight; no ring, because the member list is on by default */
+.chat-head .head-tools .icon-btn.on { background: var(--sel); color: var(--head); }
+.chat-head .head-tools .icon-btn:disabled { opacity: .35; }
+
+/* ---------- 3. the encryption badge: information, not an action competing with calls ---------- */
+.chat-head .enc-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 8px; border: 0; box-shadow: none; background: none;
+  color: var(--muted); font-size: var(--fs-xs, 12px); transition: background-color var(--t-hover, 120ms) var(--ease, ease), color var(--t-hover, 120ms) var(--ease, ease);
+}
+.chat-head .enc-chip:hover { background: var(--hover); color: var(--head); }
+.chat-head .enc-chip .icon { stroke-width: 1.6; }
+.chat-head .enc-chip .icon * { vector-effect: non-scaling-stroke; }
+
+/* ---------- 4. Friends header: title, one divider, tabs, one accent ---------- */
+.ftabs { gap: 2px; }
+@media (min-width: 721px) {
+  .fh + .ftabs { margin-left: 8px; padding-left: 16px; border-left: 1px solid var(--line2); }
+  .ftab { height: 32px; padding: 0 12px; }
+  .ftab.add { margin-left: 8px; }
+}
+.ftab { transition: background-color var(--t-hover, 120ms) var(--ease, ease), color var(--t-hover, 120ms) var(--ease, ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-head .enc-chip, .ftab { transition: none; }
+}
