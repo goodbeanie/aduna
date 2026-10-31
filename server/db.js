@@ -413,6 +413,15 @@ async function userFileBytes(uid) {
   const { rows } = await q('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner = $1', [String(uid)]);
   return Number(rows[0].n);
 }
+// the person's files, oldest first, with the file type that was saved with each one (mime and ext; older files have none)
+async function userFiles(uid, limit = 2000) {
+  const { rows } = await q('SELECT id, size, created_at, meta FROM files WHERE owner = $1 ORDER BY created_at ASC LIMIT $2', [String(uid), limit]);
+  return rows.map((r) => {
+    let m = {};
+    try { m = JSON.parse(open(r.meta, `filemeta:${r.id}`)) || {}; } catch { /* unreadable: no type info */ }
+    return { id: r.id, size: Number(r.size), created_at: Number(r.created_at), mime: typeof m.mime === 'string' ? m.mime : '', ext: typeof m.ext === 'string' ? m.ext : '' };
+  });
+}
 async function fileMeta(fid) {
   if (!FILE_ID.test(String(fid))) return null;
   const row = (await q('SELECT meta, attached FROM files WHERE id = $1', [fid])).rows[0];
@@ -485,7 +494,7 @@ module.exports = {
   get vapid() { return vapidKeys; },
   init, close, save, flush, reload: load, id, inviteCode, query: q, getMeta, setMeta, closeHooks,
   putImage, getImage, deleteImage, pruneImages, putFile, fileMeta, getFileBytes, markAttached, deleteFiles, expireFiles, pruneFiles,
-  backfillFileOwners, userFileBytes, poolBytesUsed, setProtectedOwners,
+  backfillFileOwners, userFileBytes, userFiles, poolBytesUsed, setProtectedOwners,
   get usingR2() { return !!r2; },
   get clipsR2() { return clipsR2; },
   r2BytesUsed,

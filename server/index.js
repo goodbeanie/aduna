@@ -1496,7 +1496,10 @@ app.post('/api/files', auth, fileLimiter, express.raw({ type: '*/*', limit: MAX_
     const out = await storagePlan.makeRoom({ store, bytes: buf.length + 64, protect: storagePlan.protectedIds(db(), now()) });
     if (out.length) flagGone(out);
   }
-  const fid = await store.putFile(buf, { owner: req.user.id, scope, size: buf.length });
+  // the kind of file (for the person's own file list in Storage). Only a mime type and an extension are kept, never the name.
+  const mime = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(String(req.query.mime || '')) ? String(req.query.mime).toLowerCase().slice(0, 100) : '';
+  const ext = /^[a-z0-9]{1,10}$/i.test(String(req.query.ext || '')) ? String(req.query.ext).toLowerCase() : '';
+  const fid = await store.putFile(buf, { owner: req.user.id, scope, size: buf.length, mime, ext });
   if (storageApi) storageApi.push(req.user.id);
   res.json({ id: fid });
 }));

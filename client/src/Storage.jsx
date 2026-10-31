@@ -12,6 +12,16 @@ const GB = 1024 ** 3;
 const fmt = (n) => (n >= GB ? (n / GB).toFixed(n >= 10 * GB ? 0 : 1) + ' GB' : sizeLabel(n));
 const day = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 const WHERE = { dm: 'Private message', group: 'Group chat', channel: 'Server channel', other: 'Unsent upload' };
+// icon and label for a file in the list: photo, video, audio, otherwise its extension (ZIP, HTML, ...)
+const CODE_EXT = new Set(['html', 'htm', 'js', 'ts', 'css', 'json', 'xml', 'py', 'java', 'c', 'cpp', 'cs', 'php', 'sh', 'bat', 'lua', 'rb', 'go', 'rs']);
+function typeInfo(f) {
+  if (f.kind === 'photo') return { icon: 'camera', label: 'Photo' };
+  if (f.kind === 'video') return { icon: 'video', label: 'Video' };
+  if (f.kind === 'audio') return { icon: 'music', label: 'Audio' };
+  const ext = String(f.ext || f.kind || '').toLowerCase();
+  if (ext) return { icon: CODE_EXT.has(ext) ? 'code' : 'file', label: ext.toUpperCase() };
+  return { icon: 'file', label: 'File' };
+}
 
 // PayPal sends the buyer back to /app?storage=paypal&subscription_id=I-...; read it once, when the app starts.
 const RETURN = (() => {
@@ -48,16 +58,23 @@ function CleanupModal({ needed = 0, fileName, onDone, onCancel }) {
       {files && files.length === 0 && <p className="muted small">You have no stored files.</p>}
       {files && files.length > 0 && (
         <ul className="st-list" aria-label="Your files, oldest first">
-          {files.map((f) => (
-            <li key={f.id}>
-              <label className={'st-row' + (pick.has(f.id) ? ' on' : '')}>
-                <input type="checkbox" checked={pick.has(f.id)} onChange={() => toggle(f.id)} />
-                <span className="st-name">{f.name || WHERE[f.where] || 'File'}</span>
-                <span className="muted small st-meta">{f.name ? WHERE[f.where] + ' · ' : ''}{day(f.createdAt)}</span>
-                <b className="st-size">{fmt(f.size)}</b>
-              </label>
-            </li>
-          ))}
+          {files.map((f) => {
+            const t = typeInfo(f);
+            return (
+              <li key={f.id}>
+                <label className={'st-row' + (pick.has(f.id) ? ' on' : '')}>
+                  <input type="checkbox" checked={pick.has(f.id)} onChange={() => toggle(f.id)} />
+                  <span className="st-ico"><Icon name={t.icon} size={18} /></span>
+                  <span className="st-main">
+                    <span className="st-name">{f.name || t.label}</span>
+                    <span className="st-sub">{WHERE[f.where] || 'File'} · {day(f.createdAt)}</span>
+                  </span>
+                  <span className="st-type">{t.label}</span>
+                  <b className="st-size">{fmt(f.size)}</b>
+                </label>
+              </li>
+            );
+          })}
         </ul>
       )}
       <div className="st-actions">

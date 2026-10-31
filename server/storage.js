@@ -21,6 +21,14 @@ const PAID_FOR_MS = 32 * DAY;    // one payment covers a month plus a little sla
 const SUB_ID = /^[A-Za-z0-9-]{8,40}$/;
 const FILE_ID = /^[0-9a-f]{32}$/;
 
+// What to call a file in the list: photo, video, audio, or else its extension (zip, html, ...). '' when nothing is known.
+function kindOf(mime, ext) {
+  const m = String(mime || '').toLowerCase(), e = String(ext || '').toLowerCase();
+  if (m.startsWith('image/')) return 'photo';
+  if (m.startsWith('video/')) return 'video';
+  if (m.startsWith('audio/')) return 'audio';
+  return e || '';
+}
 // ---------- who has a plan ----------
 // u.storageSub = { status: 'pending' | 'active' | 'past_due' | 'cancelled' | 'ended', paypalId, since, paidThrough, syncedAt }
 const rec = (u) => (u && u.storageSub && typeof u.storageSub === 'object' ? u.storageSub : null);
@@ -260,9 +268,14 @@ function register(app, d) {
 
   // the person's files, oldest first. `needed` (bytes) says how many of the oldest to tick first.
   app.get('/api/storage/files', d.auth, d.ah(async (req, res) => {
-    const { rows } = await d.store.query('SELECT id, size, created_at FROM files WHERE owner = $1 ORDER BY created_at ASC LIMIT 2000', [req.user.id]);
+    const rows = await d.store.userFiles(req.user.id);
     const labels = d.fileLabels ? d.fileLabels() : new Map();
-    const files = rows.map((r) => { const l = labels.get(r.id) || {}; return { id: r.id, size: Number(r.size), createdAt: Number(r.created_at), name: l.name || null, type: l.type || null, where: l.where || 'other' }; });
+    const files = rows.map((r) => {
+      const l = labels.get(r.id) || {};
+      const mime = l.type || r.mime || '';
+      const ext = (String(l.name || '').match(/\.([a-z0-9]{1,10})$/i) || [])[1]?.toLowerCase() || r.ext || '';
+      return { id: r.id, size: r.size, createdAt: r.created_at, name: l.name || null, mime, ext, kind: kindOf(mime, ext), where: l.where || 'other' };
+    });
     const needed = Math.max(0, Math.floor(Number(req.query.needed) || 0));
     res.json({ files, suggest: needed ? pickOldest(files, needed).map((f) => f.id) : [] });
   }));
