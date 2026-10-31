@@ -8,7 +8,7 @@ import * as snd from './callsound.js';
 import { levelOf, SpeakingGate } from './speaking.js';
 import { ringtoneFor } from './ringtones.js';
 import { loadDevices, micConstraint, camConstraint, applyOutput, EVENT as DEVICES_EVENT } from './devices.js';
-import { ScreenSharePicker, ShareBar, QUALITY, desktopScreen } from './ScreenShare.jsx';
+import { ScreenSharePicker, ShareBar, shareSpec, desktopScreen } from './ScreenShare.jsx';
 
 // While a call is ringing the tab title flashes, and a desktop notification shows if the tab is hidden.
 let titleTimer = null, titleBase = '';
@@ -55,7 +55,7 @@ export async function getMedia(video, lite = false) {
 // One-to-one calls. Media goes straight between the browsers (WebRTC). The server only rings and relays
 // signalling, and the signalling is encrypted with the conversation key, so it cannot read or alter it.
 // Offers use the "perfect negotiation" pattern so either side can add video or share a screen mid-call.
-export function useCall({ socketRef, privKey, getUser }) {
+export function useCall({ socketRef, privKey, getUser, isPlus = () => false }) {
   const [call, setCall] = useState(IDLE);
   const cRef = useRef(IDLE);
   const rt = useRef({ pc: null, local: null, remote: null, cam: null, screen: null, vsender: null, polite: false, makingOffer: false, ignoreOffer: false, cands: [], tracksAdded: false, chain: Promise.resolve() });
@@ -253,12 +253,24 @@ export function useCall({ socketRef, privKey, getUser }) {
     } catch (e) { set({ notice: e.name === 'NotAllowedError' ? 'Camera permission was denied' : 'Could not start the camera' }); }
   }
 
+  // The bitrate cap and the "keep smooth or keep sharp" preference for what the video sender sends. Without a cap the browser stays far
+  // below what 1080p at 60 fps needs. kbps 0 removes the cap again (used when the share ends and the camera is back).
+  async function tuneSender(sender, kbps, content) {
+    try {
+      const p = sender.getParameters();
+      if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+      if (kbps) p.encodings[0].maxBitrate = kbps * 1000; else delete p.encodings[0].maxBitrate;
+      p.degradationPreference = content === 'motion' ? 'maintain-framerate' : content === 'detail' ? 'maintain-resolution' : 'balanced';
+      await sender.setParameters(p);
+    } catch { /* not supported here: the browser's own limits apply */ }
+  }
+
   async function stopShare() {
     const r = rt.current, t = r.screen;
     if (!t) return;
     r.screen = null; t.stop();
     const back = r.cam && r.cam.readyState === 'live' ? r.cam : null;
-    if (r.vsender) await r.vsender.replaceTrack(back).catch(() => {});
+    if (r.vsender) { await r.vsender.replaceTrack(back).catch(() => {}); tuneSender(r.vsender, 0, ''); }
     set({ sharing: false });
     announce();
   }
@@ -277,7 +289,7 @@ export function useCall({ socketRef, privKey, getUser }) {
     const r = rt.current;
     set({ picker: false });
     if (cRef.current.phase !== 'active' || r.screen || !r.pc) return;
-    const q = QUALITY[quality] || QUALITY.balanced;
+    const q = shareSpec(quality, isPlus()); // what this person's plan allows: 720p / 30 fps for everyone, up to 1080p / 60 fps with Aduna Plus
     try {
       // Aduna desktop: tell the app which screen or window was picked, so its handler can answer the request below.
       if (sourceId && desktopScreen()) {
@@ -293,6 +305,7 @@ export function useCall({ socketRef, privKey, getUser }) {
       if (cRef.current.phase !== 'active' || !r.pc) { t.stop(); return; } // the call ended while the picker was open
       r.screen = t; t.onended = () => stopShare(); // the browser's own "Stop sharing" button ends it too
       if (r.vsender) await r.vsender.replaceTrack(t); else r.vsender = r.pc.addTrack(t, r.local);
+      tuneSender(r.vsender, q.kbps, q.content);
       set({ sharing: true });
       announce();
     } catch (e) {
@@ -342,7 +355,7 @@ export function useCall({ socketRef, privKey, getUser }) {
   const handle = useCallback((ev, p) => handleRef.current(ev, p), []);
   useEffect(() => { snd.preloadRingtone(); return () => { teardown(); }; }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { call, handle, actions: { startCall, accept, hangup: () => hangup(), toggleMute, toggleDeafen, toggleCamera, toggleShare, startShare, closePicker, stopShare, clearNotice: () => set({ notice: '' }) } };
+  return { call, handle, actions: { startCall, accept, hangup: () => hangup(), toggleMute, toggleDeafen, toggleCamera, toggleShare, startShare, closePicker, isPlus, stopShare, clearNotice: () => set({ notice: '' }) } };
 }
 
 // =====================================================================================================
@@ -583,7 +596,7 @@ export function CallUI({ call, actions, users, onOpen, showStrip }) {
     <>
       <CallAudio call={call} />
       {call.notice && <div className="call-toast" role="status">{call.notice}</div>}
-      {call.picker && call.phase === 'active' && <ScreenSharePicker onStart={actions.startShare} onClose={actions.closePicker} />}
+      {call.picker && call.phase === 'active' && <ScreenSharePicker onStart={actions.startShare} onClose={actions.closePicker} plus={actions.isPlus()} />}
       {call.phase === 'incoming' && <Incoming call={call} actions={actions} users={users} />}
       {showStrip && inCall(call) && <CallStrip call={call} actions={actions} users={users} onOpen={onOpen} />}
     </>

@@ -27,6 +27,8 @@
 .ss-q span { color: var(--muted); font-size: 12px; line-height: 1.3; }
 .ss-q:hover { background: var(--hover); }
 .ss-q.on { box-shadow: inset 0 0 0 2px var(--ink); }
+.ss-q:disabled { opacity: .55; cursor: not-allowed; }
+.ss-q:disabled:hover { background: var(--bg3); }
 
 .ss-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .ss-actions .btn:disabled { opacity: .45; cursor: not-allowed; }

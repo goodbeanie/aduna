@@ -222,7 +222,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const plainRef = useRef(plain);
   const pending = useRef(new Set());
   const lastChan = useRef({});
-  const call = useCall({ socketRef, privKey, getUser: (id) => usersRef.current[id] });
+  const call = useCall({ socketRef, privKey, getUser: (id) => usersRef.current[id], isPlus: () => !!meRef.current?.plus });
   const callHandleRef = useRef(call.handle);
   callHandleRef.current = call.handle;
   viewRef.current = view;
