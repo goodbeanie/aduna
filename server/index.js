@@ -413,6 +413,17 @@ app.get('/api/app-version', ah(async (req, res) => {
   res.json(data);
 }));
 app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled(), adunaServer: !!defaultServer() })); // sign-up screen: can email recovery be offered (needs a mail provider)?
+
+// Sign-up, step 1 (design your profile): nobody is signed in yet, so the free profile themes are served here, and the username box can ask
+// whether a name is free while the person types. Usernames are public anyway (register answers 409 for a taken one); the limit keeps it from being a scraper.
+const nameChecks = new security.RateWindow(60, 60_000); // checks per address per minute
+app.get('/api/signup-themes', (_req, res) => res.json({ themes: credits.pthemes.view({}) }));
+app.get('/api/username-available', (req, res) => {
+  if (!nameChecks.allow(req.ip)) return res.status(429).json({ error: 'Slow down' });
+  const name = String(req.query.u ?? '').trim().replace(/^@/, '');
+  if (!/^[a-zA-Z0-9_]{3,20}$/.test(name)) return res.json({ ok: false, reason: 'format' });
+  res.json({ ok: !usernameTaken(name) });
+});
 // Stripe and PayPal sign the exact bytes they send, so the credits webhooks keep the raw body next to the parsed one.
 app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/credits/webhook')) req.rawBody = buf; } }));
 

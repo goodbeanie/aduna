@@ -3,6 +3,7 @@ import { api, markSignedIn, endSession } from './api.js';
 import { createIdentity, unlockIdentity, saveKey, hasCrypto, recoverIdentity, isRecoveryKey } from './crypto.js';
 import { RecoveryKeyCard } from './Recovery.jsx';
 import { DeviceSignIn } from './DeviceLogin.jsx';
+import SignupFlow from './SignupFlow.jsx';
 import { passkeysSupported, signInWithPasskey } from './passkeys.js';
 import { LANGS, getLang, setLang, useLang } from './i18n.js';
 
@@ -13,7 +14,6 @@ export default function Auth({ onAuthed }) {
   const { lang, t } = useLang();
   const [mode, setMode] = useState(typeof location !== 'undefined' && location.hash === '#signup' ? 'register' : 'login');
   const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [fe, setFe] = useState(null); // an error that belongs to one field: { field, msg }, shown under that field
@@ -25,11 +25,40 @@ export default function Auth({ onAuthed }) {
   const [method, setMethod] = useState('key'); // forgot-password: 'key' (recovery key, keeps messages) or 'email' (emailed link, new encryption key)
   const [mailed, setMailed] = useState(false); // email method: a link was requested (the new password is chosen on the page the link opens: ResetPassword.jsx)
   const [info, setInfo] = useState('');
-  const [useKey, setUseKey] = useState(true);        // sign-up: protect the account with a recovery key (keeps messages)
-  const [useMail, setUseMail] = useState(false);      // sign-up: also/instead allow email recovery (new encryption key)
-  const [mailOk, setMailOk] = useState(false);        // the server can send email, so email recovery can be offered
+  const [mailOk, setMailOk] = useState(false);        // the server can send email, so email recovery can be offered at sign-up
   useEffect(() => { api('/auth-options').then((o) => setMailOk(!!o.emailRecovery)).catch(() => {}); }, []);
   const [fresh, setFresh] = useState(null);     // just registered: { user, privateKey, key } until the recovery key is saved
+
+  // Sign-up (the three steps live in SignupFlow.jsx; it calls this at the end). Throws on a problem so the flow can show it on the right step.
+  // `form`: { username, email, password, useKey, useMail, design: { displayName, avatarLogo, avatarColor, profileTheme } }
+  async function register(form) {
+    if (!hasCrypto()) throw new Error('Encryption needs a secure context. Open the app via http://localhost or HTTPS.');
+    try {
+      const { useKey, useMail } = form;
+      if (!useKey && !useMail) throw fieldError('method', 'Pick at least one way to get back into your account.');
+      const ident = await createIdentity(form.password);
+      const { user: made } = await api('/register', {
+        method: 'POST',
+        body: { username: form.username, email: form.email, password: form.password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail ? { emailRecovery: true } : {}) },
+      });
+      markSignedIn(true);
+      await saveKey(made.id, ident.privateKey);
+      // The profile they designed. The account already exists, so if this fails they just restyle it in Settings: it must not undo the sign-up.
+      let user = made;
+      try {
+        const d = form.design || {};
+        const body = { avatarColor: d.avatarColor, avatarLogo: !!d.avatarLogo };
+        if (d.displayName && d.displayName !== form.username) body.displayName = d.displayName;
+        if (d.profileTheme) body.profileTheme = d.profileTheme;
+        user = (await api('/me', { method: 'PATCH', body })).user || made;
+      } catch { /* keep the account as registered */ }
+      if (!useKey) { onAuthed(user, ident.privateKey); return; } // email recovery only: no key to show
+      setFresh({ user, privateKey: ident.privateKey, key: ident.recovery.key }); // the recovery key is shown once before the app opens
+    } catch (err) {
+      endSession(); // a sign-up that did not finish must not leave a session behind
+      throw err;
+    }
+  }
 
   async function submit(e) {
     e.preventDefault();
@@ -40,18 +69,7 @@ export default function Auth({ onAuthed }) {
     }
     setBusy(true);
     try {
-      if (mode === 'register') {
-        if (!useKey && !(useMail && mailOk)) throw fieldError('method', 'Pick at least one way to get back into your account.');
-        const ident = await createIdentity(password);
-        const { user } = await api('/register', {
-          method: 'POST',
-          body: { username, email: email.trim(), password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail && mailOk ? { emailRecovery: true } : {}) },
-        });
-        markSignedIn(true);
-        await saveKey(user.id, ident.privateKey);
-        if (!useKey) { onAuthed(user, ident.privateKey); return; } // email recovery only: no key to show
-        setFresh({ user, privateKey: ident.privateKey, key: ident.recovery.key }); // the recovery key is shown once before the app opens
-      } else if (mode === 'recover' && method === 'email') {
+      if (mode === 'recover' && method === 'email') {
         // The answer is the same whether or not the account has email recovery on. The email holds a link to /reset: the new password,
         // the two-factor code (if any) and the new encryption key are all handled on that page.
         await api('/recover/email/start', { method: 'POST', body: { username } });
@@ -122,6 +140,11 @@ export default function Auth({ onAuthed }) {
       <div className="auth-card"><DeviceSignIn onAuthed={onAuthed} onBack={() => switchMode('login')} /></div>
     </div>
   );
+  if (mode === 'register') return (
+    <div className="auth-bg su-bg">
+      <SignupFlow mailOk={mailOk} onSubmit={register} onLogin={() => switchMode('login')} />
+    </div>
+  );
   // props for a field that can carry its own error, and the message under it
   const fp = (f) => ({ id: 'f-' + f, 'aria-invalid': fe?.field === f ? true : undefined, 'aria-describedby': fe?.field === f ? 'e-' + f : undefined });
   const ferr = (f) => (fe?.field === f ? <p className="error-text field-error" id={'e-' + f} role="alert">{fe.msg}</p> : null);
@@ -131,19 +154,11 @@ export default function Auth({ onAuthed }) {
     <div className="auth-bg">
       <form className="auth-card" onSubmit={submit}>
         <span className="wordmark" role="img" aria-label="Aduna" />
-        <h1>{mode === 'login' ? t('welcomeBack') : mode === 'recover' ? t('resetTitle') : t('createTitle')}</h1>
-        <p className="muted center">{mode === 'login' ? t('excited') : mode === 'recover' ? (method === 'key' ? t('resetKeyHelp') : t('resetMailHelp')) : t('joinConv')}</p>
+        <h1>{mode === 'login' ? t('welcomeBack') : t('resetTitle')}</h1>
+        <p className="muted center">{mode === 'login' ? t('excited') : (method === 'key' ? t('resetKeyHelp') : t('resetMailHelp'))}</p>
 
         <label>{t('username')}</label>
         <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required autoComplete="username" maxLength={20} />
-
-        {mode === 'register' && (
-          <>
-            <label>{t('email')}</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" maxLength={254} placeholder="you@example.com" />
-            <p className="hint">{t('emailHint')}</p>
-          </>
-        )}
 
         {mode === 'recover' && (
           <div className="seg">
@@ -163,26 +178,10 @@ export default function Auth({ onAuthed }) {
 
         {!(mode === 'recover' && method === 'email') && <>
         <label>{mode === 'recover' ? t('newPassword') : t('password')}</label>
-        <input {...fp('password')} type="password" value={password} onChange={clear('password', setPassword)} required minLength={mode === 'login' ? 1 : mode === 'recover' ? undefined : 8}
+        <input {...fp('password')} type="password" value={password} onChange={clear('password', setPassword)} required minLength={mode === 'login' ? 1 : undefined}
           autoComplete={mode === 'login' ? 'current-password' : 'new-password'} />
         {ferr('password')}
         </>}
-        {mode === 'register' && <p className="hint">{t('passwordHint')}</p>}
-        {mode === 'register' && (
-          <>
-            <label>{t('ifForget')}</label>
-            <p className="hint">{t('chooseBack')}</p>
-            <label className="check-row">
-              <input {...fp('method')} type="checkbox" checked={useKey} onChange={(e) => { if (!e.target.checked && !(useMail && mailOk)) return; setUseKey(e.target.checked); setFe(null); }} />
-              <span><strong>{t('keyOptionB')}</strong>{t('keyOptionT')}</span>
-            </label>
-            <label className="check-row">
-              <input type="checkbox" checked={useMail && mailOk} disabled={!mailOk} onChange={(e) => { if (!e.target.checked && !useKey) return; setUseMail(e.target.checked); setFe(null); }} />
-              <span><strong>{t('mailOptionB')}</strong>{t('mailOptionT')}{!mailOk && t('mailUnavailable')}</span>
-            </label>
-            {ferr('method')}
-          </>
-        )}
         {mode === 'recover' && method === 'key' && (
           <>
             <label>{t('newPasswordAgain')}</label>
@@ -203,7 +202,7 @@ export default function Auth({ onAuthed }) {
         {info && <p className="muted small">{info}</p>}
         {error && <div className="error">{error}</div>}
 
-        <button className="btn primary full" disabled={busy}>{busy ? t('working') : mode === 'login' ? t('logIn') : mode === 'recover' ? (method === 'email' ? (mailed ? t('sendAgain') : t('sendLink')) : t('resetBtn')) : t('continue')}</button>
+        <button className="btn primary full" disabled={busy}>{busy ? t('working') : mode === 'login' ? t('logIn') : (method === 'email' ? (mailed ? t('sendAgain') : t('sendLink')) : t('resetBtn'))}</button>
         {mode === 'login' && (
           <div className="auth-alt">
             {passkeysSupported() && <button type="button" className="btn full" disabled={busy} onClick={passkeyLogin}>{t('passkeyBtn')}</button>}
@@ -211,7 +210,7 @@ export default function Auth({ onAuthed }) {
           </div>
         )}
         <p className="muted small auth-switch">
-          {mode === 'login' ? t('needAccount') : mode === 'recover' ? t('remembered') : t('haveAccount')}
+          {mode === 'login' ? t('needAccount') : t('remembered')}
           <a href="#" onClick={(e) => { e.preventDefault(); switchMode(mode === 'login' ? 'register' : 'login'); }}>
             {mode === 'login' ? t('register') : t('logInLink')}
           </a>

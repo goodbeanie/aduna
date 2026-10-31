@@ -30,6 +30,7 @@ import './sidebar.css'; // after even.css: the one sidebar pass (spacing, labels
 import './friends.css'; // after sidebar.css: the Friends page rows (one column, hover, quiet actions)
 import './header.css'; // after friends.css: the top bar (grouped controls, one size, quiet lock chip)
 import './messages.css'; // after header.css: the message area (divider contrast, speaker spacing, whole type sizes)
+import './signup.css'; // the three-step sign-up (SignupFlow.jsx)
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';
