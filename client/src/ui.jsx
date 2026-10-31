@@ -19,7 +19,7 @@ export function Avatar({ user, size = 40, presence }) {
   return (
     <div className="avatar-wrap" style={{ width: size, height: size }}>
       <div className="avatar" style={{ width: size, height: size, background: user.avatarColor, fontSize: size * (user.avatarEmoji ? 0.52 : 0.46) }}>
-        {showImg ? <img src={src} alt="" draggable={false} onError={() => setFailed(src)} /> : user.avatarLogo ? <span className="logo-mark" aria-hidden="true" /> : label}
+        {showImg ? <img src={src} alt="" draggable={false} onError={() => setFailed(src)} /> : user.avatarLogo ? <span className="logo-mark" aria-hidden="true"><i className="logo-body" /><i className="logo-star" /></span> : label}
       </div>
       {frame && <img className="avatar-frame" src={frame} alt="" draggable={false} style={{ width: ring, height: ring, left: (size - ring) / 2, top: (size - ring) / 2 }} />}
       {presence && <span className={'dot ' + presence} style={{ width: Math.max(10, size * 0.3), height: Math.max(10, size * 0.3) }} />}

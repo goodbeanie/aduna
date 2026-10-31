@@ -39,7 +39,11 @@
 
 
 /* profile customization */
-.logo-mark { width: 58%; height: 58%; display: block; background: currentColor; -webkit-mask: url(/aduna-icon.png) center / contain no-repeat; mask: url(/aduna-icon.png) center / contain no-repeat; }
+/* The logo as a profile picture: same two layers as the Plus badge, so the star keeps its purple and the body follows the text colour. Sized to sit well inside a round or rounded-square crop. */
+.logo-mark { position: relative; width: 46%; aspect-ratio: 192 / 207; display: block; }
+.logo-mark i { position: absolute; inset: 0; display: block; background-size: 100% 100%; background-repeat: no-repeat; }
+.logo-mark .logo-star { background-image: url(/badges/plus-star.png); }
+.logo-mark .logo-body { background-color: currentColor; -webkit-mask: url(/badges/plus-body.png) center / 100% 100% no-repeat; mask: url(/badges/plus-body.png) center / 100% 100% no-repeat; }
 .at-input { position: relative; }
 .at-input > span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .at-input input { padding-left: 28px; }
