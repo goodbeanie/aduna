@@ -58,7 +58,7 @@ export function useCardTheme(user) {
 
 const PATHS = {
   pin: <><path d="M12 21s-6-5.6-6-10a6 6 0 0112 0c0 4.4-6 10-6 10z" /><circle cx="12" cy="11" r="2.2" /></>,
-  coin: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="5" /><path d="M12 9.6v4.8M10.3 11h2.7a1 1 0 010 2h-2.7" /></>,
+  coin: <><path fill="currentColor" stroke="none" d="M2.3 12C7.18 6.92 13.17 2 18.56 2L21.73 2.58V2.71C17.02 4.57 12.31 7.78 8.93 12C12.31 16.25 17.02 19.46 21.73 21.32V21.45L18.56 22C13.17 22 7.18 17.11 2.3 12Z" /><path fill="currentColor" stroke="none" d="M12.85 12C15.52 9.06 18.52 6.71 21.73 4.68V19.33C18.52 17.32 15.52 14.97 12.85 12Z" /></>,
   camera: <><path d="M4 8.5h3.2L9 6h6l1.8 2.5H20v10H4z" /><circle cx="12" cy="13.2" r="3.2" /></>,
   link: <><path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 00-5.7 0l-3 3A4 4 0 0011 18.7l1-1" /></>,
   plus: <><path d="M12 5v14" /><path d="M5 12h14" /></>,
