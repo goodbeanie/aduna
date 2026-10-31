@@ -272,9 +272,10 @@ function register(app, d) {
     const labels = d.fileLabels ? d.fileLabels() : new Map();
     const files = rows.map((r) => {
       const l = labels.get(r.id) || {};
+      const name = l.name || r.fname || null;
       const mime = l.type || r.mime || '';
-      const ext = (String(l.name || '').match(/\.([a-z0-9]{1,10})$/i) || [])[1]?.toLowerCase() || r.ext || '';
-      return { id: r.id, size: r.size, createdAt: r.created_at, name: l.name || null, mime, ext, kind: kindOf(mime, ext), where: l.where || 'other' };
+      const ext = (String(name || '').match(/\.([a-z0-9]{1,10})$/i) || [])[1]?.toLowerCase() || r.ext || '';
+      return { id: r.id, size: r.size, createdAt: r.created_at, name, mime, ext, kind: kindOf(mime, ext), where: l.where || 'other' };
     });
     const needed = Math.max(0, Math.floor(Number(req.query.needed) || 0));
     res.json({ files, suggest: needed ? pickOldest(files, needed).map((f) => f.id) : [] });

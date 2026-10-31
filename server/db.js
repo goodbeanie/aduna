@@ -419,7 +419,7 @@ async function userFiles(uid, limit = 2000) {
   return rows.map((r) => {
     let m = {};
     try { m = JSON.parse(open(r.meta, `filemeta:${r.id}`)) || {}; } catch { /* unreadable: no type info */ }
-    return { id: r.id, size: Number(r.size), created_at: Number(r.created_at), mime: typeof m.mime === 'string' ? m.mime : '', ext: typeof m.ext === 'string' ? m.ext : '' };
+    return { id: r.id, size: Number(r.size), created_at: Number(r.created_at), mime: typeof m.mime === 'string' ? m.mime : '', ext: typeof m.ext === 'string' ? m.ext : '', fname: typeof m.fname === 'string' ? m.fname : '' };
   });
 }
 async function fileMeta(fid) {

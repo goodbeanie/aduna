@@ -49,7 +49,7 @@ export async function uploadFile(file, scope, onProgress) {
   else if (scope.kind === 'group') body = await encryptBytesWithKey(scope.key, body);
   const send = () => new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open('POST', `/api/files?kind=${scope.kind}&target=${encodeURIComponent(scope.target)}&mime=${encodeURIComponent((file.type || '').toLowerCase())}&ext=${encodeURIComponent((String(file.name || '').match(/\.([a-z0-9]{1,10})$/i) || [])[1] || '')}`);
+    x.open('POST', `/api/files?kind=${scope.kind}&target=${encodeURIComponent(scope.target)}&mime=${encodeURIComponent((file.type || '').toLowerCase())}&ext=${encodeURIComponent((String(file.name || '').match(/\.([a-z0-9]{1,10})$/i) || [])[1] || '')}&name=${encodeURIComponent(String(file.name || '').slice(-120))}`);
     x.setRequestHeader('Content-Type', 'application/octet-stream');
     x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     x.onload = () => {
