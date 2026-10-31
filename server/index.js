@@ -165,6 +165,7 @@ function parseMentions(content, server, authorId) {
 const CREATOR_KEYS = new Set(String(process.env.CREATOR_EMAILS || 'adunachatapp@gmail.com,nathankennethvc2@gmail.com').split(',').map((e) => security.cleanEmail(e)).filter(Boolean).map((e) => security.emailKey(e)));
 const isCreatorEmail = (email) => !!email && CREATOR_KEYS.has(security.emailKey(email));
 const isCreator = (u) => !!u && !u.bot && u.emailVerified === true && isCreatorEmail(u.email);
+storagePlan.setLifetime(isCreator); // the Aduna creator accounts have Aduna Plus for good, with no payment and no end date
 const CREATOR_BADGE = { id: 'creator', name: 'Creator', builtin: true, image: null, emoji: '', color: '' };
 // The Artist badge: automatic once an artist's first item has been approved (db().artists[id].badge, see the artists block). The client draws it
 // from /badges/artist.png as a mask in the surrounding text colour (`glyph`), so it is white on dark themes and dark on light ones.

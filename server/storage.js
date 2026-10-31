@@ -32,13 +32,20 @@ function kindOf(mime, ext) {
 // ---------- who has a plan ----------
 // u.storageSub = { status: 'pending' | 'active' | 'past_due' | 'cancelled' | 'ended', paypalId, since, paidThrough, syncedAt }
 const rec = (u) => (u && u.storageSub && typeof u.storageSub === 'object' ? u.storageSub : null);
+// Accounts that have Plus for good without paying (the Aduna creator accounts). index.js registers the check with setLifetime();
+// the default is nobody, so server/storage-test.js is unaffected.
+let lifetime = () => false;
+const setLifetime = (fn) => { lifetime = typeof fn === 'function' ? fn : () => false; };
+const hasLifetime = (u) => { try { return !!lifetime(u); } catch { return false; } };
 // has paid and the paid time has not run out ('cancelled' keeps the plan until the month that was paid for ends)
 const isSubscriber = (u, now = Date.now()) => {
+  if (hasLifetime(u)) return true;
   const s = rec(u);
   return !!s && s.status !== 'ended' && s.status !== 'pending' && Number(s.paidThrough) > now;
 };
 // files are safe from the shared pool's clean-up: while subscribed and for GRACE_MS afterwards
 const isProtected = (u, now = Date.now()) => {
+  if (hasLifetime(u)) return true;
   const s = rec(u);
   return !!s && s.status !== 'pending' && Number(s.paidThrough) > 0 && now < Number(s.paidThrough) + GRACE_MS;
 };
@@ -236,6 +243,7 @@ function register(app, d) {
     return {
       plan: { ...PLAN },
       subscriber: sub,
+      lifetime: hasLifetime(u),
       status: s ? s.status : 'none',
       paidThrough: s && s.paidThrough ? s.paidThrough : null,
       renews: sub && !!s && s.status === 'active',
@@ -300,7 +308,8 @@ function register(app, d) {
   app.post('/api/storage/subscribe', d.auth, d.ah(async (req, res) => {
     if (!credits.paypalEnabled()) return res.status(503).json({ error: 'The storage plan is not set up on this server yet' });
     if (limited(req, res, 5)) return;
-    if (isSubscriber(req.user, nowMs()) && rec(req.user).status === 'active') return res.status(409).json({ error: 'You already have the storage plan' });
+    if (hasLifetime(req.user)) return res.status(409).json({ error: 'Aduna Plus is already on for this account' });
+    if (isSubscriber(req.user, nowMs()) && rec(req.user) && rec(req.user).status === 'active') return res.status(409).json({ error: 'You already have the storage plan' });
     const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     try {
       const r = await createSubscription({ user: req.user, buyer: req.body, origin, planId: await planId(), fetchImpl: d.fetchImpl });
@@ -340,6 +349,6 @@ function register(app, d) {
 }
 
 module.exports = {
-  PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, isProtected, protectedIds, overQuota, pickOldest, makeRoom,
+  PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, setLifetime, isProtected, protectedIds, overQuota, pickOldest, makeRoom,
   createPlan, createSubscription, confirmSubscription, syncSubscription, cancelSubscription, applyActive, handleEvent, register,
 };

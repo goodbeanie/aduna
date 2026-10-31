@@ -94,7 +94,7 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, busy }) {
         <>
           <div className="st-stat"><b>{fmt(s.used)}</b><span>of {fmt(s.limit)} used</span></div>
           <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></div>
-          <p className="st-note">{s.renews ? `Renews around ${day(s.paidThrough)} for $${(s.plan.cents / 100).toFixed(2)}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
+          <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${(s.plan.cents / 100).toFixed(2)}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
         </>
       ) : (
         <>
