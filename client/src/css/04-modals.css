@@ -23,6 +23,11 @@
 .card { background: var(--bg2); overflow: hidden; position: relative; border: 1px solid var(--line); }
 .banner { height: 90px; background-size: cover; background-position: center; } .card-avatar { position: absolute; top: 52px; left: 18px; border: 4px solid var(--bg2); border-radius: calc(26% + 2px); background: var(--bg2); }
 .card-avatar .dot { border-color: var(--bg2); }
+/* Aduna Plus badge: bottom-right of the picture. The body is a mask filled with the card's text colour, the star keeps its purple. */
+.plus-badge { position: absolute; left: 114px; top: 100px; width: var(--pb, 34px); aspect-ratio: 192 / 207; display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,.18)); }
+.plus-badge i { position: absolute; inset: 0; display: block; background-size: 100% 100%; background-repeat: no-repeat; }
+.plus-badge .plus-star { background-image: url(/badges/plus-star.png); }
+.plus-badge .plus-body { background-color: var(--text, #14110d); -webkit-mask: url(/badges/plus-body.png) center / 100% 100% no-repeat; mask: url(/badges/plus-body.png) center / 100% 100% no-repeat; }
 .card-body { padding: 50px 16px 16px; }
 .card-body h3 { font-size: 22px; } .card-body h4 { font-size: 12px; color: var(--muted); margin: 14px 0 4px; } .bio { white-space: pre-wrap; overflow-wrap: anywhere; }
 .editor { display: grid; grid-template-columns: 1fr 280px; gap: 20px; }

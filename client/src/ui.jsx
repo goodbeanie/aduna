@@ -44,6 +44,16 @@ export function ServerIcon({ server, size = 48, fill = false, preview }) {
   );
 }
 
+// The Aduna Plus mark on a profile card, beside the profile picture. Two transparent layers: the star keeps its purple, and the black body is a mask
+// painted with the card's text colour (var(--text)), so it reads dark on a light card and white on a dark one, including gradient profile themes.
+export function PlusBadge({ size = 34 }) {
+  return (
+    <span className="plus-badge" style={{ '--pb': size + 'px' }} title="Aduna Plus" role="img" aria-label="Aduna Plus">
+      <i className="plus-body" /><i className="plus-star" />
+    </span>
+  );
+}
+
 export function Banner({ user }) {
   const src = user.bannerPreview || imageUrl(user.bannerImage);
   return <div className="banner" style={{ backgroundColor: user.bannerColor, backgroundImage: src ? `url("${src}")` : undefined }} />;

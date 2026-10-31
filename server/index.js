@@ -219,6 +219,7 @@ function publicUser(u) {
     clipsPage: clipsPageOf(u),
     activity: activityOf(u), // { name, since, source } or null: "Playing ..." on the profile (hidden when the person turned it off, is offline or Invisible)
     badges: badgeViews(u),
+    plus: !u.bot && storagePlan.isSubscriber(u, now()), // has the paid storage plan (Aduna Plus): shows the Plus badge on the profile
     frame: wornFrame(u),
     username: u.username,
     displayName: u.displayName,
@@ -4048,6 +4049,7 @@ credits.register(app, {
 storageApi = storagePlan.register(app, {
   auth, ah, db, save: () => store.save(), store,
   notify: (uid, v) => io.to('user:' + uid).emit('storage:update', v),
+  userChanged: (uid) => { const u = db().users[uid]; if (u) emitUserUpdate(u); }, // the Plus badge on their profile turned on or off
   getMeta: (k) => store.getMeta(k), setMeta: (k, v) => store.setMeta(k, v),
   filesGone: (ids) => flagGone(ids),
   fileLabels: () => {

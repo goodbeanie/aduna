@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
-import { Avatar, BadgeIcons, Banner, Icon, Modal, STATUS_LABEL, useCardTheme } from './ui.jsx';
+import { Avatar, BadgeIcons, Banner, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, CUSTOM_THEME_ID } from './profilethemes.js';
 import { uploadImage, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
 import Cropper from './Cropper.jsx';
@@ -221,6 +221,7 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
       <div className={'card' + th.className} style={{ '--accent': user.accentColor, ...th.style }}>
         <Banner user={user} />
         <div className="card-avatar"><Avatar user={user} size={80} presence={presence} /></div>
+        {user.plus && <PlusBadge />}
         <div className="card-body">
           <h3 data-nc style={{ '--nc': user.accentColor }}>{user.displayName}{user.bot && <> <BotTag /></>} <BadgeIcons user={user} size={20} /></h3>
           <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username} · ${STATUS_LABEL[presence || 'offline']}`}</div>

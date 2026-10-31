@@ -246,9 +246,14 @@ function register(app, d) {
       tax: pay ? TAX.publicInfo() : null,
     };
   }
+  const plusSeen = new Map(); // uid -> whether the Plus badge was last shown; other people's profiles refresh only when it changes
   const push = (uid) => {
     const u = d.db().users[uid];
     if (!u || !d.notify) return Promise.resolve();
+    const plus = isSubscriber(u, nowMs());
+    const prev = plusSeen.get(uid);
+    if (d.userChanged && prev !== plus && !(prev === undefined && !plus)) { try { d.userChanged(uid); } catch (e) { console.error('Plus badge update failed:', e.message); } }
+    plusSeen.set(uid, plus);
     return viewOf(u).then((v) => d.notify(uid, v)).catch((e) => console.error('Storage push failed:', e.message));
   };
 
