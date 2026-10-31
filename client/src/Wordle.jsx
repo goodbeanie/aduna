@@ -24,7 +24,7 @@ export function WordleShareCard({ share }) {
   const name = share.kind === 'g' ? 'Aduna Wordle' : 'Server Wordle';
   return (
     <div className="wd-card" role="img" aria-label={`${name} number ${share.day}, ${share.tries === 'X' ? 'not solved' : 'solved in ' + share.tries + ' of 6'}`}>
-      <div className="wd-card-head"><Icon name="wordle" size={15} /><span>{name} No. {share.day}</span><b>{share.tries}/6</b></div>
+      <div className="wd-card-head"><Icon name="wordle" size={18} /><span>{name} No. {share.day}</span><b>{share.tries}/6</b></div>
       <div className="wd-mini" aria-hidden="true">{share.rows.map((r, i) => <div key={i}>{[...r].map((c, j) => <span key={j} className={'wd-m ' + c} />)}</div>)}</div>
     </div>
   );
@@ -120,6 +120,7 @@ export function WordleModal({ scopes, users = {}, onShare, onClose }) {
             </div>
           )}
           <div className="wd-sub muted small">{scope === 'global' ? 'The same word for everyone on Aduna' : `A word just for ${scopeName}`}{data ? ` · No. ${data.day}` : ''}</div>
+          {stats && stats.streak > 0 && <div className="wd-streak" title={`Best: ${stats.best} ${stats.best === 1 ? 'day' : 'days'}`}><span aria-hidden="true">🔥</span> {stats.streak}-day streak{data.status === 'playing' ? ' · keep it going' : ''}</div>}
           {err && <div className="error">{err} <button className="link-btn" onClick={() => load(scope)}>Try again</button></div>}
           <div className="wd-board" role="grid" aria-label="Wordle board">
             {Array.from({ length: ROWS }, (_, r) => {
@@ -179,6 +180,7 @@ export function WordleModal({ scopes, users = {}, onShare, onClose }) {
                   <li key={r.userId}>
                     <Avatar user={users[r.userId]} size={24} />
                     <span className="grow">{users[r.userId]?.displayName || 'Someone'}</span>
+                    {r.streak > 1 && <span className="wd-flame small" title={`${r.streak} days in a row`}>🔥 {r.streak}</span>}
                     <span className={'small ' + (r.status === 'won' ? '' : 'muted')}>{r.status === 'won' ? `${r.tries} ${r.tries === 1 ? 'try' : 'tries'}` : 'Missed it'}</span>
                   </li>
                 ))}

@@ -68,6 +68,7 @@ const go = (id, gs, t) => { for (const g of gs) W.play(recs[id], 's', 3, ans, g,
 go('a', ['crane', 'train'], 300); go('b', ['train'], 200); go('c', ['crane', 'plain', 'about', 'above', 'abuse', 'actor'], 100); go('d', ['crane'], 100);
 const st = W.standings(recs, 's', 3, ['a', 'b', 'c', 'd', 'nobody']);
 assert.deepStrictEqual(st.rows.map((r) => r.userId), ['b', 'a', 'c'], 'fewest tries first, then those who missed; unfinished players are left out');
+assert.deepStrictEqual(st.rows.map((r) => r.streak), [1, 1, 0], 'each winner’s current streak is shown; a miss shows none');
 assert.deepStrictEqual([st.finished, st.members], [3, 5]);
 assert.strictEqual(JSON.stringify(st).includes('crane'), false, 'standings never carry guesses');
 assert.strictEqual(W.standings(recs, 's', 4, ['a', 'b']).finished, 0, 'yesterday does not count');

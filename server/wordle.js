@@ -109,10 +109,13 @@ function standings(records, scope, day, memberIds, limit = 10) {
   const rows = [];
   for (const id of memberIds) {
     const b = records[id] && records[id].boards && records[id].boards[scope];
-    if (b && b.day === day && b.status !== 'playing') rows.push({ userId: id, status: b.status, tries: b.guesses.length, at: b.finishedAt || 0 });
+    if (b && b.day === day && b.status !== 'playing') {
+      const s = records[id].stats && records[id].stats[scope];
+      rows.push({ userId: id, status: b.status, tries: b.guesses.length, at: b.finishedAt || 0, streak: b.status === 'won' && s ? s.streak : 0 });
+    }
   }
   rows.sort((a, b) => (a.status === b.status ? a.tries - b.tries || a.at - b.at : a.status === 'won' ? -1 : 1));
-  return { finished: rows.length, members: memberIds.length, rows: rows.slice(0, limit).map(({ userId, status, tries }) => ({ userId, status, tries })) };
+  return { finished: rows.length, members: memberIds.length, rows: rows.slice(0, limit).map(({ userId, status, tries, streak }) => ({ userId, status, tries, streak })) };
 }
 
 module.exports = { ANSWERS, TRIES, LEN, EPOCH, dayOf, resetsAt, isScope, normalize, isWord, answerFor, score, blank, boardOf, play, view, standings };

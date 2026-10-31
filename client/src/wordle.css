@@ -6,10 +6,12 @@
 .wd-tabs button { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--muted); padding: 6px 8px; border-radius: 7px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .wd-tabs button.on { background: var(--raised); color: var(--text); box-shadow: 0 0 0 1px var(--line); }
 .wd-sub { margin-bottom: 12px; text-align: center; }
+.wd-streak { margin: -4px 0 12px; padding: 4px 12px; border-radius: 999px; background: var(--field); color: var(--head); font-size: 13px; font-weight: 600; }
+.wd-flame { margin-right: 8px; white-space: nowrap; color: var(--muted); }
 
 /* the board shrinks on short screens (a phone, a small laptop) so the board, the keys and the message all fit without scrolling:
    about 410px of the dialog is everything that is not the board (title, tabs, message, keys, clock, padding, home indicator) */
-.wd-board { display: grid; gap: 6px; width: min(100%, 300px, max(150px, calc((92vh - 410px) * .83))); width: min(100%, 300px, max(150px, calc((92dvh - 410px) * .83))); margin: 0 auto 12px; }
+.wd-board { display: grid; gap: 6px; width: min(100%, 300px, max(150px, calc((92vh - 440px) * .83))); width: min(100%, 300px, max(150px, calc((92dvh - 440px) * .83))); margin: 0 auto 12px; }
 .wd-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .wd-t { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border: 2px solid var(--line2); border-radius: 6px; font-size: clamp(22px, 7vw, 30px); font-weight: 700; text-transform: uppercase; color: var(--text); background: transparent; user-select: none; }
 .wd-t.fill { border-color: var(--muted); animation: wd-pop .1s ease-out; }
@@ -74,9 +76,14 @@
 @media (max-height: 600px) { .wd-k { height: 36px; } .wd-kb, .wd-kr { gap: 4px; } .wd-sub { margin-bottom: 6px; } .wd-msg { min-height: 18px; margin-bottom: 4px; } .wd-foot { margin-top: 6px; } }
 
 /* A shared result inside a message */
-.wd-card { display: inline-block; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); max-width: 100%; }
-.wd-card-head { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
-.wd-card-head b { margin-left: auto; padding-left: 14px; font-weight: 600; color: var(--head); }
-.wd-mini { display: grid; gap: 3px; }
-.wd-mini > div { display: grid; grid-template-columns: repeat(5, 16px); gap: 3px; }
-.wd-m { display: block; width: 16px; height: 16px; border-radius: 3px; }
+.wd-card { display: block; width: fit-content; margin-top: 8px; padding: 14px 16px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); max-width: 100%; }
+.wd-card-head { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--muted); margin-bottom: 12px; }
+.wd-card-head b { margin-left: auto; padding-left: 20px; font-weight: 600; color: var(--head); }
+.wd-mini { display: grid; gap: 5px; }
+.wd-mini > div { display: grid; grid-template-columns: repeat(5, 30px); gap: 5px; }
+.wd-m { display: block; width: 30px; height: 30px; border-radius: 5px; }
+@media (max-width: 720px) {
+  .wd-mini > div { grid-template-columns: repeat(5, 26px); gap: 4px; }
+  .wd-m { width: 26px; height: 26px; }
+  .wd-mini { gap: 4px; }
+}
