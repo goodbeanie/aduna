@@ -85,6 +85,7 @@ export default function SignupFlow({ mailOk, onSubmit, onLogin }) {
   // step 2 and 3
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);       // the Show / Hide button on the password box
   const [useKey, setUseKey] = useState(true);
   const [useMail, setUseMail] = useState(false);
   const [err, setErr] = useState(null);              // { step, msg }
@@ -240,8 +241,11 @@ export default function SignupFlow({ mailOk, onSubmit, onLogin }) {
           <p className="hint">{t('emailHint')}</p>
 
           <label htmlFor="su-password">{t('password')}</label>
-          <input id="su-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
-          <p className="hint">{t('passwordHint')}</p>
+          <div className="su-pw">
+            <input id="su-password" type={showPw ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" aria-describedby="su-password-hint" />
+            <button type="button" className="su-pw-toggle" aria-pressed={showPw} onClick={() => setShowPw((v) => !v)}>{showPw ? t('suHidePw') : t('suShowPw')}</button>
+          </div>
+          <p id="su-password-hint" className="hint">{t('passwordHint')}</p>
 
           {problem}
           <div className="su-actions">

@@ -20,19 +20,40 @@
 <div class="wrap">
   <nav>
     <a class="brand" href="/" aria-label="aduna."><span class="logo-wm" role="img" aria-label="aduna."></span></a>
-    <div class="links"><a class="t" href="#features">Features</a><a class="t" href="#privacy">Privacy</a><a class="t" href="#themes">Themes</a>
+    <div class="links"><a class="t" href="#features">Features</a><a class="t" href="#privacy">Privacy</a>
       <a class="btn sm dl" href="/download">Download Aduna</a></div>
   </nav>
 
   <header class="hero">
-    <div class="eyebrow">Aduna (verb): to gather</div>
-    <h1>Your people.<br>Your space.</h1>
-    <p class="lead">A chat app for communities and close friends: servers and channels, voice and video, direct messages only you can read, and themes you can make your own.</p>
-    <div class="cta">
-      <a class="btn big go primary" href="/app#signup">Join Aduna</a>
-      <a class="btn big ghost login" href="/app">Log in</a>
+    <div class="hero-copy">
+      <p class="kicker">Aduna, verb: to gather.</p>
+      <h1>Your people.<br>Your space.</h1>
+      <p class="lead">A chat app for communities and close friends: servers and channels, voice and video, direct messages only you can read, and themes you can make your own.</p>
+      <div class="cta">
+        <a class="btn big go primary" href="/app#signup">Join Aduna</a>
+        <a class="btn big ghost login" href="/app">Log in</a>
+      </div>
+      <p class="note">Start with your name, picture and look. Email and password come after. You can join the official Aduna server when you sign up.</p>
+
+      <div class="try" role="group" aria-label="Try a theme on this page">
+        <span class="try-label">Try a look. Your pick carries into sign-up.</span>
+        <div class="dots">
+          <button type="button" class="is20 sw" data-theme="zen" aria-pressed="false" aria-label="Zen" title="Zen">Zen</button>
+          <button type="button" class="is21 sw" data-theme="zen-light" aria-pressed="false" aria-label="Zen Light" title="Zen Light">Zen Light</button>
+          <button type="button" class="is8 sw" data-theme="parchment" aria-pressed="false" aria-label="Parchment" title="Parchment">Parchment</button>
+          <button type="button" class="is9 sw" data-theme="ocean" aria-pressed="false" aria-label="Ocean" title="Ocean">Ocean</button>
+          <button type="button" class="is10 sw" data-theme="forest" aria-pressed="false" aria-label="Forest" title="Forest">Forest</button>
+          <button type="button" class="is11 sw" data-theme="rose" aria-pressed="false" aria-label="Rose" title="Rose">Rose</button>
+          <button type="button" class="is12 sw" data-theme="lavender" aria-pressed="false" aria-label="Lavender" title="Lavender">Lavender</button>
+          <button type="button" class="is13 sw" data-theme="sunset" aria-pressed="false" aria-label="Sunset" title="Sunset">Sunset</button>
+          <button type="button" class="is14 sw" data-theme="charcoal" aria-pressed="false" aria-label="Charcoal" title="Charcoal">Charcoal</button>
+          <button type="button" class="is15 sw" data-theme="midnight" aria-pressed="false" aria-label="Midnight" title="Midnight">Midnight</button>
+          <button type="button" class="is16 sw" data-theme="evergreen" aria-pressed="false" aria-label="Evergreen" title="Evergreen">Evergreen</button>
+          <button type="button" class="is17 sw" data-theme="plum" aria-pressed="false" aria-label="Plum" title="Plum">Plum</button>
+          <button type="button" class="is18 sw" data-theme="ember" aria-pressed="false" aria-label="Ember" title="Ember">Ember</button>
+        </div>
+      </div>
     </div>
-    <small>You can join the official Aduna server when you sign up.</small>
 
     <div class="mock" aria-hidden="true">
       <div class="bar"><div class="si"><img src="/aduna-icon.png" alt=""></div><div class="si r"><img src="/aduna-icon.png" alt=""></div></div>
@@ -46,7 +67,7 @@
           <div class="m"><div class="is3 av">T</div><div><div class="is4 n">tristan<small>8:42 PM</small></div><div class="t">me!! what are we playing</div></div></div>
           <div class="m"><div class="is5 av">B</div><div><div class="is6 n">beanie<small>8:43 PM</small></div><div class="t">Aduna trivia. Obviously. <span class="mn">@maya</span> you're hosting!</div></div></div>
         </div>
-        <div class="mem"><div class="t">ONLINE · 3</div>
+        <div class="mem"><div class="t">3 online</div>
           <div class="p"><div class="is5 av">B</div>beanie</div><div class="p"><div class="is1 av">M</div>maya</div><div class="p"><div class="is3 av">T</div>tristan</div></div>
       </div>
     </div>
@@ -55,7 +76,6 @@
 
 <section id="features"><div class="wrap two">
   <div>
-    <div class="eyebrow">Features</div>
     <h2>What's inside.</h2>
     <p class="sub">Servers with channels, a chat that keeps up, and calls for when typing is too slow.</p>
   </div>
@@ -65,34 +85,19 @@
     <div><dt>Mentions</dt><dd>Autocomplete, highlights and desktop alerts, so a ping doesn't get lost.</dd></div>
     <div><dt>Sharing</dt><dd>Drag in or paste images, video, audio and files. There is GIF search and custom emoji too.</dd></div>
     <div><dt>Voice and video</dt><dd>One-to-one calls with camera and screen share, and voice channels for small groups.</dd></div>
-    <div><dt>Your look</dt><dd>Your own avatar, banner, name colour and status. A server can have its own theme as well.</dd></div>
+    <div><dt>Your look</dt><dd>Your own avatar, banner, name colour and status. A server can have its own theme as well, and you can build your own theme from two colours.</dd></div>
   </dl>
 </div></section>
 
 <section id="privacy" class="dark"><div class="wrap split">
   <div>
-    <div class="is7 eyebrow">Private by design</div>
     <h2>DMs only you can read.</h2>
     <p class="sub">Direct messages are encrypted in your browser before they leave it. The server only ever holds ciphertext it can't open.</p>
     <p class="spec">ECDH P-256 key exchange, AES-256-GCM, safety numbers to verify a chat, and encryption at rest.</p>
   </div>
   <div>
-    <div class="plain"><div class="lab">WHAT YOU SEND</div>yep, 14 Lantern Row. Door's blue.</div>
-    <div class="cipher"><div class="lab">WHAT THE SERVER STORES</div>YcAG1s5eBa6TK5HDZzkKlWeM5IAsj4C3Klbn Unrtep6INqzxfKsHYw 8paLg1s9GTO7hSGb8gk9OJNWxolNDKJuVRUP 2L6afLYfIxwLl+1fPTNwuMdYJuG9zLZQPw</div>
-  </div>
-</div></section>
-
-<section id="themes"><div class="wrap">
-  <div class="eyebrow">Appearance</div>
-  <h2>Eleven themes.</h2>
-  <p class="sub">Click one to try it on this page. In the app you can also build your own from two colours, or follow your device.</p>
-  <div class="themes">
-    <button type="button" class="is8 sw" data-theme="parchment" aria-pressed="false">Parchment</button><button type="button" class="is9 sw" data-theme="ocean" aria-pressed="false">Ocean</button>
-    <button type="button" class="is10 sw" data-theme="forest" aria-pressed="false">Forest</button><button type="button" class="is11 sw" data-theme="rose" aria-pressed="false">Rose</button>
-    <button type="button" class="is12 sw" data-theme="lavender" aria-pressed="false">Lavender</button><button type="button" class="is13 sw" data-theme="sunset" aria-pressed="false">Sunset</button>
-    <button type="button" class="is14 sw" data-theme="charcoal" aria-pressed="false">Charcoal</button><button type="button" class="is15 sw" data-theme="midnight" aria-pressed="false">Midnight</button>
-    <button type="button" class="is16 sw" data-theme="evergreen" aria-pressed="false">Evergreen</button><button type="button" class="is17 sw" data-theme="plum" aria-pressed="false">Plum</button>
-    <button type="button" class="is18 sw" data-theme="ember" aria-pressed="false">Ember</button>
+    <div class="plain"><div class="lab">What you send</div>yep, 14 Lantern Row. Door's blue.</div>
+    <div class="cipher"><div class="lab">What the server stores</div>YcAG1s5eBa6TK5HDZzkKlWeM5IAsj4C3Klbn Unrtep6INqzxfKsHYw 8paLg1s9GTO7hSGb8gk9OJNWxolNDKJuVRUP 2L6afLYfIxwLl+1fPTNwuMdYJuG9zLZQPw</div>
   </div>
 </div></section>
 
@@ -100,7 +105,7 @@
   <span class="logo-ic" aria-hidden="true"></span>
   <h2>Come gather.</h2>
   <a class="btn big go primary" href="/app#signup">Join Aduna</a>
-  <footer class="is19"><span>aduna. · to gather.</span></footer>
+  <footer class="is19"><span>aduna. To gather.</span></footer>
 </div>
 
 <script src="/landing.js"></script>

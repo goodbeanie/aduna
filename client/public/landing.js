@@ -6,9 +6,11 @@ try{
   }
 }catch(e){}
 
-// Click a theme in "Eleven themes" to try it on this page. Same seeds as the app's themes (client/src/themes.js); nothing is saved.
+// Click a theme under the headline to try it on this page. Same seeds as the app's themes (client/src/themes.js).
+// A pick is remembered in the same place the app keeps its theme, so sign-up and the app open in it. People who are already signed in keep the theme they saved in the app.
 (function () {
   var THEMES = {
+    zen: [1, '#1d1a17', '#ecd5b6'], 'zen-light': [0, '#f6f0e4', '#6f5233'],
     ocean: [0, '#f3f8fb', '#1f5f8b'], forest: [0, '#f4f8f1', '#2f6b45'], rose: [0, '#fcf4f4', '#b4435a'], lavender: [0, '#f7f4fc', '#6a4fb3'],
     sunset: [0, '#fdf5ec', '#c2551d'], charcoal: [1, '#2a2a2d', '#e8e4da'], midnight: [1, '#161b2a', '#7aa2ff'],
     evergreen: [1, '#17221d', '#6fcf97'], plum: [1, '#241a2b', '#d68cf0'], ember: [1, '#271c17', '#f09a5a']
@@ -47,9 +49,25 @@ try{
     document.querySelectorAll('.sw[data-theme]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-theme') === id)); });
   }
 
-  var first = document.querySelector('.sw[data-theme="parchment"]');
-  if (first) first.setAttribute('aria-pressed', 'true');
+  var KEY = 'aduna-theme'; // the app's own key (themes.js STORE): { id, custom, serverThemes }
+  function signedIn() { try { return !!(localStorage.getItem('aduna_in') || localStorage.getItem('aduna_token')); } catch (e) { return false; } }
+  function remember(id) {
+    if (signedIn()) return;
+    try {
+      var s = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (!s || typeof s !== 'object') s = {};
+      s.id = id; // keeps a custom theme and the server-theme switch if the browser already had them
+      localStorage.setItem(KEY, JSON.stringify(s));
+    } catch (e) { /* storage blocked: the pick still applies to this page */ }
+  }
+
+  // someone who picked a look before sees it here too; anything this page cannot draw (gradient, custom, device) leaves the default
+  var saved = null;
+  try { saved = (JSON.parse(localStorage.getItem(KEY) || 'null') || {}).id; } catch (e) { /* ignore */ }
+  var start = saved && (saved === 'parchment' || THEMES[saved]) ? saved : 'parchment';
+  apply(start);
+
   document.querySelectorAll('.sw[data-theme]').forEach(function (b) {
-    b.addEventListener('click', function () { apply(b.getAttribute('data-theme')); });
+    b.addEventListener('click', function () { var id = b.getAttribute('data-theme'); apply(id); remember(id); });
   });
 })();

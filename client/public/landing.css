@@ -16,14 +16,26 @@ nav .links a.t{color:var(--muted)}nav .links a.t:hover{color:var(--fg)}
 .btn.ghost{background:transparent;color:var(--fg);border-color:var(--fg)}.btn.ghost:hover{opacity:1;background:var(--fg);color:var(--cream)}
 .btn.sm{height:42px;padding:0 20px;font-size:18px;border-radius:10px}
 .btn.big{height:58px;padding:0 34px;font-size:23px;border-radius:14px}
-.hero{padding:72px 0 30px;text-align:left}
-.eyebrow{font-size:17px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted)}
-h1{font-weight:400;font-size:clamp(44px,7vw,88px);line-height:1.04;letter-spacing:-.015em;margin:14px 0 20px}
+.hero{display:grid;grid-template-columns:minmax(0,1fr);gap:48px;padding:56px 0 40px;text-align:left}
+.kicker{font-size:19px;color:var(--muted)}
+h1{font-weight:400;font-size:clamp(44px,7vw,88px);line-height:1.04;letter-spacing:-.015em;margin:12px 0 20px}
 .hero p.lead{font-size:clamp(19px,2.2vw,25px);color:var(--muted);max-width:660px;margin:0 0 32px}
 .cta{display:flex;gap:12px;flex-wrap:wrap}
-.hero small{display:block;margin-top:16px;color:var(--muted);font-size:16px}
+.hero .note{margin-top:16px;color:var(--muted);font-size:16px;max-width:520px}
+/* try a theme: the product's own differentiator, usable before anyone signs up */
+.try{margin-top:32px;padding-top:20px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.try-label{font-size:16px;color:var(--muted)}
+.dots{display:flex;flex-wrap:wrap;gap:8px}
+/* two columns on a wide screen: the words on the left, the product on the right, so the chat is on the first screen */
+@media(min-width:1000px){
+  .hero{grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:56px;align-items:center;padding:56px 0 64px}
+  .hero h1{font-size:clamp(52px,5.4vw,76px)}
+  .hero .mock{margin:0}
+  .hero .mock .body{grid-template-columns:168px minmax(0,1fr);min-height:400px}
+  .hero .mock .mem{display:none}
+}
 /* mock window */
-.mock{margin:56px 0 0;border-radius:14px;overflow:hidden;background:var(--d-bg);color:var(--d-text);border:1px solid var(--line);text-align:left;font-size:17px;transition:background-color .3s,color .3s}
+.mock{margin:0;border-radius:14px;overflow:hidden;background:var(--d-bg);color:var(--d-text);border:1px solid var(--line);text-align:left;font-size:17px;transition:background-color .3s,color .3s}
 .mock .bar{height:50px;background:var(--d-bg3);display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--d-line)}
 .si{width:34px;height:34px;border-radius:10px;background:#fffbef;display:flex;align-items:center;justify-content:center}.si img{height:20px}.si.r{border-radius:50%;box-shadow:0 0 0 2px var(--d-bg3),0 0 0 4px #fffbef}
 .mock .body{display:grid;grid-template-columns:210px 1fr 190px;min-height:380px}
@@ -31,7 +43,7 @@ h1{font-weight:400;font-size:clamp(44px,7vw,88px);line-height:1.04;letter-spacin
 .mock .ban{height:84px;background:#fffbef url(/aduna-icon.png);background-size:46px 50px;position:relative}
 .mock .ban::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 30%,rgba(0,0,0,.75))}
 .mock .ban b{position:absolute;left:12px;bottom:8px;z-index:2;color:#fff;font-weight:400;font-size:18px}
-.cat{font-size:11px;letter-spacing:.1em;color:var(--d-muted);text-transform:uppercase;padding:14px 14px 5px}
+.cat{font-size:13px;color:var(--d-muted);padding:14px 14px 5px}
 .ch{margin:0 6px;padding:6px 10px;border-radius:8px;color:var(--d-muted);display:flex;justify-content:space-between}
 .ch.on{background:var(--d-sel,#3a3a3e);color:var(--d-head,#fff)}.ch i{font-style:normal;background:var(--gold);color:#1a1405;border-radius:10px;padding:0 7px;font-size:12px;line-height:19px}
 .mock .chat{padding:18px 20px;display:flex;flex-direction:column;gap:12px}
@@ -39,7 +51,7 @@ h1{font-weight:400;font-size:clamp(44px,7vw,88px);line-height:1.04;letter-spacin
 .m .n{font-size:16px}.m .n small{color:var(--d-muted);font-size:12px;margin-left:6px}.m .t{font-size:17px;margin-top:1px}
 .mn{background:rgba(224,176,74,.22);color:var(--gold);padding:0 6px;border-radius:6px}
 .rx{display:inline-flex;gap:6px;margin:6px 6px 0 0;padding:3px 10px;border-radius:14px;background:var(--d-field);border:1px solid #4a4a4f;font-size:14px}
-.mock .mem{border-left:1px solid var(--d-line);padding:16px}.mock .mem .t{font-size:11px;letter-spacing:.1em;color:var(--d-muted);margin-bottom:10px}
+.mock .mem{border-left:1px solid var(--d-line);padding:16px}.mock .mem .t{font-size:13px;color:var(--d-muted);margin-bottom:10px}
 .mock .mem div.p{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:15px}.mock .mem .av{width:30px;height:30px;font-size:13px}
 /* sections */
 section{padding:88px 0}
@@ -53,12 +65,14 @@ h2{font-weight:400;font-size:clamp(36px,5vw,64px);line-height:1.08;letter-spacin
 .dark .sub,.dark .spec{color:var(--band-muted)}
 .split{display:grid;grid-template-columns:1.05fr 1fr;gap:56px;align-items:center}
 .cipher{background:#0a0a0b;border:1px solid #2a2a2d;border-radius:12px;padding:22px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:15px;color:#7fe0a8;word-break:break-all;line-height:1.6}
-.cipher .lab{font-family:'Bree Serif',serif;font-size:13px;letter-spacing:.14em;color:#9d978a;margin-bottom:10px}
+.cipher .lab{font-family:'Bree Serif',serif;font-size:14px;color:#9d978a;margin-bottom:10px}
 .plain{background:#2a2a2d;border-radius:12px;padding:20px 22px;margin-bottom:12px;color:#e5e1d6;font-size:20px}
-.plain .lab{font-size:13px;letter-spacing:.14em;color:#9d978a;margin-bottom:10px}
+.plain .lab{font-size:14px;color:#9d978a;margin-bottom:10px}
 .spec{margin-top:26px;font-size:17px;max-width:520px}
-.themes{display:flex;gap:14px;flex-wrap:wrap;margin-top:34px}
-.sw{cursor:pointer;font-family:inherit;width:84px;height:84px;border-radius:12px;border:2px solid var(--line);display:flex;align-items:flex-end;justify-content:center;padding-bottom:8px;font-size:14px}
+/* a theme swatch: the page's background colour with a dot in the theme's accent (the accent is the button's text colour, set per theme below) */
+.sw{cursor:pointer;font-family:inherit;position:relative;display:block;width:30px;height:30px;padding:0;border-radius:50%;border:2px solid var(--line);font-size:0;line-height:0}
+.sw::after{content:"";position:absolute;inset:7px;border-radius:50%;background:currentColor}
+@media(pointer:coarse){.sw{width:38px;height:38px}.sw::after{inset:10px}}
 .final{text-align:center;padding:40px 0 56px}
 .final .logo-ic{margin:0 auto}
 .final h2{font-size:clamp(44px,7vw,92px);margin:18px 0 28px}
@@ -87,11 +101,17 @@ footer{border-top:2px solid var(--line);padding:32px 0 48px;color:var(--muted);f
 .is16{background:#17221d !important;color:#6fcf97 !important;border-color:#17221d !important}
 .is17{background:#241a2b !important;color:#d68cf0 !important;border-color:#241a2b !important}
 .is18{background:#271c17 !important;color:#f09a5a !important;border-color:#271c17 !important}
+.is20{background:#1d1a17 !important;color:#ecd5b6 !important;border-color:#1d1a17 !important}
+.is21{background:#f6f0e4 !important;color:#6f5233 !important}
 .is19{margin-top:24px !important;border:none !important;justify-content:center !important}
 
 /* theme preview: the swatches in "Eleven themes" restyle this page (landing.js sets the variables) */
 .sw[aria-pressed=true]{outline:3px solid var(--fg);outline-offset:3px}
 .sw:hover{border-color:var(--fg)}
+/* keyboard focus: one visible ring everywhere */
+a:focus-visible,button:focus-visible{outline:3px solid var(--fg);outline-offset:3px}
+.btn:focus-visible{border-radius:12px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 .feat>div,nav,footer{transition:border-color .3s}
 html.lt .is2{color:#a8481f !important}html.lt .is4{color:#a8432d !important}html.lt .is6{color:#4d7a1a !important}
 html.lt .mn{color:#8a6414}

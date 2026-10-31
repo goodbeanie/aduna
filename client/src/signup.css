@@ -58,6 +58,12 @@
 .su-narrow { max-width: 440px; margin: 0 auto; }
 .su-narrow > label:not(.check-row) { display: block; margin: 20px 0 8px; }
 .su-narrow input:not([type=checkbox]) { width: 100%; box-sizing: border-box; }
+/* password box with a Show / Hide button inside its right edge */
+.su-pw { position: relative; }
+.su-narrow .su-pw input:not([type=checkbox]) { padding-right: 76px; }
+.su-pw-toggle { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); min-height: 32px; padding: 0 10px; border-radius: 6px; color: var(--muted); font-size: 13px; }
+.su-pw-toggle:hover { color: var(--head); background: var(--hover); }
+.su-pw-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 .su-narrow .check-row { align-items: flex-start; }
 .su-narrow .check-row input { margin-top: 2px; }
 .su-actions { display: flex; gap: 10px; margin-top: 28px; }
