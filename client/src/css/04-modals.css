@@ -24,7 +24,7 @@
 .banner { height: 90px; background-size: cover; background-position: center; } .card-avatar { position: absolute; top: 52px; left: 18px; border: 4px solid var(--bg2); border-radius: calc(26% + 2px); background: var(--bg2); }
 .card-avatar .dot { border-color: var(--bg2); }
 /* Aduna Plus badge: bottom-right of the picture. The body is a mask filled with the card's text colour, the star keeps its purple. */
-.plus-badge { position: absolute; left: 114px; top: 100px; width: var(--pb, 34px); aspect-ratio: 192 / 207; display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,.18)); }
+.plus-badge { position: absolute; left: 112px; top: 108px; width: var(--pb, 24px); aspect-ratio: 192 / 207; display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,.18)); }
 .plus-badge i { position: absolute; inset: 0; display: block; background-size: 100% 100%; background-repeat: no-repeat; }
 .plus-badge .plus-star { background-image: url(/badges/plus-star.png); }
 .plus-badge .plus-body { background-color: var(--text, #14110d); -webkit-mask: url(/badges/plus-body.png) center / 100% 100% no-repeat; mask: url(/badges/plus-body.png) center / 100% 100% no-repeat; }
@@ -39,11 +39,10 @@
 
 
 /* profile customization */
-/* The logo as a profile picture: same two layers as the Plus badge, so the star keeps its purple and the body follows the text colour. Sized to sit well inside a round or rounded-square crop. */
-.logo-mark { position: relative; width: 46%; aspect-ratio: 192 / 207; display: block; }
+/* The logo as a profile picture: the plain Aduna logo (aduna-icon.png) as a mask filled with the text colour. The Plus star is only for the Plus badge, so it is not drawn here. Sized to sit well inside a round or rounded-square crop. */
+.logo-mark { position: relative; width: 46%; aspect-ratio: 922 / 1000; display: block; }
 .logo-mark i { position: absolute; inset: 0; display: block; background-size: 100% 100%; background-repeat: no-repeat; }
-.logo-mark .logo-star { background-image: url(/badges/plus-star.png); }
-.logo-mark .logo-body { background-color: currentColor; -webkit-mask: url(/badges/plus-body.png) center / 100% 100% no-repeat; mask: url(/badges/plus-body.png) center / 100% 100% no-repeat; }
+.logo-mark .logo-body { background-color: currentColor; -webkit-mask: url(/aduna-icon.png) center / 100% 100% no-repeat; mask: url(/aduna-icon.png) center / 100% 100% no-repeat; }
 .at-input { position: relative; }
 .at-input > span { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); pointer-events: none; }
 .at-input input { padding-left: 28px; }

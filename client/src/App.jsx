@@ -40,7 +40,7 @@ import * as notify from './notify.js';
 import { NotifyPrompt } from './NotifyPrompt.jsx';
 import { useGameDetection } from './Activity.jsx';
 import { CommandPalette } from './CommandPalette.jsx';
-import { FirstRun } from './FirstRun.jsx';
+import { FirstRun, markSaidHello } from './FirstRun.jsx';
 import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
 import { ConnectionBar } from './ConnectionBar.jsx';
 import { watchSocket } from './connection.js';
@@ -756,13 +756,15 @@ function Main({ me, setMe, privKey, openServerId }) {
   });
 
   // ---------- actions ----------
-  const send = async (text, replyTo, atts = [], typing) => {
+  const sendMsg = async (text, replyTo, atts = [], typing) => {
     const s = socketRef.current;
     if (view.kind === 'server') return emitAck(s, 'message:send', { channelId: view.channelId, content: text, replyTo, attachments: atts, typing });
     if (group) return groups.send(group.id, text, atts, replyTo);
     const enc = await encryptFor(privKey, dmUser.publicKey, wrapDm(text, atts));
     return emitAck(s, 'dm:send', { to: dmUser.id, ...enc, replyTo, files: atts.map((a) => a.id).filter(Boolean), quest: questHint(text, atts) });
   };
+  // The getting-started list ticks "Say hello" once a message has gone out (FirstRun.jsx keeps the flag in this browser).
+  const send = async (...args) => { const r = await sendMsg(...args); markSaidHello(me.id); return r; };
   // A poll is a channel message with no text; the server cleans it (polls.js) and sends it back to everyone through message:new.
   const sendPoll = (poll) => emitAck(socketRef.current, 'message:send', { channelId: view.channelId, content: '', poll });
   const votePoll = (messageId, options) => emitAck(socketRef.current, 'poll:vote', { messageId, options });
@@ -1084,7 +1086,15 @@ function Main({ me, setMe, privKey, openServerId }) {
         )}
         <CallDock call={call.call} actions={call.actions} users={users} onOpen={goToCall} />
         <GroupCallDock gcall={gcall.gcall} actions={gcall.actions} titleFor={groups.titleFor} onOpen={openGroup} />
-        <FirstRun me={me} serverCount={servers.length} onTheme={() => setModal({ type: 'edit', tab: 'appearance' })} onPicture={() => setModal({ type: 'edit', tab: 'profile' })} onServer={() => setModal({ type: 'server' })} />
+        <FirstRun me={me} serverCount={servers.length} friendCount={fr.friends.length + fr.outgoing.length}
+          onHello={() => {
+            const s = servers.find((x) => x.channels.some((c) => c.name === 'general')) || servers[0];
+            if (!s) return;
+            const c = s.channels.find((x) => x.name === 'general') || s.channels.find((x) => !x.type || x.type === 'text') || s.channels[0];
+            lastChan.current[s.id] = c.id; setView({ kind: 'server', serverId: s.id, channelId: c.id }); setShowList(false); setMembersOpen(false);
+          }}
+          onFriend={() => { setView({ kind: 'dm', userId: null }); setShowList(false); setMembersOpen(false); }}
+          onServer={() => setModal({ type: 'server' })} />
         <StorageDock storage={storage} setStorage={setStorage} />
         <div className="user-panel">
           <button className="me" onClick={() => setModal({ type: 'user', id: me.id })}>
