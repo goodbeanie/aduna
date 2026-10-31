@@ -42,7 +42,7 @@ function CleanupModal({ needed = 0, fileName, onDone, onCancel }) {
   }
   return (
     <Modal title={needed ? 'Your storage is full' : 'Your files'} onClose={onCancel} wide>
-      {needed > 0 && <p>{fileName ? <b>{fileName}</b> : 'This file'} needs {fmt(needed)} more room. The oldest files are ticked. Tick more if you like, then delete to send it.</p>}
+      {needed > 0 && <p className="st-note">{fileName ? <b>{fileName}</b> : 'This file'} needs {fmt(needed)} more room. The oldest files are ticked. Tick more if you like, then delete to send it.</p>}
       {err && <p className="error-text">{err}</p>}
       {!files && !err && <p className="muted small">Loading your files…</p>}
       {files && files.length === 0 && <p className="muted small">You have no stored files.</p>}
@@ -75,18 +75,27 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, busy }) {
     <Modal title="Storage" onClose={onClose}>
       {s.subscriber ? (
         <>
-          <p><b>{fmt(s.used)}</b> of {fmt(s.limit)} used</p>
+          <div className="st-stat"><b>{fmt(s.used)}</b><span>of {fmt(s.limit)} used</span></div>
           <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></div>
-          <p className="muted small">{s.renews ? `Renews around ${day(s.paidThrough)} for $${(s.plan.cents / 100).toFixed(2)}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone: they are never removed to make room for other people.</p>
+          <p className="st-note">{s.renews ? `Renews around ${day(s.paidThrough)} for $${(s.plan.cents / 100).toFixed(2)}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
         </>
       ) : (
         <>
-          <p><b>{fmt(s.used)}</b> stored. Free storage is shared: when it fills up, the oldest files are removed to make room for new ones, and files are removed after a while.</p>
+          <div className="st-stat"><b>{fmt(s.used)}</b><span>stored</span></div>
+          <p className="st-note">Free storage is shared by everyone. When it fills up, the oldest files are removed to make room, and old files expire after a while.</p>
           <div className="st-offer">
-            <div><b>{fmt(s.plan.bytes)} of your own</b><div className="muted small">${(s.plan.cents / 100).toFixed(2)} a month. Your files are never removed or expired while you have it, and you pick what to delete when it is full.</div></div>
-            <button className="btn primary" onClick={onSubscribe} disabled={!s.purchases || busy}>{s.purchases ? 'Get storage' : 'Not available yet'}</button>
+            <div className="st-offer-head">
+              <div><div className="st-offer-title">{fmt(s.plan.bytes)} of your own</div><div className="st-note">Just for you</div></div>
+              <div className="st-price">${(s.plan.cents / 100).toFixed(2)}<small>/month</small></div>
+            </div>
+            <ul className="st-perks">
+              <li>Never removed or expired while you have it</li>
+              <li>You choose what to delete when it is full</li>
+              <li>Cancel any time</li>
+            </ul>
+            <button className="btn primary st-cta" onClick={onSubscribe} disabled={!s.purchases || busy}>{s.purchases ? 'Get storage' : 'Not available yet'}</button>
           </div>
-          {s.status === 'ended' && <p className="muted small">Your last plan ended{s.paidThrough ? ' on ' + day(s.paidThrough) : ''}. Files are kept for 14 days after that, then the normal clean-up applies again.</p>}
+          {s.status === 'ended' && <p className="st-note">Your last plan ended{s.paidThrough ? ' on ' + day(s.paidThrough) : ''}. Files are kept for 14 days after that, then the normal clean-up applies again.</p>}
         </>
       )}
       <div className="st-actions">
