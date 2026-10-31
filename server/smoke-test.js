@@ -462,6 +462,18 @@ async function putImg(kind, body, type, token) {
   // history endpoints + access control
   const hist = await call(`/dms/${bob.user.id}/messages`, { token: alice.token });
   assert.strictEqual(hist.messages.length, 1);
+  // closing a conversation: it leaves the list, nothing is deleted, and it returns when it is opened again
+  const dmIds = async () => (await call('/dms', { token: alice.token })).conversations.map((c) => c.user.id);
+  assert.ok((await dmIds()).includes(bob.user.id), 'the conversation is listed before it is closed');
+  assert.strictEqual((await call(`/dms/${bob.user.id}/hide`, { method: 'POST' })).status, 401, 'closing needs a login');
+  assert.strictEqual((await call(`/dms/${bob.user.id}/hide`, { method: 'POST', token: alice.token })).status, 200);
+  assert.ok(!(await dmIds()).includes(bob.user.id), 'a closed conversation leaves the list');
+  assert.strictEqual((await call(`/dms/${bob.user.id}/messages`, { token: alice.token })).messages.length, 1, 'closing deletes nothing');
+  assert.ok((await call('/dms', { token: bob.token })).conversations.some((c) => c.user.id === alice.user.id), "closing is only on the closer's side");
+  assert.strictEqual((await call(`/dms/${bob.user.id}/unhide`, { method: 'POST', token: alice.token })).status, 200);
+  assert.ok((await dmIds()).includes(bob.user.id), 'opening it again brings it back');
+  for (const bad of [alice.user.id, 'nobody-here', '__proto__', '0'.repeat(16)]) assert.strictEqual((await call(`/dms/${bad}/hide`, { method: 'POST', token: alice.token })).status, 404, 'cannot close ' + bad);
+  step('direct messages: close hides the conversation for that person only, deletes nothing, and unhide brings it back');
   const carol = await makeUser('carol');
   // attachments (pause so the socket flood limit of 8 events / 5s does not interfere)
   const pause = () => new Promise((r) => setTimeout(r, 5200));

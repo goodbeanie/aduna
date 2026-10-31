@@ -1,0 +1,26 @@
+/* Message area pass. Loaded after header.css (see main.jsx), so it wins over the older message rules (chat, redesign, zen, plain, studio).
+   What it settles:
+   - "New messages" divider: refine.css makes it a dark pill with light text, then studio.css (loaded later) recolours every divider label muted.
+     That left muted grey on the dark pill (about 2.8:1 in Parchment, under the 4.5:1 the theme aims for), on the one marker you most need to see.
+   - rhythm: a new person's message started only 10px below the last one, barely more than the 2px between a person's own lines, so
+     conversations read as one block. A new speaker now gets a clear gap; lines from the same person stay tight.
+   - sizes: the text was 14.5px (zen), the timestamp 11.5px (studio) and the day label 11.5px: half-pixel sizes that blur and match no scale.
+     They now use whole sizes from the same scale as the rest of the app (15 for text and names, 12 for timestamps and dividers).
+   Colours all come from the theme variables. To go back one step, remove the import of this file in main.jsx. */
+
+/* ---------- 1. dividers ---------- */
+.day-divider > span, .new-divider > span { font-size: var(--fs-xs, 12px); }
+.new-divider > span { color: var(--on-ink); } /* text on the --ink pill is --on-ink, as refine.css intended */
+
+/* ---------- 2. rhythm (computer layout only; the phone spacing was tuned separately) ---------- */
+@media (min-width: 721px) {
+  .msg { margin-top: 16px; }                         /* a new speaker */
+  .msg.grouped { margin-top: 0; }                    /* the same speaker's next line stays tight */
+  .day-divider + .msg, .new-divider + .msg { margin-top: 6px; } /* the divider already made the gap */
+}
+
+/* ---------- 3. type: whole sizes ---------- */
+@media (min-width: 721px) {
+  .msg .content { font-size: 15px; } /* the phone keeps its own 16px */
+}
+.msg-head .time { font-size: var(--fs-xs, 12px); }

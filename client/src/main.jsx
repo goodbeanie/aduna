@@ -20,6 +20,7 @@ import './zen.css';
 import './plain.css';
 import './studio.css';
 import './clips.css';
+import './wordle.css';
 import Dashboard from './Dashboard.jsx';
 import AdminPage from './AdminPage.jsx';
 import ClipPage from './ClipPage.jsx';
@@ -28,6 +29,7 @@ import './even.css'; // last on purpose: small evenness fixes that must win over
 import './sidebar.css'; // after even.css: the one sidebar pass (spacing, labels, icon weight, states)
 import './friends.css'; // after sidebar.css: the Friends page rows (one column, hover, quiet actions)
 import './header.css'; // after friends.css: the top bar (grouped controls, one size, quiet lock chip)
+import './messages.css'; // after header.css: the message area (divider contrast, speaker spacing, whole type sizes)
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';

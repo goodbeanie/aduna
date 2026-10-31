@@ -68,6 +68,29 @@
 .me .me-name { max-width: 100%; }
 .me .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* ---------- 7. close a conversation: the X on a direct-message row ----------
+   The X is a sibling of the row button (a button cannot sit inside a button), laid over its right edge. */
+.chan-wrap { position: relative; }
+.dm-close {
+  position: absolute; right: 8px; top: 50%; transform: translateY(-50%); z-index: 1;
+  display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; box-shadow: none; background: none;
+  border-radius: var(--r-md); color: var(--muted); opacity: 0;
+  transition: opacity var(--t-hover, 120ms) var(--ease, ease), background-color var(--t-hover, 120ms) var(--ease, ease), color var(--t-hover, 120ms) var(--ease, ease);
+}
+.dm-close:hover { background: color-mix(in srgb, var(--head) 12%, transparent); color: var(--head); }
+.chan-wrap:hover .dm-close, .dm-close:focus-visible { opacity: 1; }
+/* the X is over the row, so the row's own hover would drop away while the pointer is on it: the wrapper keeps the row lit */
+.chan-wrap:hover > .chan:not(.on) { background-color: var(--hover); }
+.chan-wrap:hover > .chan.on { background-color: color-mix(in srgb, var(--ink) 18%, transparent); }
+/* the X takes the place of the unread count and "Draft" while it is showing, so the two never overlap */
+.chan-wrap:hover .chan.dm > .badge, .chan-wrap:hover .chan.dm > .muted.small,
+.chan-wrap:has(.dm-close:focus-visible) .chan.dm > .badge, .chan-wrap:has(.dm-close:focus-visible) .chan.dm > .muted.small { visibility: hidden; }
+/* touch screens have no hover: the X is always there, quiet, with its own room at the end of the row */
+@media (hover: none) {
+  .dm-close { opacity: .6; }
+  .chan-wrap .chan.dm { padding-right: 44px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .side .chan, .side .cat-add { transition: none; }
+  .side .chan, .side .cat-add, .dm-close { transition: none; }
 }

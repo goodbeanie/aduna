@@ -24,6 +24,7 @@ const activityLib = require('./activity');
 const clipsLib = require('./clips'); // clips: short vertical videos (see the "clips" block below)
 const screenLib = require('./screen'); // clip screening: OpenAI moderation of frames, music recognition, re-post matching (see POST /api/clips/:id/complete)
 const polls = require('./polls');
+const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global) and one for each server (see the "wordle" block below)
 const calllog = require('./calllog');
 const groupsLib = require('./groups');
 const gallery = require('./themegallery');
@@ -2075,6 +2076,40 @@ function onbState(s, uid) {
   return { done: !!rec, skipped: !!rec?.skipped, answers: rec?.answers || {}, blocking: onbBlocking(s, uid) };
 }
 
+// ----- wordle (rules and storage: wordle.js) -----
+// One word a day for 'global' (Aduna's own, played alone or shared into a DM or group) and one for each server (members only, with standings).
+// The answer is never sent until the player has finished, and a guess is checked here, so nothing in the browser can show it early.
+const wordleHits = new security.RateWindow(90, 60_000); // guesses and refreshes per person per minute
+function wordleTarget(req, res) {
+  const scope = req.params.scope;
+  if (!wordleLib.isScope(scope)) { res.status(404).json({ error: 'Not found' }); return null; }
+  if (scope === 'global') return { scope, server: null };
+  const server = db().servers[scope];
+  if (!server || !server.members.includes(req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
+  return { scope, server };
+}
+function wordleReply(uid, t) {
+  const day = wordleLib.dayOf(now());
+  const out = wordleLib.view(db().wordle[uid] || wordleLib.blank(), t.scope, day, wordleLib.answerFor(t.scope, day, SECRET));
+  if (t.server) out.server = { id: t.server.id, name: t.server.name, standings: wordleLib.standings(db().wordle, t.scope, day, humansOf(t.server)) };
+  return out;
+}
+app.get('/api/wordle/:scope', auth, (req, res) => {
+  const t = wordleTarget(req, res); if (!t) return;
+  if (!wordleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  res.json(wordleReply(req.user.id, t));
+});
+app.post('/api/wordle/:scope/guess', auth, (req, res) => {
+  const t = wordleTarget(req, res); if (!t) return;
+  if (!wordleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const day = wordleLib.dayOf(now());
+  const rec = db().wordle[req.user.id] || (db().wordle[req.user.id] = wordleLib.blank());
+  const r = wordleLib.play(rec, t.scope, day, wordleLib.answerFor(t.scope, day, SECRET), req.body && req.body.word, now());
+  if (r.error) return res.status(400).json({ error: r.error });
+  store.save();
+  res.json(wordleReply(req.user.id, t));
+});
+
 app.get('/api/servers/:id/onboarding', auth, (req, res) => {
   const s = db().servers[req.params.id];
   if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
@@ -3910,9 +3945,42 @@ app.get('/api/dms', auth, (req, res) => {
     const other = m.from === me ? m.to : m.from;
     if (!latest.has(other) || latest.get(other).createdAt < m.createdAt) latest.set(other, m);
   }
-  const convos = [...latest.entries()].sort((a, b) => b[1].createdAt - a[1].createdAt)
+  // A conversation the person hid (user.hiddenDms[otherId] = when) stays out of the list until something newer than that arrives.
+  const hidden = req.user.hiddenDms || {};
+  const convos = [...latest.entries()].filter(([uid, last]) => !(hidden[uid] >= last.createdAt)).sort((a, b) => b[1].createdAt - a[1].createdAt)
     .map(([uid, last]) => ({ user: publicUser(db().users[uid]), last })).filter((c) => c.user.id);
   res.json({ conversations: convos });
+});
+
+// "Close" a 1:1 conversation: it leaves the sidebar list on every device, nothing is deleted. It comes back by itself when a newer
+// message arrives (the list above compares the time), or when the person opens it again (unhide below, called by the app).
+const DM_HIDE_MAX = 1000; // oldest hides are forgotten past this, so the record cannot grow without limit
+const dmHideTarget = (req, res) => {
+  const other = req.params.userId;
+  if (typeof other !== 'string' || !/^[0-9a-f]{16}$/.test(other) || other === req.user.id || !db().users[other]) { res.status(404).json({ error: 'Not found' }); return null; }
+  return other;
+};
+app.post('/api/dms/:userId/hide', auth, (req, res) => {
+  const other = dmHideTarget(req, res);
+  if (!other) return;
+  const at = now();
+  const h = req.user.hiddenDms || (req.user.hiddenDms = {});
+  h[other] = at;
+  const ids = Object.keys(h);
+  if (ids.length > DM_HIDE_MAX) for (const id of ids.sort((a, b) => h[a] - h[b]).slice(0, ids.length - DM_HIDE_MAX)) delete h[id];
+  store.save();
+  io.to('user:' + req.user.id).emit('dm:hidden', { userId: other, at }); // the person's other devices drop the row too
+  res.json({ ok: true, at });
+});
+app.post('/api/dms/:userId/unhide', auth, (req, res) => {
+  const other = dmHideTarget(req, res);
+  if (!other) return;
+  if (req.user.hiddenDms && req.user.hiddenDms[other] !== undefined) {
+    delete req.user.hiddenDms[other];
+    store.save();
+    io.to('user:' + req.user.id).emit('dm:unhidden', { userId: other });
+  }
+  res.json({ ok: true });
 });
 
 app.get('/api/dms/:userId/messages', auth, (req, res) => {

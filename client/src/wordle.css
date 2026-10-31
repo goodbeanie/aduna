@@ -1,0 +1,82 @@
+/* Wordle (Wordle.jsx). Colours come from the theme variables, so every theme gets a matching board.
+   It opens in a wide dialog: a centred window on desktop, and a bottom sheet on phones (08-responsive.css / even.css). */
+.wd { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; }
+.wd-main { display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.wd-tabs { display: flex; gap: 2px; padding: 3px; background: var(--field); border-radius: 9px; width: 100%; max-width: 360px; margin-bottom: 8px; }
+.wd-tabs button { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--muted); padding: 6px 8px; border-radius: 7px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.wd-tabs button.on { background: var(--raised); color: var(--text); box-shadow: 0 0 0 1px var(--line); }
+.wd-sub { margin-bottom: 12px; text-align: center; }
+
+/* the board shrinks on short screens (a phone, a small laptop) so the board, the keys and the message all fit without scrolling:
+   about 410px of the dialog is everything that is not the board (title, tabs, message, keys, clock, padding, home indicator) */
+.wd-board { display: grid; gap: 6px; width: min(100%, 300px, max(150px, calc((92vh - 410px) * .83))); width: min(100%, 300px, max(150px, calc((92dvh - 410px) * .83))); margin: 0 auto 12px; }
+.wd-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.wd-t { aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border: 2px solid var(--line2); border-radius: 6px; font-size: clamp(22px, 7vw, 30px); font-weight: 700; text-transform: uppercase; color: var(--text); background: transparent; user-select: none; }
+.wd-t.fill { border-color: var(--muted); animation: wd-pop .1s ease-out; }
+.wd-t.g, .wd-m.g, .wd-k.g { background: var(--green); border-color: var(--green); color: #fff; }
+.wd-t.y, .wd-m.y, .wd-k.y { background: var(--idle); border-color: var(--idle); color: #fff; }
+.wd-t.x, .wd-m.x, .wd-k.x { background: var(--muted); border-color: var(--muted); color: var(--bg); }
+.wd-t.rev { animation: wd-flip .5s ease both; }
+.wd-row.shake { animation: wd-shake .4s; }
+@keyframes wd-pop { 50% { transform: scale(1.08); } }
+@keyframes wd-flip { 0% { transform: rotateX(0); } 50% { transform: rotateX(90deg); } 100% { transform: rotateX(0); } }
+@keyframes wd-shake { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+@media (prefers-reduced-motion: reduce) { .wd-t.fill, .wd-t.rev, .wd-row.shake { animation: none; } }
+
+.wd-msg { min-height: 22px; margin-bottom: 8px; text-align: center; font-size: 14px; }
+.wd-msg b { font-weight: 600; }
+.wd-answer { text-transform: uppercase; letter-spacing: .08em; }
+.wd-actions { margin-bottom: 10px; }
+
+/* The keys share the row between them, so the keyboard always fits the window whatever its width */
+.wd-kb { display: flex; flex-direction: column; gap: 6px; width: min(100%, 460px); }
+.wd-kr { display: flex; gap: 5px; width: 100%; }
+.wd-k { flex: 1 1 0; min-width: 0; height: 46px; padding: 0; border: 0; border-radius: 6px; background: var(--field); color: var(--text); font-size: 14px; font-weight: 600; text-transform: uppercase; cursor: pointer;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+.wd-k:active { transform: scale(.95); }
+.wd-board, .wd-t { -webkit-user-select: none; user-select: none; }
+@media (hover: hover) { .wd-k:not(.g, .y, .x):hover { background: var(--hover); } .wd-k.g:hover, .wd-k.y:hover, .wd-k.x:hover { filter: brightness(1.06); } }
+@media (prefers-reduced-motion: reduce) { .wd-k:active { transform: none; } }
+.wd-k.wide { flex: 1.55 1 0; font-size: 12px; }
+.wd-gap { flex: .5 1 0; }
+.wd-foot { display: flex; justify-content: space-between; width: min(100%, 460px); margin-top: 12px; }
+
+.wd-side { display: none; min-width: 0; }
+.wd-side.show { display: block; }
+.wd-side h3 { font-size: 13px; font-weight: 600; margin: 0 0 8px; color: var(--head); }
+.wd-side h3:not(:first-child) { margin-top: 18px; }
+.wd-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 14px; }
+.wd-stats div { background: var(--field); border-radius: 8px; padding: 8px 4px; text-align: center; }
+.wd-stats b { display: block; font-size: 20px; font-weight: 600; color: var(--head); }
+.wd-stats span { font-size: 11px; color: var(--muted); }
+.wd-bar { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-size: 12px; }
+.wd-bar span { width: 10px; color: var(--muted); }
+.wd-bar i { display: block; min-width: 20px; height: 18px; line-height: 18px; padding-right: 6px; text-align: right; font-style: normal; font-size: 11px; border-radius: 3px; background: var(--muted); color: var(--bg); }
+.wd-bar i.me { background: var(--green); color: #fff; }
+.wd-count { margin-bottom: 6px; }
+.wd-list { list-style: none; margin: 0; padding: 0; }
+.wd-list li { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.wd-list .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Desktop: the game on the left, your results and the server's standings beside it, always visible */
+@media (min-width: 760px) {
+  .wd { grid-template-columns: minmax(0, 1fr) 260px; gap: 28px; }
+  .wd-side, .wd-side.show { display: block; padding-left: 24px; border-left: 1px solid var(--line); }
+  .wd-k { height: 50px; }
+}
+@media (max-width: 380px) { .wd-k { height: 42px; font-size: 13px; } .wd-kr { gap: 4px; } }
+/* phone: once you have finished, the keys are no use, so the share button and your results come up where they were */
+@media (max-width: 720px) {
+  .wd-main.done .wd-kb { display: none; }
+  .wd-side.show { padding-top: 14px; border-top: 1px solid var(--line); }
+}
+/* a short screen (a phone on its side): smaller keys, tighter spacing; the dialog scrolls if it still does not fit */
+@media (max-height: 600px) { .wd-k { height: 36px; } .wd-kb, .wd-kr { gap: 4px; } .wd-sub { margin-bottom: 6px; } .wd-msg { min-height: 18px; margin-bottom: 4px; } .wd-foot { margin-top: 6px; } }
+
+/* A shared result inside a message */
+.wd-card { display: inline-block; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg2); max-width: 100%; }
+.wd-card-head { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+.wd-card-head b { margin-left: auto; padding-left: 14px; font-weight: 600; color: var(--head); }
+.wd-mini { display: grid; gap: 3px; }
+.wd-mini > div { display: grid; grid-template-columns: repeat(5, 16px); gap: 3px; }
+.wd-m { display: block; width: 16px; height: 16px; border-radius: 3px; }

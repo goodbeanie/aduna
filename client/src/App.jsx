@@ -425,6 +425,10 @@ function Main({ me, setMe, privKey, openServerId }) {
       if (!usersRef.current[m.authorId]) api('/users/' + m.authorId).then((r) => addUsers([r.user])).catch(() => {});
     });
 
+    // closing a conversation on one device closes it on all of them (the messages stay; see POST /api/dms/:id/hide)
+    s.on('dm:hidden', ({ userId }) => setConvos((c) => c.filter((x) => x !== userId)));
+    s.on('dm:unhidden', ({ userId }) => setConvos((c) => (c.includes(userId) ? c : [userId, ...c])));
+
     s.on('dm:new', (m) => {
       const partner = m.from === me.id ? m.to : m.from;
       setDmRaw((p) => ({ ...p, [partner]: mergeById(p[partner] || [], [m]) }));
@@ -696,8 +700,17 @@ function Main({ me, setMe, privKey, openServerId }) {
     setShowList(true); setMembersOpen(false);
   };
   const openChannel = (c) => { lastChan.current[server.id] = c.id; setView({ kind: 'server', serverId: server.id, channelId: c.id }); setShowList(false); setMembersOpen(false); };
+  // The X on a conversation in the sidebar: it leaves the list, nothing is deleted. It comes back when they message you or when you open it
+  // again (the + button, Friends, a profile, Ctrl+K), see openDm. Group chats are different (leaving one is its own action) and have no X.
+  const hideDm = (id) => {
+    setConvos((c) => c.filter((x) => x !== id));
+    clearUnread('d:' + id);
+    if (viewRef.current?.kind === 'dm' && viewRef.current.userId === id) setView({ kind: 'dm', userId: null }); // it was open: go back to Friends
+    api(`/dms/${id}/hide`, { method: 'POST' }).catch(() => {});
+  };
   const openDm = (u) => {
     addUsers([u]);
+    if (!convos.includes(u.id)) api(`/dms/${u.id}/unhide`, { method: 'POST' }).catch(() => {}); // not in the list: it may have been closed, so bring it back for good
     setConvos((c) => (c.includes(u.id) ? c : [u.id, ...c]));
     setView({ kind: 'dm', userId: u.id });
     setShowList(false);
@@ -1053,12 +1066,15 @@ function Main({ me, setMe, privKey, openServerId }) {
                 </button>
               ))}
               {convos.map((id) => users[id] && (
-                <button key={id} className={'chan dm' + (id === view.userId ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: id }); setShowList(false); }}>
+                <div key={id} className="chan-wrap">
+                <button className={'chan dm' + (id === view.userId ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: id }); setShowList(false); }}>
                   <Avatar user={users[id]} size={32} presence={statusOf(id)} />
                   <span className="grow">{users[id].displayName}<BadgeIcons user={users[id]} size={16} /></span>
                   {id !== view.userId && hasDraft('d:' + id) && <span className="muted small" title="You have an unsent message here">Draft</span>}
                   {unread['d:' + id] > 0 && <span className="badge inline">{unread['d:' + id]}</span>}
                 </button>
+                <button className="dm-close" title="Close conversation" aria-label={'Close conversation with ' + users[id].displayName} onClick={() => hideDm(id)}><Icon name="close" size={14} /></button>
+                </div>
               ))}
             </div>
           </>
@@ -1095,6 +1111,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {server && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
         <Chat title={channel.name} draftKey={'c:' + channel.id} loading={!loadedKeys['c:' + channel.id]} unreadCount={unread['c:' + channel.id] || 0} unreadExact={unreadCountsAll(server, channel)} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onPoll={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
+          wordle={{ scopes: [{ id: 'global', label: 'Aduna daily' }, { id: server.id, label: server.name }] }}
           onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={can(server, me.id, 'manageMessages')} canPin={can(server, me.id, 'manageMessages')} onPin={pinMsg} pinsFor={channel.id}
           bell={{ muted: np.effective(notePrefs[server.id], channel.id, Date.now()).muted, onClick: () => setModal({ type: 'notes', channelId: channel.id }) }} roleColors={roleColors} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
@@ -1108,6 +1125,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {dmUser && (
         <Chat title={dmUser.displayName} draftKey={'d:' + dmUser.id} loading={!loadedKeys['d:' + dmUser.id]} unreadCount={unread['d:' + dmUser.id] || 0} unreadExact subtitle="@" onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={false} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
+          wordle={{ scopes: [{ id: 'global', label: 'Aduna daily' }] }}
           files={{ scope: relationOf(dmUser.id) === 'friend' ? { kind: 'dm', target: dmUser.id, privKey, theirPublic: dmUser.publicKey } : null, dm: { privKey, theirPublic: dmUser.publicKey } }} gifEnabled={gifEnabled}
           placeholder={`Message @${dmUser.displayName}`} mentionables={[me, dmUser]}
           stage={stageHere ? <CallStage call={call.call} actions={call.actions} users={users} me={me} /> : null}
