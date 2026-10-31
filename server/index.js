@@ -9,6 +9,7 @@ const { Server } = require('socket.io');
 const store = require('./db');
 const { sniffImage, cleanGif } = require('./images');
 const credits = require('./credits');
+const storagePlan = require('./storage');
 const artistsLib = require('./artists'); // artists: apply, get reviewed, sell badges in the shop (see the "artists" block below)
 const security = require('./security');
 const totp = require('./totp');
@@ -71,6 +72,7 @@ const ATTACH_RULES = {
   thresholdBytes: posNum(process.env.LARGE_ATTACHMENT_MB, 10) * 1024 * 1024,
 };
 const MAX_ATTACH = 4;
+let storageApi = null; // set where the storage plan routes are registered (below)
 // Types the client may render inline (as <img>, <video>, <audio> from a blob). Everything else is a download.
 const INLINE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/mp4', 'audio/webm']);
 const GIPHY_KEY = process.env.GIPHY_API_KEY || '';
@@ -88,7 +90,13 @@ const referencedFiles = () => new Set([
 // The message stays; channel attachments are flagged `expired` so clients show a placeholder
 // (DM clients see a 404 for the file and show the same placeholder).
 async function expireOldAttachments() {
-  const gone = new Set(await store.expireFiles(ATTACH_RULES));
+  // people with a storage plan keep their files (storage.js)
+  const gone = new Set(await store.expireFiles(ATTACH_RULES, storagePlan.protectedIds(store.db, now())));
+  return flagGone(gone);
+}
+// Marks the channel messages that held these (now removed) files as expired and tells the people looking at them.
+function flagGone(gone) {
+  gone = gone instanceof Set ? gone : new Set(gone);
   if (!gone.size) return 0;
   const changed = [];
   for (const m of Object.values(store.db.messages)) {
@@ -1479,7 +1487,17 @@ app.post('/api/files', auth, fileLimiter, express.raw({ type: '*/*', limit: MAX_
   const scope = fileScope(req.user.id, req.query.kind, String(req.query.target || ''));
   if (!scope) return res.status(403).json({ error: 'You cannot send files here' });
   if (req.query.kind !== 'dm' && buf.length > MAX_FILE) return res.status(413).json({ error: 'File is too large (max 20 MB)' });
+  // A storage plan has its own 10 GB: when it is full the app lets the person choose files to delete, then sends again.
+  if (storagePlan.isSubscriber(req.user, now())) {
+    const over = storagePlan.overQuota(await store.userFileBytes(req.user.id), buf.length);
+    if (over) return res.status(409).json({ error: 'Your storage is full', code: 'storage_full', ...over });
+  } else {
+    // everybody else shares the pool: when it is full, the oldest files of people without a plan make way
+    const out = await storagePlan.makeRoom({ store, bytes: buf.length + 64, protect: storagePlan.protectedIds(db(), now()) });
+    if (out.length) flagGone(out);
+  }
   const fid = await store.putFile(buf, { owner: req.user.id, scope, size: buf.length });
+  if (storageApi) storageApi.push(req.user.id);
   res.json({ id: fid });
 }));
 app.get('/api/files/:id', auth, ah(async (req, res) => {
@@ -4019,6 +4037,22 @@ credits.register(app, {
   isDev: (u) => !!u.developer || isCreator(u), // may use the Halloween / Christmas test mode
   isCreator: (u) => isCreator(u),              // sees every badge in the shop, with its shop state
   userChanged: (u) => emitUserUpdate(u),       // an event badge was earned
+  paypalEvent: (ev) => storagePlan.handleEvent(ev, db()),            // storage plan renewals / cancellations from PayPal's signed webhook
+  storageChanged: (uid) => { if (storageApi) storageApi.push(uid); },
+});
+// Storage plan (10 GB for $4.99 a month): usage, cleanup list, PayPal subscription. Registered here so /api/files can push usage updates.
+storageApi = storagePlan.register(app, {
+  auth, ah, db, save: () => store.save(), store,
+  notify: (uid, v) => io.to('user:' + uid).emit('storage:update', v),
+  getMeta: (k) => store.getMeta(k), setMeta: (k, v) => store.setMeta(k, v),
+  filesGone: (ids) => flagGone(ids),
+  fileLabels: () => {
+    const m = new Map();
+    for (const msg of Object.values(store.db.messages)) for (const a of msg.attachments || []) if (a.id) m.set(a.id, { name: a.name, type: a.type, where: 'channel' });
+    for (const dm of Object.values(store.db.dms)) for (const id of dm.files || []) if (!m.has(id)) m.set(id, { where: 'dm' });
+    for (const id of groups.referencedFiles()) if (!m.has(id)) m.set(id, { where: 'group' });
+    return m;
+  },
 });
 // ----- push notifications (installed mobile app / browsers while Aduna is closed) -----
 // Keys are generated once and kept in the database (see db.js). The service worker (client/public/sw.js) shows the notification.
@@ -4718,6 +4752,8 @@ io.on('connection', (socket) => {
 // Connect to Postgres, load the data, then start serving. `ready` resolves once that is done.
 async function start() {
   await store.init();
+  store.setProtectedOwners(() => storagePlan.protectedIds(store.db, Date.now())); // storage-plan files are outside the shared pool
+  await store.backfillFileOwners();                                               // files from before owners were kept in the open
   SECRET = store.jwtSecret;
   await loadLimits();
   store.closeHooks.add(saveLimits);

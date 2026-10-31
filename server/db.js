@@ -14,8 +14,9 @@
 //                       in the database, so sessions survive restarts and redeploys.
 //   R2_BUCKET, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 //                       keep images and attachments in a Cloudflare R2 bucket instead of Postgres.
-//   STORAGE_LIMIT_GB    with R2: refuse new uploads above this many GB stored (default 4, 0 = no limit). This covers everything
-//                       that is not a clip: profile pictures, banners, emoji and attachments.
+//   STORAGE_LIMIT_GB    with R2: the shared pool for everything that is not a clip (profile pictures, banners, emoji and attachments),
+//                       default 4, 0 = no limit. When it is full, new attachments push out the oldest ones (server/storage.js makeRoom);
+//                       the files of people with a storage plan are not counted in it.
 //   CLIPS_R2_BUCKET     a SEPARATE R2 bucket for clips (short videos), with the same R2_* credentials. Clips have their own
 //                       cap (CLIPS_LIMIT_GB, default 5, see clips.js), so 4 + 5 = 9 GB stays under R2's 10 GB free tier.
 //   DB_SCHEMA           use a separate Postgres schema (used by the tests).
@@ -132,6 +133,9 @@ async function init() {
   // size of the stored (sealed) bytes, used for the R2 storage limit
   await q('ALTER TABLE images ADD COLUMN IF NOT EXISTS size BIGINT NOT NULL DEFAULT 0');
   await q('ALTER TABLE files ADD COLUMN IF NOT EXISTS size BIGINT NOT NULL DEFAULT 0');
+  // who uploaded the file (the same id the sealed meta holds, kept in the open so storage can be counted and listed per person)
+  await q("ALTER TABLE files ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT ''");
+  await q('CREATE INDEX IF NOT EXISTS files_owner_idx ON files (owner, created_at)');
 
   // Refuse to start with the wrong key instead of silently producing a broken database.
   const check = (await q('SELECT value FROM meta WHERE key = $1', ['keycheck'])).rows[0];
@@ -141,6 +145,14 @@ async function init() {
     if (!ok) throw new Error('Cannot decrypt the database: DB_ENCRYPTION_KEY is wrong, or it is not the key this database was created with.');
   } else {
     await q('INSERT INTO meta (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', ['keycheck', seal('aduna', 'meta:keycheck')]);
+  }
+
+  // Files saved before `owner` had its own column: copy it out of the sealed meta once (they would otherwise count as nobody's).
+  for (const r of (await q("SELECT id, meta FROM files WHERE owner = ''")).rows) {
+    try {
+      const m = JSON.parse(open(r.meta, `filemeta:${r.id}`));
+      if (m && m.owner) await q('UPDATE files SET owner = $1 WHERE id = $2', [String(m.owner), r.id]);
+    } catch { /* unreadable: it stays in the shared pool */ }
   }
 
   // session signing secret
@@ -310,10 +322,22 @@ async function r2BytesUsed() {
                           + (SELECT COALESCE(SUM(size), 0) FROM files WHERE octet_length(data) = 0) AS n`);
   return Number(rows[0].n);
 }
-async function checkRoom(bytes) {
+// People with a paid storage plan (set by index.js). Their files live outside the shared pool: they are capped per person
+// (server/storage.js) instead, so they neither fill the pool nor get their files removed when it is full.
+let protectedOwners = () => [];
+const setProtectedOwners = (fn) => { protectedOwners = typeof fn === 'function' ? fn : () => []; };
+// bytes in the shared pool: everything in R2 except the files of people with a storage plan
+async function poolBytesUsed() {
+  const { rows } = await q(`SELECT (SELECT COALESCE(SUM(size), 0) FROM images WHERE octet_length(data) = 0)
+                          + (SELECT COALESCE(SUM(size), 0) FROM files WHERE octet_length(data) = 0 AND NOT (owner = ANY($1::text[]))) AS n`,
+  [protectedOwners().map(String)]);
+  return Number(rows[0].n);
+}
+async function checkRoom(bytes, owner = null) {
   const max = limitBytes();
   if (!r2 || !max) return;
-  if ((await r2BytesUsed()) + bytes > max) {
+  if (owner && protectedOwners().map(String).includes(String(owner))) return; // paid storage: capped per person, not by the pool
+  if ((await poolBytesUsed()) + bytes > max) {
     const e = new Error('Storage is full');
     e.code = 'STORAGE_FULL';
     throw e;
@@ -365,11 +389,29 @@ const FILE_ID = /^[0-9a-f]{32}$/;
 async function putFile(buf, meta) {
   const fid = imageId();
   const sealed = seal(buf, `files:${fid}`);
-  await checkRoom(sealed.length);
+  await checkRoom(sealed.length, meta && meta.owner);
   const data = await putBlob(`files/${fid}`, sealed);
-  await q('INSERT INTO files (id, data, meta, attached, created_at, size) VALUES ($1, $2, $3, 0, $4, $5)',
-    [fid, data, seal(JSON.stringify(meta), `filemeta:${fid}`), Date.now(), sealed.length]);
+  await q('INSERT INTO files (id, data, meta, attached, created_at, size, owner) VALUES ($1, $2, $3, 0, $4, $5, $6)',
+    [fid, data, seal(JSON.stringify(meta), `filemeta:${fid}`), Date.now(), sealed.length, String((meta && meta.owner) || '')]);
   return fid;
+}
+// Files stored before the owner column existed: read the owner out of the sealed meta once. A file whose meta cannot be read gets '-'
+// (nobody), so the loop always ends.
+async function backfillFileOwners() {
+  for (;;) {
+    const { rows } = await q("SELECT id, meta FROM files WHERE owner = '' LIMIT 200");
+    if (!rows.length) return;
+    for (const r of rows) {
+      let owner = '-';
+      try { owner = String(JSON.parse(open(r.meta, `filemeta:${r.id}`)).owner || '-'); } catch { /* unreadable: stays '-' */ }
+      await q('UPDATE files SET owner = $2 WHERE id = $1', [r.id, owner]);
+    }
+  }
+}
+// bytes a person has stored (sealed size, the same number the storage limit counts)
+async function userFileBytes(uid) {
+  const { rows } = await q('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner = $1', [String(uid)]);
+  return Number(rows[0].n);
 }
 async function fileMeta(fid) {
   if (!FILE_ID.test(String(fid))) return null;
@@ -398,10 +440,11 @@ async function deleteFiles(ids) {
 }
 // delete files past their age limit (attached or not); returns the ids that were removed
 // Files up to thresholdBytes are kept smallMs, bigger ones only largeMs.
-async function expireFiles({ smallMs, largeMs, thresholdBytes }) {
+// `protect` is a list of owner ids whose files are never expired (people with a storage plan).
+async function expireFiles({ smallMs, largeMs, thresholdBytes }, protect = []) {
   const now = Date.now();
-  const { rows } = await q('SELECT id FROM files WHERE (size > $1 AND created_at < $2) OR (size <= $1 AND created_at < $3)',
-    [thresholdBytes, now - largeMs, now - smallMs]);
+  const { rows } = await q('SELECT id FROM files WHERE ((size > $1 AND created_at < $2) OR (size <= $1 AND created_at < $3)) AND NOT (owner = ANY($4::text[]))',
+    [thresholdBytes, now - largeMs, now - smallMs, protect.map(String)]);
   return deleteFiles(rows.map((r) => r.id));
 }
 // remove files no message points at, once they are old enough that an in-flight send can't need them
@@ -442,6 +485,7 @@ module.exports = {
   get vapid() { return vapidKeys; },
   init, close, save, flush, reload: load, id, inviteCode, query: q, getMeta, setMeta, closeHooks,
   putImage, getImage, deleteImage, pruneImages, putFile, fileMeta, getFileBytes, markAttached, deleteFiles, expireFiles, pruneFiles,
+  backfillFileOwners, userFileBytes, poolBytesUsed, setProtectedOwners,
   get usingR2() { return !!r2; },
   get clipsR2() { return clipsR2; },
   r2BytesUsed,

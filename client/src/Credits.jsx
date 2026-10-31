@@ -183,7 +183,9 @@ function locate(tax) {
   });
 }
 
-function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, onError, onClose }) {
+// `pack` is a credit pack, or (Storage.jsx) a plan: { cents, currency, recurring: true, title, subtitle, icon }, which PayPal bills every month.
+// PayPal's card boxes only take one-off payments, so a recurring plan always goes to PayPal's own page to be approved.
+export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, onError, onClose }) {
   const [country, setCountry] = useState('');
   const [region, setRegion] = useState('');
   const [locBusy, setLocBusy] = useState(false);
@@ -191,7 +193,7 @@ function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, o
   const buyerRef = useRef({}); buyerRef.current = { country, region: REGIONS[country] ? region : '' };
   const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
-  const embedded = provider === 'paypal' && !!clientId && !fallback;
+  const embedded = provider === 'paypal' && !!clientId && !fallback && !pack.recurring;
   const needsRegion = !!tax && !!REGIONS[country] && Object.keys(tax.rates).some((k) => k.startsWith(country + '-'));
   const code = needsRegion ? (region ? country + '-' + region : '') : country;
   const picked = !tax || (!!country && !(needsRegion && !region));
@@ -239,7 +241,7 @@ function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, o
           {embedded && <PayForm pack={pack} clientId={clientId} getBuyer={() => buyerRef.current} blocked={!picked} total={total} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
           {provider === 'paypal' && !clientId && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
           {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
-          {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? `Opening ${who}…` : `Pay ${total} with ${who}`}</button>}
+          {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? `Opening ${who}…` : pack.recurring ? `Subscribe for ${total} a month with ${who}` : `Pay ${total} with ${who}`}</button>}
           {error && <p className="error-text">{error}</p>}
           <BuyNotices />
         </main>
@@ -248,8 +250,8 @@ function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, o
             <div className="muted small">Order summary</div>
             <div className="co-total">{total}</div>
             <div className="co-item">
-              <span className="co-item-ic"><Icon name="coin" size={22} /></span>
-              <div className="co-item-t"><b>Aduna credits</b><span className="muted small">{pack.credits.toLocaleString()} credits · Qty 1</span></div>
+              <span className="co-item-ic"><Icon name={pack.icon || 'coin'} size={22} /></span>
+              <div className="co-item-t"><b>{pack.title || 'Aduna credits'}</b><span className="muted small">{pack.recurring ? pack.subtitle : `${pack.credits.toLocaleString()} credits · Qty 1`}</span></div>
               <b>{price}</b>
             </div>
             <div className="co-line"><span>Subtotal</span><span>{price}</span></div>
@@ -257,6 +259,7 @@ function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, o
             {tax && picked && !parts.length && <div className="co-line"><span>Tax</span><span>{money(0, pack.currency)}</span></div>}
             {parts.map((x) => <div key={x.label} className="co-line"><span>{x.label} ({x.rate}%)</span><span>{money(x.amount, pack.currency)}</span></div>)}
             <div className="co-line total"><span>Total due today</span><b>{total}</b></div>
+            {pack.recurring && <p className="muted small">Then {total} every month until you cancel. You can cancel any time in Storage; you keep the plan until the month you paid for ends.</p>}
           </div>
         </aside>
       </div>

@@ -35,6 +35,10 @@ async function imageSize(file) {
   try { const b = await createImageBitmap(file); const r = { w: b.width, h: b.height }; b.close?.(); return r; } catch { return {}; }
 }
 
+// Set by the storage window: gets { needed, used, limit, fileName } and resolves true once the person made room, false if they backed out.
+let storageFullHandler = null;
+export const setStorageFullHandler = (fn) => { storageFullHandler = fn; };
+
 // scope: { kind: 'channel', target: channelId } or { kind: 'dm', target: userId, privKey, theirPublic }
 //        or { kind: 'group', target: groupId, key, epoch } (key = the current epoch's AES key; the epoch is stored in the attachment)
 export async function uploadFile(file, scope, onProgress) {
@@ -43,18 +47,27 @@ export async function uploadFile(file, scope, onProgress) {
   let body = await file.arrayBuffer();
   if (scope.kind === 'dm') body = await encryptBytesFor(scope.privKey, scope.theirPublic, body);
   else if (scope.kind === 'group') body = await encryptBytesWithKey(scope.key, body);
-  const id = await new Promise((resolve, reject) => {
+  const send = () => new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
     x.open('POST', `/api/files?kind=${scope.kind}&target=${encodeURIComponent(scope.target)}`);
     x.setRequestHeader('Content-Type', 'application/octet-stream');
     x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     x.onload = () => {
       let d = {}; try { d = JSON.parse(x.responseText); } catch {}
-      x.status >= 200 && x.status < 300 && d.id ? resolve(d.id) : reject(new Error(d.error || 'Upload failed'));
+      x.status >= 200 && x.status < 300 && d.id ? resolve(d.id) : reject(Object.assign(new Error(d.error || 'Upload failed'), { code: d.code, needed: d.needed, used: d.used, limit: d.limit }));
     };
     x.onerror = () => reject(new Error('Upload failed'));
     x.send(body);
   });
+  // A storage plan that is full: the app (Storage.jsx) opens the cleanup window; when the person freed enough room, send again.
+  let id;
+  for (;;) {
+    try { id = await send(); break; }
+    catch (e) {
+      if (e.code !== 'storage_full' || !storageFullHandler) throw e;
+      if (!(await storageFullHandler({ needed: e.needed, used: e.used, limit: e.limit, fileName: file.name }))) throw new Error('Your storage is full, so the file was not sent');
+    }
+  }
   return { id, name: file.name || 'file', type: file.type || 'application/octet-stream', size: file.size, ...(scope.kind === 'group' ? { epoch: scope.epoch } : {}), ...(await imageSize(file)) };
 }
 

@@ -25,6 +25,7 @@ import RulesView from './Rules.jsx';
 import { mentionPreview } from './Mentions.jsx';
 import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
+import { StorageDock } from './Storage.jsx';
 import Clips from './Clips.jsx';
 import { OnboardingFlow } from './Onboarding.jsx';
 import Setup from './Setup.jsx';
@@ -192,6 +193,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [gifEnabled, setGifEnabled] = useState(false);
   const [balance, setBalance] = useState(null);   // your credits (private; arrives from /api/credits and the credits:update event)
   const [creditsRev, setCreditsRev] = useState(0); // goes up when the balance changes so the Credits page refreshes
+  const [storage, setStorage] = useState(null);   // your storage plan and usage (private; from /api/storage and the storage:update event)
   const [gain, setGain] = useState(null);         // the little "+2" after a rewarded message
   const [justPaid, setJustPaid] = useState(false); // we just came back from Stripe Checkout
   const [loaded, setLoaded] = useState(false); // servers, presence and DMs have been fetched
@@ -514,6 +516,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       setBalance(b); setCreditsRev((n) => n + 1);
       if (delta > 0 && (reason === 'message' || reason === 'purchase' || reason === 'artist')) setGain({ key: Date.now(), delta });
     });
+    s.on('storage:update', (v) => setStorage(v));
     s.on('friends:changed', () => loadFriends().catch(() => {}));
     // your other devices: a change of settings, or a channel read there
     s.on('notif:prefs', ({ serverId, prefs, counts }) => {
@@ -1082,6 +1085,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         <CallDock call={call.call} actions={call.actions} users={users} onOpen={goToCall} />
         <GroupCallDock gcall={gcall.gcall} actions={gcall.actions} titleFor={groups.titleFor} onOpen={openGroup} />
         <FirstRun me={me} serverCount={servers.length} onTheme={() => setModal({ type: 'edit', tab: 'appearance' })} onPicture={() => setModal({ type: 'edit', tab: 'profile' })} onServer={() => setModal({ type: 'server' })} />
+        <StorageDock storage={storage} setStorage={setStorage} />
         <div className="user-panel">
           <button className="me" onClick={() => setModal({ type: 'user', id: me.id })}>
             <Avatar user={me} size={34} presence={myPresence} />

@@ -675,6 +675,12 @@ function register(app, d) {
     let change = null;
     try {
       const ev = req.body;
+      // Storage plan (monthly subscription) events belong to server/storage.js; it hands back the person it changed.
+      if (d.paypalEvent && /^(BILLING\.SUBSCRIPTION|PAYMENT\.SALE)\./.test(String(ev?.event_type || ''))) {
+        const uid = d.paypalEvent(ev);
+        if (uid) { d.save(); if (d.storageChanged) d.storageChanged(uid); }
+        return res.json({ received: true });
+      }
       // The buyer approved but never came back to Aduna: capture it here so the payment still completes.
       if (ev?.event_type === 'CHECKOUT.ORDER.APPROVED' && ppOrderId(ev.resource?.id)) change = (await capturePaypalOrder({ orderId: ev.resource.id, db: d.db(), fetchImpl: d.fetchImpl })).change;
       else change = handlePaypalEvent(ev, d.db());
@@ -698,6 +704,6 @@ module.exports = {
   EARN, PACKS, QUESTS, acct, grant, spend, claw, normalize, quality, similar, typingProblem,
   noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events, shop, pthemes, STREAK_MILESTONES, streakView,
   verifyStripeSignature, createCheckout, handleStripeEvent, purchasesEnabled, register,
-  paypalEnabled, createPaypalOrder, capturePaypalOrder, applyPaypalCapture, verifyPaypalWebhook, handlePaypalEvent,
+  paypalEnabled, ppToken, ppBase, ppId, createPaypalOrder, capturePaypalOrder, applyPaypalCapture, verifyPaypalWebhook, handlePaypalEvent,
   _reset: () => { spoke.clear(); seen.clear(); },
 };
