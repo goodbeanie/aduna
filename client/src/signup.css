@@ -1,106 +1,156 @@
 /* Sign-up in three steps (SignupFlow.jsx). Imported late in main.jsx so it wins over the older layers. Uses only the app's own palette variables,
-   so it follows whatever theme the person picks on step 1. */
+   so it follows whatever theme the person picks on step 1.
+   Design notes: the live profile card is the one bold thing; everything around it is quiet. Spacing sits on a 4px grid. Shapes differ by role
+   (inputs and buttons --r-md, the card and option cards --r-lg, chips and avatars fully round). Nothing floats, so nothing has a shadow.
+   The only motion is a short fade when a step changes. */
 
+.su-wrap { --su-ease: cubic-bezier(0.2, 0, 0, 1); width: 100%; max-width: 880px; margin: 0 auto; text-align: left; }
 .auth-bg.su-bg { display: block; height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; scroll-padding: 150px 0 24px; box-sizing: border-box;
-  padding: max(22px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(56px, calc(env(safe-area-inset-bottom) + 32px)) max(18px, env(safe-area-inset-left)); }
-.su-wrap { width: 100%; max-width: 960px; margin: 0 auto; }
-@media (min-width: 1100px) { .auth-bg.su-bg { padding-top: 40px; } .su-wrap { max-width: 1020px; } }
+  padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) max(64px, calc(env(safe-area-inset-bottom) + 32px)) max(24px, env(safe-area-inset-left)); }
+@media (min-width: 1100px) { .auth-bg.su-bg { padding-top: 48px; } }
 
-.su-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+/* top bar: the wordmark, and the language picker where people look for it first */
+.su-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .su-top .wordmark { width: 112px; margin: 0; }
-.su-pill { padding: 5px 12px; border-radius: 999px; border: 1px solid var(--line2); background: var(--field); color: var(--head); font-size: 12px; font-weight: 600; white-space: nowrap; }
-.su-bars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 14px 0 30px; }
-.su-bars i { height: 3px; border-radius: 2px; background: var(--line2); transition: background-color .25s; }
-.su-bars i.on { background: var(--ink); }
+.su-top .auth-lang { display: block; width: auto; min-width: 0; height: 36px; min-height: 36px; margin: 0; padding: 0 12px; border-radius: var(--r-md); font-size: 13px; }
 
-.su-h { margin: 0 0 6px; color: var(--head); font-size: 26px; line-height: 1.2; text-align: left; }
-.su-sub { margin: 0 0 26px; max-width: 52ch; }
+/* the three steps, named. Finished steps go back when pressed */
+.su-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 16px 0 32px; padding: 0; list-style: none; }
+.su-st > div, .su-st > button { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; width: 100%; padding: 0; border: 0; background: none; color: var(--muted); font: inherit; text-align: left; }
+.su-st > button { margin: -10px 0; padding: 10px 0; cursor: pointer; border-radius: 4px; }
+.su-st > button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.su-st i { display: block; width: 100%; height: 3px; border-radius: 2px; background: var(--line2); transition: background-color .2s var(--su-ease); }
+.su-st span { font-size: 13px; font-weight: 500; line-height: 1.4; }
+.su-st.now i, .su-st.done i { background: var(--ink); }
+.su-st.now span { color: var(--head); font-weight: 600; }
+.su-st.done span { color: var(--text); }
+.su-st.done > button:hover span { color: var(--head); }
 
-/* step 1: the live card on one side, the controls on the other */
-.su-grid { display: grid; grid-template-columns: minmax(0, clamp(260px, 32%, 330px)) minmax(0, 1fr); gap: clamp(24px, 4vw, 40px); align-items: start; }
-.su-side { position: sticky; top: 16px; }
-.su-main { min-width: 0; max-width: 520px; }
-.su-main > label { display: block; margin: 24px 0 8px; }
-.su-main > label:first-child { margin-top: 0; }
-.su-main input:not([type=checkbox]) { width: 100%; box-sizing: border-box; }
+.su-h { margin: 0 0 8px; color: var(--head); font-size: 30px; line-height: 1.2; font-weight: 650; letter-spacing: -0.015em; text-align: left; text-wrap: balance; }
+.su-sub { margin: 0 0 32px; max-width: 52ch; font-size: 15px; line-height: 1.5; }
 
-.su-card { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; box-sizing: border-box; min-height: 230px; padding: 24px; border: 1px solid var(--line2); border-radius: var(--r-lg, 14px); background: var(--raised); transition: background-color .3s, border-color .3s; }
+/* a step arrives with a short fade, because the person just asked for it */
+.su-step { animation: su-in .22s var(--su-ease) both; }
+@keyframes su-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* the card on one side, the controls on the other (the same layout on all three steps) */
+.su-grid { display: grid; grid-template-columns: minmax(0, 320px) minmax(0, 1fr); gap: 48px; align-items: start; }
+.su-side { position: sticky; top: 24px; }
+.su-main { min-width: 0; max-width: 480px; }
+
+.su-sec + .su-sec, .su-sec + .su-app { margin-top: 32px; }
+.su-sec > label { display: block; margin: 16px 0 8px; }
+.su-sec > label:first-child { margin-top: 0; }
+.su-sec input:not([type=checkbox]) { width: 100%; box-sizing: border-box; }
+.su-sec .mode-pick button { min-height: 40px; border-radius: var(--r-md); }
+
+/* the profile card: what other people will see */
+.su-card { display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; gap: 32px; box-sizing: border-box; min-height: 264px; padding: 24px; border: 1px solid var(--line2); border-radius: var(--r-lg, 14px);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--su-hue, transparent) 28%, var(--raised)), var(--raised) 75%); transition: border-color .3s; }
 .su-card.themed { border-color: var(--line); }
 .su-card .avatar-wrap { flex: none; }
 .su-card-text { min-width: 0; width: 100%; }
-.su-card-name { color: var(--head); font-size: 22px; font-weight: 650; line-height: 1.2; overflow-wrap: anywhere; }
-.su-card-name.empty { opacity: .4; }
-.su-card-user { margin-top: 3px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
-.su-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
-.su-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--head) 6%, transparent); color: var(--text); font-size: 12px; }
-.su-live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
-.su-card.row { flex-direction: row; align-items: center; gap: 14px; min-height: 0; padding: 14px 16px; margin-bottom: 26px; }
+.su-card-name { color: var(--head); font-size: 24px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.2; overflow-wrap: anywhere; }
+/* not ".empty": the app has a global .empty (centered text, padding) for empty lists */
+.su-card-name.blank { opacity: .4; }
+.su-card-user { margin-top: 4px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+.su-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.su-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: color-mix(in srgb, var(--head) 6%, transparent); color: var(--text); font-size: 12px; font-weight: 500; line-height: 1.4; }
+.su-live { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+.su-card.row { flex-direction: row; justify-content: flex-start; align-items: center; gap: 12px; min-height: 0; padding: 12px 16px; margin: 0; }
 .su-card.row .su-card-name { font-size: 17px; }
 
-.su-status { display: flex; align-items: center; gap: 6px; min-height: 18px; margin: 8px 0 0; }
+.su-status { display: flex; align-items: center; gap: 6px; min-height: 20px; margin: 8px 0 0; }
 .su-status.ok { color: var(--ok-fg); }
 .su-status.bad { color: var(--err-fg); }
 
-.su-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
-.su-sw { flex: none; width: 40px; height: 40px; padding: 0; border: 1px solid var(--line2); border-radius: 10px; background-color: var(--bg2); cursor: pointer; }
-.su-sw.dot { width: 30px; height: 30px; border-radius: 50%; border-color: transparent; }
+.su-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+.su-sw { flex: none; width: 40px; height: 40px; padding: 0; border: 1px solid var(--line2); border-radius: var(--r-md); background-color: var(--bg2); cursor: pointer; }
+/* the picture colours. The class is "hue", not "dot": the app already has a global .dot (the online-status dot) that forces its own background and border. The colour arrives as --dot */
+.su-swatches .su-sw.hue { width: 32px; min-width: 0; height: 32px; min-height: 0; border-radius: 50%; border-color: transparent; background-color: var(--dot); background-image: linear-gradient(var(--dot), var(--dot)); }
 .su-sw.none { border-style: dashed; }
 .su-sw.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
-.su-sw:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
+.su-sw:focus-visible { outline: 2px solid var(--ink); outline-offset: 4px; }
 .su-cap { margin-left: 4px; color: var(--muted); font-size: 13px; }
-.su-themes { margin-top: 10px; }
 
-.su-next { margin-top: 0; }
-.su-nextbar { position: sticky; bottom: 0; z-index: 2; margin-top: 24px; padding: 14px 0 16px; background: linear-gradient(to bottom, transparent, var(--bg3, var(--bg)) 28%); }
+/* the app theme is a setting most people leave alone, so it is one row that opens */
+.su-app { border: 1px solid var(--line2); border-radius: var(--r-md); background: var(--field); }
+.su-app summary { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 8px 12px; border-radius: inherit; cursor: pointer; list-style: none; }
+.su-app summary::-webkit-details-marker { display: none; }
+.su-app summary:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.su-app-prev { position: relative; flex: none; width: 40px; height: 32px; overflow: hidden; border: 1px solid var(--line2); border-radius: 6px; background: var(--bg2); background-size: cover; }
+.su-app-prev i { position: absolute; top: 0; right: 0; bottom: 0; width: 50%; }
+.su-app-prev b { position: absolute; left: 6px; bottom: 6px; width: 14px; height: 5px; border-radius: 3px; }
+.su-app-text { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.su-app-label { color: var(--muted); font-size: 13px; line-height: 1.4; }
+.su-app-name { overflow: hidden; color: var(--head); font-size: 15px; font-weight: 600; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.su-app-act { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 14px; }
+.su-chev { transition: transform .18s var(--su-ease); }
+.su-app[open] .su-chev { transform: rotate(180deg); }
+.su-app-body { padding: 12px 12px 16px; border-top: 1px solid var(--line); }
+.su-themes { margin-top: 12px; }
+
+.su-next { margin: 0; min-height: 44px; }
+.su-next.is-off { opacity: .6; }
+.su-nextbar { margin-top: 32px; }
 .su-switch { margin: 16px 0 0; text-align: center; }
 
-/* steps 2 and 3: one narrow column */
-.su-narrow { max-width: 440px; margin: 0 auto; }
-.su-narrow > label:not(.check-row) { display: block; margin: 20px 0 8px; }
-.su-narrow input:not([type=checkbox]) { width: 100%; box-sizing: border-box; }
 /* password box with a Show / Hide button inside its right edge */
 .su-pw { position: relative; }
-.su-narrow .su-pw input:not([type=checkbox]) { padding-right: 76px; }
-.su-pw-toggle { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); min-height: 32px; padding: 0 10px; border-radius: 6px; color: var(--muted); font-size: 13px; }
+.su-sec .su-pw input:not([type=checkbox]) { padding-right: 80px; }
+.su-pw-toggle { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); min-height: 32px; padding: 0 12px; border-radius: 6px; color: var(--muted); font-size: 13px; }
 .su-pw-toggle:hover { color: var(--head); background: var(--hover); }
 .su-pw-toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
-.su-narrow .check-row { align-items: flex-start; }
-.su-narrow .check-row input { margin-top: 2px; }
-.su-actions { display: flex; gap: 10px; margin-top: 28px; }
-.su-actions .btn { flex: 1; padding: 12px; }
+
+/* step 3: two ways back in, as cards you can tick */
+.su-opts { display: flex; flex-direction: column; gap: 12px; }
+.su-opt { position: relative; display: flex; align-items: flex-start; gap: 12px; margin: 0; padding: 16px; border: 1px solid var(--line2); border-radius: var(--r-lg, 14px); background: var(--field); color: var(--text); font-size: 14px; font-weight: 400; letter-spacing: 0; text-transform: none; cursor: pointer; transition: border-color .15s var(--su-ease), background-color .15s var(--su-ease); }
+.su-opt:hover { border-color: var(--muted); }
+.su-opt.on { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); background: color-mix(in srgb, var(--ink) 6%, var(--field)); }
+.su-opt.off { opacity: .6; cursor: default; }
+.su-opt.off:hover { border-color: var(--line2); }
+.su-opt input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; padding: 0; border: 0; border-radius: inherit; background: none; opacity: 0; cursor: inherit; appearance: none; -webkit-appearance: none; }
+.su-opt-box { flex: none; display: grid; place-items: center; width: 22px; height: 22px; margin-top: 1px; border: 1.5px solid var(--line2); border-radius: 6px; color: transparent; transition: background-color .15s var(--su-ease), border-color .15s var(--su-ease); }
+.su-opt.on .su-opt-box { border-color: var(--ink); background: var(--ink); color: var(--on-ink); }
+.su-opt input:focus-visible ~ .su-opt-box { outline: 2px solid var(--ink); outline-offset: 3px; }
+.su-opt-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.su-opt-text strong { color: var(--head); font-size: 15px; font-weight: 600; line-height: 1.3; }
+.su-opt-text span { color: var(--muted); font-size: 14px; line-height: 1.45; }
+
+.su-actions { display: flex; gap: 12px; margin-top: 32px; }
+.su-actions .btn { flex: 1; min-height: 44px; padding: 12px; }
 .su-actions .btn.primary { flex: 2; }
 
 @media (max-width: 779px) {
-  .auth-bg.su-bg { padding-top: max(14px, env(safe-area-inset-top)); padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); padding-bottom: max(44px, calc(env(safe-area-inset-bottom) + 28px)); scroll-padding-top: 96px; }
-  .su-bars { margin-bottom: 18px; }
-  .su-h { font-size: 23px; }
-  .su-sub { margin-bottom: 18px; }
-  .su-grid { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  /* the card stays in view while the person scrolls the choices, so every tap is seen working */
-  .su-side { top: 0; z-index: 3; margin: 0 -14px; padding: 8px 14px 12px; background: color-mix(in srgb, var(--bg3, var(--bg)) 94%, transparent); backdrop-filter: blur(6px); }
-  .su-card { flex-direction: row; align-items: center; gap: 12px; min-height: 0; padding: 10px 12px; }
-  .su-card .su-chips { display: none; }
+  .auth-bg.su-bg { padding-top: max(12px, env(safe-area-inset-top)); padding-left: max(16px, env(safe-area-inset-left)); padding-right: max(16px, env(safe-area-inset-right)); padding-bottom: max(48px, calc(env(safe-area-inset-bottom) + 32px)); scroll-padding-top: 96px; }
+  .su-steps { margin: 12px 0 24px; }
+  .su-h { font-size: 24px; }
+  .su-sub { margin-bottom: 16px; }
+  .su-grid { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  /* on step 1 the card stays in view while the person scrolls the choices, so every tap is seen working */
+  .su-side { top: 0; z-index: 3; margin: 0 -16px 8px; padding: 8px 16px 12px; background: var(--bg3, var(--bg)); }
+  .su-grid.still .su-side { position: static; margin: 0 0 24px; padding: 0; background: none; backdrop-filter: none; }
+  .su-card { flex-direction: row; justify-content: flex-start; align-items: center; gap: 12px; min-height: 0; padding: 12px; }
   .su-card-name { font-size: 17px; }
-  .su-card-user { font-size: 13px; }
+  .su-card-user { margin-top: 0; font-size: 13px; }
   .su-main { max-width: none; }
-  .su-main > label { margin-top: 20px; }
+  .su-sec + .su-sec, .su-sec + .su-app { margin-top: 24px; }
   /* 16px stops iOS from zooming the page when a box is focused */
-  .su-main input:not([type=checkbox]), .su-narrow input:not([type=checkbox]) { font-size: 16px; min-height: 46px; }
-  .su-main .mode-pick, .su-narrow .mode-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-  .su-main .mode-pick button { min-height: 44px; padding: 8px 10px; }
-  .su-actions { position: sticky; bottom: 0; z-index: 2; margin: 24px -14px 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg3, var(--bg)) 94%, transparent); backdrop-filter: blur(6px); }
-  .su-actions .btn { min-height: 48px; }
-  .su-nextbar { position: sticky; bottom: 0; z-index: 2; margin: 20px -14px 0; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg3, var(--bg)) 94%, transparent); backdrop-filter: blur(6px); }
-  .su-nextbar .su-next { margin: 0; min-height: 48px; }
-  .su-card.row { margin-bottom: 18px; }
+  .su-sec input:not([type=checkbox]) { font-size: 16px; min-height: 48px; }
+  .su-sec .mode-pick, .su-app-body .mode-pick { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .su-sec .mode-pick button, .su-app-body .mode-pick button { min-height: 44px; padding: 8px 12px; }
+  /* the main button stays under the thumb */
+  .su-nextbar, .su-actions { position: sticky; bottom: 0; z-index: 2; margin: 24px -16px 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--bg3, var(--bg)); }
+  .su-nextbar .su-next, .su-actions .btn { min-height: 48px; }
+  .su-switch { margin-top: 8px; }
 }
 /* fingers need bigger targets than a mouse */
 @media (pointer: coarse) {
+  .su-top .auth-lang { height: 44px; min-height: 44px; }
   .su-sw { width: 44px; height: 44px; }
-  .su-sw.dot { width: 36px; height: 36px; }
-  .su-swatches { gap: 12px; }
-  .su-narrow .check-row { padding: 6px 0; }
-  .su-narrow .check-row input { width: 20px; height: 20px; }
+  .su-swatches .su-sw.hue { width: 40px; height: 40px; }
+  .su-pw-toggle { min-height: 40px; }
+  .su-app summary { min-height: 64px; }
 }
 /* a phone on its side has no room for a pinned card or a pinned button bar */
 @media (max-height: 520px) and (max-width: 979px) {
@@ -109,7 +159,10 @@
 }
 @media (max-width: 359px) {
   .su-top .wordmark { width: 92px; }
-  .su-h { font-size: 21px; }
+  .su-h { font-size: 22px; }
   .su-actions { gap: 8px; }
 }
-@media (prefers-reduced-motion: reduce) { .su-card, .su-bars i { transition: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .su-step { animation: none; }
+  .su-card, .su-st i, .su-opt, .su-opt-box, .su-chev { transition: none; }
+}

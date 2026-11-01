@@ -51,6 +51,7 @@ const D = {
     welcomeBack: 'Welcome back', excited: 'Log in to continue.',
     resetTitle: 'Reset your password', createTitle: 'Create an account',
     // sign-up in three steps (SignupFlow.jsx)
+    suStepProfile: 'Profile', suStepAccount: 'Account', suStepRecovery: 'Recovery', suUsernameNeed: 'Choose a username to continue.', suAppThemeRow: 'App theme', suChange: 'Change', suPicCaption: 'Picture color',
     suStep: 'Step {n} of 3', suDesignTitle: 'Design your profile', suDesignSub: 'This is how you will appear to others. You can change all of it later.',
     suYourName: 'Your name', suUsernameHint: '3 to 20 letters, numbers or underscores. You can change it later, once a week.', suUsernameBad: 'Use 3 to 20 letters, numbers or underscores.',
     suUsernameTaken: 'That name is taken. Try another.', suUsernameFree: 'Available. You can change it later, once a week.', suChecking: 'Checking…',
@@ -110,6 +111,7 @@ const D = {
     welcomeBack: 'Bon retour', excited: 'Connectez-vous pour continuer.',
     resetTitle: 'Réinitialisez votre mot de passe', createTitle: 'Créer un compte',
     // inscription en trois étapes (SignupFlow.jsx)
+    suStepProfile: 'Profil', suStepAccount: 'Compte', suStepRecovery: 'Récupération', suUsernameNeed: 'Choisissez un nom d’utilisateur pour continuer.', suAppThemeRow: 'Thème de l’application', suChange: 'Modifier', suPicCaption: 'Couleur de la photo',
     suStep: 'Étape {n} sur 3', suDesignTitle: 'Créez votre profil', suDesignSub: 'C’est ainsi que les autres vous verront. Vous pourrez tout modifier plus tard.',
     suYourName: 'Votre nom', suUsernameHint: '3 à 20 lettres, chiffres ou tirets bas. Vous pourrez le changer plus tard, une fois par semaine.', suUsernameBad: 'Utilisez 3 à 20 lettres, chiffres ou tirets bas.',
     suUsernameTaken: 'Ce nom est déjà pris. Essayez-en un autre.', suUsernameFree: 'Disponible. Vous pourrez le changer plus tard, une fois par semaine.', suChecking: 'Vérification…',
@@ -167,6 +169,7 @@ const D = {
     welcomeBack: 'Bienvenido de nuevo', excited: 'Inicia sesión para continuar.',
     resetTitle: 'Restablece tu contraseña', createTitle: 'Crear una cuenta',
     // registro en tres pasos (SignupFlow.jsx)
+    suStepProfile: 'Perfil', suStepAccount: 'Cuenta', suStepRecovery: 'Recuperación', suUsernameNeed: 'Elige un nombre de usuario para continuar.', suAppThemeRow: 'Tema de la app', suChange: 'Cambiar', suPicCaption: 'Color de la foto',
     suStep: 'Paso {n} de 3', suDesignTitle: 'Diseña tu perfil', suDesignSub: 'Así te verán los demás. Podrás cambiarlo todo más adelante.',
     suYourName: 'Tu nombre', suUsernameHint: 'De 3 a 20 letras, números o guiones bajos. Podrás cambiarlo más adelante, una vez por semana.', suUsernameBad: 'Usa de 3 a 20 letras, números o guiones bajos.',
     suUsernameTaken: 'Ese nombre ya está en uso. Prueba con otro.', suUsernameFree: 'Disponible. Podrás cambiarlo después, una vez por semana.', suChecking: 'Comprobando…',
