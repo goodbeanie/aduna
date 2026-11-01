@@ -4,7 +4,7 @@ import { Avatar, Icon, Modal, ServerIcon } from './ui.jsx';
 import { PanelSkeleton } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import { layoutOf, moveChannel, moveCategory, saveLayout } from './layout.js';
-import { uploadImage, checkImageFile, imageUrl, ACCEPT_ATTR, SERVER_ICON_SIZE, SERVER_BANNER_SIZE } from './image.js';
+import { uploadImage, uploadAnimated, checkImageFile, imageUrl, ACCEPT_ATTR, SERVER_ICON_SIZE, SERVER_BANNER_SIZE } from './image.js';
 import Cropper from './Cropper.jsx';
 import { t as tr } from './i18n.js';
 import { THEMES, DEFAULT_CUSTOM, setServerTheme } from './themes.js';
@@ -107,8 +107,8 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
     try { checkImageFile(file); setCropping({ kind, file }); }
     catch (ex) { setErr(ex.message); }
   }
-  function applyCrop(blob) {
-    stage(cropping.kind, { blob, url: URL.createObjectURL(blob) });
+  function applyCrop(blob, anim) {
+    stage(cropping.kind, { blob, url: URL.createObjectURL(blob), anim }); // anim = { file, crop } for a GIF, sent after the still picture on save
     setCropping(null);
   }
   const has = (kind) => (staged[kind] === undefined ? !!server[kind === 'icon' ? 'iconImage' : 'bannerImage'] : staged[kind] !== null);
@@ -133,6 +133,7 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
         const s = staged[kind];
         if (s === undefined) continue;
         ({ server: sv } = s === null ? await api(`/servers/${server.id}/${kind}`, { method: 'DELETE' }) : await uploadImage(kind, s.blob, `/api/servers/${server.id}`));
+        if (s && s.anim) ({ server: sv } = await uploadAnimated(kind, s.anim.file, s.anim.crop, `/api/servers/${server.id}`));
       }
       onSaved(sv);
       onClose();

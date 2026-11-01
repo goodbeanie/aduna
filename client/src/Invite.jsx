@@ -88,8 +88,8 @@ export function InviteBox({ info, label, extra }) {
 
   return (
     <div className="invite-card" style={themeVars(info.theme)}>
-      <div className="ic-banner" style={info.bannerImage ? { backgroundImage: `url("${imageUrl(info.bannerImage)}")` } : undefined} />
-      <div className="ic-icon"><ServerIcon server={{ name: info.name, iconImage: info.iconImage }} fill /></div>
+      <div className="ic-banner" style={info.bannerImage ? { backgroundImage: `url("${imageUrl(info.bannerAnim || info.bannerImage)}")` } : undefined} />
+      <div className="ic-icon"><ServerIcon server={{ name: info.name, iconImage: info.iconImage, iconAnim: info.iconAnim }} fill play /></div>
       <div className="ic-body">
         <div className="ic-label">{label}</div>
         <div className="ic-row">

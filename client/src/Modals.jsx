@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { Avatar, BadgeIcons, Banner, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, lightness, CUSTOM_THEME_ID } from './profilethemes.js';
 import { nameProps, NAME_FONTS, MAX_NAME_STOPS, DEFAULT_NAME_GRADIENT, nameGradientCss } from './namestyle.js';
-import { uploadImage, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
+import { uploadImage, uploadAnimated, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
 import Cropper from './Cropper.jsx';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
@@ -221,7 +221,7 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
     <Modal title="Profile" bare onClose={onClose}>
       <div className={'card' + th.className} style={{ '--accent': user.accentColor, ...th.style }}>
         <Banner user={user} />
-        <div className="card-avatar"><Avatar user={user} size={80} presence={presence} /></div>
+        <div className="card-avatar"><Avatar user={user} size={80} presence={presence} play /></div>
         {user.plus && <PlusBadge />}
         <div className="card-body">
           <h3><span {...nameProps(user)}>{user.displayName}</span>{user.bot && <> <BotTag /></>} <BadgeIcons user={user} size={20} /></h3>
@@ -340,7 +340,8 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const renaming = !locked && f.username.trim().replace(/^@/, '') !== me.username;
 
   // Picture changes are staged until "Save changes": undefined = unchanged, null = remove,
-  // { blob, url } = new (already resized) image with a temporary preview URL.
+  // { blob, url, anim } = new (already resized) image with a temporary preview URL; anim = { file, crop } when the picture was a GIF
+  // (the original is sent after the still one, see save, so it can play when hovered).
   const [staged, setStaged] = useState({ avatar: undefined, banner: undefined });
   const stagedRef = useRef(staged);
   stagedRef.current = staged;
@@ -360,9 +361,9 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     try { checkImageFile(file); setCropping({ kind, file }); }
     catch (ex) { setErr(ex.message); }
   }
-  function applyCrop(blob) {
+  function applyCrop(blob, anim) {
     const { kind } = cropping;
-    stage(kind, { blob, url: URL.createObjectURL(blob) });
+    stage(kind, { blob, url: URL.createObjectURL(blob), anim });
     if (kind === 'avatar') setMode('image');
     setCropping(null);
   }
@@ -430,6 +431,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
         const s = changes[kind];
         if (s === undefined) continue;
         ({ user } = s === null ? await api('/me/' + kind, { method: 'DELETE' }) : await uploadImage(kind, s.blob));
+        if (s && s.anim) ({ user } = await uploadAnimated(kind, s.anim.file, s.anim.crop)); // a GIF: the animated copy goes up after the still picture
       }
       onSaved(user);
       onClose();

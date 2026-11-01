@@ -34,11 +34,19 @@ export function Rich({ text: raw, mention }) {
   });
 }
 
+// A custom emoji picture. Animated (GIF) emoji sit still on their first frame (?still=1, a small copy; other types are sent as they are)
+// until the pointer is over them, so a busy chat does not turn into a light show and does not use everyone's data.
+export function EmojiImg({ id, alt = '', ...rest }) {
+  const [hover, setHover] = useState(false);
+  const src = `/api/emoji/${id}/image`;
+  return <img src={hover ? src : src + '?still=1'} alt={alt} draggable={false} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} {...rest} />;
+}
+
 export function CustomEmoji({ id, name, big }) {
   const { openMenu } = useEmoji();
   const [bad, setBad] = useState(false);
   if (bad) return <span className="cemoji-missing" title="This emoji is no longer available">:{name}:</span>;
-  return <img className={'cemoji' + (big ? ' big' : '')} src={`/api/emoji/${id}/image`} alt={`:${name}:`} title={`:${name}:`} draggable={false}
+  return <EmojiImg id={id} className={'cemoji' + (big ? ' big' : '')} alt={`:${name}:`} title={`:${name}:`}
     onError={() => setBad(true)} onClick={(e) => openMenu(id, name, e.clientX, e.clientY)} />;
 }
 

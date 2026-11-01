@@ -980,8 +980,9 @@ function Main({ me, setMe, privKey, openServerId }) {
       <aside className="side">
         {server ? (
           <>
-            <button className={'side-head' + (server.bannerImage ? ' has-banner' : '')} onClick={() => setMenu((m) => !m)}
-              style={server.bannerImage ? { backgroundImage: `url("${imageUrl(server.bannerImage)}")` } : undefined}>
+            {/* an animated banner (server.bannerAnim) plays while the pointer is over the header: the hover rule in 11-server-settings.css swaps in --banner-anim */}
+            <button className={'side-head' + (server.bannerImage ? ' has-banner' : '') + (server.bannerImage && server.bannerAnim ? ' anim-banner' : '')} onClick={() => setMenu((m) => !m)}
+              style={server.bannerImage ? { backgroundImage: `url("${imageUrl(server.bannerImage)}")`, ...(server.bannerAnim ? { '--banner-anim': `url("${imageUrl(server.bannerAnim)}")` } : null) } : undefined}>
               <span className="side-name">{server.iconImage && <ServerIcon server={server} size={24} />}<span className="side-title">{server.name}</span></span>
               <Icon name={menu ? 'close' : 'chevron'} size={16} />
             </button>

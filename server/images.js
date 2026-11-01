@@ -106,4 +106,49 @@ function cleanGif(b, maxFrames = 150) {
   return { buf: Buffer.concat(parts), width, height, frames };
 }
 
-module.exports = { sniffImage, cleanGif };
+// What the image route may serve: the still formats above, plus GIFs (animated profile pictures, banners, icons and emoji).
+// A GIF is only checked by its header here; it was cleaned by cleanGif before it was stored.
+function gifInfo(b) {
+  if (!Buffer.isBuffer(b) || b.length < 14) return null;
+  const sig = b.toString('latin1', 0, 6);
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') return null;
+  const width = b.readUInt16LE(6), height = b.readUInt16LE(8);
+  return width && height ? { mime: 'image/gif', width, height } : null;
+}
+const sniffAny = (buf) => sniffImage(buf) || gifInfo(buf);
+
+// A still copy of a GIF: the header and palette, the first frame and the trailer. The pictures only play when hovered, so everything
+// that shows them at rest asks for this copy (?still=1), which is a fraction of the size. Nothing is decoded: the blocks are copied
+// as they are, and the loop extension is left out so the copy never animates. Returns null if the bytes are not a GIF with a frame.
+function stillGif(b) {
+  if (!gifInfo(b)) return null;
+  let pos = 13;
+  if (b[10] & 0x80) pos += 3 * (1 << ((b[10] & 7) + 1));
+  if (pos >= b.length) return null;
+  const parts = [b.subarray(0, pos)];
+  const skipSubBlocks = (p) => { while (p < b.length) { const n = b[p]; if (n === 0) return p + 1; p += 1 + n; } return -1; };
+  let control = null; // the graphic control block of the first frame (keeps its see-through colour)
+  for (;;) {
+    if (pos >= b.length) return null;
+    const t = b[pos];
+    if (t === 0x3b) return null; // trailer before any frame
+    if (t === 0x21) {
+      const end = skipSubBlocks(pos + 2);
+      if (end < 0) return null;
+      if (b[pos + 1] === 0xf9) control = b.subarray(pos, end);
+      pos = end;
+    } else if (t === 0x2c) {
+      if (pos + 10 > b.length) return null;
+      let p = pos + 10;
+      if (b[pos + 9] & 0x80) p += 3 * (1 << ((b[pos + 9] & 7) + 1));
+      p += 1;
+      const end = skipSubBlocks(p);
+      if (end < 0) return null;
+      if (control) parts.push(control);
+      parts.push(b.subarray(pos, end), Buffer.from([0x3b]));
+      return Buffer.concat(parts);
+    } else return null;
+  }
+}
+
+module.exports = { sniffImage, sniffAny, gifInfo, cleanGif, stillGif };

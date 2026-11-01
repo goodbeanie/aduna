@@ -10,6 +10,7 @@
 .side-head { position: relative; }
 .side-head.has-banner { height: 96px; align-items: flex-end; padding-bottom: 10px; background-size: cover; background-position: center; color: #fff; text-shadow: 0 1px 4px #0009; }
 .side-head.has-banner::before { content: ''; position: absolute; inset: 0; }
+.side-head.anim-banner:hover { background-image: var(--banner-anim) !important; } /* an animated banner only plays while hovered */
 .side-head.has-banner > * { position: relative; }
 .side-head.has-banner svg { color: #fff; }
 .side-head.has-banner:not(.static):hover { background-color: transparent; filter: brightness(1.08); }

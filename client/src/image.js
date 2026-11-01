@@ -18,7 +18,8 @@ function toBlob(canvas, type, quality) {
 // Crops the picture to the target aspect ratio, scales it down, and re-encodes it.
 // `crop` is optional: { x, y, zoom } where x and y (0 to 1) are the middle of the part you want, as a share of the picture's width and height,
 // and zoom (1 or more) zooms in. Without it the middle of the picture is used. The result is the same "cover" fit the crop window shows.
-// This also strips EXIF data (e.g. GPS location) and keeps uploads small. Animated GIFs become still images (first frame).
+// This also strips EXIF data (e.g. GPS location) and keeps uploads small. An animated GIF becomes a still image here (first frame);
+// uploadAnimated below sends the animation itself.
 export function checkImageFile(file) {
   if (!ACCEPT.includes(file.type)) throw new Error(tr('imgType'));
   if (file.size > MAX_INPUT) throw new Error(tr('imgBig'));
@@ -226,6 +227,19 @@ export async function processPiece(file, maxSide = 1600) {
   }
   bmp.close?.();
   throw new Error('That image is still too large after resizing, try a different one');
+}
+
+// Animated pictures: the cropped still above is what gets stored as the picture; when the chosen file is a GIF, the original and the crop window
+// are sent as well, and the server cuts the same part out of every frame. The app shows the still one and plays the GIF on hover.
+export const ANIM_MAX_BYTES = 8 * 1024 * 1024; // the server's limit for the GIF
+export const canAnimate = (file) => !!file && file.type === 'image/gif' && file.size <= ANIM_MAX_BYTES;
+
+export async function uploadAnimated(kind, file, crop, base = '/api/me') {
+  const q = new URLSearchParams({ x: String(crop?.x ?? 0.5), y: String(crop?.y ?? 0.5), zoom: String(crop?.zoom ?? 1) });
+  const res = await fetch(`${base}/${kind}/animated?${q}`, { method: 'PUT', headers: { 'Content-Type': 'image/gif' }, body: file });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save the animation');
+  return data;
 }
 
 // `base` is '/api/me' for profile pictures, or `/api/servers/<id>` for a server's icon and banner.

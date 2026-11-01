@@ -143,6 +143,7 @@ function ProfileForm({ profile, submitLabel, onSaved, children }) {
           size={picking.kind === 'avatar' ? AVATAR_SIZE : BANNER_SIZE}
           shape={picking.kind === 'avatar' ? 'square' : 'wide'}
           title={picking.kind === 'avatar' ? 'Crop your icon' : 'Crop your banner'}
+          stillOnly
           onApply={applyCrop}
           onCancel={() => setPicking(null)}
         />

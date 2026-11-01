@@ -8,16 +8,21 @@ export const STATUS_LABEL = new Proxy({}, { get: (_, k) => (typeof k === 'string
 
 // Shows the uploaded picture if there is one, otherwise the Aduna logo (avatarLogo) or the emoji / first letter on the avatar colour.
 // `avatarPreview` is a temporary object URL used by the profile editor before saving.
-export function Avatar({ user, size = 40, presence }) {
-  const src = user?.avatarPreview || imageUrl(user?.avatarImage);
+// An animated picture (user.avatarAnim, a GIF) stays a still image until the pointer is over it, or `play` is set (a profile that is open).
+export function Avatar({ user, size = 40, presence, play = false }) {
+  const still = user?.avatarPreview || imageUrl(user?.avatarImage);
+  const anim = user?.avatarPreview ? null : imageUrl(user?.avatarAnim);
   const frame = size >= 24 ? user?.framePreview || imageUrl(user?.frame) : null; // an artist's ring around the picture (see FRAME in image.js); too small to read under 24px
   const [failed, setFailed] = React.useState(null); // the src that failed to load, if any
+  const [hover, setHover] = React.useState(false);
   if (!user) return <div className="avatar" style={{ width: size, height: size, background: '#cfc5ac' }} />;
+  const src = anim && failed !== anim && (play || hover) ? anim : still;
   const showImg = src && failed !== src;
   const label = user.avatarEmoji || (user.displayName || user.username || '?').slice(0, 1).toUpperCase();
   const ring = size * FRAME.side / FRAME.hole; // the frame picture is bigger than the avatar: the avatar fills its middle hole
+  const hoverProps = anim && !play ? { onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) } : null;
   return (
-    <div className="avatar-wrap" style={{ width: size, height: size }}>
+    <div className="avatar-wrap" style={{ width: size, height: size }} {...hoverProps}>
       <div className="avatar" style={{ width: size, height: size, background: user.avatarColor, fontSize: size * (user.avatarEmoji ? 0.52 : 0.46) }}>
         {showImg ? <img src={src} alt="" draggable={false} onError={() => setFailed(src)} /> : user.avatarLogo ? <span className="logo-mark" aria-hidden="true"><i className="logo-body" /></span> : label}
       </div>
@@ -29,16 +34,21 @@ export function Avatar({ user, size = 40, presence }) {
 
 // A server's picture: its uploaded icon, or its initials. `preview` is a temporary object URL used by server settings before saving.
 export function serverInitials(name) { return String(name || '?').split(/\s+/).filter(Boolean).map((w) => Array.from(w)[0]).join('').slice(0, 3).toUpperCase(); }
-export function ServerIcon({ server, size = 48, fill = false, preview }) {
-  const src = preview !== undefined ? preview : imageUrl(server?.iconImage);
+// An animated icon (server.iconAnim, a GIF) stays a still image until the pointer is over it, or `play` is set (an invite page, say).
+export function ServerIcon({ server, size = 48, fill = false, preview, play = false }) {
+  const still = preview !== undefined ? preview : imageUrl(server?.iconImage);
+  const anim = preview !== undefined ? null : imageUrl(server?.iconAnim);
   const [failed, setFailed] = React.useState(null);
+  const [hover, setHover] = React.useState(false);
+  const src = anim && failed !== anim && (play || hover) ? anim : still;
   const showImg = src && failed !== src;
+  const hoverProps = anim && !play ? { onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) } : null;
   // no picture: a stable hue per server (from its id) so two initials tiles never look the same; the tint itself is mixed with the theme in refine.css
   const seed = String(server?.id || server?.name || '');
   let hue = 0; for (let i = 0; i < seed.length; i++) hue = (hue * 31 + seed.charCodeAt(i)) % 360;
   const style = { ...(fill ? null : { width: size, height: size, fontSize: Math.max(10, size * 0.34) }), ...(showImg ? null : { '--sh': hue }) };
   return (
-    <span className={'server-icon' + (fill ? ' fill' : '') + (showImg ? '' : ' no-img')} style={style}>
+    <span className={'server-icon' + (fill ? ' fill' : '') + (showImg ? '' : ' no-img')} style={style} {...hoverProps}>
       {showImg ? <img src={src} alt="" draggable={false} onError={() => setFailed(src)} /> : serverInitials(server?.name)}
     </span>
   );
@@ -54,8 +64,9 @@ export function PlusBadge({ size = 24 }) {
   );
 }
 
+// The banner only appears on an open profile, so an animated one (user.bannerAnim) plays right away.
 export function Banner({ user }) {
-  const src = user.bannerPreview || imageUrl(user.bannerImage);
+  const src = user.bannerPreview || imageUrl(user.bannerAnim || user.bannerImage);
   return <div className="banner" style={{ backgroundColor: user.bannerColor, backgroundImage: src ? `url("${src}")` : undefined }} />;
 }
 

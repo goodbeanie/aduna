@@ -3,7 +3,7 @@ import { Avatar, BadgeIcons, Icon, Modal, timeLabel } from './ui.jsx';
 import { nameProps } from './namestyle.js';
 import EmojiPicker from './EmojiPicker.jsx';
 import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
-import { Rich, useEmoji } from './Emoji.jsx';
+import { EmojiImg, Rich, useEmoji } from './Emoji.jsx';
 import { InviteCard, inviteCodesIn } from './Invite.jsx';
 import { ClipEmbed, clipIdsIn, isOnlyClipLink } from './ClipEmbed.jsx';
 import { MentionMenu, fromMentionTokens, mentionPreview, toMentionTokens, useMentionComplete } from './Mentions.jsx';
@@ -237,7 +237,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
                 <button key={emoji} className={'chip' + (ids.includes(me.id) ? ' on' : '')} onClick={() => setWho(emoji)} aria-haspopup="dialog"
                   onContextMenu={emoji.startsWith('c:') ? (e) => { e.preventDefault(); e.stopPropagation(); openMenu(emoji.slice(2), lib.find((x) => x.id === emoji.slice(2))?.name || 'emoji', e.clientX, e.clientY); } : undefined}
                   title={(emoji.startsWith('c:') ? ':' + (lib.find((x) => x.id === emoji.slice(2))?.name || 'custom emoji') + ': (right-click to save or report)\n' : '') + ids.map((i) => users[i]?.displayName || '?').join(', ')}>
-                  {emoji.startsWith('c:') ? <img className="cemoji" src={`/api/emoji/${emoji.slice(2)}/image`} alt="" /> : emoji} <span>{ids.length}</span>
+                  {emoji.startsWith('c:') ? <EmojiImg id={emoji.slice(2)} className="cemoji" /> : emoji} <span>{ids.length}</span>
                 </button>
               ))}
               <button className="chip add" title="Add reaction" aria-label="Add reaction" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setCtxPicker({ x: r.left, y: r.bottom }); }}><Icon name="plus" size={14} /></button>

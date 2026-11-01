@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './ui.jsx';
-import { processImage } from './image.js';
+import { processImage, canAnimate } from './image.js';
 import { useLang } from './i18n.js';
 import './cropper.css';
 
@@ -11,7 +11,8 @@ import './cropper.css';
 const MAX_ZOOM = 4;
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), Math.max(lo, hi));
 
-export default function Cropper({ file, size, shape = 'wide', title, onApply, onCancel }) {
+// stillOnly: for a picture that cannot animate (the Clips creator profile): a GIF is used as its first frame and no animation note is shown
+export default function Cropper({ file, size, shape = 'wide', title, onApply, onCancel, stillOnly = false }) {
   const { t } = useLang();
   const url = useMemo(() => URL.createObjectURL(file), [file]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
@@ -88,7 +89,11 @@ export default function Cropper({ file, size, shape = 'wide', title, onApply, on
 
   async function apply() {
     setBusy(true); setErr('');
-    try { onApply(await processImage(file, size, { x: mid.x, y: mid.y, zoom })); }
+    try {
+      const crop = { x: mid.x, y: mid.y, zoom };
+      // a GIF also hands over the original and the crop window, so the animation can be cut to the same part (callers that don't use it ignore the second argument)
+      onApply(await processImage(file, size, crop), canAnimate(file) && !stillOnly ? { file, crop } : undefined);
+    }
     catch (ex) { setErr(ex.message); setBusy(false); }
   }
 
@@ -119,6 +124,9 @@ export default function Cropper({ file, size, shape = 'wide', title, onApply, on
           <span className="muted small">{t('cropZoom')}</span>
           <input type="range" min="1" max={MAX_ZOOM} step="0.01" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} aria-label={t('cropZoom')} />
         </label>
+        {file.type === 'image/gif' && !stillOnly && (
+          <p className="muted small">{canAnimate(file) ? 'This GIF will animate when someone hovers over it or opens the profile.' : 'This GIF is over 8 MB, so only its first frame will be used.'}</p>
+        )}
         {err && <p className="error-text" role="alert">{err}</p>}
         <div className="modal-foot">
           <button type="button" className="btn" onClick={onCancel} disabled={busy}>{t('cropCancel')}</button>

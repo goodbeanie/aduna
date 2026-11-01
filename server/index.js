@@ -7,7 +7,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const store = require('./db');
-const { sniffImage, cleanGif } = require('./images');
+const { sniffImage, sniffAny, cleanGif, stillGif } = require('./images');
+const animated = require('./animated'); // animated profile pictures, banners and server icons (a GIF cut to size with ffmpeg)
 const credits = require('./credits');
 const storagePlan = require('./storage');
 const artistsLib = require('./artists'); // artists: apply, get reviewed, sell badges in the shop (see the "artists" block below)
@@ -54,9 +55,9 @@ let SECRET = null;
 const db = () => store.db;
 // drop uploaded images that no profile points at (e.g. left over from a crash mid-upload)
 const referencedImages = () => new Set([
-  ...Object.values(store.db.users).flatMap((u) => [u.avatarImage, u.bannerImage]),
+  ...Object.values(store.db.users).flatMap((u) => [u.avatarImage, u.bannerImage, u.avatarAnim, u.bannerAnim]), // the animated copies sit next to the still pictures
   ...Object.values(store.db.users).flatMap((u) => (u.clipCreator && u.clipCreator.profile ? [u.clipCreator.profile.avatarImage, u.clipCreator.profile.bannerImage] : [])), // a Clips creator's own icon and banner
-  ...Object.values(store.db.servers).flatMap((sv) => [sv.iconImage, sv.bannerImage]), // server icon + banner
+  ...Object.values(store.db.servers).flatMap((sv) => [sv.iconImage, sv.bannerImage, sv.iconAnim, sv.bannerAnim]), // server icon + banner, and their animated copies
   ...Object.values(store.db.bots || {}).map((b) => b.avatarImage), // bot pictures (the bot's account points at the same image)
   ...Object.values(store.db.emojis).map((e) => e.imageId), // custom emoji pictures live in the same table
   ...Object.values(store.db.badges || {}).map((b) => b.image), // badge pictures (creator badges and artists' items); without this the startup cleanup deleted them
@@ -235,6 +236,8 @@ function publicUser(u) {
     bannerColor: u.bannerColor,
     avatarImage: u.avatarImage || null,
     bannerImage: u.bannerImage || null,
+    avatarAnim: u.avatarAnim || null, // the animated copy (a GIF) of the picture above, shown only while hovered or on an open profile
+    bannerAnim: u.bannerAnim || null,
     accentColor: u.accentColor,
     ...nameStyle.view(u), // nameFont and nameGradient: how the display name is drawn (null = the app's font / the plain colour)
     profileTheme: credits.pthemes.wornId(u), // a gradient profile theme (see profilethemes.js), or null
@@ -318,6 +321,8 @@ function serverView(s) {
     inviteCode: s.inviteCode,
     iconImage: s.iconImage || null,
     bannerImage: s.bannerImage || null,
+    iconAnim: s.iconAnim || null, // animated copies (GIFs) of the two pictures above
+    bannerAnim: s.bannerAnim || null,
     theme: s.theme || null, // { dark, bg, accent } or null: members see the app fade to it on this server
     categories: s.categories || [],
     visibility: s.visibility || null, // null = not published (the invite code still works, same as unlisted)
@@ -1230,10 +1235,14 @@ app.patch('/api/me', authAny, async (req, res) => {
 // The browser resizes and re-encodes the picture before upload; the server still checks the real
 // file signature and dimensions, never the Content-Type header. Images are stored encrypted in the
 // database and served from an unguessable URL, so they work in plain <img> tags.
+// animField / animSize: where the animated copy goes and how big it is (smaller than the still, so it stays light for everyone who looks at the profile)
 const IMAGE_RULES = {
-  avatar: { field: 'avatarImage', maxDim: 500 },
-  banner: { field: 'bannerImage', maxDim: 4096 },
+  avatar: { field: 'avatarImage', maxDim: 500, animField: 'avatarAnim', animSize: { w: 256, h: 256 } },
+  banner: { field: 'bannerImage', maxDim: 4096, animField: 'bannerAnim', animSize: { w: 960, h: 240 } },
 };
+const rawGif = express.raw({ type: 'image/gif', limit: animated.LIMITS.maxInput });
+// the crop window the browser used for the still picture: ?x=&y=&zoom= (see Cropper.jsx)
+const cropOf = (q) => ({ x: Number(q.x), y: Number(q.y), zoom: Number(q.zoom) });
 const uploadHits = new Map();
 function uploadLimiter(req, res, next) {
   const t = now();
@@ -1245,13 +1254,43 @@ function uploadLimiter(req, res, next) {
 }
 const rawImage = express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: '1mb' });
 
+// A new (or removed) still picture also drops the animated copy of the old one: the browser uploads the animated copy after the still one.
 async function setProfileImage(u, field, buf) {
   const old = u[field];
+  const rule = Object.values(IMAGE_RULES).find((r) => r.field === field);
+  const oldAnim = rule ? u[rule.animField] : null;
   u[field] = buf ? await store.putImage(buf) : null;
+  if (rule) delete u[rule.animField];
   await store.flush(); // make sure the profile points at the new image before the old one is deleted
+  await store.deleteImage(old);
+  await store.deleteImage(oldAnim);
+  emitUserUpdate(u);
+  return selfView(u);
+}
+
+// Sets (buf = a finished GIF) or removes (null) the animated copy of a profile picture.
+async function setProfileAnim(u, rule, buf) {
+  const old = u[rule.animField];
+  if (buf) u[rule.animField] = await store.putImage(buf); else delete u[rule.animField];
+  await store.flush();
   await store.deleteImage(old);
   emitUserUpdate(u);
   return selfView(u);
+}
+
+for (const [kind, rule] of Object.entries(IMAGE_RULES)) {
+  // The original GIF plus the crop window; the still picture has to be there already (the animated copy only adds to it).
+  app.put(`/api/me/${kind}/animated`, auth, uploadLimiter, rawGif, ah(async (req, res) => {
+    if (!req.user[rule.field]) return res.status(400).json({ error: 'Save the picture first, then add the animation' });
+    let out;
+    try { out = await animated.makeAnimated(req.body, rule.animSize, cropOf(req.query)); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+    if (!out) return res.json({ user: selfView(req.user) }); // a GIF with one frame: the still picture is all there is
+    res.json({ user: await setProfileAnim(req.user, rule, out.buf) });
+  }));
+  app.delete(`/api/me/${kind}/animated`, auth, ah(async (req, res) => {
+    res.json({ user: await setProfileAnim(req.user, rule, null) });
+  }));
 }
 
 for (const [kind, rule] of Object.entries(IMAGE_RULES)) {
@@ -1270,7 +1309,7 @@ for (const [kind, rule] of Object.entries(IMAGE_RULES)) {
 
 app.get('/api/images/:id', ah(async (req, res) => {
   const buf = await store.getImage(req.params.id);
-  const info = buf && sniffImage(buf);
+  const info = buf && sniffAny(buf); // a GIF here is the animated copy of a picture
   if (!info) return res.status(404).json({ error: 'Not found' });
   res.set({
     'Content-Type': info.mime,
@@ -1278,7 +1317,7 @@ app.get('/api/images/:id', ah(async (req, res) => {
     'X-Content-Type-Options': 'nosniff',
     'Content-Security-Policy': "default-src 'none'",
   });
-  res.send(buf);
+  res.send(info.mime === 'image/gif' && req.query.still ? stillGif(buf) || buf : buf); // ?still=1: the first frame only
 }));
 
 // ----- custom emoji -----
@@ -1467,7 +1506,8 @@ app.get('/api/emoji/:id/image', ah(async (req, res) => {
   const buf = e && await store.getImage(e.imageId);
   if (!buf) return res.status(404).json({ error: 'Not found' });
   res.set({ 'Content-Type': e.mime, 'Cache-Control': 'public, max-age=604800, immutable', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" });
-  res.send(buf);
+  // ?still=1: an animated emoji's first frame only, so chat stays calm until someone hovers over it (other types are sent as they are)
+  res.send(e.mime === 'image/gif' && req.query.still ? stillGif(buf) || buf : buf);
 }));
 
 // ----- message attachments -----
@@ -2241,6 +2281,8 @@ function destroyServer(s) {
   store.deleteFiles(fileIds).catch((e) => console.error(e));
   store.deleteImage(s.iconImage).catch(() => {});
   store.deleteImage(s.bannerImage).catch(() => {});
+  store.deleteImage(s.iconAnim).catch(() => {});
+  store.deleteImage(s.bannerAnim).catch(() => {});
 }
 
 // The owner cannot just walk away: ownership never passes to "whoever is first in the list". They hand it to a chosen member first
@@ -2310,8 +2352,8 @@ app.delete('/api/servers/:id', auth, ah(async (req, res) => {
 
 // ----- server settings (owner only): name, icon, banner, theme -----
 const SERVER_IMAGE_RULES = {
-  icon: { field: 'iconImage', maxDim: 512 },
-  banner: { field: 'bannerImage', maxDim: 4096 },
+  icon: { field: 'iconImage', maxDim: 512, animField: 'iconAnim', animSize: { w: 192, h: 192 } },
+  banner: { field: 'bannerImage', maxDim: 4096, animField: 'bannerAnim', animSize: { w: 720, h: 240 } },
 };
 // A server theme is just the three seeds themes.js builds a whole palette from.
 function cleanServerTheme(t) {
@@ -2359,7 +2401,7 @@ function sendInvite(req, res, me) {
   const s = Object.values(db().servers).find((x) => x.inviteCode === cleanInvite(req.params.code));
   if (!s) return res.status(404).json({ error: 'This invite is no longer valid' });
   if (!(me && s.members.includes(me.id)) && !canJoin(s, me?.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
-  res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, theme: s.theme || null, memberCount: humanCount(s) } });
+  res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, iconAnim: s.iconAnim || null, bannerAnim: s.bannerAnim || null, theme: s.theme || null, memberCount: humanCount(s) } });
 }
 
 // Tags help people find a public server. Up to 5, each 2-20 characters of a-z 0-9 and -, stored lowercase.
@@ -3478,7 +3520,7 @@ app.post('/api/admin/users/:id/unsuspend', auth, adminOnly, (req, res) => {
 // encrypted and belong to both people, so they stay. The username and email become free to register again (suspend keeps them reserved).
 async function deleteAccount(u, { purge }) {
   const id = u.id, out = { servers: 0, serversDeleted: 0, messages: 0, clips: 0, bots: 0 };
-  const avatar = u.avatarImage || null, banner = u.bannerImage || null;
+  const avatar = u.avatarImage || null, banner = u.bannerImage || null, avatarAnim = u.avatarAnim || null, bannerAnim = u.bannerAnim || null;
   const passHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10); // nobody knows this password
   await revokeAllSessions(u);
   const shell = {
@@ -3518,6 +3560,8 @@ async function deleteAccount(u, { purge }) {
   await store.flush();
   if (avatar) store.deleteImage(avatar).catch(() => {});
   if (banner) store.deleteImage(banner).catch(() => {});
+  if (avatarAnim) store.deleteImage(avatarAnim).catch(() => {});
+  if (bannerAnim) store.deleteImage(bannerAnim).catch(() => {});
   return out;
 }
 app.post('/api/admin/users/:id/delete', auth, adminOnly, ah(async (req, res) => {
@@ -3811,12 +3855,43 @@ app.patch('/api/servers/:id', auth, (req, res) => {
   res.json({ server: broadcastServer(s) });
 });
 
+// A new (or removed) still picture also drops the animated copy of the old one, like setProfileImage does for people.
 async function setServerImage(s, field, buf) {
   const old = s[field];
+  const rule = Object.values(SERVER_IMAGE_RULES).find((r) => r.field === field);
+  const oldAnim = rule ? s[rule.animField] : null;
   s[field] = buf ? await store.putImage(buf) : null;
+  if (rule) delete s[rule.animField];
   await store.flush(); // the server must point at the new image before the old one is deleted
   await store.deleteImage(old);
+  await store.deleteImage(oldAnim);
   return broadcastServer(s);
+}
+
+async function setServerAnim(s, rule, buf) {
+  const old = s[rule.animField];
+  if (buf) s[rule.animField] = await store.putImage(buf); else delete s[rule.animField];
+  await store.flush();
+  await store.deleteImage(old);
+  return broadcastServer(s);
+}
+
+for (const [kind, rule] of Object.entries(SERVER_IMAGE_RULES)) {
+  app.put(`/api/servers/:id/${kind}/animated`, auth, uploadLimiter, rawGif, ah(async (req, res) => {
+    const s = ownedServer(req, res);
+    if (!s) return;
+    if (!s[rule.field]) return res.status(400).json({ error: 'Save the picture first, then add the animation' });
+    let out;
+    try { out = await animated.makeAnimated(req.body, rule.animSize, cropOf(req.query)); }
+    catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+    if (!out) return res.json({ server: serverView(s) }); // a GIF with one frame: the still picture is all there is
+    res.json({ server: await setServerAnim(s, rule, out.buf) });
+  }));
+  app.delete(`/api/servers/:id/${kind}/animated`, auth, ah(async (req, res) => {
+    const s = ownedServer(req, res);
+    if (!s) return;
+    res.json({ server: await setServerAnim(s, rule, null) });
+  }));
 }
 
 for (const [kind, rule] of Object.entries(SERVER_IMAGE_RULES)) {
