@@ -30,6 +30,7 @@ const calllog = require('./calllog');
 const groupsLib = require('./groups');
 const gallery = require('./themegallery');
 const nameStyle = require('./namestyle'); // the font and gradient a display name is drawn in (see namestyle.js)
+const loungeLib = require('./lounge'); // a server's info page: template, look and widgets, validated here (see lounge.js)
 const botsLib = require('./bots');
 const botrun = require('./botrun');
 const botstate = require('./botstate');
@@ -326,6 +327,7 @@ function serverView(s) {
     everyone: s.everyone || [],
     memberRoles: s.memberRoles || {},
     onboarding: s.onboarding || null,
+    lounge: s.lounge || null, // the info page (server/lounge.js); while lounge.enabled is off the app only shows it to people who manage the server
     bots: (s.installedBots || []).map((i) => ({ botId: i.botId, userId: i.userId, channels: Array.isArray(i.channels) ? i.channels : null })),
     channels: s.channels,
     members: s.members.map((m) => db().users[m]).filter(Boolean).map(publicUser),
@@ -2159,6 +2161,16 @@ app.put('/api/servers/:id/onboarding', auth, (req, res) => {
   const r = cleanOnboarding(s, req.user.id, req.body);
   if (r.error) return res.status(400).json({ error: r.error });
   s.onboarding = r.value;
+  pushServer(s, res);
+});
+
+// The lounge (server/lounge.js): the server's info page. It travels with the server record (serverView), so everyone in the server reads it
+// from there; whoever has Manage server saves it here. The whole page is sent each time and validated as one piece.
+app.put('/api/servers/:id/lounge', auth, (req, res) => {
+  const s = ownedServer(req, res); if (!s) return;
+  const r = loungeLib.clean(req.body, s);
+  if (r.error) return res.status(400).json({ error: r.error });
+  s.lounge = r.value;
   pushServer(s, res);
 });
 

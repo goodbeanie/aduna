@@ -23,6 +23,7 @@ import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
 import RulesView from './Rules.jsx';
+import LoungePage, { LOUNGE_ICON } from './LoungePage.jsx';
 import { mentionPreview } from './Mentions.jsx';
 import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
@@ -301,7 +302,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     clearTimeout(readTimers.current[channelId]);
     readTimers.current[channelId] = setTimeout(() => { api(`/channels/${channelId}/read`, { method: 'POST', body: {} }).catch(() => {}); }, 600);
   };
-  const watchedKey = () => { const v = viewRef.current; return v?.kind === 'server' && !document.hidden ? 'c:' + v.channelId : null; };
+  const watchedKey = () => { const v = viewRef.current; return v?.kind === 'server' && !v.lounge && !document.hidden ? 'c:' + v.channelId : null; }; // the Lounge tab is open: no channel is being read
   // Replace the saved numbers: for every channel (keys === null) or only for the given channel keys.
   const applyCounts = (counts, keys) => {
     const watch = watchedKey();
@@ -406,7 +407,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('message:new', (m) => {
       setChan((p) => ({ ...p, [m.channelId]: mergeById(p[m.channelId] || [], [m]) }));
       const v = viewRef.current;
-      const watching = v?.kind === 'server' && v.channelId === m.channelId && !document.hidden;
+      const watching = v?.kind === 'server' && !v.lounge && v.channelId === m.channelId && !document.hidden;
       if (watching) markRead(m.channelId); // reading it now: the saved position follows
       // The server decides who a message mentions (members only; @everyone only from the owner). Your own settings for the
       // server decide whether it counts and whether it may alert you.
@@ -506,7 +507,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       if (!sv || !ch) return;
       if (!np.decide(notePrefsRef.current[serverId], channelId, 'announcement', Date.now()).alert) return; // muted, "nothing", or announcements switched off for this server
       const v = viewRef.current;
-      if (v?.kind === 'server' && v.channelId === channelId && !document.hidden) return; // already reading it
+      if (v?.kind === 'server' && !v.lounge && v.channelId === channelId && !document.hidden) return; // already reading it
       const title = `${sv.name} · #${ch.name}`;
       let body = 'New announcement';
       try { const m = (await api(`/channels/${channelId}/messages`)).messages.find((x) => x.id === messageId); if (m?.content) body = m.content.slice(0, 140); } catch { /* keep the default */ }
@@ -564,7 +565,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   useEffect(() => {
     if (!view) return;
     if (view.kind === 'server') {
-      clearUnread('c:' + view.channelId); markRead(view.channelId);
+      if (!view.lounge) { clearUnread('c:' + view.channelId); markRead(view.channelId); } // with the Lounge tab open that channel is not being read (it still loads, so it is ready)
       api(`/channels/${view.channelId}/messages`).then((r) => setChan((p) => ({ ...p, [view.channelId]: mergeById(p[view.channelId] || [], r.messages) }))).catch(() => {}).finally(() => markLoaded('c:' + view.channelId));
     } else if (view.userId) {
       clearUnread('d:' + view.userId);
@@ -574,14 +575,14 @@ function Main({ me, setMe, privKey, openServerId }) {
       clearUnread('g:' + view.groupId);
       groupsRef.current.loadMessages(view.groupId).catch(() => {}).finally(() => markLoaded('g:' + view.groupId));
     }
-  }, [view?.kind, view?.channelId, view?.userId, view?.groupId, syncTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view?.kind, view?.channelId, view?.lounge, view?.userId, view?.groupId, syncTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Coming back to the tab counts as reading whatever channel / DM is open (messages that arrived while it was hidden were badged).
   useEffect(() => {
     const seen = () => {
       if (document.hidden) return;
       const v = viewRef.current;
-      if (v?.kind === 'server') { clearUnread('c:' + v.channelId); markRead(v.channelId); }
+      if (v?.kind === 'server') { if (!v.lounge) { clearUnread('c:' + v.channelId); markRead(v.channelId); } }
       else if (v?.kind === 'dm' && v.userId) clearUnread('d:' + v.userId);
       else if (v?.kind === 'dm' && v.groupId) clearUnread('g:' + v.groupId);
     };
@@ -670,6 +671,11 @@ function Main({ me, setMe, privKey, openServerId }) {
   }, [server?.id, onbOn]); // eslint-disable-line react-hooks/exhaustive-deps
   const openOnboarding = () => api(`/servers/${server.id}/onboarding`).then((st) => setModal({ type: 'onboarding', serverId: server.id, state: st })).catch((e) => showToast(e.message, 'error'));
   const channel = server?.channels.find((c) => c.id === view.channelId);
+  // The Lounge tab (the server's info page) sits above the channels. Its view keeps a channelId (the channel you were in) so everything that expects one
+  // keeps working; view.lounge says the page is the one on screen. People without Manage server only get the tab while it is switched on.
+  const loungeVisible = !!server && (!!server.lounge?.enabled || can(server, me.id, 'manageServer'));
+  const loungeOpen = !!view?.lounge && loungeVisible;
+  const openLounge = () => { setView({ kind: 'server', serverId: server.id, channelId: view.channelId, lounge: true }); setShowList(false); setMembersOpen(false); };
   const dmUser = view?.kind === 'dm' && view.userId ? users[view.userId] : null;
   const group = view?.kind === 'dm' && view.groupId ? groups.byId[view.groupId] || null : null; // the group chat on screen
   const stageHere = !!dmUser && inCall(call.call) && call.call.peerId === dmUser.id; // the call is drawn in this conversation
@@ -1003,7 +1009,7 @@ function Main({ me, setMe, privKey, openServerId }) {
                 const loose = server.channels.filter((c) => !c.categoryId || !catIds.has(c.categoryId));
                 const row = (c) => (
                   <React.Fragment key={c.id}>
-                    <button className={'chan' + (c.id === view.channelId ? ' on' : '') + (unread['c:' + c.id] || mentions['c:' + c.id] ? ' unread' : '') + (np.effective(notePrefs[server.id], c.id, Date.now()).muted ? ' muted' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} onContextMenu={(e) => channelMenu(e, c)} title={np.effective(notePrefs[server.id], c.id, Date.now()).muted ? 'Muted \u00b7 right-click for notification settings' : undefined} {...chanDnd(c, isOwner)}>
+                    <button className={'chan' + (c.id === view.channelId && !loungeOpen ? ' on' : '') + (unread['c:' + c.id] || mentions['c:' + c.id] ? ' unread' : '') + (np.effective(notePrefs[server.id], c.id, Date.now()).muted ? ' muted' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} onContextMenu={(e) => channelMenu(e, c)} title={np.effective(notePrefs[server.id], c.id, Date.now()).muted ? 'Muted \u00b7 right-click for notification settings' : undefined} {...chanDnd(c, isOwner)}>
                       <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{mentions['c:' + c.id] > 0 && <span className="badge inline at" title="You were mentioned">@{fmtN(mentions['c:' + c.id])}</span>}{unread['c:' + c.id] > 0 && <span className="unread-dot" title={`${fmtN(unread['c:' + c.id])} unread`} aria-label={`${fmtN(unread['c:' + c.id])} unread`} />}
                     </button>
                     {c.type === 'voice' && (voice.members[c.id] || []).map((id) => users[id] && (
@@ -1013,6 +1019,11 @@ function Main({ me, setMe, privKey, openServerId }) {
                 );
                 return (
                   <>
+                    {loungeVisible && (
+                      <button className={'chan lounge-tab' + (loungeOpen ? ' on' : '')} onClick={openLounge}>
+                        <span className="hash"><Icon name={LOUNGE_ICON} size={18} /></span>Lounge{!server.lounge?.enabled && <span className="lg-tag" title="Only people who manage the server can see it">Hidden</span>}
+                      </button>
+                    )}
                     {(loose.length > 0 || cats.length === 0 || (isOwner && dragging)) && (
                       <div className={'cat-head' + markClass('cat', '_loose')} {...headDnd(null, isOwner)}><span className="cat-name static">Channels</span>
                         {isOwner && <button className="icon-btn cat-add" title="Create channel" aria-label="Create channel" onClick={() => setModal({ type: 'channel' })}><Icon name="plus" size={16} /></button>}
@@ -1116,14 +1127,19 @@ function Main({ me, setMe, privKey, openServerId }) {
       </aside>
 
       {/* main */}
-      {server && channel?.type === 'voice' && (
+      {server && loungeOpen && (
+        <LoungePage key={server.id} server={server} users={users} presence={presence} voiceMembers={voice.members} canManage={can(server, me.id, 'manageServer')}
+          onBack={() => setShowList(true)} headerExtra={membersToggle} onChannel={openChannel}
+          onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
+      )}
+      {server && !loungeOpen && channel?.type === 'voice' && (
         <VoicePanel channel={channel} voice={voice} users={users} me={me} presence={presence} onBack={() => setShowList(true)} headerExtra={membersToggle} />
       )}
-      {server && channel?.type === 'rules' && (
+      {server && !loungeOpen && channel?.type === 'rules' && (
         <RulesView server={server} channel={channel} isOwner={can(server, me.id, 'manageChannels')} onBack={() => setShowList(true)} headerExtra={membersToggle}
           onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
       )}
-      {server && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
+      {server && !loungeOpen && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
         <Chat title={channel.name} draftKey={'c:' + channel.id} loading={!loadedKeys['c:' + channel.id]} unreadCount={unread['c:' + channel.id] || 0} unreadExact={unreadCountsAll(server, channel)} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onPoll={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
           wordle={{ scopes: [{ id: 'global', label: 'Aduna daily' }, { id: server.id, label: server.name }] }}
