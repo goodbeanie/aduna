@@ -70,4 +70,9 @@ try{
   document.querySelectorAll('.sw[data-theme]').forEach(function (b) {
     b.addEventListener('click', function () { var id = b.getAttribute('data-theme'); apply(id); remember(id); });
   });
+  // the live demo chat (landing-demo.js) can change the look too, when someone asks for it
+  document.addEventListener('aduna:try-theme', function (e) {
+    var id = e && e.detail;
+    if (id === 'parchment' || THEMES[id]) { apply(id); remember(id); }
+  });
 })();
