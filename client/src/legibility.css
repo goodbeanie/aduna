@@ -1,0 +1,38 @@
+/* Legibility pass. Loaded last (see main.jsx), so it wins over the older layers at equal specificity.
+   Why: Bree Serif is a display face with one weight, and a number of small labels, tags and meta lines still ended up at 9 to 11.5px after
+   the earlier passes (the message area, sidebar and header passes already fixed their own). Those few are raised to the app's own
+   --fs-xs (12px) from refine.css. Selectors are copied from the rules they replace, so nothing else changes.
+   Left alone on purpose:
+   - .gutter and .hover-time: the hover timestamp lives in a fixed 40px column; a bigger size could wrap "8:42 PM".
+   - /dashboard (.yt-dash palette): it is deliberately its own always-dark Studio look.
+   - admin tab counts and Wordle bar numerals: numbers inside tiny fixed-size shapes.
+   Unread counts on the server rail were 9px; they are now 11px (numerals only), with the pill grown to fit.
+   Colours are untouched, so every theme keeps working. To go back one step, remove the import of this file in main.jsx. */
+
+/* ---------- 1. small text up to the 12px floor ---------- */
+.edited,
+.bot-tag,
+.live-tag,
+.bchip,
+.st-type,
+.shop-chip,
+.pt-price,
+.pt-tag,
+.event-test,
+.nf-label,
+.settings-pane .nf-vibe,
+.composer-row .gif-btn,
+.chan.lounge-tab .lg-tag,
+.lg-h,
+.lg-label,
+.lg-row-name small,
+.tip kbd,
+.ci-season,
+.stage-tiles.spot .call-tile.small .tile-name,
+.wd-stats span,
+.cs-stat span,
+.sp-clip-by,
+.yt-dash .dash-bar-l { font-size: var(--fs-xs, 12px); }
+
+/* ---------- 2. server rail unread counts: 9px was below what most people can read at a glance ---------- */
+.rail-btn .badge { right: -8px; top: -8px; min-width: 14px; height: 14px; padding: 0 4px; font-size: 11px; border-radius: 4px; }

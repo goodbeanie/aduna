@@ -32,6 +32,7 @@ import './header.css'; // after friends.css: the top bar (grouped controls, one 
 import './messages.css'; // after header.css: the message area (divider contrast, speaker spacing, whole type sizes)
 import './signup.css'; // the three-step sign-up (SignupFlow.jsx)
 import './profile-editor.css'; // after signup.css: the Settings > My profile editor (sections, sticky preview, switches)
+import './legibility.css'; // last: raises the few remaining sub-12px labels to the 12px floor (remove this line to undo)
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';
