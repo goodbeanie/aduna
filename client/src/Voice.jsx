@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { micConstraint, applyOutput, EVENT as DEVICES_EVENT } from './devices.js';
 import { Avatar, Icon } from './ui.jsx';
+import { nameProps } from './namestyle.js';
 import { emitAck } from './api.js';
 import { getIce } from './rtc.js';
 
@@ -208,7 +209,7 @@ export function VoicePanel({ channel, voice, users, me, presence, onBack, header
               return u && (
                 <div key={id} className="voice-tile">
                   <Avatar user={u} size={72} presence={presence[id] || 'offline'} />
-                  <div className="voice-name" data-nc style={{ '--nc': u.accentColor }}>{u.displayName}{id === me.id ? ' (you)' : ''}</div>
+                  <div className="voice-name" {...nameProps(u)}>{u.displayName}{id === me.id ? ' (you)' : ''}</div>
                   {id === me.id && here && state.muted && <Icon name="micoff" size={16} className="voice-muted" />}
                 </div>
               );

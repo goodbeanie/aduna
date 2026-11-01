@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
+import { nameProps } from './namestyle.js';
 import { BotTag } from './Bots.jsx';
 import { PERMS, can, permsOf, rankOf, belowMe, heldRoles } from './perms.js';
 
@@ -176,7 +177,7 @@ export function MembersTab({ server, me, onChange }) {
               <div className="ma-row">
                 <Avatar user={u} size={34} />
                 <div className="ma-who">
-                  <b data-nc style={{ '--nc': held.find((r) => r.color)?.color || u.accentColor }}>{u.displayName}</b>
+                  <b {...nameProps(u, held.find((r) => r.color)?.color)}>{u.displayName}</b>
                   <span className="muted small"> @{u.username}</span>
                   {u.bot && <BotTag />}{u.id === server.ownerId && <span className="owner" title="Server owner"><Icon name="crown" size={14} /></span>}
                   <div className="ma-roles">{held.map((r) => <span key={r.id} className="role-chip"><span className="role-dot" style={{ background: r.color || 'var(--muted)' }} />{r.name}</span>)}</div>

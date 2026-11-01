@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, BadgeIcons, Banner, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, CUSTOM_THEME_ID } from './profilethemes.js';
+import { nameProps, NAME_FONTS, MAX_NAME_STOPS, DEFAULT_NAME_GRADIENT, nameGradientCss } from './namestyle.js';
 import { uploadImage, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
 import Cropper from './Cropper.jsx';
 import { safetyNumber } from './crypto.js';
@@ -223,7 +224,7 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
         <div className="card-avatar"><Avatar user={user} size={80} presence={presence} /></div>
         {user.plus && <PlusBadge />}
         <div className="card-body">
-          <h3 data-nc style={{ '--nc': user.accentColor }}>{user.displayName}{user.bot && <> <BotTag /></>} <BadgeIcons user={user} size={20} /></h3>
+          <h3><span {...nameProps(user)}>{user.displayName}</span>{user.bot && <> <BotTag /></>} <BadgeIcons user={user} size={20} /></h3>
           <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username} · ${STATUS_LABEL[presence || 'offline']}`}</div>
           {user.bio && (<><h4>ABOUT ME</h4><p className="bio">{user.bio}</p></>)}
           {/* the game they are playing right now; the server only sends it when they are online and have it switched on */}
@@ -282,6 +283,14 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const [err, setErr] = useState('');
   const [saving, setSaving] = useState(false);
   const set = (k) => (v) => setF((s) => ({ ...s, [k]: v }));
+
+  // Name style: a font and an optional gradient for the display name. Both are free and saved with "Save changes".
+  const [nameFont, setNameFont] = useState(me.nameFont || 'aduna');
+  const [gradOn, setGradOn] = useState(!!me.nameGradient);
+  const [nameG, setNameG] = useState(() => (me.nameGradient ? { colors: [...me.nameGradient.colors], angle: me.nameGradient.angle } : { ...DEFAULT_NAME_GRADIENT, colors: [...DEFAULT_NAME_GRADIENT.colors] }));
+  const setNameStop = (i, c) => setNameG((g) => ({ ...g, colors: g.colors.map((x, j) => (j === i ? c : x)) }));
+  const addNameStop = () => setNameG((g) => (g.colors.length >= MAX_NAME_STOPS ? g : { ...g, colors: [...g.colors, g.colors[g.colors.length - 1]] }));
+  const removeNameStop = (i) => setNameG((g) => (g.colors.length <= 2 ? g : { ...g, colors: g.colors.filter((_, j) => j !== i) }));
 
   // Gradient profile themes: all free. The choice is saved with "Save changes". Pick a preset, or design your own with Custom.
   // (Animated presets are added on the server later; they will show up in this same list, tagged "Animated".)
@@ -358,6 +367,8 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     username: me.username,
     frame: null, framePreview: frameId ? imageUrl((ownedFrames.find((x) => x.id === frameId) || {}).image) : null, // the card shows the frame that is chosen
     profileTheme: theme,
+    nameFont: nameFont === 'aduna' ? null : nameFont,
+    nameGradient: gradOn ? nameG : null,
     profileGradient: theme === CUSTOM_THEME_ID ? customG : null,
     avatarLogo: mode === 'logo',
     avatarEmoji: mode === 'letter' ? f.avatarEmoji : '',
@@ -371,7 +382,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     setSaving(true);
     setErr('');
     try {
-      const body = { ...f, avatarLogo: mode === 'logo', profileTheme: theme, links: f.links.filter((l) => l.url.trim()) };
+      const body = { ...f, avatarLogo: mode === 'logo', profileTheme: theme, links: f.links.filter((l) => l.url.trim()), nameFont: nameFont === 'aduna' ? null : nameFont, nameGradient: gradOn ? nameG : null };
       if (theme === CUSTOM_THEME_ID) body.profileGradient = customG;
       if (renaming) body.username = f.username.trim().replace(/^@/, ''); else delete body.username;
       if (ownedBadges.length) body.hiddenBadges = [...hidden];
@@ -490,6 +501,41 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           <p className="muted small hint">A gradient theme fills your profile card under the banner; your banner stays as you set it. Everything here is free. Pick one, or make your own with Custom. More themes, including animated ones, are coming.</p>
 
           <ColorRow label={t('nameColor')} value={f.accentColor} onChange={set('accentColor')} />
+
+          <label>Name font</label>
+          <div className="nf-grid" role="radiogroup" aria-label="Name font">
+            {NAME_FONTS.map((x) => (
+              <button type="button" role="radio" aria-checked={nameFont === x.id} key={x.id} className={'nf-tile' + (nameFont === x.id ? ' on' : '')} onClick={() => setNameFont(x.id)}>
+                <span className="nf-sample" {...nameProps({ accentColor: f.accentColor, nameFont: x.id, nameGradient: gradOn ? nameG : null })}>{(f.displayName || me.username).slice(0, 14)}</span>
+                <span className="nf-label">{x.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <label>Name gradient</label>
+          <div className="mode-pick" role="radiogroup" aria-label="Name gradient">
+            <button type="button" role="radio" aria-checked={!gradOn} className={!gradOn ? 'on' : ''} onClick={() => setGradOn(false)}>Solid colour</button>
+            <button type="button" role="radio" aria-checked={gradOn} className={gradOn ? 'on' : ''} onClick={() => setGradOn(true)}>Gradient</button>
+          </div>
+          {gradOn && (
+            <div className="custom-grad">
+              <div className="cg-stops">
+                {nameG.colors.map((c, i) => (
+                  <span className="cg-stop" key={i}>
+                    <input type="color" value={c} onChange={(e) => setNameStop(i, e.target.value)} aria-label={`Name gradient colour ${i + 1}`} />
+                    {nameG.colors.length > 2 && <button type="button" className="icon-btn" title="Remove this colour" aria-label={`Remove name gradient colour ${i + 1}`} onClick={() => removeNameStop(i)}><Icon name="close" size={14} /></button>}
+                  </span>
+                ))}
+                {nameG.colors.length < MAX_NAME_STOPS && <button type="button" className="btn small-btn" onClick={addNameStop}><Icon name="plus" size={14} className="inline-icon" /> Colour</button>}
+              </div>
+              <label className="cg-angle">
+                <span>Angle {nameG.angle}°</span>
+                <input type="range" min="0" max="360" step="5" value={nameG.angle} onChange={(e) => setNameG((g) => ({ ...g, angle: Number(e.target.value) }))} aria-label="Name gradient angle" />
+              </label>
+              <div className="name-grad-row"><span className="sw-bar" style={{ backgroundImage: nameGradientCss(nameG) }} /></div>
+            </div>
+          )}
+          <p className="muted small hint">Your name colour stays as the fallback where a gradient can't be drawn. Font and gradient are free. Press Save changes to apply.</p>
           <label>{t('statusLbl')}</label>
           <select value={f.status} onChange={(e) => set('status')(e.target.value)}>
             {['online', 'idle', 'dnd', 'invisible'].map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
@@ -552,7 +598,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
               </button>
             </div>
             <div className="card-body">
-              <h3 data-nc style={{ '--nc': preview.accentColor }}>{preview.displayName || me.username} <BadgeIcons user={preview} size={20} /></h3>
+              <h3><span {...nameProps(preview)}>{preview.displayName || me.username}</span> <BadgeIcons user={preview} size={20} /></h3>
               <div className="muted">@{renaming ? f.username.trim() || me.username : me.username}</div>
               {preview.bio && (<><h4>{t('aboutMe')}</h4><p className="bio">{preview.bio}</p></>)}
               <ProfileLinks links={f.links.filter((l) => l.url.trim()).map((l) => ({ label: l.label.trim() || l.url.trim().replace(/^https?:\/\/(www\.)?/i, '').split('/')[0], url: /^[a-z][a-z0-9+.-]*:/i.test(l.url.trim()) ? l.url.trim() : 'https://' + l.url.trim() }))} />

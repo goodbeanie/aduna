@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Avatar, BadgeIcons, Icon, Modal, timeLabel } from './ui.jsx';
+import { nameProps } from './namestyle.js';
 import EmojiPicker from './EmojiPicker.jsx';
 import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
 import { Rich, useEmoji } from './Emoji.jsx';
@@ -203,7 +204,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           {ref ? (
             <>
               <Avatar user={refAuthor} size={16} />
-              <b data-nc style={{ '--nc': refAuthor?.accentColor }}>{refAuthor?.displayName || 'Unknown'}</b>
+              <b {...nameProps(refAuthor)}>{refAuthor?.displayName || 'Unknown'}</b>
               <span className="reply-text">{mentionPreview(previewText(ref), users)}</span>
             </>
           ) : <i className="muted">Original message was deleted or isn't loaded</i>}
@@ -216,7 +217,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           {m.pinnedAt && <div className="pin-flag"><Icon name="pushpin" size={12} /> Pinned</div>}
           {!grouped && (
             <div className="msg-head">
-              <button className="name" data-nc style={{ '--nc': roleColors?.[m.authorId] || author?.accentColor }} onClick={() => onUser(m.authorId)} onContextMenu={authorMenu}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
+              <button className="name" {...nameProps(author, roleColors?.[m.authorId])} onClick={() => onUser(m.authorId)} onContextMenu={authorMenu}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
               {(author?.bot || m.bot) && <BotTag />}
               <span className="time">{timeLabel(m.createdAt)}</span>
             </div>
@@ -581,7 +582,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
                 <div className="pin-item" key={m.id}>
                   <Avatar user={users[m.authorId]} size={28} />
                   <div className="pin-main">
-                    <div className="pin-meta"><b data-nc style={{ '--nc': roleColors?.[m.authorId] || users[m.authorId]?.accentColor }}>{users[m.authorId]?.displayName || 'Unknown'}</b><span className="muted small">{timeLabel(m.createdAt)}</span></div>
+                    <div className="pin-meta"><b {...nameProps(users[m.authorId], roleColors?.[m.authorId])}>{users[m.authorId]?.displayName || 'Unknown'}</b><span className="muted small">{timeLabel(m.createdAt)}</span></div>
                     <div className="pin-text">{mentionPreview(previewText(m), users) || 'Sent an attachment'}</div>
                   </div>
                   <div className="pin-actions">
@@ -707,7 +708,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
       {confirmDel && (
         <Modal title="Delete message" onClose={() => setConfirmDel(null)}>
           <p className="muted">This permanently removes the message for everyone in this conversation.</p>
-          <div className="del-preview"><b data-nc style={{ '--nc': users[confirmDel.authorId]?.accentColor }}>{users[confirmDel.authorId]?.displayName}</b><div className="reply-text">{mentionPreview(previewText(confirmDel), users)}</div></div>
+          <div className="del-preview"><b {...nameProps(users[confirmDel.authorId])}>{users[confirmDel.authorId]?.displayName}</b><div className="reply-text">{mentionPreview(previewText(confirmDel), users)}</div></div>
           <div className="modal-foot">
             <button className="btn" onClick={() => setConfirmDel(null)}>Cancel</button>
             <button className="btn primary danger-fill" autoFocus onClick={doDelete}>Delete</button>

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Avatar, BadgeIcons, Icon, STATUS_LABEL } from './ui.jsx';
+import { nameProps } from './namestyle.js';
 import { useLang } from './i18n.js';
 import { EmptyState, PopMenu } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
@@ -73,7 +74,7 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
       <button className="frow-main" onClick={onMain}>
         <Avatar user={u} size={40} presence={statusOf(u.id)} />
         <div className="frow-text">
-          <div className="frow-name"><b data-nc style={{ '--nc': u.accentColor }}>{u.displayName}</b><BadgeIcons user={u} size={16} /></div>
+          <div className="frow-name"><b {...nameProps(u)}>{u.displayName}</b><BadgeIcons user={u} size={16} /></div>
           <div className="frow-sub muted small">{sub}<span className="frow-handle"> · @{u.username}</span></div>
         </div>
       </button>

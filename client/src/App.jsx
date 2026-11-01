@@ -5,6 +5,7 @@ import ResetPassword, { resetTokenFromLocation } from './ResetPassword.jsx';
 import Chat from './Chat.jsx';
 import Friends from './Friends.jsx';
 import { Avatar, BadgeIcons, Icon, ServerIcon, STATUS_LABEL } from './ui.jsx';
+import { nameProps } from './namestyle.js';
 import { ContextMenuProvider, useContextMenu } from './ContextMenu.jsx';
 import { imageUrl } from './image.js';
 import { applyTheme, loadTheme, setServerTheme } from './themes.js';
@@ -918,7 +919,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const memberRow = (u) => (
     <button key={u.id} className={'member' + (statusOf(u.id) === 'offline' ? ' off' : '')} onClick={() => { setMembersOpen(false); showUser(u.id); }} onContextMenu={(e) => userMenu(e, u.id)}>
       <Avatar user={users[u.id] || u} size={32} presence={statusOf(u.id)} />
-      <span data-nc style={{ '--nc': (server && roleColorOf(server, u.id)) || (users[u.id] || u).accentColor }}>{(users[u.id] || u).displayName}</span>
+      <span {...nameProps(users[u.id] || u, server && roleColorOf(server, u.id))}>{(users[u.id] || u).displayName}</span>
       <BadgeIcons user={users[u.id] || u} size={16} />
       {(users[u.id] || u).bot && <BotTag />}
       {server?.ownerId === u.id && <span className="owner" title="Server owner"><Icon name="crown" size={15} /></span>}
