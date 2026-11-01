@@ -36,6 +36,9 @@ async function lockOut(s, name) {
   let a = await startServer();
   await register(a, 'lou'); await register(a, 'maya'); await register(a, 'nick');
   await lockOut(a, 'lou');
+  // Windows cannot deliver SIGTERM to a child: kill() is a hard kill there, so the shutdown save never runs. Render (Linux) does deliver it,
+  // so the "right away" check is real on Linux/macOS; on Windows wait for the periodic save instead, so the test still checks the restart itself.
+  if (process.platform === 'win32') await sleep(6500);
   await stop(a, 'SIGTERM'); // straight away: only the shutdown save can have stored it
   step('server A: account locked out, then shut down normally right away');
 

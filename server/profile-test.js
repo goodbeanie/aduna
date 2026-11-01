@@ -40,7 +40,9 @@ ready.then(() => httpServer.listen(0, async () => {
     // username: bad, taken, ok, cooldown
     r = await call('/me', { method: 'PATCH', token: t, body: { username: 'a!' } }); assert.strictEqual(r.status, 400); console.log('✓ bad username rejected');
     r = await call('/me', { method: 'PATCH', token: t, body: { username: 'BOB_X' } }); assert.strictEqual(r.status, 409); console.log('✓ taken username rejected (case-insensitive)');
-    r = await call('/me', { method: 'PATCH', token: t, body: { username: 'alice_new', displayName: 'alice_x' } });
+    // line 36 gave the account a real display name ("Alice"); put it back to the default (= the username) so "the display name follows a rename" is what is tested
+    r = await call('/me', { method: 'PATCH', token: t, body: { displayName: 'alice_x' } }); assert.strictEqual(r.user.displayName, 'alice_x');
+    r = await call('/me', { method: 'PATCH', token: t, body: { username: 'alice_new' } });
     assert.strictEqual(r.status, 200); assert.strictEqual(r.user.username, 'alice_new'); assert.strictEqual(r.user.displayName, 'alice_new'); assert.ok(r.user.usernameChangedAt); console.log('✓ username changed, default display name followed it');
     r = await call('/me', { method: 'PATCH', token: t, body: { username: 'alice_again' } });
     assert.strictEqual(r.status, 429); assert.ok(r.availableAt); console.log('✓ 2nd change blocked by cooldown, availableAt =', r.availableAt);

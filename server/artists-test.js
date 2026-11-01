@@ -83,7 +83,7 @@ const fill = (rec, n = 4) => { for (let i = 0; i < n; i++) rec.pieces[i] = 'img'
 // ---- items ----
 {
   const ok = A.cleanItem({ name: '  Paint   Splash ', desc: ' a splash ', price: 50 });
-  assert.deepStrictEqual(ok, { out: { name: 'Paint Splash', desc: 'a splash', price: 50 } });
+  assert.deepStrictEqual(ok, { out: { kind: 'badge', name: 'Paint Splash', desc: 'a splash', price: 50 } }, 'no kind means a badge');
   assert.ok(A.cleanItem({ name: '', price: 50 }).error);
   assert.ok(A.cleanItem({ name: 'x'.repeat(25), price: 50 }).error, 'a name is at most 24 characters');
   assert.ok(!A.cleanItem({ name: 'x'.repeat(24), price: 50 }).error);
