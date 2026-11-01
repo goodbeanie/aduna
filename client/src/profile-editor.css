@@ -38,7 +38,7 @@
 .settings-pane .pt-name { font-size: 13px; }
 
 /* ---- name font list: one row per font, the name sits on a surface chosen to contrast with its own colour ---- */
-.settings-pane .nf-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; }
+.settings-pane .nf-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; padding: 2px 4px 2px 2px; scrollbar-width: thin; }
 .settings-pane .nf-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 10px 6px 8px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--field); color: var(--text); cursor: pointer; text-align: left; }
 .settings-pane .nf-row:hover { border-color: var(--line2); }
 .settings-pane .nf-row.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
