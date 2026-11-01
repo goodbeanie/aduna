@@ -29,6 +29,7 @@ const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global
 const calllog = require('./calllog');
 const groupsLib = require('./groups');
 const gallery = require('./themegallery');
+const nameStyle = require('./namestyle'); // the font and gradient a display name is drawn in (see namestyle.js)
 const botsLib = require('./bots');
 const botrun = require('./botrun');
 const botstate = require('./botstate');
@@ -234,6 +235,7 @@ function publicUser(u) {
     avatarImage: u.avatarImage || null,
     bannerImage: u.bannerImage || null,
     accentColor: u.accentColor,
+    ...nameStyle.view(u), // nameFont and nameGradient: how the display name is drawn (null = the app's font / the plain colour)
     profileTheme: credits.pthemes.wornId(u), // a gradient profile theme (see profilethemes.js), or null
     profileGradient: credits.pthemes.customOf(u), // the colours and angle when that theme is the person's own custom gradient
     status: u.status === 'invisible' ? 'offline' : u.status, // other people never learn that someone chose Invisible (ownUser / selfView carry the real value)
@@ -1209,6 +1211,7 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (b.bio !== undefined) u.bio = clip(b.bio, 190);
   if (b.avatarEmoji !== undefined) u.avatarEmoji = clip(b.avatarEmoji, 8);
   for (const k of ['avatarColor', 'bannerColor', 'accentColor']) if (b[k] !== undefined && hex.test(b[k])) u[k] = b[k];
+  nameStyle.apply(u, b); // nameFont and nameGradient
   if (b.status !== undefined && ['online', 'idle', 'dnd', 'invisible'].includes(b.status)) u.status = b.status;
   if (b.showActivity !== undefined) { // "Show what I'm playing": off removes the game straight away and nothing is shown or stored while it stays off
     if (b.showActivity === false) { u.showActivity = false; activityLib.clear(activities, u.id); } else delete u.showActivity;
@@ -2481,7 +2484,7 @@ app.get('/api/clips/creator/:userId', auth, needClips, (req, res) => {
   const likes = clipList().reduce((n, c) => (c.owner === u.id ? n + (c.likes || 0) : n), 0); // every like on their clips (the numbers stay after a clip expires)
   res.json({ user: { id: u.id, username: who.username, displayName: who.displayName, avatarImage: who.avatarImage, bannerImage: who.bannerImage, followers: u.clipFollowerCount || 0, likes, creator: isClipCreator(u), following: (req.user.clipFollowing || []).includes(u.id), mine: u.id === req.user.id,
     // their Aduna profile theme, so their Clips page can wear the same colours
-    profileTheme: credits.pthemes.wornId(u), profileGradient: credits.pthemes.customOf(u), accentColor: u.accentColor || null, bannerColor: u.bannerColor || null } });
+    profileTheme: credits.pthemes.wornId(u), profileGradient: credits.pthemes.customOf(u), accentColor: u.accentColor || null, bannerColor: u.bannerColor || null, ...nameStyle.view(u) } });
 });
 // follow or unfollow a creator (a second call undoes the first). Only the number of followers is ever shown, never who they are.
 const clipFollowHits = new security.RateWindow(60, 3600_000);

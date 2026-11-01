@@ -26,6 +26,17 @@ ready.then(() => httpServer.listen(0, async () => {
     // logo avatar
     r = await call('/me', { method: 'PATCH', token: t, body: { avatarLogo: true } });
     assert.strictEqual(r.user.avatarLogo, true); console.log('✓ logo avatar flag');
+    // name font and gradient
+    r = await call('/me', { method: 'PATCH', token: t, body: { nameFont: 'serif', nameGradient: { colors: ['#FF7A59', '#6a88ff'], angle: 90 } } });
+    assert.strictEqual(r.status, 200); assert.strictEqual(r.user.nameFont, 'serif'); assert.deepStrictEqual(r.user.nameGradient, { colors: ['#ff7a59', '#6a88ff'], angle: 90 }); console.log('✓ name font + gradient saved');
+    r = await call('/users/' + a.user.id, { token: b.token });
+    if (r.status === 200) { assert.strictEqual(r.user.nameFont, 'serif'); assert.ok(r.user.nameGradient); console.log('✓ other people see the name style'); }
+    r = await call('/me', { method: 'PATCH', token: t, body: { nameFont: 'comic-sans', nameGradient: { colors: ['#ff0000'], angle: 0 } } });
+    assert.strictEqual(r.status, 200); assert.strictEqual(r.user.nameFont, 'serif'); assert.strictEqual(r.user.nameGradient.colors.length, 2); console.log('✓ bad font / gradient ignored, saved ones kept');
+    r = await call('/me', { method: 'PATCH', token: t, body: { displayName: 'Alice' } });
+    assert.strictEqual(r.user.nameFont, 'serif'); console.log('✓ an unrelated update keeps the name style');
+    r = await call('/me', { method: 'PATCH', token: t, body: { nameFont: null, nameGradient: null } });
+    assert.strictEqual(r.user.nameFont, null); assert.strictEqual(r.user.nameGradient, null); console.log('✓ name font + gradient can be taken off');
     // username: bad, taken, ok, cooldown
     r = await call('/me', { method: 'PATCH', token: t, body: { username: 'a!' } }); assert.strictEqual(r.status, 400); console.log('✓ bad username rejected');
     r = await call('/me', { method: 'PATCH', token: t, body: { username: 'BOB_X' } }); assert.strictEqual(r.status, 409); console.log('✓ taken username rejected (case-insensitive)');
