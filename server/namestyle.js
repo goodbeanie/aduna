@@ -6,7 +6,7 @@
 // unit tested (server/namestyle-test.js). index.js calls apply() from PATCH /api/me and view() from publicUser().
 
 // Keep in sync with client/src/namestyle.js, which maps each id to the font it is drawn in.
-const FONTS = ['aduna', 'serif', 'rounded', 'hand', 'mono', 'display', 'script'];
+const FONTS = ['aduna', 'serif', 'rounded', 'hand', 'mono', 'display', 'script', 'pixel', 'terminal', 'marker', 'fantasy', 'spooky', 'cute', 'comic', 'scifi', 'romantic'];
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
 const cleanFont = (id) => (typeof id === 'string' && FONTS.includes(id) ? id : null);

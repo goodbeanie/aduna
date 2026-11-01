@@ -5,6 +5,15 @@
 @import '@fontsource/jetbrains-mono/latin-700.css';
 @import '@fontsource/lilita-one/latin-400.css';
 @import '@fontsource/pacifico/latin-400.css';
+@import '@fontsource/press-start-2p/latin-400.css';
+@import '@fontsource/vt323/latin-400.css';
+@import '@fontsource/permanent-marker/latin-400.css';
+@import '@fontsource/cinzel/latin-700.css';
+@import '@fontsource/creepster/latin-400.css';
+@import '@fontsource/fredoka/latin-600.css';
+@import '@fontsource/bangers/latin-400.css';
+@import '@fontsource/orbitron/latin-700.css';
+@import '@fontsource/great-vibes/latin-400.css';
 
 [data-nf="serif"]   { font-family: "Playfair Display", Georgia, serif !important; font-weight: 700; }
 [data-nf="rounded"] { font-family: "Nunito", ui-rounded, system-ui, sans-serif !important; font-weight: 800; }
@@ -12,6 +21,16 @@
 [data-nf="mono"]    { font-family: "JetBrains Mono", ui-monospace, Consolas, monospace !important; font-weight: 700; font-size: .92em; }
 [data-nf="display"] { font-family: "Lilita One", Impact, sans-serif !important; font-weight: 400; letter-spacing: .01em; }
 [data-nf="script"]  { font-family: "Pacifico", "Brush Script MT", cursive !important; font-weight: 400; font-size: .94em; }
+/* more feeling: gaming, retro, street, fantasy, spooky, cute, comic, sci-fi, romantic. Wide or tiny faces are nudged to a similar visual size. */
+[data-nf="pixel"]    { font-family: "Press Start 2P", "Courier New", monospace !important; font-weight: 400; font-size: .68em; letter-spacing: .02em; }
+[data-nf="terminal"] { font-family: "VT323", "Courier New", monospace !important; font-weight: 400; font-size: 1.2em; letter-spacing: .02em; }
+[data-nf="marker"]   { font-family: "Permanent Marker", "Marker Felt", cursive !important; font-weight: 400; font-size: .94em; }
+[data-nf="fantasy"]  { font-family: "Cinzel", "Trajan Pro", Georgia, serif !important; font-weight: 700; font-size: .92em; letter-spacing: .03em; }
+[data-nf="spooky"]   { font-family: "Creepster", Impact, fantasy !important; font-weight: 400; font-size: 1.08em; letter-spacing: .03em; }
+[data-nf="cute"]     { font-family: "Fredoka", ui-rounded, "Nunito", sans-serif !important; font-weight: 600; }
+[data-nf="comic"]    { font-family: "Bangers", Impact, sans-serif !important; font-weight: 400; font-size: 1.08em; letter-spacing: .04em; }
+[data-nf="scifi"]    { font-family: "Orbitron", "Eurostile", system-ui, sans-serif !important; font-weight: 700; font-size: .8em; letter-spacing: .04em; }
+[data-nf="romantic"] { font-family: "Great Vibes", "Brush Script MT", cursive !important; font-weight: 400; font-size: 1.3em; }
 
 /* Gradient names: the gradient is painted behind the letters and clipped to them. --nc (the plain colour) stays as the fallback. */
 [data-nc][data-ng] {

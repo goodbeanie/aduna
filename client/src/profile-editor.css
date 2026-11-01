@@ -37,11 +37,20 @@
 .settings-pane .pt-tile { gap: 8px; padding: 8px; }
 .settings-pane .pt-name { font-size: 13px; }
 
-/* ---- name font tiles: the name sits on a surface chosen to contrast with its own colour ---- */
-.settings-pane .nf-tile { padding: 8px 8px 6px; gap: 6px; }
-.settings-pane .nf-surface { display: grid; place-items: center; width: 100%; min-height: 44px; padding: 6px 8px; border-radius: var(--r-sm); overflow: hidden; }
+/* ---- name font list: one row per font, the name sits on a surface chosen to contrast with its own colour ---- */
+.settings-pane .nf-list { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 4px; }
+.settings-pane .nf-row { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 10px 6px 8px; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--field); color: var(--text); cursor: pointer; text-align: left; }
+.settings-pane .nf-row:hover { border-color: var(--line2); }
+.settings-pane .nf-row.on { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.settings-pane .nf-dot { flex: none; width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line2); }
+.settings-pane .nf-row.on .nf-dot { background: var(--ink); box-shadow: inset 0 0 0 3px var(--field), 0 0 0 1.5px var(--ink); }
+.settings-pane .nf-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.settings-pane .nf-label { font-size: 13px; color: var(--text); }
+.settings-pane .nf-vibe { font-size: 11px; color: var(--muted); }
+.settings-pane .nf-surface { flex: none; display: grid; place-items: center; width: 150px; min-height: 44px; padding: 6px 8px; border-radius: var(--r-sm); overflow: hidden; }
+.settings-pane .nf-row.compact { padding-block: 4px; }
+.settings-pane .nf-row.compact .nf-surface { min-height: 30px; padding-block: 2px; }
 .settings-pane .nf-sample { font-size: 18px; }
-.settings-pane .nf-label { font-size: 12px; }
 
 /* ---- custom gradients ---- */
 .settings-pane .custom-grad { margin-top: 12px; padding: 12px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line); }

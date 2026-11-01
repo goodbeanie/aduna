@@ -565,13 +565,14 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           <ColorRow label={t('nameColor')} value={f.accentColor} onChange={set('accentColor')} />
 
           <label>Name font</label>
-          <div className="nf-grid" role="radiogroup" aria-label="Name font">
+          <div className="nf-list" role="radiogroup" aria-label="Name font">
             {NAME_FONTS.map((x) => (
-              <button type="button" role="radio" aria-checked={nameFont === x.id} key={x.id} className={'nf-tile' + (nameFont === x.id ? ' on' : '')} onClick={() => setNameFont(x.id)}>
+              <button type="button" role="radio" aria-checked={nameFont === x.id} key={x.id} className={'nf-row' + (x.id === 'aduna' ? ' compact' : '') + (nameFont === x.id ? ' on' : '')} onClick={() => setNameFont(x.id)}>
+                <span className="nf-dot" aria-hidden="true" />
+                <span className="nf-meta"><span className="nf-label">{x.label}</span><span className="nf-vibe">{x.vibe}</span></span>
                 <span className="nf-surface" style={{ background: nameSurface }}>
                   <span className="nf-sample" {...nameProps({ accentColor: f.accentColor, nameFont: x.id, nameGradient: gradOn ? nameG : null })}>{(f.displayName || me.username).slice(0, 14)}</span>
                 </span>
-                <span className="nf-label">{x.label}</span>
               </button>
             ))}
           </div>

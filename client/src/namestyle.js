@@ -5,13 +5,22 @@ import './namestyle.css';
 //   user.nameGradient = { colors: [2 or 3 #rrggbb], angle }, or null for the plain colour (user.accentColor)
 // Keep the ids in sync with FONTS in server/namestyle.js. The fonts themselves are bundled by namestyle.css.
 export const NAME_FONTS = [
-  { id: 'aduna', label: 'Aduna' },
-  { id: 'serif', label: 'Serif' },
-  { id: 'rounded', label: 'Rounded' },
-  { id: 'hand', label: 'Handwritten' },
-  { id: 'mono', label: 'Mono' },
-  { id: 'display', label: 'Display' },
-  { id: 'script', label: 'Script' },
+  { id: 'aduna', label: 'Aduna', vibe: 'Default' },
+  { id: 'serif', label: 'Serif', vibe: 'Classic' },
+  { id: 'rounded', label: 'Rounded', vibe: 'Friendly' },
+  { id: 'cute', label: 'Cute', vibe: 'Playful' },
+  { id: 'hand', label: 'Handwritten', vibe: 'Casual' },
+  { id: 'script', label: 'Script', vibe: 'Fancy' },
+  { id: 'romantic', label: 'Romantic', vibe: 'Elegant' },
+  { id: 'display', label: 'Display', vibe: 'Bold' },
+  { id: 'mono', label: 'Mono', vibe: 'Technical' },
+  { id: 'pixel', label: 'Pixel', vibe: 'Gaming' },
+  { id: 'terminal', label: 'Terminal', vibe: 'Retro hacker' },
+  { id: 'scifi', label: 'Sci-fi', vibe: 'Futuristic' },
+  { id: 'fantasy', label: 'Fantasy', vibe: 'Medieval, RPG' },
+  { id: 'marker', label: 'Marker', vibe: 'Street' },
+  { id: 'comic', label: 'Comic', vibe: 'Action' },
+  { id: 'spooky', label: 'Spooky', vibe: 'Horror' },
 ];
 const FONT_IDS = new Set(NAME_FONTS.map((f) => f.id));
 export const MAX_NAME_STOPS = 3; // the server accepts 2 or 3 colours
