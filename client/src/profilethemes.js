@@ -37,7 +37,7 @@ export function userTheme(list, user) {
 export const useUserTheme = (user) => userTheme(useProfileThemes(), user);
 
 // How light a #rrggbb colour looks (0 = black, 1 = white)
-function lightness(hex) {
+export function lightness(hex) {
   const n = parseInt(hex.slice(1), 16);
   const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
   return 0.2126 * f((n >> 16) & 255) + 0.7152 * f((n >> 8) & 255) + 0.0722 * f(n & 255);

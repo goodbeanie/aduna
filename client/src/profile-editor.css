@@ -1,0 +1,80 @@
+/* Settings > My profile (ProfileEditor in Modals.jsx).
+   Six sections, each with a heading and one line of help; the live card stays in view; one save bar says whether anything changed.
+   Everything is scoped to .settings-pane so signup and the other editors that share the tile classes are untouched. Loaded after signup.css. */
+
+/* ---- layout: fields on the left, the card preview pinned on the right ---- */
+.settings-pane .editor { grid-template-columns: minmax(0, 1fr) 300px; gap: 40px; align-items: start; }
+.settings-pane .editor-preview { position: sticky; top: 24px; }
+.settings-pane .ed-preview-label { font-size: 13px; color: var(--muted); margin: 0 0 8px; }
+
+/* ---- sections: a hairline between groups, tight spacing inside a group ---- */
+.settings-pane .ed-sec { padding: 28px 0 8px; border-top: 1px solid var(--line); }
+.settings-pane .ed-sec:first-of-type { padding-top: 0; border-top: 0; }
+.settings-pane .ed-head { margin: 0 0 12px; }
+.settings-pane .ed-head h2 { margin: 0; font-size: 17px; line-height: 1.35; font-weight: 600; letter-spacing: -.005em; color: var(--head); }
+.settings-pane .ed-head p { margin: 2px 0 0; font-size: 13px; line-height: 1.45; color: var(--muted); }
+
+/* field labels: one style for plain labels and for the colour rows */
+.settings-pane .ed-sec > label, .settings-pane .color-row > label { display: block; margin: 16px 0 6px; font-size: 13px; font-weight: 500; color: var(--muted); text-transform: none; letter-spacing: 0; }
+.settings-pane .ed-sec > .hint, .settings-pane .ed-sec > p.hint { margin: 6px 0 0; }
+.settings-pane .ed-count { text-align: right; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.settings-pane .color-row { margin-top: 4px; }
+.settings-pane .upload-row { margin-top: 10px; }
+
+/* ---- colour swatches: the last one is "any colour" ---- */
+.settings-pane .swatches { gap: 8px; }
+.settings-pane .swatch { width: 28px; height: 28px; border-radius: var(--r-sm); }
+.settings-pane .swatch:focus-visible, .settings-pane .swatch-custom:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
+.swatch-custom { position: relative; width: 28px; height: 28px; border-radius: var(--r-sm); flex: none; cursor: pointer;
+  background: conic-gradient(#e5484d, #f5a524, #f5d90a, #46a758, #0090ff, #8e4ec6, #e5484d); box-shadow: inset 0 0 0 1px #0003; }
+.swatch-custom input[type=color] { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border-radius: 0; }
+.swatch-custom.on { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--ink); }
+.swatch-custom.on::after { content: ''; position: absolute; inset: 7px; border-radius: 3px; background: var(--cc); box-shadow: 0 0 0 1.5px var(--bg); pointer-events: none; }
+
+/* ---- card theme tiles: the swatch always paints, no price line ---- */
+.settings-pane .pt-grid { grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); }
+.settings-pane .pt-swatch { flex: none; width: 100%; height: 44px; min-height: 44px; background-repeat: no-repeat; background-color: var(--bg2); }
+.settings-pane .pt-tile { gap: 8px; padding: 8px; }
+.settings-pane .pt-name { font-size: 13px; }
+
+/* ---- name font tiles: the name sits on a surface chosen to contrast with its own colour ---- */
+.settings-pane .nf-tile { padding: 8px 8px 6px; gap: 6px; }
+.settings-pane .nf-surface { display: grid; place-items: center; width: 100%; min-height: 44px; padding: 6px 8px; border-radius: var(--r-sm); overflow: hidden; }
+.settings-pane .nf-sample { font-size: 18px; }
+.settings-pane .nf-label { font-size: 12px; }
+
+/* ---- custom gradients ---- */
+.settings-pane .custom-grad { margin-top: 12px; padding: 12px; border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line); }
+.settings-pane .cg-stop input[type=color] { width: 32px; height: 32px; padding: 0; border: 0; border-radius: var(--r-sm); cursor: pointer; background: none; }
+.settings-pane .cg-stop input[type=color]::-webkit-color-swatch-wrapper { padding: 0; }
+.settings-pane .cg-stop input[type=color]::-webkit-color-swatch { border: 0; border-radius: var(--r-sm); box-shadow: inset 0 0 0 1px #0003; }
+.settings-pane .cg-angle input[type=range] { accent-color: var(--ink); width: 100%; }
+.settings-pane .name-grad-row .sw-bar { height: 12px; }
+
+/* ---- badges and frames: rows with a switch ---- */
+.settings-pane .badge-wear-row { min-height: 52px; }
+.sw-wrap { display: inline-flex; align-items: center; gap: 10px; }
+.sw-text { font-size: 13px; color: var(--muted); min-width: 44px; text-align: right; }
+.sw { position: relative; flex: none; width: 40px; height: 24px; padding: 0; border: 0; border-radius: 999px; background: var(--line2); cursor: pointer; transition: background .15s cubic-bezier(.2, 0, 0, 1); }
+.sw i { position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--bg); transition: transform .15s cubic-bezier(.2, 0, 0, 1); }
+.sw.on { background: var(--ink); }
+.sw.on i { transform: translateX(16px); background: var(--on-ink); }
+.sw:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* ---- the mini name bar: only on narrow screens, where the card preview is below the fields ---- */
+.ed-mini { display: none; }
+
+/* ---- the save bar says what is going on ---- */
+.settings-pane .settings-foot { align-items: center; }
+.settings-pane .ed-dirty { margin-right: auto; font-size: 13px; color: var(--muted); }
+.settings-pane .ed-dirty.err { color: var(--danger); }
+
+@media (max-width: 900px) {
+  .settings-pane .editor { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .settings-pane .editor-preview { position: static; }
+  .settings-pane .ed-preview-label { display: none; }
+  .settings-pane .ed-mini { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 10px; padding: 8px 0; margin-bottom: 8px; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .settings-pane .ed-mini-name { padding: 4px 10px; border-radius: var(--r-sm); font-size: 17px; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+
+@media (prefers-reduced-motion: reduce) { .sw, .sw i { transition: none; } }

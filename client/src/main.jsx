@@ -31,6 +31,7 @@ import './friends.css'; // after sidebar.css: the Friends page rows (one column,
 import './header.css'; // after friends.css: the top bar (grouped controls, one size, quiet lock chip)
 import './messages.css'; // after header.css: the message area (divider contrast, speaker spacing, whole type sizes)
 import './signup.css'; // the three-step sign-up (SignupFlow.jsx)
+import './profile-editor.css'; // after signup.css: the Settings > My profile editor (sections, sticky preview, switches)
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';

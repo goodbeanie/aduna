@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, BadgeIcons, Banner, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
-import { useProfileThemes, loadProfileThemes, themeGradient, CUSTOM_THEME_ID } from './profilethemes.js';
+import { useProfileThemes, loadProfileThemes, themeGradient, lightness, CUSTOM_THEME_ID } from './profilethemes.js';
 import { nameProps, NAME_FONTS, MAX_NAME_STOPS, DEFAULT_NAME_GRADIENT, nameGradientCss } from './namestyle.js';
 import { uploadImage, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
 import Cropper from './Cropper.jsx';
@@ -259,13 +259,36 @@ const USERNAME_COOLDOWN_MS = 7 * 24 * 3600 * 1000; // keep in sync with the serv
 const MAX_LINKS = 5;
 const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
+// One group of fields in the profile editor: a heading, one line saying what it is for, then the fields.
+function EdHead({ id, title, note }) {
+  return (
+    <div className="ed-head">
+      <h2 id={id}>{title}</h2>
+      {note && <p>{note}</p>}
+    </div>
+  );
+}
+
+// "Shown" / "Hidden" switch for a badge: the state is written out, not only coloured.
+function Switch({ on, label, onChange }) {
+  return (
+    <span className="sw-wrap">
+      <span className="sw-text" aria-hidden="true">{on ? 'Shown' : 'Hidden'}</span>
+      <button type="button" role="switch" aria-checked={on} aria-label={label} className={'sw' + (on ? ' on' : '')} onClick={onChange}><i /></button>
+    </span>
+  );
+}
+
 function ColorRow({ label, value, onChange, colors = COLORS }) {
+  const custom = !colors.includes(value); // the colour is not one of the presets: the picker at the end is the selected one
   return (
     <div className="color-row">
       <label>{label}</label>
-      <div className="swatches">
-        {colors.map((c) => <button type="button" key={c} className={'swatch' + (c === value ? ' on' : '')} style={{ background: c }} onClick={() => onChange(c)} aria-label={c} />)}
-        <input type="color" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label + ' custom'} />
+      <div className="swatches" role="radiogroup" aria-label={label}>
+        {colors.map((c) => <button type="button" role="radio" aria-checked={c === value} key={c} className={'swatch' + (c === value ? ' on' : '')} style={{ background: c }} onClick={() => onChange(c)} aria-label={c} />)}
+        <span className={'swatch-custom' + (custom ? ' on' : '')} style={custom ? { '--cc': value } : undefined} title="Pick any colour">
+          <input type="color" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label + ': custom colour'} />
+        </span>
       </div>
     </div>
   );
@@ -361,6 +384,18 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const addLink = (label = '') => setF((s) => (s.links.length >= MAX_LINKS ? s : { ...s, links: [...s.links, { label, url: '' }] }));
   const removeLink = (i) => setF((s) => ({ ...s, links: s.links.filter((_, j) => j !== i) }));
 
+  // Unsaved changes: compare everything the form holds with how it looked when it opened. Save stays off until something changed.
+  const snapshot = JSON.stringify([f, mode, nameFont, gradOn, gradOn ? nameG : null, theme, theme === CUSTOM_THEME_ID ? customG : null, [...hidden].sort(), frameId,
+    staged.avatar === undefined ? 0 : staged.avatar === null ? 'x' : staged.avatar.url, staged.banner === undefined ? 0 : staged.banner === null ? 'x' : staged.banner.url]);
+  const openSnapshot = useRef(null);
+  if (openSnapshot.current === null) openSnapshot.current = snapshot;
+  const dirty = snapshot !== openSnapshot.current;
+
+  // The font tiles and the small name bar show your name on a surface that contrasts with its own colour, so a dark name on the dark app (or a pale one on a light app) can still be read.
+  const sampleStops = (gradOn ? nameG.colors : [f.accentColor]).filter((c) => /^#[0-9a-f]{6}$/i.test(c));
+  const sampleLight = sampleStops.length ? sampleStops.reduce((s, c) => s + lightness(c), 0) / sampleStops.length > 0.45 : false;
+  const nameSurface = sampleLight ? '#2b2620' : '#f6f2e9';
+
   const preview = {
     ...me, ...f,
     badges: ownedBadges.length ? ownedBadges.filter((b) => !hidden.has(b.id)) : me.badges, // the card shows only the badges that are on
@@ -405,17 +440,26 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     <div className="settings-pane">
       <div className="editor">
         <div className="editor-form">
-          <label>{t('displayName')}</label>
-          <input value={f.displayName} maxLength={32} onChange={(e) => set('displayName')(e.target.value)} />
+          {/* narrow screens: the card preview sits below the fields, so a small bar stays on top and shows the name as you style it */}
+          <div className="ed-mini" aria-hidden="true">
+            <Avatar user={preview} size={32} presence={f.status === 'invisible' ? 'offline' : f.status} />
+            <span className="ed-mini-name" style={{ background: nameSurface }}><span {...nameProps(preview)}>{preview.displayName || me.username}</span></span>
+            <BadgeIcons user={preview} size={16} />
+          </div>
 
-          <label>{t('email')}</label>
-          <input type="email" value={f.email} maxLength={254} autoComplete="email" placeholder="you@example.com" onChange={(e) => set('email')(e.target.value)} />
+          <section className="ed-sec" aria-labelledby="pe-account">
+          <EdHead id="pe-account" title="Account" note="Your display name and username are public. Your email is private." />
+          <label htmlFor="pe-name">{t('displayName')}</label>
+          <input id="pe-name" value={f.displayName} maxLength={32} onChange={(e) => set('displayName')(e.target.value)} />
+
+          <label htmlFor="pe-email">{t('email')}</label>
+          <input id="pe-email" type="email" value={f.email} maxLength={254} autoComplete="email" placeholder="you@example.com" onChange={(e) => set('email')(e.target.value)} />
           <p className="muted small hint">{t('emailPrivate')}</p>
 
-          <label>{t('username')}</label>
+          <label htmlFor="pe-user">{t('username')}</label>
           <div className="at-input">
             <span>@</span>
-            <input value={f.username} maxLength={20} disabled={locked} autoCapitalize="none" autoCorrect="off" spellCheck={false}
+            <input id="pe-user" value={f.username} maxLength={20} disabled={locked} autoCapitalize="none" autoCorrect="off" spellCheck={false}
               onChange={(e) => set('username')(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))} />
           </div>
           <p className="muted small hint">
@@ -426,8 +470,13 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
                 : t('usernameRule')}
           </p>
 
-          <label>{t('aboutMe')}</label>
-          <textarea rows={3} maxLength={190} value={f.bio} onChange={(e) => set('bio')(e.target.value)} />
+          </section>
+
+          <section className="ed-sec" aria-labelledby="pe-about">
+          <EdHead id="pe-about" title="About you" note="Shown on your profile card." />
+          <label htmlFor="pe-bio">{t('aboutMe')}</label>
+          <textarea id="pe-bio" rows={3} maxLength={190} value={f.bio} onChange={(e) => set('bio')(e.target.value)} />
+          <p className="hint ed-count" aria-live="off">{f.bio.length} / 190</p>
 
           <label>{t('links')}</label>
           <div className="links-edit">
@@ -447,38 +496,47 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
             <p className="muted small hint">{t('linksHint', { n: MAX_LINKS })}</p>
           </div>
 
-          <label>{t('profilePicture')}</label>
+          </section>
+
+          <section className="ed-sec" aria-labelledby="pe-look">
+          <EdHead id="pe-look" title="Picture and banner" note="You can also click either one in the preview to upload an image." />
+          <label id="pe-pic-label">{t('profilePicture')}</label>
           <div className="mode-pick" role="radiogroup" aria-label={t('picStyle')}>
             {[['letter', t('picLetter')], ['logo', t('picLogo')], ['image', t('picImage')]].map(([k, label]) => (
               <button type="button" role="radio" aria-checked={mode === k} key={k} className={mode === k ? 'on' : ''} onClick={() => chooseMode(k)}>{label}</button>
             ))}
           </div>
           <input ref={avatarInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('avatar', e)} />
+          {mode === 'image' && <div className="upload-row"><button type="button" className="btn" onClick={() => avatarInput.current.click()}><Icon name="camera" size={14} className="inline-icon" /> Replace picture</button></div>}
           {mode !== 'image' && <ColorRow label={t('avatarColor')} value={f.avatarColor} onChange={set('avatarColor')} />}
-          <p className="muted small hint">{t('picTip')}</p>
 
-          <label>{t('banner')}</label>
+          <label id="pe-banner-label">{t('banner')}</label>
           <ColorRow label={t('bannerColor')} value={f.bannerColor} onChange={set('bannerColor')} colors={BANNER_COLORS} />
-          {hasBanner && <div className="upload-row"><button type="button" className="btn" onClick={removeBanner}>{t('removeBanner')}</button></div>}
+          <div className="upload-row">
+            <button type="button" className="btn" onClick={() => bannerInput.current.click()}><Icon name="camera" size={14} className="inline-icon" /> {hasBanner ? 'Replace banner image' : 'Upload banner image'}</button>
+            {hasBanner && <button type="button" className="btn ghost" onClick={removeBanner}>{t('removeBanner')}</button>}
+          </div>
           <input ref={bannerInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('banner', e)} />
           {cropping && <Cropper file={cropping.file} size={cropping.kind === 'avatar' ? AVATAR_SIZE : BANNER_SIZE} shape={cropping.kind === 'avatar' ? 'square' : 'wide'} title={cropping.kind === 'avatar' ? t('cropTitleAvatar') : t('cropTitleBanner')} onApply={applyCrop} onCancel={() => setCropping(null)} />}
 
-          <label>Profile theme</label>
-          <div className="pt-grid" role="radiogroup" aria-label="Profile theme">
+          </section>
+
+          <section className="ed-sec" aria-labelledby="pe-theme">
+          <EdHead id="pe-theme" title="Card theme" note="A gradient fills your card under the banner. Your banner stays as you set it." />
+          <div className="pt-grid" role="radiogroup" aria-label="Card theme">
             <button type="button" role="radio" aria-checked={!theme} className={'pt-tile' + (!theme ? ' on' : '')} onClick={() => setTheme(null)}>
-              <span className="pt-swatch pt-none" /><span className="pt-name">None</span><span className="pt-price">Plain card</span>
+              <span className="pt-swatch pt-none" /><span className="pt-name">None</span>
             </button>
             {(ptList || []).map((th) => (
               <button type="button" role="radio" aria-checked={theme === th.id} key={th.id} className={'pt-tile' + (theme === th.id ? ' on' : '')} onClick={() => setTheme(th.id)}>
                 <span className={'pt-swatch' + (th.animated ? ' pt-anim' : '')} style={{ backgroundImage: themeGradient(th), backgroundSize: th.animated ? '300% 300%' : undefined }} />
                 <span className="pt-name">{th.name}</span>
-                <span className="pt-price">Free</span>
                 {th.animated && <span className="pt-tag">Animated</span>}
               </button>
             ))}
             <button type="button" role="radio" aria-checked={theme === CUSTOM_THEME_ID} className={'pt-tile' + (theme === CUSTOM_THEME_ID ? ' on' : '')} onClick={() => setTheme(CUSTOM_THEME_ID)}>
               <span className="pt-swatch" style={{ backgroundImage: themeGradient(customG) }} />
-              <span className="pt-name">Custom</span><span className="pt-price">Free · your colours</span>
+              <span className="pt-name">Custom</span>
             </button>
           </div>
           {theme === CUSTOM_THEME_ID && (
@@ -496,17 +554,23 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
                 <span>Angle {customG.angle}°</span>
                 <input type="range" min="0" max="360" step="5" value={customG.angle} onChange={(e) => setCustomG((g) => ({ ...g, angle: Number(e.target.value) }))} aria-label="Gradient angle" />
               </label>
+              <div className="name-grad-row"><span className="sw-bar" style={{ backgroundImage: themeGradient(customG) }} /></div>
             </div>
           )}
-          <p className="muted small hint">A gradient theme fills your profile card under the banner; your banner stays as you set it. Everything here is free. Pick one, or make your own with Custom. More themes, including animated ones, are coming.</p>
+          <p className="muted small hint">More themes, including animated ones, are coming.</p>
+          </section>
 
+          <section className="ed-sec" aria-labelledby="pe-name-style">
+          <EdHead id="pe-name-style" title="Name style" note="How your display name looks everywhere it appears." />
           <ColorRow label={t('nameColor')} value={f.accentColor} onChange={set('accentColor')} />
 
           <label>Name font</label>
           <div className="nf-grid" role="radiogroup" aria-label="Name font">
             {NAME_FONTS.map((x) => (
               <button type="button" role="radio" aria-checked={nameFont === x.id} key={x.id} className={'nf-tile' + (nameFont === x.id ? ' on' : '')} onClick={() => setNameFont(x.id)}>
-                <span className="nf-sample" {...nameProps({ accentColor: f.accentColor, nameFont: x.id, nameGradient: gradOn ? nameG : null })}>{(f.displayName || me.username).slice(0, 14)}</span>
+                <span className="nf-surface" style={{ background: nameSurface }}>
+                  <span className="nf-sample" {...nameProps({ accentColor: f.accentColor, nameFont: x.id, nameGradient: gradOn ? nameG : null })}>{(f.displayName || me.username).slice(0, 14)}</span>
+                </span>
                 <span className="nf-label">{x.label}</span>
               </button>
             ))}
@@ -535,9 +599,13 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
               <div className="name-grad-row"><span className="sw-bar" style={{ backgroundImage: nameGradientCss(nameG) }} /></div>
             </div>
           )}
-          <p className="muted small hint">Your name colour stays as the fallback where a gradient can't be drawn. Font and gradient are free. Press Save changes to apply.</p>
-          <label>{t('statusLbl')}</label>
-          <select value={f.status} onChange={(e) => set('status')(e.target.value)}>
+          <p className="muted small hint">Where a gradient can't be drawn, your name colour is used instead.</p>
+          </section>
+
+          <section className="ed-sec" aria-labelledby="pe-status">
+          <EdHead id="pe-status" title="Status and badges" note="Who can see you online, and which badges you wear." />
+          <label htmlFor="pe-status-sel">{t('statusLbl')}</label>
+          <select id="pe-status-sel" value={f.status} onChange={(e) => set('status')(e.target.value)}>
             {['online', 'idle', 'dnd', 'invisible'].map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
           </select>
           {ownedBadges.length > 0 && (
@@ -550,12 +618,12 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
                     <div key={b.id} className={'badge-wear-row' + (on ? ' on' : '')}>
                       <BadgeIcons user={{ badges: [b] }} size={28} />
                       <span className="grow">{b.name}</span>
-                      <button type="button" className={'btn small-btn' + (on ? '' : ' primary')} aria-pressed={on} onClick={() => toggleBadge(b.id)}>{on ? 'Take off' : 'Put on'}</button>
+                      <Switch on={on} label={`Show the ${b.name} badge`} onChange={() => toggleBadge(b.id)} />
                     </div>
                   );
                 })}
               </div>
-              <p className="muted small hint">Badges you take off are hidden from your profile and from next to your name. You still own them, so you can put them back on any time. Press Save changes to apply.</p>
+              <p className="muted small hint">A hidden badge disappears from your profile and from next to your name. You still own it and can show it again any time.</p>
             </>
           )}
           {ownedFrames.length > 0 && (
@@ -577,13 +645,14 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
                   );
                 })}
               </div>
-              <p className="muted small hint">A frame is a ring around your profile picture. You wear one at a time. Press Save changes to apply.</p>
+              <p className="muted small hint">A frame is a ring around your profile picture. You wear one at a time.</p>
             </>
           )}
-          {err && <div className="error">{err}</div>}
+          </section>
         </div>
 
         <div className="editor-preview">
+          <div className="ed-preview-label">Preview</div>
           <div className={'card' + cardTheme.className} style={cardTheme.style}>
             <div className="banner-edit">
               <Banner user={preview} />
@@ -607,7 +676,9 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
         </div>
       </div>
       <div className="settings-foot">
-        <button className="btn" onClick={onClose}>{t('cancel')}</button> <button className="btn primary" onClick={save} disabled={saving}>{t('saveChanges')}</button>
+        <span className={'ed-dirty' + (err ? ' err' : '')} role="status">{err || (dirty ? 'Unsaved changes' : '')}</span>
+        <button className="btn" onClick={onClose}>{dirty ? 'Discard' : t('cancel')}</button>
+        <button className="btn primary" onClick={save} disabled={saving || !dirty}>{saving ? 'Saving…' : t('saveChanges')}</button>
       </div>
     </div>
   );
