@@ -18,3 +18,7 @@
 .crop-zoom input:focus, .crop-zoom input:focus-visible { border: 0; box-shadow: none; outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 999px; }
 .crop .modal-foot { align-self: stretch; display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 @media (max-width: 720px) { .crop .modal-foot .btn { flex: 1; } }
+/* Profile frame adjust window (FrameAdjust.jsx): a checkerboard so see-through parts show, the avatar's rounded square (75% of the 512px frame, the
+   numbers in FRAME in image.js) dashed in red, and the ring band tinted blue by the hole's huge shadow (the window clips it). */
+.crop-window.frame-window { border-radius: var(--r-md); background: repeating-conic-gradient(rgb(128 128 128 / .22) 0% 25%, transparent 0% 50%) 0 0 / 16px 16px; }
+.frame-hole { position: absolute; inset: 12.5%; border-radius: 26%; border: 2px dashed rgb(235 60 60 / .95); box-shadow: 0 0 0 999px rgb(70 140 255 / .2); pointer-events: none; }

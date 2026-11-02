@@ -5,7 +5,8 @@ import { Avatar, Icon } from './ui.jsx';
 import { StickerImg } from './Stickers.jsx';
 import { PanelSkeleton } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
-import { ACCEPT_ATTR, imageUrl, makeFrameTemplate, processBadge, processFrame, processPiece, processSticker, uploadImage, uploadSticker } from './image.js';
+import FrameAdjust from './FrameAdjust.jsx';
+import { ACCEPT_ATTR, imageUrl, makeFrameTemplate, processBadge, processPiece, processSticker, uploadImage, uploadSticker } from './image.js';
 
 // Settings > Artist. Anyone can apply to sell their own badges in the credits shop: send exactly 4 pieces of your art and an optional note.
 // Moderators (creator accounts and the usernames in ADMIN_USERNAMES) review the applications and every item on the admin page (Artist review tab).
@@ -183,6 +184,7 @@ function ItemCard({ item, limits, onChange, onDeleted, onError }) {
   const [f, setF] = useState(fresh);
   useEffect(() => { setF({ name: item.name, desc: item.desc, price: item.price ?? '' }); }, [item.name, item.desc, item.price]); // eslint-disable-line react-hooks/exhaustive-deps
   const file = useRef(null);
+  const [adjust, setAdjust] = useState(null); // the picture file picked for a frame, while the artist positions and zooms it
   const locked = item.status === 'approved';
   const isPack = item.kind === 'stickers';
   const minStickers = limits.stickers?.min ?? 3;
@@ -217,7 +219,8 @@ function ItemCard({ item, limits, onChange, onDeleted, onError }) {
         <div className="row">
           {!isPack && <input ref={file} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => {
             const picked = e.target.files?.[0]; e.target.value = '';
-            if (picked) run(async () => { const blob = item.kind === 'frame' ? await processFrame(picked) : await processBadge(picked, BADGE_PX); onChange((await uploadImage('image', blob, '/api/artists/items/' + item.id)).item); });
+            if (picked && item.kind === 'frame') setAdjust(picked); // a frame is positioned and zoomed first (FrameAdjust), then uploaded below
+            else if (picked) run(async () => { const blob = await processBadge(picked, BADGE_PX); onChange((await uploadImage('image', blob, '/api/artists/items/' + item.id)).item); });
           }} />}
           {!isPack && <button className="btn" onClick={() => file.current?.click()}>{item.image ? 'Change picture' : 'Add picture'}</button>}
           {item.kind === 'frame' && <button className="btn" onClick={() => downloadTemplate(onError)}>Download template</button>}
@@ -230,6 +233,7 @@ function ItemCard({ item, limits, onChange, onDeleted, onError }) {
           <button className="btn danger" onClick={async () => { if (await askConfirm({ title: 'Delete item', body: 'Delete "' + item.name + '"?', confirmLabel: 'Delete', danger: true })) run(async () => { await api('/artists/items/' + item.id, { method: 'DELETE' }); onDeleted(); }); }}>Delete</button>
         </div>
       )}
+      {adjust && <FrameAdjust file={adjust} onCancel={() => setAdjust(null)} onApply={(blob) => { setAdjust(null); run(async () => onChange((await uploadImage('image', blob, '/api/artists/items/' + item.id)).item)); }} />}
     </div>
   );
 }

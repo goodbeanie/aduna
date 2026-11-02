@@ -133,6 +133,7 @@ export async function processBadge(file, { w, h }) {
 // Profile frames (an artist's ring around the avatar). The picture is a 512px square PNG; the avatar fills a 384px circle in the middle of it
 // (the same numbers as FRAME in server/artists.js), so the artist draws the ring in the 64px band around that circle. The middle must be see-through.
 export const FRAME = { side: 512, hole: 384, corner: 0.26 }; // the avatar is a rounded square (corner = radius as a share of its side, as in .avatar in redesign.css)
+export const FRAME_ZOOM = { min: 0.25, max: 3 }; // how far the artist can zoom a frame picture in the adjust window (1 = fitted inside the square)
 
 // The avatar's shape inside the frame: a rounded square `hole` wide, centred. `shrink` makes it a little smaller (1 = exact).
 function holePath(ctx, shrink = 1) {
@@ -170,7 +171,9 @@ export async function makeFrameTemplate() {
 
 // A frame picture from the artist's file: fitted (not cropped) into the 512px square, kept as a PNG so the see-through parts stay see-through.
 // Refuses a picture whose middle is filled in, because it would cover the profile picture, and one that has no ring at all.
-export async function processFrame(file) {
+// `adjust` is optional: { zoom, x, y } as set in the adjust window (FrameAdjust.jsx). zoom 1 fits the whole picture inside the square; x and y move
+// the middle of the picture, as a share of the square (0 = centred). Without it the picture is just fitted and centred.
+export async function processFrame(file, adjust) {
   if (!ACCEPT.includes(file.type)) throw new Error(tr('imgType'));
   if (file.size > MAX_INPUT) throw new Error(tr('imgBig'));
   let bmp;
@@ -181,9 +184,11 @@ export async function processFrame(file) {
   canvas.width = S; canvas.height = S;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingQuality = 'high';
-  const scale = Math.min(S / bmp.width, S / bmp.height);
+  const zoom = Math.min(FRAME_ZOOM.max, Math.max(FRAME_ZOOM.min, Number(adjust?.zoom) || 1));
+  const ox = Math.min(0.5, Math.max(-0.5, Number(adjust?.x) || 0)), oy = Math.min(0.5, Math.max(-0.5, Number(adjust?.y) || 0));
+  const scale = Math.min(S / bmp.width, S / bmp.height) * zoom;
   const w = bmp.width * scale, h = bmp.height * scale;
-  ctx.drawImage(bmp, (S - w) / 2, (S - h) / 2, w, h);
+  ctx.drawImage(bmp, S / 2 + ox * S - w / 2, S / 2 + oy * S - h / 2, w, h);
   bmp.close?.();
   const d = ctx.getImageData(0, 0, S, S).data;
   ctx.beginPath(); holePath(ctx, 0.96); // look at the avatar's shape, a hair smaller so a ring that touches its edge is fine
