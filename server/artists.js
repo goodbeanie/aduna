@@ -17,6 +17,7 @@
 //   5. Badge. An approved artist wears the Artist badge (shown from the moment their application is approved).
 
 const { MAX_PRICE } = require('./shop');
+const stickers = require('./stickers');
 
 const DAY_MS = 86_400_000;
 const LIMITS = { pieces: 4, note: 300, review: 200, items: 10, minPrice: 10, name: 24, desc: 80, maxSide: 1600 };
@@ -92,10 +93,12 @@ const isArtist = (rec) => !!rec && rec.status === 'approved';
 // An item is a badge in db().badges with an artistId. Only approved ones are for sale.
 const isItem = (b) => !!b && typeof b.artistId === 'string' && b.artistId.length > 0;
 const listed = (b) => !isItem(b) || b.status === 'approved';
-// An item is a badge (worn next to a name) or a profile frame (a ring drawn around the avatar). Older items have no `kind` and are badges.
-const KINDS = ['badge', 'frame'];
-const kindOf = (b) => (b && b.kind === 'frame' ? 'frame' : 'badge');
+// An item is a badge (worn next to a name), a profile frame (a ring drawn around the avatar) or a sticker pack (see stickers.js).
+// Older items have no `kind` and are badges.
+const KINDS = ['badge', 'frame', 'stickers'];
+const kindOf = (b) => (b && (b.kind === 'frame' || b.kind === 'stickers') ? b.kind : 'badge');
 const isFrame = (b) => kindOf(b) === 'frame';
+const isStickers = (b) => kindOf(b) === 'stickers';
 // A frame picture is a square PNG, JPEG or WebP; the middle of it (the avatar hole) has to be see-through. The browser checks the hole, the server the shape.
 const FRAME = { side: 512, hole: 384, minSide: 128 }; // the template: 512px square, the avatar sits in a 384px circle in the middle (75%)
 
@@ -105,7 +108,7 @@ function cleanItem(body, partial = false) {
   const out = {}, b = body || {};
   if (!partial) {
     const kind = b.kind === undefined || b.kind === null || b.kind === '' ? 'badge' : b.kind;
-    if (!KINDS.includes(kind)) return { error: 'An item is a badge or a profile frame' };
+    if (!KINDS.includes(kind)) return { error: 'An item is a badge, a profile frame or a sticker pack' };
     out.kind = kind;
   }
   if (!partial || b.name !== undefined) {
@@ -147,7 +150,8 @@ function applyEdit(b, out) {
 // Send an item to the reviewers. Needs a picture and a price.
 function submitItem(b, now = Date.now()) {
   if (!isItem(b) || b.status !== 'draft') return { status: 409, error: 'This item was already sent, or is already approved' };
-  if (!b.image) return { status: 400, error: 'Add a picture first' };
+  if (isStickers(b)) { const ready = stickers.readyToSend(b); if (!ready.ok) return ready; } // a pack is its stickers, it has no single picture
+  else if (!b.image) return { status: 400, error: 'Add a picture first' };
   if (!Number.isInteger(b.price) || b.price < LIMITS.minPrice) return { status: 400, error: 'Set a price first' };
   b.status = 'pending'; b.submittedAt = now; b.reviewNote = '';
   return { ok: true };
@@ -170,5 +174,5 @@ const itemRoom = (items) => items.length < LIMITS.items;
 module.exports = {
   LIMITS, CUT_PERCENT, COOLDOWN_MS, cutFor,
   blank, pieceIds, filled, validSlot, cooldownLeft, open, submit, decide, view, isArtist,
-  isItem, listed, KINDS, FRAME, kindOf, isFrame, cleanItem, editItem, applyEdit, submitItem, decideItem, itemRoom,
+  isItem, listed, KINDS, FRAME, kindOf, isFrame, isStickers, cleanItem, editItem, applyEdit, submitItem, decideItem, itemRoom,
 };

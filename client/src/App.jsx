@@ -45,6 +45,7 @@ import * as notify from './notify.js';
 import { NotifyPrompt } from './NotifyPrompt.jsx';
 import { useGameDetection } from './Activity.jsx';
 import { CommandPalette } from './CommandPalette.jsx';
+import SavedLayer from './Saved.jsx';
 import { FirstRun, markSaidHello } from './FirstRun.jsx';
 import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
 import { ConnectionBar } from './ConnectionBar.jsx';
@@ -1275,6 +1276,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       <CommandPalette servers={servers} users={users} convos={convos} meId={me.id}
         onChannel={(sv, c) => { lastChan.current[sv.id] = c.id; setView({ kind: 'server', serverId: sv.id, channelId: c.id }); setShowList(false); setMembersOpen(false); setModal(null); }}
         onDm={openDm} onSettings={(tab) => setModal({ type: 'edit', tab })} />
+      <SavedLayer meId={me.id} />
       <UpdatePrompt />
       <SiteUpdateNotice />
       <ConnectionBar />

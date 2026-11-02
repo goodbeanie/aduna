@@ -1,0 +1,16 @@
+/* reminders that came due, and the Saved messages list (Saved.jsx) */
+.reminder-stack { position: fixed; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); z-index: 90; display: flex; flex-direction: column; gap: 8px; width: min(340px, calc(100vw - 32px)); }
+.reminder-toast { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; background: var(--raised); border: 1px solid var(--line); color: var(--text); }
+.reminder-ico { flex: none; margin-top: 2px; color: var(--head); }
+.reminder-body { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.reminder-body b { font-weight: 600; color: var(--head); }
+.reminder-meta { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reminder-text { margin-top: 2px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+
+.saved-list { display: flex; flex-direction: column; gap: 6px; max-height: min(60vh, 520px); overflow-y: auto; }
+.saved-h { margin: 6px 0 2px; font-size: 12px; letter-spacing: .08em; color: var(--muted); font-weight: 400; }
+.saved-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--field); border-radius: 10px; }
+.saved-main { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
+.saved-meta { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.saved-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; color: var(--text); }
+.saved-empty { margin: 8px 0; }

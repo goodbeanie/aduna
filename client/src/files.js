@@ -1,5 +1,6 @@
 // Attachment helpers: upload (with progress), fetch + decrypt, and small formatting utilities.
 import { encryptBytesFor, decryptBytesFrom, encryptBytesWithKey, decryptBytesWithKey } from './crypto.js';
+import { STICKER_LABEL, stickerIdOf } from './stickers.js';
 
 export const MAX_FILE = 20 * 1024 * 1024;
 // The server deletes attachments after FILE_DAYS days, or LARGE_FILE_DAYS for files over LARGE_FILE_BYTES (see server/index.js).
@@ -28,7 +29,7 @@ export const sizeLabel = (n) => (n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).
 export const safeGif = (u) => { try { const x = new URL(u); return x.protocol === 'https:' && /^(media\d*|i)\.giphy\.com$/.test(x.hostname); } catch { return false; } };
 
 // What a message looks like in a one-line preview (reply bars, delete dialog)
-export const previewText = (m) => (/^wordle:1:/.test(m.content || '') ? 'Wordle result' : m.content) || (m.poll ? 'Poll: ' + m.poll.question : '') || (m.attachments?.length ? (m.attachments[0].gif ? 'GIF' : isVoice(m.attachments[0]) ? 'Voice message' : m.attachments[0].name || 'Attachment') : '');
+export const previewText = (m) => (/^wordle:1:/.test(m.content || '') ? 'Wordle result' : stickerIdOf(m.content) ? STICKER_LABEL : m.content) || (m.poll ? 'Poll: ' + m.poll.question : '') || (m.attachments?.length ? (m.attachments[0].gif ? 'GIF' : isVoice(m.attachments[0]) ? 'Voice message' : m.attachments[0].name || 'Attachment') : '');
 
 async function imageSize(file) {
   if (!file.type.startsWith('image/')) return {};

@@ -16,6 +16,7 @@
 //   * Badges are one-off: you own one once. Nothing here can be refunded or sold on.
 
 const MAX_PRICE = 1_000_000;
+const stickers = require('./stickers'); // sticker packs are shop items too (see stickers.js)
 const MAX_HELD = 12; // the most badges one person can hold (the same limit as creators giving them away)
 
 // The seven badges the shop used to sell. They are NOT for sale any more, but people who already bought one keep it (u.shopBadges).
@@ -79,9 +80,10 @@ function view(u, badges = {}, { now = Date.now(), all = false, users = null } = 
   return Object.values(badges || {}).filter((b) => priced(b) && (all || shown(b, picks, now)))
     .map((b) => {
       const item = {
-        id: b.id, kind: b.kind === 'frame' ? 'frame' : 'badge', name: b.name, desc: b.desc || '', emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null, price: b.price, owned: have.has(b.id),
+        id: b.id, kind: b.kind === 'frame' || b.kind === 'stickers' ? b.kind : 'badge', name: b.name, desc: b.desc || '', emoji: b.emoji || '', color: b.color || '#8c6b4f', image: b.image || null, price: b.price, owned: have.has(b.id),
         pinned: b.pinned === true, daily: b.daily === true, ends: Number.isFinite(b.shopEnds) && b.shopEnds > 0 ? b.shopEnds : null,
       };
+      if (b.kind === 'stickers') item.stickers = stickers.stickerViews(b); // a pack shows its stickers instead of one picture
       if (typeof b.artistId === 'string' && b.artistId) item.by = (users && users[b.artistId] && users[b.artistId].displayName) || null;
       if (all) item.state = !listed(b) ? 'review' : ended(b, now) ? 'ended' : shown(b, picks, now) ? 'live' : 'resting';
       return item;
@@ -94,8 +96,8 @@ function buy(u, id, spend, { badges = {}, maxHeld = MAX_HELD, now = Date.now() }
   const b = typeof id === 'string' && has(badges, id) ? badges[id] : null;
   if (!b || !shown(b, dailyPicks(badges, now), now)) return { status: 404, error: 'That item is not in the shop' }; // off sale, ended, or a daily badge that is resting today
   if (held(u).includes(b.id)) return { status: 409, error: 'You already own this' };
-  // frames (rings around the avatar) are worn one at a time and are not badges, so they neither use up nor are stopped by the badge limit
-  const isFrame = (x) => !!x && x.kind === 'frame';
+  // frames (rings around the avatar) and sticker packs are not worn next to a name and are not badges, so they neither use up nor are stopped by the badge limit
+  const isFrame = (x) => !!x && (x.kind === 'frame' || x.kind === 'stickers');
   if (!isFrame(b) && held(u).filter((x) => !isFrame(has(badges, x) ? badges[x] : null)).length >= maxHeld) return { status: 400, error: `Nobody can hold more than ${maxHeld} badges` };
   if (!spend(u, b.price, 'shop', { note: b.name, now })) return { status: 402, error: 'Not enough credits' };
   u.badges = [...held(u), b.id]; // paid in the same synchronous step

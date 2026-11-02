@@ -100,6 +100,7 @@ const PATHS = {
   bell: <><path d="M6 16.5V11a6 6 0 1112 0v5.5l1.5 1.5h-15z" /><path d="M10 20.5a2 2 0 004 0" /></>,
   belloff: <><path d="M6 16.5V11a6 6 0 1112 0v5.5l1.5 1.5h-15z" /><path d="M10 20.5a2 2 0 004 0" /><path d="M4 4l16 16" /></>,
   pushpin: <><path d="M9.5 4h5M10 4v5.3L7.5 13h9L14 9.3V4" /><path d="M12 13v7" /></>,
+  bookmark: <path d="M7 4.5h10a1 1 0 011 1V20l-6-4.2L6 20V5.5a1 1 0 011-1z" />,
   megaphone: <><path d="M4 10v4h3l8 4.5v-13L7 10z" /><path d="M18.5 9.5a3.5 3.5 0 010 5M7 14l1.2 5h2.3L9.5 15" /></>,
   hash: <path d="M9 4.5L7.5 19.5M16.5 4.5L15 19.5M4.5 9h15M4 15h15" />,
   close: <><path d="M6 6l12 12" /><path d="M18 6L6 18" /></>,

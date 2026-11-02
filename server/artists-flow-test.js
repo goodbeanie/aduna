@@ -7,7 +7,7 @@ const zlib = require('zlib');
 const { cleanup } = require('./test-env');
 const { httpServer, ready, store, referencedImages } = require('./index');
 const credits = require('./credits');
-
+const { io: connect } = require('socket.io-client');
 let base;
 const step = (m) => console.log('✓', m);
 async function call(p, { method = 'GET', body, token } = {}) {
@@ -180,6 +180,128 @@ function makePng(w, h) { // a different picture every time (the marker), so no t
   assert.strictEqual(await store.getImage(scratchImg), null, 'its picture is deleted with it');
   assert.strictEqual((await call('/artists/items/' + scratch.id, { method: 'DELETE', token: T(ada) })).status, 404);
   step('deleting a draft item deletes its picture');
+
+  // ---- sticker packs ----
+  // A fresh artist (approved directly: the application is tested above), because the upload limiter allows 10 pictures a minute per person and ada has used hers.
+  const cleo = await reg('cleo');
+  store.db.artists[cleo.user.id] = { id: cleo.user.id, status: 'approved', pieces: [null, null, null, null], note: '', createdAt: Date.now() };
+  const hexId = (n) => n.toString(16).padStart(32, '0');
+  const gifBytes = (w, h, frames) => { // only its blocks are walked by the server, so each frame carries a few made-up bytes
+    const head = Buffer.from([...Buffer.from('GIF89a', 'latin1'), w & 255, w >> 8, h & 255, h >> 8, 0x80, 0, 0, 0, 0, 0, 255, 255, 255]);
+    const frame = Buffer.from([0x21, 0xf9, 4, 0, 10, 0, 0, 0, 0x2c, 0, 0, 0, 0, w & 255, w >> 8, h & 255, h >> 8, 0, 2, 2, 0x44, 0x01, 0]);
+    return Buffer.concat([head, ...Array.from({ length: frames }, () => frame), Buffer.from([0x3b])]);
+  };
+  const postSticker = async (id, name, buf, token, type = 'image/png') => {
+    const rr = await fetch(`${base}/api/artists/items/${id}/stickers?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': type, Authorization: 'Bearer ' + token }, body: buf });
+    return { status: rr.status, ...(await rr.json().catch(() => ({}))) };
+  };
+  r = await call('/artists/items', { method: 'POST', token: T(cleo), body: { kind: 'stickers', name: 'Cat Stickers', desc: 'Cats with feelings', price: 60 } });
+  assert.strictEqual(r.status, 200, JSON.stringify(r));
+  const pack = r.item;
+  assert.deepStrictEqual([pack.kind, pack.status, pack.stickers], ['stickers', 'draft', []]);
+  assert.strictEqual((await call(`/artists/items/${pack.id}/submit`, { method: 'POST', token: T(cleo) })).status, 400, 'an empty pack cannot be sent');
+  assert.strictEqual((await postSticker(pack.id, 'Nope', makePng(128, 128), T(bob))).status, 403, 'only artists add stickers');
+  r = await postSticker(pack.id, 'Happy', makePng(128, 128), T(cleo));
+  assert.strictEqual(r.status, 200, JSON.stringify(r));
+  const happy = r.item.stickers[0];
+  assert.deepStrictEqual([r.item.stickers.length, happy.name, happy.animated, happy.w, happy.h], [1, 'Happy', false, 128, 128]);
+  assert.strictEqual((await postSticker(pack.id, 'Tiny', makePng(32, 32), T(cleo))).status, 400, 'under 64px');
+  assert.strictEqual((await postSticker(pack.id, 'Wide', makePng(300, 100), T(cleo))).status, 400, 'wider than 2:1');
+  assert.strictEqual((await postSticker(pack.id, 'happy', makePng(128, 128), T(cleo))).status, 409, 'two stickers cannot share a name');
+  r = await postSticker(pack.id, 'Spin', gifBytes(100, 100, 3), T(cleo), 'image/gif');
+  assert.strictEqual(r.status, 200, JSON.stringify(r));
+  const spin = r.item.stickers[1]; assert.strictEqual(spin.animated, true);
+  r = await postSticker(pack.id, 'Sleepy', makePng(200, 100), T(cleo));
+  assert.strictEqual(r.status, 200, JSON.stringify(r)); assert.strictEqual(r.item.stickers.length, 3);
+  const sleepy = r.item.stickers[2];
+  step('stickers are added to a pack one by one, each checked');
+
+  // the pictures come from the existing image route; ?still=1 is the first frame of a GIF
+  const bytesOf = async (u) => { const x = await fetch(base + u); return { type: x.headers.get('content-type'), buf: Buffer.from(await x.arrayBuffer()) }; };
+  const fullGif = await bytesOf(`/api/images/${spin.id}`), stillGif = await bytesOf(`/api/images/${spin.id}?still=1`);
+  assert.strictEqual(fullGif.type, 'image/gif'); assert.ok(stillGif.buf.length < fullGif.buf.length, 'the still copy is the first frame only');
+  assert.strictEqual((await bytesOf(`/api/images/${happy.id}`)).type, 'image/png');
+  step('stickers are served by /api/images, animated ones with a still copy');
+
+  // sent for review, with the stickers in the review queue
+  r = await call(`/artists/items/${pack.id}/submit`, { method: 'POST', token: T(cleo) });
+  assert.deepStrictEqual([r.status, r.item.status], [200, 'pending']);
+  r = await call('/artists/review', { token: T(mod) });
+  const queued = r.items.find((i) => i.id === pack.id);
+  assert.deepStrictEqual([queued.kind, queued.stickers.length, queued.own], ['stickers', 3, false]);
+  // a full pack refuses the 17th (13 made-up entries stand in for uploads: the limiter allows only 10 a minute)
+  const rec = store.db.badges[pack.id];
+  rec.stickers.push(...Array.from({ length: 13 }, (_, i) => ({ id: hexId(0x100 + i), name: 'Fake ' + i, animated: false, w: 128, h: 128 })));
+  assert.strictEqual((await postSticker(pack.id, 'Seventeen', makePng(128, 128), T(cleo))).status, 400, 'a pack holds 16');
+  assert.strictEqual(rec.status, 'pending', 'a refused upload changes nothing');
+  rec.stickers.length = 3;
+  // taking one out of a waiting pack takes it back to a draft and deletes the picture
+  r = await call(`/artists/items/${pack.id}/stickers/${sleepy.id}`, { method: 'DELETE', token: T(cleo) });
+  assert.deepStrictEqual([r.status, r.item.status, r.item.stickers.length], [200, 'draft', 2]);
+  await store.flush();
+  assert.strictEqual(await store.getImage(sleepy.id), null, 'the removed sticker\'s picture is deleted');
+  assert.strictEqual((await call(`/artists/items/${pack.id}/stickers/${sleepy.id}`, { method: 'DELETE', token: T(cleo) })).status, 404);
+  assert.strictEqual((await call(`/artists/items/${pack.id}/submit`, { method: 'POST', token: T(cleo) })).status, 400, 'two stickers are not enough');
+  r = await postSticker(pack.id, 'Sleepy again', makePng(200, 100), T(cleo));
+  assert.strictEqual(r.status, 200, JSON.stringify(r)); const sleepy2 = r.item.stickers[2];
+  assert.strictEqual((await call(`/artists/items/${pack.id}/submit`, { method: 'POST', token: T(cleo) })).status, 200);
+  assert.strictEqual((await call(`/artists/review/items/${pack.id}`, { method: 'POST', token: T(mod), body: { action: 'approve' } })).status, 200);
+  assert.strictEqual((await postSticker(pack.id, 'Late', makePng(128, 128), T(cleo))).status, 409, 'an approved pack is locked');
+  assert.strictEqual((await call(`/artists/items/${pack.id}/stickers/${happy.id}`, { method: 'DELETE', token: T(cleo) })).status, 409);
+  step('review: a pack needs 3 stickers, edits send it back to a draft, approval locks it');
+
+  // the shop, buying, and not being a badge
+  const prow = (await call('/credits', { token: T(bob) })).shop.find((i) => i.id === pack.id);
+  assert.deepStrictEqual([prow.kind, prow.stickers.length, prow.owned], ['stickers', 3, false]);
+  assert.deepStrictEqual((await call('/stickers/mine', { token: T(bob) })).packs, [], 'nothing to send before buying');
+  const cleoBefore = (await call('/credits', { token: T(cleo) })).balance;
+  r = await call(`/credits/shop/${pack.id}/buy`, { method: 'POST', token: T(bob) });
+  assert.strictEqual(r.status, 200, JSON.stringify(r));
+  assert.strictEqual((await call('/credits', { token: T(cleo) })).balance, cleoBefore + 30, 'the artist gets half of 60');
+  assert.ok(!(await me(bob)).badges.some((b) => b.id === pack.id), 'a pack is never shown as a badge');
+  r = await call('/stickers/mine', { token: T(bob) });
+  assert.deepStrictEqual([r.packs.length, r.packs[0].name, r.packs[0].mine, r.packs[0].stickers.length], [1, 'Cat Stickers', false, 3]);
+  assert.strictEqual((await call('/stickers/mine', { token: T(cleo) })).packs[0].mine, true);
+  assert.deepStrictEqual((await call('/stickers/mine', { token: T(ada) })).packs, []);
+  step('the shop lists the pack, buying pays the artist, and the picker lists what you own');
+
+  // sending in a channel: the owner and the artist can, nobody else
+  const srv = (await call('/servers', { method: 'POST', token: T(bob), body: { name: 'Stickers' } })).server;
+  for (const u of [ada, cleo]) assert.strictEqual((await call('/servers/join', { method: 'POST', token: T(u), body: { code: srv.inviteCode } })).status, 200);
+  const chId = srv.channels[0].id;
+  const socks = [bob, ada, cleo].map((u) => connect(base, { auth: { token: T(u) } })); const [sb, sa, sc] = socks;
+  await Promise.all(socks.map((s) => new Promise((res) => s.once('connect', res))));
+  const ack = (s, ev, p) => new Promise((res) => s.emit(ev, p, res));
+  const tok = (id) => `<stk:${id}>`;
+  assert.ok((await ack(sb, 'message:send', { channelId: chId, content: tok(happy.id) })).ok, 'a buyer sends it');
+  assert.ok((await ack(sc, 'message:send', { channelId: chId, content: tok(spin.id) })).ok, 'the artist sends their own');
+  assert.deepStrictEqual(await ack(sa, 'message:send', { channelId: chId, content: tok(happy.id) }), { error: 'You do not have that sticker' });
+  assert.deepStrictEqual(await ack(sb, 'message:send', { channelId: chId, content: tok(hexId(0xabc)) }), { error: 'You do not have that sticker' }, 'an id that is in no pack');
+  assert.deepStrictEqual(await ack(sb, 'message:send', { channelId: chId, content: 'look ' + tok(happy.id) }), { error: 'A sticker is sent on its own, not inside a message' });
+  assert.ok((await ack(sa, 'message:send', { channelId: chId, content: 'just words' })).ok);
+  assert.ok((await ack(sb, 'message:send', { channelId: chId, content: 'bob words' })).ok);
+  const listed = (await call(`/channels/${chId}/messages`, { token: T(ada) })).messages;
+  const adaMsg = listed.find((m) => m.authorId === ada.user.id), bobMsg = listed.find((m) => m.content === 'bob words');
+  assert.deepStrictEqual(await ack(sa, 'message:edit', { kind: 'channel', messageId: adaMsg.id, content: tok(happy.id) }), { error: 'You do not have that sticker' }, 'an edit is checked too');
+  assert.ok((await ack(sb, 'message:edit', { kind: 'channel', messageId: bobMsg.id, content: tok(sleepy2.id) })).ok, 'the owner can edit into a sticker');
+  assert.strictEqual((await call(`/channels/${chId}/quick-reply`, { method: 'POST', token: T(ada), body: { content: tok(happy.id) } })).status, 400, 'a phone reply cannot carry a sticker');
+  socks.forEach((s) => s.disconnect());
+  step('channels: only owners (and the artist) send a sticker, alone, in new messages and edits');
+
+  // deleting packs, and the startup cleanup
+  assert.strictEqual((await call(`/artists/items/${pack.id}`, { method: 'DELETE', token: T(cleo) })).status, 409, 'a pack people own cannot be deleted');
+  r = await call('/artists/items', { method: 'POST', token: T(cleo), body: { kind: 'stickers', name: 'Scratch Pack', price: 30 } });
+  const scratchPack = r.item, sid = await store.putImage(makePng(80, 80));
+  store.db.badges[scratchPack.id].stickers.push({ id: sid, name: 'One', animated: false, w: 80, h: 80 });
+  assert.ok(referencedImages().has(sid), 'a sticker picture counts as used');
+  assert.strictEqual((await call(`/artists/items/${scratchPack.id}`, { method: 'DELETE', token: T(cleo) })).status, 200);
+  await store.flush();
+  assert.strictEqual(await store.getImage(sid), null, 'deleting a pack deletes its stickers');
+  const kept = referencedImages();
+  for (const s of [happy, spin, sleepy2]) assert.ok(kept.has(s.id), 'sticker pictures survive the startup cleanup');
+  await store.pruneImages(kept);
+  for (const s of [happy, spin, sleepy2]) assert.ok(await store.getImage(s.id), 'and are still there after it');
+  step('deleting a pack deletes its pictures; the cleanup keeps the stickers');
 
   // ---- the startup cleanup keeps badge pictures and application pieces ----
   const keep = referencedImages();

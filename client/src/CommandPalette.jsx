@@ -74,6 +74,7 @@ export function CommandPalette({ servers, users, convos, meId, onChannel, onDm, 
       out.push({ key: 'd' + u.id, label: u.displayName || u.username, hint: u.username ? '@' + u.username : '', icon: 'message', kind: 'Message', run: () => onDm(u) });
     }
     for (const [id, label, icon, words] of SETTINGS) out.push({ key: 's' + id, label, hint: 'Settings', icon, kind: 'Settings', words, run: () => onSettings(id) });
+    out.push({ key: 'saved', label: 'Saved messages', hint: 'Saved and reminders', icon: 'bookmark', kind: 'Saved', words: 'bookmark later remind reminder', run: () => window.dispatchEvent(new Event('aduna:saved-open')) });
     return out;
   }, [open, servers, users, convos, meId, onChannel, onDm, onSettings]);
 

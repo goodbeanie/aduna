@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
 import { ACCEPT_ATTR, imageUrl, processBadge, uploadImage } from './image.js';
+import { StickerImg } from './Stickers.jsx';
 
 // The shop's pieces: badge tiles, the "are you sure" window, the celebration after buying, and the creator's "add a badge" form.
 // Credits.jsx owns the data and the buying; this file is only what it draws.
@@ -12,6 +13,14 @@ const reduced = () => !!(window.matchMedia && window.matchMedia('(prefers-reduce
 // A profile frame (item.kind === 'frame') is drawn as a ring around a sample avatar; the ring is bigger than the avatar, so the avatar is 3/4 of `size`.
 export function BadgeArt({ item, size = 64, src }) {
   const url = src || imageUrl(item?.image);
+  if (item?.kind === 'stickers') { // a sticker pack: up to four of its stickers in a grid (still frames)
+    const shown = (item.stickers || []).slice(0, 4);
+    return (
+      <span className={'stk-art n' + shown.length} style={{ width: size, height: size }} aria-hidden="true">
+        {shown.length ? shown.map((s) => <StickerImg key={s.id} id={s.id} animated={false} name="" />) : <Icon name="sticker" size={Math.round(size / 2)} />}
+      </span>
+    );
+  }
   if (item?.kind === 'frame') {
     return (
       <span className="frame-art" style={{ width: size, height: size, display: 'inline-grid', placeItems: 'center', flex: 'none' }} aria-hidden="true">
@@ -103,17 +112,18 @@ export function ShopTile({ item, balance, busy, creator, onOpen, onOffSale, onPi
 // Shown before any credits are spent: what you get, and what your balance does.
 export function BuyConfirm({ item, balance, busy, onConfirm, onClose }) {
   return (
-    <Modal title={item.kind === 'frame' ? 'Get this frame?' : 'Get this badge?'} onClose={onClose}>
+    <Modal title={item.kind === 'frame' ? 'Get this frame?' : item.kind === 'stickers' ? 'Get this sticker pack?' : 'Get this badge?'} onClose={onClose}>
       <div className="buy-confirm">
         <BadgeArt item={item} size={96} />
         <h3>{item.name}</h3>
         {item.desc && <p className="muted">{item.desc}</p>}
+        {item.kind === 'stickers' && <div className="stk-strip">{(item.stickers || []).map((s) => <StickerImg key={s.id} id={s.id} animated={s.animated} name={s.name} />)}</div>}
         <div className="buy-math">
           <span>Your credits</span><b>{balance.toLocaleString()}</b>
           <span>Price</span><b className="minus">−{item.price.toLocaleString()}</b>
           <span className="sum">After</span><b className="sum">{(balance - item.price).toLocaleString()}</b>
         </div>
-        <p className="muted small">{item.kind === 'frame' ? 'It is a ring around your profile picture. Wear it from Settings, Profile, and it is yours to keep.' : 'It shows next to your name everywhere in Aduna, and it is yours to keep.'}</p>
+        <p className="muted small">{item.kind === 'frame' ? 'It is a ring around your profile picture. Wear it from Settings, Profile, and it is yours to keep.' : item.kind === 'stickers' ? 'Send these stickers in any chat from the sticker button next to the emoji button. The pack is yours to keep.' : 'It shows next to your name everywhere in Aduna, and it is yours to keep.'}</p>
       </div>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>Not now</button>
@@ -143,7 +153,7 @@ export function Celebration({ item, onClose }) {
       <div className="celebrate-card" role="dialog" aria-label="Badge bought">
         <div className="celebrate-art"><BadgeArt item={item} size={112} /></div>
         <h3>It’s yours!</h3>
-        <p>{item.kind === 'frame' ? <>The <b>{item.name}</b> frame is yours. Wear it from Settings, Profile.</> : <>The <b>{item.name}</b> badge now shows next to your name.</>}</p>
+        <p>{item.kind === 'frame' ? <>The <b>{item.name}</b> frame is yours. Wear it from Settings, Profile.</> : item.kind === 'stickers' ? <>The <b>{item.name}</b> sticker pack is yours. Find it under the sticker button in any chat.</> : <>The <b>{item.name}</b> badge now shows next to your name.</>}</p>
         <button className="btn primary" autoFocus onClick={onClose}>Nice</button>
       </div>
     </div>

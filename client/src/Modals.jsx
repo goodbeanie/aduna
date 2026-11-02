@@ -3,8 +3,9 @@ import { api } from './api.js';
 import { Avatar, BadgeIcons, Banner, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, lightness, CUSTOM_THEME_ID } from './profilethemes.js';
 import { nameProps, NAME_FONTS, MAX_NAME_STOPS, DEFAULT_NAME_GRADIENT, nameGradientCss } from './namestyle.js';
-import { uploadImage, uploadAnimated, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE } from './image.js';
+import { uploadImage, uploadAnimated, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE, checkSongFile, uploadSong, songNameOf, SONG } from './image.js';
 import Cropper from './Cropper.jsx';
+import ProfileSong from './ProfileSong.jsx';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
 import { BotTag } from './Bots.jsx';
@@ -214,6 +215,20 @@ export function ProfileLinks({ links }) {
   );
 }
 
+// The favorite-games shelf on a profile card: up to 6 names, in the order the person chose.
+export function GameShelf({ games }) {
+  const list = (games || []).filter((g) => typeof g === 'string' && g.trim());
+  if (!list.length) return null;
+  return (
+    <>
+      <h4>FAVORITE GAMES</h4>
+      <ul className="pgames">
+        {list.map((g, i) => <li key={i} className="pgame" title={g}><span>{g}</span></li>)}
+      </ul>
+    </>
+  );
+}
+
 export function UserCard({ user, presence, relation, onClose, onMessage, onEdit, onAddFriend, onAccept }) {
   const th = useCardTheme(user);
   if (!user) return null;
@@ -225,10 +240,13 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
         {user.plus && <PlusBadge />}
         <div className="card-body">
           <h3><span {...nameProps(user)}>{user.displayName}</span>{user.bot && <> <BotTag /></>} <BadgeIcons user={user} size={20} /></h3>
-          <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username} · ${STATUS_LABEL[presence || 'offline']}`}</div>
+          <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username}${user.pronouns ? ` · ${user.pronouns}` : ''} · ${STATUS_LABEL[presence || 'offline']}`}</div>
           {user.bio && (<><h4>ABOUT ME</h4><p className="bio">{user.bio}</p></>)}
           {/* the game they are playing right now; the server only sends it when they are online and have it switched on */}
           {!user.bot && <PlayingLine activity={user.activity} />}
+          {!user.bot && <GameShelf games={user.games} />}
+          {/* the profile song starts muted: the viewer presses the speaker (ProfileSong.jsx) */}
+          {!user.bot && <ProfileSong song={user.song} />}
           <ProfileLinks links={user.links} />
           {/* a Clips creator who switched their page link on (Clips dashboard) shows it here */}
           {!user.bot && typeof user.clipsPage === 'string' && user.clipsPage.startsWith('/clips/user/') && (
@@ -257,6 +275,8 @@ const BANNER_COLORS = ['#e3dccb', '#d9cdb4', '#cfc0a0', '#c9d5c0', '#c7d3df', '#
 const SOCIALS = ['X / Twitter', 'Instagram', 'YouTube', 'GitHub', 'Twitch', 'TikTok'];
 const USERNAME_COOLDOWN_MS = 7 * 24 * 3600 * 1000; // keep in sync with the server
 const MAX_LINKS = 5;
+const MAX_GAMES = 6; // keep in sync with LIMITS.games in server/profile.js
+const PRONOUN_CHIPS = ['she/her', 'he/him', 'they/them'];
 const fmtDate = (t) => new Date(t).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
 // One group of fields in the profile editor: a heading, one line saying what it is for, then the fields.
@@ -300,6 +320,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     displayName: me.displayName, username: me.username, email: me.email || '', bio: me.bio, avatarEmoji: me.avatarEmoji, avatarColor: me.avatarColor,
     bannerColor: me.bannerColor, accentColor: me.accentColor, status: me.status,
     links: (me.links || []).map((l) => ({ ...l })),
+    pronouns: me.pronouns || '', games: [...(me.games || [])],
   });
   // What the profile picture shows: the first letter, the Aduna logo, or an uploaded image.
   const [mode, setMode] = useState(me.avatarImage ? 'image' : me.avatarLogo ? 'logo' : 'letter');
@@ -385,9 +406,41 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const addLink = (label = '') => setF((s) => (s.links.length >= MAX_LINKS ? s : { ...s, links: [...s.links, { label, url: '' }] }));
   const removeLink = (i) => setF((s) => ({ ...s, links: s.links.filter((_, j) => j !== i) }));
 
+  // Favorite games shelf (up to MAX_GAMES names; the server drops blanks and repeats when it saves).
+  const setGame = (i, v) => setF((s) => ({ ...s, games: s.games.map((g, j) => (j === i ? v : g)) }));
+  const addGame = () => setF((s) => (s.games.length >= MAX_GAMES ? s : { ...s, games: [...s.games, ''] }));
+  const removeGame = (i) => setF((s) => ({ ...s, games: s.games.filter((_, j) => j !== i) }));
+
+  // Profile song: staged until "Save changes", like the pictures. undefined = unchanged, null = remove, { file, url } = a new clip (url previews it).
+  // The title of the saved song is renamed with the profile (PATCH songTitle); a new clip carries its title in the upload.
+  const [songStage, setSongStage] = useState(undefined);
+  const [songTitle, setSongTitle] = useState(me.song ? me.song.title : '');
+  const songStageRef = useRef(songStage);
+  songStageRef.current = songStage;
+  const songInput = useRef(null);
+  useEffect(() => () => { if (songStageRef.current) URL.revokeObjectURL(songStageRef.current.url); }, []);
+  const hasSong = songStage === undefined ? !!me.song : songStage !== null;
+  async function pickSong(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setErr('');
+    try { await checkSongFile(file); }
+    catch (ex) { setErr(ex.message); return; }
+    setSongStage((s) => { if (s) URL.revokeObjectURL(s.url); return { file, url: URL.createObjectURL(file) }; });
+    setSongTitle(songNameOf(file));
+  }
+  function removeSong() {
+    setSongStage((s) => { if (s) URL.revokeObjectURL(s.url); return me.song ? null : undefined; });
+    setSongTitle('');
+  }
+  const previewSong = songStage ? { url: songStage.url, title: songTitle.trim() || songNameOf(songStage.file) }
+    : songStage === null || !me.song ? null : { id: me.song.id, title: songTitle.trim() || me.song.title };
+
   // Unsaved changes: compare everything the form holds with how it looked when it opened. Save stays off until something changed.
   const snapshot = JSON.stringify([f, mode, nameFont, gradOn, gradOn ? nameG : null, theme, theme === CUSTOM_THEME_ID ? customG : null, [...hidden].sort(), frameId,
-    staged.avatar === undefined ? 0 : staged.avatar === null ? 'x' : staged.avatar.url, staged.banner === undefined ? 0 : staged.banner === null ? 'x' : staged.banner.url]);
+    staged.avatar === undefined ? 0 : staged.avatar === null ? 'x' : staged.avatar.url, staged.banner === undefined ? 0 : staged.banner === null ? 'x' : staged.banner.url,
+    songTitle, songStage === undefined ? 0 : songStage === null ? 'x' : songStage.url]);
   const openSnapshot = useRef(null);
   if (openSnapshot.current === null) openSnapshot.current = snapshot;
   const dirty = snapshot !== openSnapshot.current;
@@ -423,6 +476,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
       if (renaming) body.username = f.username.trim().replace(/^@/, ''); else delete body.username;
       if (ownedBadges.length) body.hiddenBadges = [...hidden];
       if (ownedFrames.length) body.frame = frameId || null;
+      if (songStage === undefined && me.song && songTitle.trim() && songTitle.trim() !== me.song.title) body.songTitle = songTitle.trim(); // a saved song renamed
       let { user } = await api('/me', { method: 'PATCH', body });
       // Choosing the letter or the logo drops any saved picture; choosing "image" applies the staged upload.
       const avatarChange = mode === 'image' ? staged.avatar : (me.avatarImage ? null : undefined);
@@ -433,6 +487,8 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
         ({ user } = s === null ? await api('/me/' + kind, { method: 'DELETE' }) : await uploadImage(kind, s.blob));
         if (s && s.anim) ({ user } = await uploadAnimated(kind, s.anim.file, s.anim.crop)); // a GIF: the animated copy goes up after the still picture
       }
+      if (songStage === null) ({ user } = await api('/me/song', { method: 'DELETE' }));
+      else if (songStage) ({ user } = await uploadSong(songStage.file, songTitle.trim() || songNameOf(songStage.file)));
       onSaved(user);
       onClose();
     } catch (ex) { setErr(ex.message); setSaving(false); }
@@ -498,6 +554,41 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
             <p className="muted small hint">{t('linksHint', { n: MAX_LINKS })}</p>
           </div>
 
+          </section>
+
+          <section className="ed-sec" aria-labelledby="pe-extras">
+          <EdHead id="pe-extras" title="Pronouns, games and song" note="Optional extras for your profile card." />
+          <label htmlFor="pe-pron">Pronouns</label>
+          <input id="pe-pron" value={f.pronouns} maxLength={24} placeholder="Type your own, or pick one" onChange={(e) => set('pronouns')(e.target.value)} />
+          <div className="social-chips">
+            {PRONOUN_CHIPS.map((p) => <button type="button" key={p} className="soc-chip" onClick={() => set('pronouns')(p)}>{p}</button>)}
+            {f.pronouns && <button type="button" className="soc-chip" onClick={() => set('pronouns')('')}>Clear</button>}
+          </div>
+
+          <label>Favorite games</label>
+          <div className="links-edit">
+            {f.games.map((g, i) => (
+              <div className="link-row" key={i}>
+                <input className="link-url" value={g} maxLength={40} placeholder="Game name" aria-label={`Favorite game ${i + 1}`} onChange={(e) => setGame(i, e.target.value)} />
+                <button type="button" className="icon-btn" title="Remove this game" aria-label={`Remove favorite game ${i + 1}`} onClick={() => removeGame(i)}><Icon name="close" size={16} /></button>
+              </div>
+            ))}
+            {f.games.length < MAX_GAMES && <div className="social-chips"><button type="button" className="btn" onClick={addGame}><Icon name="plus" size={14} className="inline-icon" /> Add a game</button></div>}
+            <p className="muted small hint">Up to {MAX_GAMES} games, shown in this order on your card.</p>
+          </div>
+
+          <label>Profile song</label>
+          {hasSong ? (
+            <div className="song-edit">
+              <input value={songTitle} maxLength={60} placeholder="Song title" aria-label="Song title" onChange={(e) => setSongTitle(e.target.value)} />
+              <button type="button" className="btn" onClick={() => songInput.current.click()}>Replace</button>
+              <button type="button" className="btn ghost" onClick={removeSong}>Remove</button>
+            </div>
+          ) : (
+            <div className="upload-row"><button type="button" className="btn" onClick={() => songInput.current.click()}><Icon name="music" size={14} className="inline-icon" /> Add a song</button></div>
+          )}
+          <input ref={songInput} type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav,.webm" hidden onChange={pickSong} />
+          <p className="muted small hint">A clip of up to {SONG.secs} seconds (MP3, M4A, OGG, WAV or WebM, up to {SONG.bytes / 1024} KB). It plays on your card when someone opens it, muted until they press the speaker.</p>
           </section>
 
           <section className="ed-sec" aria-labelledby="pe-look">
@@ -671,8 +762,10 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
             </div>
             <div className="card-body">
               <h3><span {...nameProps(preview)}>{preview.displayName || me.username}</span> <BadgeIcons user={preview} size={20} /></h3>
-              <div className="muted">@{renaming ? f.username.trim() || me.username : me.username}</div>
+              <div className="muted">@{renaming ? f.username.trim() || me.username : me.username}{f.pronouns.trim() ? ` · ${f.pronouns.trim()}` : ''}</div>
               {preview.bio && (<><h4>{t('aboutMe')}</h4><p className="bio">{preview.bio}</p></>)}
+              <GameShelf games={f.games} />
+              <ProfileSong song={previewSong} />
               <ProfileLinks links={f.links.filter((l) => l.url.trim()).map((l) => ({ label: l.label.trim() || l.url.trim().replace(/^https?:\/\/(www\.)?/i, '').split('/')[0], url: /^[a-z][a-z0-9+.-]*:/i.test(l.url.trim()) ? l.url.trim() : 'https://' + l.url.trim() }))} />
             </div>
           </div>

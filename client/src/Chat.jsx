@@ -3,6 +3,8 @@ import { Avatar, BadgeIcons, Icon, Modal, timeLabel } from './ui.jsx';
 import { nameProps } from './namestyle.js';
 import EmojiPicker from './EmojiPicker.jsx';
 import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
+import { StickerMessage, StickerPop } from './Stickers.jsx';
+import { stickerIdOf, stickerToken } from './stickers.js';
 import { EmojiImg, Rich, useEmoji } from './Emoji.jsx';
 import { InviteCard, inviteCodesIn } from './Invite.jsx';
 import { ClipEmbed, clipIdsIn, isOnlyClipLink } from './ClipEmbed.jsx';
@@ -19,6 +21,7 @@ import { getSeen, markSeen } from './seen.js';
 import VoiceRecorder, { voiceSupported } from './VoiceRecorder.jsx';
 import ReactorsModal from './Reactors.jsx';
 import { useContextMenu, wantsNative } from './ContextMenu.jsx';
+import { addReminder, cancelReminder, isSaved, reminderFor, snapshot, toggleSaved } from './saved.js';
 import { api } from './api.js';
 import { EmptyState, ListSkeleton, kbd } from './ShellBits.jsx';
 
@@ -142,7 +145,7 @@ function CallEntry({ m, users, me }) {
   );
 }
 
-function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onUserMenu, onEdit, onDelete, editing, setEditing, grouped, canDelete, canPin, onPin, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone }) {
+function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onUserMenu, onEdit, onDelete, editing, setEditing, grouped, canDelete, canPin, onPin, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone, convoKey, convoTitle }) {
   const [picker, setPicker] = useState(false);
   const [ctxPicker, setCtxPicker] = useState(null); // { x, y }: the emoji picker opened from the right-click menu, placed where you clicked
   const [who, setWho] = useState(null); // the reaction chip that was clicked: opens the "who reacted" list on that emoji
@@ -152,6 +155,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   const mine = m.authorId === me.id;
   const author = users[m.authorId];
   const wshare = parseWordleShare(m.content); // a shared Wordle result is drawn as a card instead of its text
+  const sticker = stickerIdOf(m.content); // a sticker is drawn as a big picture (the text is just its token), and cannot be edited as text
   const ref = m.replyTo ? byId[m.replyTo] : null;
   const refAuthor = ref ? users[ref.authorId] : null;
   // channel messages carry the server's verdict; DMs are encrypted, so the client reads its own token
@@ -178,14 +182,27 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
     if (editing || (!at && wantsNative(e))) return;
     const text = m.content ? decode(m.content) : '';
     const { clientX: x, clientY: y } = at || e;
+    const snap = () => snapshot(m, { convo: convoKey, convoTitle, author: author?.displayName, text: text || previewText(m) });
+    const saved = isSaved(me.id, m.id), reminder = reminderFor(me.id, m.id);
+    const toggleSave = () => {
+      const now = toggleSaved(me.id, snap());
+      ctx.flash(now === null ? 'Could not save here' : now ? 'Saved for later' : 'Removed from saved');
+    };
+    const toggleReminder = () => {
+      if (reminder) { cancelReminder(me.id, m.id); ctx.flash('Reminder cancelled'); return; }
+      ctx.flash(addReminder(me.id, snap()) ? 'Reminding you in 1 hour' : 'Could not set a reminder here');
+    };
     ctx.open(at ? { preventDefault() {}, stopPropagation() {}, clientX: x, clientY: y } : e, {
       items: [
         { label: 'Add reaction', icon: 'smile', onClick: () => setCtxPicker({ x, y }) },
         { label: 'Reply', icon: 'reply', onClick: () => onReply(m) },
         canPin && { label: m.pinnedAt ? 'Unpin message' : 'Pin message', icon: 'pushpin', onClick: () => onPin(m, !m.pinnedAt) },
-        mine && { label: 'Edit message', icon: 'edit', onClick: () => setEditing(m.id) },
+        mine && !sticker && { label: 'Edit message', icon: 'edit', onClick: () => setEditing(m.id) },
         'sep',
-        text && text !== '\u2026' && { label: 'Copy text', icon: 'copy', onClick: () => ctx.copy(text) },
+        { label: saved ? 'Remove from saved' : 'Save for later', icon: 'bookmark', onClick: toggleSave },
+        { label: reminder ? 'Cancel reminder' : 'Remind me in 1 hour', icon: 'clock', onClick: toggleReminder },
+        'sep',
+        text && !sticker && text !== '\u2026' && { label: 'Copy text', icon: 'copy', onClick: () => ctx.copy(text) },
         { label: 'View profile', icon: 'user', onClick: () => onUser(m.authorId) },
         canDelete && 'sep',
         canDelete && { label: 'Delete message', icon: 'trash', danger: true, onClick: () => onDelete(m) },
@@ -224,7 +241,8 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           )}
           {editing
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > 2000) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
-            : (m.content || m.editedAt) && !wshare && !(isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+            : (m.content || m.editedAt) && !wshare && !sticker && !(isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+          {sticker && !editing && <StickerMessage id={sticker} />}
           {wshare && !editing && <WordleShareCard share={wshare} />}
           {m.poll && <PollCard m={m} users={users} me={me} onVote={onVote} onClose={onClosePoll} canClose={canDelete} />}
           {m.invite && <InviteCard code={m.invite} />}
@@ -247,7 +265,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
         <div className="toolbar">
           <button title="Add reaction" onClick={() => setPicker(true)}><Icon name="smile" size={17} /></button>
           <button title="Reply" onClick={() => onReply(m)}><Icon name="reply" size={17} /></button>
-          {mine && <button title="Edit" onClick={() => setEditing(m.id)}><Icon name="edit" size={17} /></button>}
+          {mine && !sticker && <button title="Edit" onClick={() => setEditing(m.id)}><Icon name="edit" size={17} /></button>}
           {canDelete && <button title="Delete" className="del" onClick={() => onDelete(m)}><Icon name="trash" size={17} /></button>}
           <button title="More" aria-label="More actions" aria-haspopup="menu" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); messageMenu(e, { clientX: r.right, clientY: r.bottom + 4 }); }}><Icon name="more" size={17} /></button>
           {picker && !editing && <Picker onPick={(e) => onReact(m.id, e)} onClose={() => setPicker(false)} />}
@@ -498,6 +516,14 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     } catch (e) { setErr(e.message); }
   }
 
+  async function sendSticker(s) {
+    setPop(null); setErr('');
+    try {
+      await onSend(stickerToken(s.id), replyTo?.id || null, []);
+      setReplyTo(null); stick.current = true;
+    } catch (e) { setErr(e.message); }
+  }
+
   const sending = useRef(false); // a second Enter / tap while the first send is still on its way must not send the message twice
   async function submit() {
     const t = encode(text.trim());
@@ -535,7 +561,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent?.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) { e.preventDefault(); submit(); }
     if (e.key === 'Escape') setReplyTo(null);
     if (e.key === 'ArrowUp' && !text) {
-      const last = [...messages].reverse().find((m) => !m.system && !m.poll && m.authorId === me.id);
+      const last = [...messages].reverse().find((m) => !m.system && !m.poll && !stickerIdOf(m.content) && m.authorId === me.id);
       if (last) { e.preventDefault(); setEditing(last.id); }
     }
   }
@@ -616,7 +642,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           const grouped = prev && !prev.system && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60000 && !m.replyTo;
           return <React.Fragment key={m.id}>{day}{m.id === divider && <div className="new-divider" role="separator"><span>New messages</span></div>}<Message m={m} grouped={grouped && m.id !== divider && !day} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence} onVote={onVote} onClosePoll={onClosePoll}
             onReact={onReact} onReply={(x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }} onUser={onUser} onUserMenu={onUserMenu}
-            onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone}
+            onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone} convoKey={convoKey} convoTitle={title}
             canDelete={m.authorId === me.id || !!canModerate} canPin={!!canPin && !m.system} onPin={onPin} dm={files?.dm} onOpen={setLightbox}
             tapped={tapped === m.id} onTap={() => setTapped((t) => (t === m.id ? null : m.id))} /></React.Fragment>;
         })}
@@ -683,11 +709,13 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           <div className="comp-tools">
             {canRecordVoice && <button className="icon-btn" title="Voice message" aria-label="Record a voice message" onClick={() => { setErr(''); setPop(null); setRecording(true); }}><Icon name="mic" size={20} /></button>}
             <button className="icon-btn" title="Emoji" onClick={() => setPop(pop === 'emoji' ? null : 'emoji')}><Icon name="smile" size={20} /></button>
+            <button className="icon-btn" title="Stickers" aria-label="Stickers" aria-haspopup="dialog" aria-expanded={pop === 'sticker'} onClick={() => setPop(pop === 'sticker' ? null : 'sticker')}><Icon name="sticker" size={20} /></button>
             <button className="icon-btn gif-btn" title="GIF" onClick={() => setPop(pop === 'gif' ? null : 'gif')}>GIF</button>
           </div>
           <button className="icon-btn send-btn" title="Send" data-kbd="Enter" aria-label="Send" onMouseDown={(e) => e.preventDefault()} onClick={submit} disabled={uploading || (!text.trim() && !pending.some((p) => p.att))}><Icon name="send" size={19} /></button>
           {pop === 'emoji' && <EmojiPop onClose={() => setPop(null)} onPick={(e) => { insertAtCaret(e); setPop(null); }} />}
           {pop === 'gif' && <GifPop enabled={gifEnabled} onClose={() => setPop(null)} onPick={sendGif} />}
+          {pop === 'sticker' && <StickerPop onClose={() => setPop(null)} onPick={sendSticker} />}
         </div>
         <div className="typing" aria-live="polite">{typingNames.length ? `${typingNames.join(', ')} ${typingNames.length > 1 ? 'are' : 'is'} typing…` : ' '}</div>
       </div>}

@@ -242,7 +242,7 @@ const fill = (rec, n = 4) => { for (let i = 0; i < n; i++) rec.pieces[i] = 'img'
 
 // ---- badge or profile frame ----
 {
-  assert.deepStrictEqual(A.KINDS, ['badge', 'frame']);
+  assert.deepStrictEqual(A.KINDS, ['badge', 'frame', 'stickers']);
   assert.strictEqual(A.cleanItem({ name: 'Ring', price: 50 }).out.kind, 'badge', 'no kind means a badge');
   assert.strictEqual(A.cleanItem({ name: 'Ring', price: 50, kind: 'frame' }).out.kind, 'frame');
   assert.ok(A.cleanItem({ name: 'Ring', price: 50, kind: 'hat' }).error, 'an unknown kind is refused');

@@ -1,4 +1,5 @@
 import { t as tr } from './i18n.js';
+import { SOUND } from './soundboard.js';
 
 export const imageUrl = (id) => (id ? `/api/images/${id}` : null);
 
@@ -199,6 +200,51 @@ export async function processFrame(file) {
   return blob;
 }
 
+// Stickers (an artist's pack): scaled down to fit 512px, never cropped, kept see-through. The numbers are LIMITS in server/stickers.js, which checks them again.
+// A GIF cannot be resized here (the animation would be lost), so it is sent as it is when it already fits.
+export const STICKER = { minSide: 64, maxSide: 512, maxRatio: 2, maxBytes: 512 * 1024 };
+export async function processSticker(file, L = STICKER) {
+  if (!ACCEPT.includes(file.type)) throw new Error(tr('imgType'));
+  if (file.size > MAX_INPUT) throw new Error(tr('imgBig'));
+  let bmp;
+  try { bmp = await createImageBitmap(file); }
+  catch { throw new Error(tr('imgRead')); }
+  const { width: bw, height: bh } = bmp;
+  const small = Math.min(bw, bh), big = Math.max(bw, bh);
+  if (small < L.minSide) { bmp.close?.(); throw new Error(`Too small: a sticker is at least ${L.minSide}x${L.minSide} pixels`); }
+  if (big / small > L.maxRatio) { bmp.close?.(); throw new Error('A sticker should be roughly square (no wider or taller than 2:1)'); }
+  if (file.type === 'image/gif') {
+    bmp.close?.();
+    if (big > L.maxSide) throw new Error(`An animated sticker is at most ${L.maxSide}x${L.maxSide} pixels. Resize the GIF first: the app cannot shrink an animation.`);
+    if (file.size > L.maxBytes) throw new Error(`That GIF is too big (max ${L.maxBytes / 1024} KB)`);
+    return file;
+  }
+  for (const f of [1, 0.75, 0.55]) { // a big, busy picture may need a smaller size to fit
+    const scale = Math.min(1, (L.maxSide * f) / big);
+    const w = Math.max(1, Math.round(bw * scale)), h = Math.max(1, Math.round(bh * scale));
+    if (Math.min(w, h) < L.minSide) break;
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bmp, 0, 0, w, h);
+    for (const [type, q] of [['image/png'], ['image/webp', 0.9], ['image/webp', 0.75]]) {
+      const blob = await toBlob(canvas, type, q);
+      if (blob && blob.type === type && blob.size <= L.maxBytes) { bmp.close?.(); return blob; }
+    }
+  }
+  bmp.close?.();
+  throw new Error('That picture is still too big after resizing, try a simpler one');
+}
+
+// Adds a sticker to a sticker pack (an item the artist made). Returns { item } with the pack's stickers.
+export async function uploadSticker(itemId, name, blob) {
+  const res = await fetch(`/api/artists/items/${itemId}/stickers?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data;
+}
+
 // A piece of art for an artist application: scaled down to fit inside maxSide x maxSide, NOT cropped (a reviewer needs to see all of it).
 // WebP when the browser can make it, otherwise JPEG; re-encoding also strips EXIF data. Stays under the server's 1 MB upload limit.
 export async function processPiece(file, maxSide = 1600) {
@@ -240,6 +286,53 @@ export async function uploadAnimated(kind, file, crop, base = '/api/me') {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Could not save the animation');
   return data;
+}
+
+// Profile song: a short clip. The numbers are LIMITS in server/profile.js; the server checks the size and the audio signature again, but it can only
+// measure the length of a WAV, so the browser measures the others here before anything is uploaded.
+export const SONG = { secs: 30, bytes: 1024 * 1024 };
+const SONG_TYPES = { mp3: 'audio/mpeg', m4a: 'audio/mp4', mp4: 'audio/mp4', ogg: 'audio/ogg', oga: 'audio/ogg', wav: 'audio/wav', webm: 'audio/webm' };
+const songType = (file) => SONG_TYPES[(file.name.split('.').pop() || '').toLowerCase()] || (/^audio\/(mpeg|mp3|ogg|wav|x-wav|wave|mp4|x-m4a|m4a|webm)$/.test(file.type) ? file.type : '');
+export const songNameOf = (file) => file.name.replace(/\.[a-z0-9]{2,5}$/i, '').slice(0, 60) || 'My song';
+function audioSeconds(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file), a = new Audio();
+    const done = (fn, v) => { a.onloadedmetadata = a.onerror = null; a.removeAttribute('src'); URL.revokeObjectURL(url); fn(v); };
+    a.preload = 'metadata';
+    a.onloadedmetadata = () => done(resolve, a.duration);
+    a.onerror = () => done(reject, new Error('That file could not be read as audio'));
+    a.src = url;
+  });
+}
+// Throws a message the person can read when the file cannot be a profile song.
+export async function checkSongFile(file) {
+  if (!songType(file)) throw new Error('Choose an MP3, M4A, OGG, WAV or WebM audio file');
+  if (file.size > SONG.bytes) throw new Error(`That song is too big (max ${SONG.bytes / 1024} KB). Use a clip of up to ${SONG.secs} seconds.`);
+  const secs = await audioSeconds(file);
+  if (Number.isFinite(secs) && secs > SONG.secs + 1) throw new Error(`That song is too long (max ${SONG.secs} seconds)`);
+}
+export async function uploadSong(file, title) {
+  const res = await fetch('/api/me/song?title=' + encodeURIComponent(title || ''), { method: 'PUT', headers: { 'Content-Type': songType(file) }, body: file });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data; // { user }
+}
+
+// Soundboard sounds: much shorter than a profile song (SOUND in soundboard.js = LIMITS in server/soundboard.js). Same rule as the song: the server checks the size and
+// the audio signature again, but it can only measure the length of a WAV, so the browser measures the others here before anything is uploaded.
+export async function checkSoundFile(file) {
+  if (!songType(file)) throw new Error('Choose an MP3, M4A, OGG, WAV or WebM audio file');
+  if (file.size > SOUND.bytes) throw new Error(`That sound is too big (max ${SOUND.bytes / 1024} KB). Sounds are up to ${SOUND.secs} seconds long.`);
+  const secs = await audioSeconds(file);
+  if (Number.isFinite(secs) && secs > SOUND.secs + 0.5) throw new Error(`That sound is too long (max ${SOUND.secs} seconds)`);
+}
+export const soundNameOf = (file) => Array.from(songNameOf(file)).slice(0, SOUND.name).join('');
+export async function uploadSound(serverId, file, name, emoji) {
+  const q = new URLSearchParams({ name: name || '', emoji: emoji || '' });
+  const res = await fetch(`/api/servers/${serverId}/sounds?${q}`, { method: 'POST', headers: { 'Content-Type': songType(file) }, body: file });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Upload failed');
+  return data; // { server }
 }
 
 // `base` is '/api/me' for profile pictures, or `/api/servers/<id>` for a server's icon and banner.

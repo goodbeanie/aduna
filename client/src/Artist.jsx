@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
 import { BadgeArt } from './Shop.jsx';
-import { Avatar } from './ui.jsx';
+import { Avatar, Icon } from './ui.jsx';
+import { StickerImg } from './Stickers.jsx';
 import { PanelSkeleton } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
-import { ACCEPT_ATTR, imageUrl, makeFrameTemplate, processBadge, processFrame, processPiece, uploadImage } from './image.js';
+import { ACCEPT_ATTR, imageUrl, makeFrameTemplate, processBadge, processFrame, processPiece, processSticker, uploadImage, uploadSticker } from './image.js';
 
 // Settings > Artist. Anyone can apply to sell their own badges in the credits shop: send exactly 4 pieces of your art and an optional note.
 // Moderators (creator accounts and the usernames in ADMIN_USERNAMES) review the applications and every item here too. Once approved, an artist
@@ -12,9 +13,14 @@ import { ACCEPT_ATTR, imageUrl, makeFrameTemplate, processBadge, processFrame, p
 // An item is a badge (worn next to a name) or a profile frame (a ring drawn around the avatar; the artist downloads a template for its shape).
 // The rules live in server/artists.js; this file is only what it draws.
 const BADGE_PX = { w: 128, h: 128 };
-const KIND_LABEL = { badge: 'Badge', frame: 'Profile frame' };
-// The picture of an item: a badge as the shop draws it, a frame as a ring around a sample avatar (the frame picture is bigger than the avatar, so it gets room)
+const KIND_LABEL = { badge: 'Badge', frame: 'Profile frame', stickers: 'Sticker pack' };
+// The picture of an item: a badge as the shop draws it, a frame as a ring around a sample avatar (the frame picture is bigger than the avatar, so it gets room),
+// a sticker pack as its first sticker
 export function ItemArt({ item, size = 48 }) {
+  if (item.kind === 'stickers') {
+    const first = item.stickers?.[0];
+    return <span style={{ display: 'inline-grid', placeItems: 'center', width: size, height: size, flex: 'none' }}>{first ? <StickerImg id={first.id} animated={false} name={first.name} style={{ width: size, height: size, objectFit: 'contain' }} /> : <Icon name="sticker" size={Math.round(size / 1.6)} />}</span>;
+  }
   if (item.kind !== 'frame') return <BadgeArt item={{ ...item, color: '#8c6b4f' }} size={size} />;
   return <span style={{ display: 'inline-block', margin: Math.round(size / 6), flex: 'none' }}><Avatar user={{ displayName: 'A', avatarColor: '#8c6b4f', framePreview: item.image ? imageUrl(item.image) : null }} size={size} /></span>;
 }
@@ -140,7 +146,7 @@ function Items({ d, onChange, onError }) {
     <>
       <div className="badge-card">
         <b>You are an artist</b>
-        <p className="muted small">Make badges and profile frames for the shop. A badge shows next to a name; a frame is a ring around the profile picture. Add a picture, a name and a price, then send it for review. You earn {L.cutPercent}% of each sale, rounded down. Once an item is approved its picture, name and description are locked (people may already be wearing it); you can still change its price or take it off sale. Your first approved item earns you the Artist badge.</p>
+        <p className="muted small">Make badges, profile frames and sticker packs for the shop. A badge shows next to a name; a frame is a ring around the profile picture; a sticker pack is a set of big pictures people send in chats. Add a picture (or stickers), a name and a price, then send it for review. You earn {L.cutPercent}% of each sale, rounded down. Once an item is approved its picture, name and description are locked (people may already be wearing it); you can still change its price or take it off sale. Your first approved item earns you the Artist badge.</p>
       </div>
       {d.items.length < L.items && (
         <form className="badge-card" onSubmit={create}>
@@ -154,6 +160,11 @@ function Items({ d, onChange, onError }) {
             <input type="number" min={L.minPrice} step="1" placeholder={'Price (min ' + L.minPrice + ')'} style={{ width: 140 }} value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} />
             <button className="btn primary" disabled={busy || !draft.name.trim() || !draft.price}>Create</button>
           </div>
+          {draft.kind === 'stickers' && (
+            <div className="artist-note">
+              <p>A sticker pack holds {L.stickers?.min ?? 3} to {L.stickers?.max ?? 16} big pictures people send on their own in chats. Each is a PNG, JPEG, WebP or GIF between {L.stickers?.minSide ?? 64} and {L.stickers?.maxSide ?? 512} pixels, up to {Math.round((L.stickers?.bytes ?? 524288) / 1024)} KB. Animated GIFs play when someone points at them. Create the pack, then add the stickers.</p>
+            </div>
+          )}
           {draft.kind === 'frame' && (
             <div className="artist-note">
               <p>A frame is a 512 x 512 PNG with a see-through middle. The profile picture sits in the rounded square in the centre, and your ring goes in the band around it.</p>
@@ -174,6 +185,9 @@ function ItemCard({ item, limits, onChange, onDeleted, onError }) {
   useEffect(() => { setF({ name: item.name, desc: item.desc, price: item.price ?? '' }); }, [item.name, item.desc, item.price]); // eslint-disable-line react-hooks/exhaustive-deps
   const file = useRef(null);
   const locked = item.status === 'approved';
+  const isPack = item.kind === 'stickers';
+  const minStickers = limits.stickers?.min ?? 3;
+  const ready = isPack ? (item.stickers?.length || 0) >= minStickers : !!item.image;
   const dirty = f.name !== item.name || f.desc !== item.desc || String(f.price) !== String(item.price ?? '');
   const run = async (fn) => { onError(''); try { await fn(); } catch (e) { onError(e.message); } };
   const label = item.status === 'approved' && !item.price ? 'Off sale' : STATUS[item.status] || item.status;
@@ -199,21 +213,63 @@ function ItemCard({ item, limits, onChange, onDeleted, onError }) {
         {item.status === 'approved' && item.price && <button className="btn" onClick={() => run(async () => onChange((await api('/artists/items/' + item.id, { method: 'PATCH', body: { price: null } })).item))}>Take off sale</button>}
       </div>
       {item.status === 'rejected' && item.reviewNote && <div className="artist-note"><b>Not approved:</b> {item.reviewNote}</div>}
+      {isPack && <StickerEditor item={item} limits={limits} locked={locked} onChange={onChange} run={run} />}
       {!locked && (
         <div className="row">
-          <input ref={file} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => {
+          {!isPack && <input ref={file} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => {
             const picked = e.target.files?.[0]; e.target.value = '';
             if (picked) run(async () => { const blob = item.kind === 'frame' ? await processFrame(picked) : await processBadge(picked, BADGE_PX); onChange((await uploadImage('image', blob, '/api/artists/items/' + item.id)).item); });
-          }} />
-          <button className="btn" onClick={() => file.current?.click()}>{item.image ? 'Change picture' : 'Add picture'}</button>
+          }} />}
+          {!isPack && <button className="btn" onClick={() => file.current?.click()}>{item.image ? 'Change picture' : 'Add picture'}</button>}
           {item.kind === 'frame' && <button className="btn" onClick={() => downloadTemplate(onError)}>Download template</button>}
-          {(item.status === 'draft') && <button className="btn primary" disabled={!item.image || dirty} title={!item.image ? 'Add a picture first' : dirty ? 'Save your changes first' : 'Send to the reviewers'} onClick={() => run(async () => onChange((await api('/artists/items/' + item.id + '/submit', { method: 'POST' })).item))}>Send for review</button>}
+          {(item.status === 'draft') && <button className="btn primary" disabled={!ready || dirty} title={!ready ? (isPack ? `Add at least ${minStickers} stickers first` : 'Add a picture first') : dirty ? 'Save your changes first' : 'Send to the reviewers'} onClick={() => run(async () => onChange((await api('/artists/items/' + item.id + '/submit', { method: 'POST' })).item))}>Send for review</button>}
           {item.status === 'pending' && <span className="muted small">Waiting for a reviewer. Changing anything takes it back to a draft.</span>}
         </div>
       )}
       {item.sold === 0 && (
         <div className="row">
           <button className="btn danger" onClick={async () => { if (await askConfirm({ title: 'Delete item', body: 'Delete "' + item.name + '"?', confirmLabel: 'Delete', danger: true })) run(async () => { await api('/artists/items/' + item.id, { method: 'DELETE' }); onDeleted(); }); }}>Delete</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The stickers of a pack: the ones added so far (each with a remove button while the pack can still change) and a button to add another.
+function StickerEditor({ item, limits, locked, onChange, run }) {
+  const L = limits.stickers || { min: 3, max: 16, minSide: 64, maxSide: 512, bytes: 512 * 1024 };
+  const file = useRef(null);
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const list = item.stickers || [];
+  const add = (picked) => run(async () => {
+    setBusy(true);
+    try {
+      const blob = await processSticker(picked, { minSide: L.minSide, maxSide: L.maxSide, maxRatio: 2, maxBytes: L.bytes });
+      const label = name.trim() || picked.name.replace(/\.[^.]+$/, '').slice(0, 24) || 'Sticker';
+      onChange((await uploadSticker(item.id, label, blob)).item);
+      setName('');
+    } finally { setBusy(false); }
+  });
+  const remove = (s) => run(async () => onChange((await api('/artists/items/' + item.id + '/stickers/' + s.id, { method: 'DELETE' })).item));
+  return (
+    <div>
+      <div className="stk-strip">
+        {list.map((s) => (
+          <div key={s.id} className="stk-card" title={s.name}>
+            <StickerImg id={s.id} animated={s.animated} name={s.name} />
+            {!locked && <button type="button" className="stk-x" title={'Remove ' + s.name} aria-label={'Remove ' + s.name} onClick={() => remove(s)}><Icon name="close" size={12} /></button>}
+          </div>
+        ))}
+        {list.length === 0 && <span className="muted small">No stickers yet.</span>}
+      </div>
+      <div className="muted small">{list.length} of {L.max} stickers{list.length < L.min ? ` (at least ${L.min} needed)` : ''}.</div>
+      {!locked && list.length < L.max && (
+        <div className="stk-add-row">
+          <input value={name} maxLength={24} placeholder="Sticker name (optional)" aria-label="Sticker name" style={{ width: 190 }} onChange={(e) => setName(e.target.value)} />
+          <input ref={file} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) add(f); }} />
+          <button type="button" className="btn" disabled={busy} onClick={() => file.current?.click()}>{busy ? 'Adding…' : 'Add sticker'}</button>
+          <span className="muted small">{L.minSide}-{L.maxSide} px, up to {Math.round(L.bytes / 1024)} KB. GIFs animate.</span>
         </div>
       )}
     </div>
@@ -250,6 +306,7 @@ function ReviewQueue({ waiting, onError }) {
             <ItemArt item={it} size={72} />
             <div><b>{it.name}</b> <span className="muted small">{KIND_LABEL[it.kind] || 'Badge'} · {it.price} credits · by @{it.artist.username}</span>{it.desc && <div className="muted small">{it.desc}</div>}</div>
           </div>
+          {it.kind === 'stickers' && <div className="stk-strip">{(it.stickers || []).map((s) => <StickerImg key={s.id} id={s.id} animated={s.animated} name={s.name} />)}</div>}
           <Decision own={it.own} onDecide={(action, note) => decide('/artists/review/items/' + it.id, action, note, (s) => ({ ...s, items: s.items.filter((x) => x.id !== it.id) }))} />
         </div>
       ))}

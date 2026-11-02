@@ -4,17 +4,22 @@ import { Avatar, Icon } from './ui.jsx';
 import { nameProps } from './namestyle.js';
 import { emitAck } from './api.js';
 import { getIce } from './rtc.js';
+import { SoundBar } from './Soundboard.jsx';
+import { soundUrl, playClip, stopAllClips } from './soundboard.js';
 
 // Voice channels. Everyone in a channel connects directly to everyone else (WebRTC mesh, audio only),
 // so it suits small groups (the server allows 8). The server keeps the list of who is in a channel and
 // relays signalling; it never touches the audio. The person who joins starts a connection to each
 // person already there, so two sides never offer at the same time.
-const IDLE = { channelId: null, connecting: false, muted: false, deafened: false, error: '' };
+// Soundboard sounds do not travel over these connections: the server announces `soundboard:play` to the channel and each browser plays the clip itself,
+// so a person who deafens themselves simply does not hear it (rules: server/soundboard.js, buttons: Soundboard.jsx).
+const IDLE = { channelId: null, serverId: null, connecting: false, muted: false, deafened: false, error: '' };
 
 export function useVoice({ socketRef, ready }) {
   const [state, setState] = useState(IDLE);
   const [members, setMembers] = useState({}); // channelId -> [userId], for the whole server list
   const [remote, setRemote] = useState({});   // userId -> MediaStream (rendered by <VoiceAudio>)
+  const [flash, setFlash] = useState({});     // userId -> soundId, for the second or two after they played a soundboard sound
   const sRef = useRef(IDLE);
   const rt = useRef({ local: null, peers: new Map() });
   const set = (patch) => { sRef.current = { ...sRef.current, ...patch }; setState(sRef.current); };
@@ -32,6 +37,8 @@ export function useVoice({ socketRef, ready }) {
     [...r.peers.keys()].forEach(closePeer);
     r.local?.getTracks().forEach((t) => t.stop());
     r.local = null;
+    stopAllClips(); // leaving the channel cuts off any sound still playing
+    setFlash({});
   };
   const reset = (error = '') => { teardown(); sRef.current = { ...IDLE, error }; setState(sRef.current); };
 
@@ -119,14 +126,22 @@ export function useVoice({ socketRef, ready }) {
     const onKicked = ({ channelId }) => { if (channelId === sRef.current.channelId) reset('You joined voice from another window'); };
     // a dropped connection removes you from the channel on the server, so leave here too
     const onDisconnect = () => { setMembers({}); if (sRef.current.channelId) reset('Connection lost'); };
+    // someone in this channel played a soundboard sound: light up their tile and play it (the server already checked they may)
+    const onSound = ({ channelId, soundId, userId }) => {
+      const st = sRef.current;
+      if (channelId !== st.channelId || !st.serverId || typeof soundId !== 'string') return;
+      setFlash((f) => ({ ...f, [userId]: soundId }));
+      setTimeout(() => setFlash((f) => { if (f[userId] !== soundId) return f; const n = { ...f }; delete n[userId]; return n; }), 1800);
+      if (!st.deafened) playClip(soundUrl(st.serverId, soundId)); // deafened: you hear nothing, like everyone else's voice
+    };
     s.on('voice:state', onState); s.on('voice:left', onLeft); s.on('voice:kicked', onKicked);
-    s.on('voice:signal', onSignal); s.on('disconnect', onDisconnect);
-    return () => { s.off('voice:state', onState); s.off('voice:left', onLeft); s.off('voice:kicked', onKicked); s.off('voice:signal', onSignal); s.off('disconnect', onDisconnect); };
+    s.on('voice:signal', onSignal); s.on('disconnect', onDisconnect); s.on('soundboard:play', onSound);
+    return () => { s.off('voice:state', onState); s.off('voice:left', onLeft); s.off('voice:kicked', onKicked); s.off('voice:signal', onSignal); s.off('disconnect', onDisconnect); s.off('soundboard:play', onSound); };
   }, [ready]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => { teardown(); socketRef.current?.emit('voice:leave'); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const actions = {
-    async join(channelId) {
+    async join(channelId, serverId = null) {
       if (sRef.current.connecting || sRef.current.channelId === channelId) return;
       if (sRef.current.channelId) actions.leave();
       set({ ...IDLE, connecting: true });
@@ -137,9 +152,9 @@ export function useVoice({ socketRef, ready }) {
         } catch (e) {
           throw new Error(e.name === 'NotAllowedError' ? 'Microphone permission was denied' : e.name === 'NotFoundError' ? 'No microphone found' : 'Could not access your microphone');
         }
-        sRef.current = { ...sRef.current, channelId };
+        sRef.current = { ...sRef.current, channelId, serverId };
         const { peers } = await emitAck(socketRef.current, 'voice:join', { channelId });
-        set({ channelId, connecting: false });
+        set({ channelId, serverId, connecting: false });
         await Promise.all(peers.map((id) => makePeer(id, true)));
       } catch (e) {
         socketRef.current?.emit('voice:leave');
@@ -147,6 +162,12 @@ export function useVoice({ socketRef, ready }) {
       }
     },
     leave() { socketRef.current?.emit('voice:leave'); reset(); },
+    // Ask the server to play a soundboard sound for everyone in the channel. Rejects with a sentence the person can read (off, not allowed, too fast).
+    playSound(soundId) {
+      const channelId = sRef.current.channelId;
+      if (!channelId) return Promise.reject(new Error('Join the voice channel first'));
+      return emitAck(socketRef.current, 'soundboard:play', { channelId, soundId });
+    },
     toggleMute() {
       const s = sRef.current;
       if (s.deafened) { // like in calls: unmuting while deafened lets you hear again too
@@ -173,7 +194,7 @@ export function useVoice({ socketRef, ready }) {
       }
     },
   };
-  return { state, members, remote, actions };
+  return { state, members, remote, flash, actions };
 }
 
 function RemoteAudio({ stream, deafened }) {
@@ -187,11 +208,12 @@ export function VoiceAudio({ voice }) {
   return <>{Object.entries(voice.remote).map(([id, stream]) => <RemoteAudio key={id} stream={stream} deafened={voice.state.deafened} />)}</>;
 }
 
-export function VoicePanel({ channel, voice, users, me, presence, onBack, headerExtra }) {
-  const { state, members, actions } = voice;
+export function VoicePanel({ channel, server, voice, users, me, presence, onBack, headerExtra }) {
+  const { state, members, flash, actions } = voice;
   const here = state.channelId === channel.id;
   const ids = members[channel.id] || [];
   const full = ids.length >= 8 && !ids.includes(me.id);
+  const soundOf = (id) => (flash[id] && server ? (server.sounds || []).find((s) => s.id === flash[id]) : null); // the sound this person just played, if it still exists
   return (
     <section className="chat voice-panel">
       <header className="chat-head">
@@ -206,17 +228,20 @@ export function VoicePanel({ channel, voice, users, me, presence, onBack, header
           <div className="voice-grid">
             {ids.map((id) => {
               const u = users[id];
+              const snd = soundOf(id);
               return u && (
-                <div key={id} className="voice-tile">
+                <div key={id} className={'voice-tile' + (snd ? ' sb-flash' : '')}>
                   <Avatar user={u} size={72} presence={presence[id] || 'offline'} />
                   <div className="voice-name" {...nameProps(u)}>{u.displayName}{id === me.id ? ' (you)' : ''}</div>
                   {id === me.id && here && state.muted && <Icon name="micoff" size={16} className="voice-muted" />}
+                  {snd && <div className="sb-said" role="status">{snd.emoji || '🔊'} {snd.name}</div>}
                 </div>
               );
             })}
           </div>
         )}
         {state.error && <div className="error voice-error">{state.error}</div>}
+        {here && server && <SoundBar server={server} me={me} play={actions.playSound} />}
         <div className="voice-controls">
           {here ? (
             <>
@@ -225,7 +250,7 @@ export function VoicePanel({ channel, voice, users, me, presence, onBack, header
               <button className="btn primary danger-fill" onClick={actions.leave}><Icon name="phone" size={18} className="inline-icon" /> Leave</button>
             </>
           ) : (
-            <button className="btn primary" disabled={state.connecting || full} onClick={() => actions.join(channel.id)}>
+            <button className="btn primary" disabled={state.connecting || full} onClick={() => actions.join(channel.id, server?.id)}>
               {state.connecting ? 'Connecting…' : full ? 'Channel is full' : 'Join voice'}
             </button>
           )}

@@ -356,7 +356,7 @@ export function Lightbox({ view, onClose }) {
   );
 }
 
-function Popover({ onClose, className = '', children }) {
+export function Popover({ onClose, className = '', children }) {
   const ref = useRef(null);
   useEffect(() => {
     const h = (e) => ref.current && !ref.current.contains(e.target) && onClose();
