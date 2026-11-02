@@ -105,10 +105,22 @@ function buy(u, id, spend, { badges = {}, maxHeld = MAX_HELD, now = Date.now() }
   return { ok: true, item: { id: b.id, name: b.name, price: b.price, ...(typeof b.artistId === 'string' && b.artistId ? { artistId: b.artistId } : {}) } };
 }
 
+// Puts an item in someone's hands without charging them (an artist's own work, see artists.js `ownIt`). Same checks as buy() except the price and the
+// shop being open for it: false when it does not exist, they already have it, or a plain badge would go over the badge limit. Frames and sticker packs
+// are not badges, so the limit does not apply to them.
+function give(u, id, { badges = {}, maxHeld = MAX_HELD } = {}) {
+  const b = typeof id === 'string' && has(badges, id) ? badges[id] : null;
+  if (!b || held(u).includes(b.id)) return false;
+  const notBadge = (x) => !!x && (x.kind === 'frame' || x.kind === 'stickers');
+  if (!notBadge(b) && held(u).filter((x) => !notBadge(has(badges, x) ? badges[x] : null)).length >= maxHeld) return false;
+  u.badges = [...held(u), b.id];
+  return true;
+}
+
 // Old preset badges a person bought before creators took over the shop, in the same shape as other badges (see badgeViews in index.js)
 const owned = (u) => (Array.isArray(u?.shopBadges) ? u.shopBadges.filter((id) => LEGACY_BY_ID.has(id)) : []);
 function badgeViews(u) {
   return owned(u).map((id) => { const i = LEGACY_BY_ID.get(id); return { id: i.id, name: i.name, image: null, emoji: i.emoji, color: i.color }; });
 }
 
-module.exports = { MAX_PRICE, MAX_HELD, DAILY_MAX, LEGACY, owned, forSale, listed, ended, dailyPicks, info, view, buy, badgeViews };
+module.exports = { MAX_PRICE, MAX_HELD, DAILY_MAX, LEGACY, owned, forSale, listed, ended, dailyPicks, info, view, buy, give, badgeViews };

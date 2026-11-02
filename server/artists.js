@@ -16,8 +16,9 @@
 //   4. Sales. When someone buys an artist item the artist gets `cutFor(price)` credits (CUT_PERCENT of the price, rounded down) in the same
 //      synchronous step as the purchase (credits.js), with an "artist" line in their ledger.
 //   5. Badge. An approved artist wears the Artist badge (shown from the moment their application is approved).
+//   6. Their own work. The artist gets a free copy of each item the moment it is approved (ownIt), so they own it without paying.
 
-const { MAX_PRICE } = require('./shop');
+const { MAX_PRICE, give } = require('./shop');
 const stickers = require('./stickers');
 
 const DAY_MS = 86_400_000;
@@ -173,11 +174,18 @@ function decideItem(b, action, note, by, now = Date.now()) {
   return { ok: true };
 }
 
+// An artist owns what they make, for free (no credits are taken, and nobody pays them a cut for their own copy). It is theirs as soon as the item is
+// approved, so they can wear it or send it like anyone who bought it. `u` is the artist's user record, `badges` is db().badges.
+// Returns true when it was added now (false: not approved yet, not theirs, they already have it, or a plain badge would go over the badge limit).
+function ownIt(u, b, badges) {
+  return !!u && isItem(b) && b.status === 'approved' && b.artistId === u.id && give(u, b.id, { badges });
+}
+
 // How many items an artist may have (a rejected or draft one that is deleted does not count, because it is gone).
 const itemRoom = (items) => items.length < LIMITS.items;
 
 module.exports = {
   LIMITS, CUT_PERCENT, COOLDOWN_MS, cutFor,
   blank, pieceIds, filled, validSlot, cooldownLeft, open, submit, decide, view, isArtist,
-  isItem, listed, KINDS, FRAME, kindOf, isFrame, isStickers, cleanItem, editItem, applyEdit, submitItem, decideItem, itemRoom,
+  isItem, listed, KINDS, FRAME, kindOf, isFrame, isStickers, cleanItem, editItem, applyEdit, submitItem, decideItem, ownIt, itemRoom,
 };

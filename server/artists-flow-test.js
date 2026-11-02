@@ -137,6 +137,9 @@ function makePng(w, h) { // a different picture every time (the marker), so no t
   assert.strictEqual(hasArtist(await me(ada)), true, 'still an artist after the first item is approved');
   assert.ok(hasArtist((await call('/users/' + ada.user.id, { token: T(bob) })).user || {}) || true); // other people see it through the normal profile code (publicUser); checked via /me above
   assert.ok((await shopIds(bob)).includes(item.id), 'approved: in the shop');
+  assert.strictEqual((await call('/credits', { token: T(ada) })).shop.find((i) => i.id === item.id).owned, true, 'the artist owns their own item as soon as it is approved');
+  assert.strictEqual((await call('/credits', { token: T(bob) })).shop.find((i) => i.id === item.id).owned, false, 'other people still have to buy it');
+  assert.strictEqual((await call('/credits/shop/' + item.id + '/buy', { method: 'POST', token: T(ada) })).status, 409, 'so the artist cannot buy it again');
   const row = (await call('/credits', { token: T(bob) })).shop.find((i) => i.id === item.id);
   assert.deepStrictEqual([row.by, row.price], ['ada', 101].map((x, i) => (i === 0 ? (store.db.users[ada.user.id].displayName) : x)), 'the shop says who made it');
   step('items: validated, reviewed, locked from the shop until approved');

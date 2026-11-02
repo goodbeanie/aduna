@@ -3378,10 +3378,13 @@ const artistSaves = new security.RateWindow(60, 3600_000);
 const artistRec = (uid) => (db().artists && db().artists[uid]) || null;
 const artistOnly = (req, res, next) => (!req.user.bot && artistsLib.isArtist(artistRec(req.user.id)) ? next() : res.status(403).json({ error: 'Only approved artists can do that', code: 'not_artist' }));
 const myItems = (uid) => Object.values(db().badges).filter((b) => b.artistId === uid);
-const ownersOf = (id) => Object.values(db().users).filter((u) => Array.isArray(u.badges) && u.badges.includes(id)).length;
+// how many people own an item, not counting the artist (they get their own work for free, see artistsLib.ownIt, so they are not a sale)
+const ownersOf = (id, artistId = null) => Object.values(db().users).filter((u) => u.id !== artistId && Array.isArray(u.badges) && u.badges.includes(id)).length;
+// the artist's free copy of an approved item. Returns true when it was added now (the caller saves and tells their devices).
+const giveArtistCopy = (b) => artistsLib.ownIt(db().users[b.artistId], b, db().badges);
 const itemView = (b) => ({
   id: b.id, kind: artistsLib.kindOf(b), name: b.name, desc: b.desc || '', price: Number.isInteger(b.price) && b.price > 0 ? b.price : null, image: b.image || null,
-  status: b.status || 'draft', reviewNote: b.status === 'rejected' || b.status === 'approved' ? b.reviewNote || '' : '', sold: ownersOf(b.id),
+  status: b.status || 'draft', reviewNote: b.status === 'rejected' || b.status === 'approved' ? b.reviewNote || '' : '', sold: ownersOf(b.id, b.artistId),
   ...(stickersLib.isPack(b) ? { stickers: stickersLib.stickerViews(b) } : {}), // a sticker pack shows its stickers instead of one picture
 });
 const personOf = (uid) => { const u = db().users[uid]; return { userId: uid, username: u ? u.username : null, displayName: u ? u.displayName : null }; };
@@ -3402,6 +3405,8 @@ function readPicture(req, maxSide) {
 
 app.get('/api/artists/me', auth, (req, res) => {
   const rec = artistRec(req.user.id), reviewer = isReviewer(req.user);
+  // items approved before artists got a free copy of their own work: hand it over the first time they look
+  if (artistsLib.isArtist(rec) && myItems(req.user.id).map(giveArtistCopy).includes(true)) { store.save(); emitUserUpdate(req.user); }
   res.json({
     application: artistsLib.view(rec, now()),
     items: artistsLib.isArtist(rec) ? myItems(req.user.id).map(itemView) : [],
@@ -3535,13 +3540,16 @@ app.post('/api/artists/items/:id/submit', auth, artistOnly, (req, res) => {
   if (!r.ok) return res.status(r.status).json({ error: r.error });
   const rec = artistRec(req.user.id);
   if (b.status === 'approved' && artistsLib.isArtist(rec) && rec.badge !== true) { rec.badge = true; emitUserUpdate(req.user); } // their first approved item earns the Artist badge
+  if (b.status === 'approved' && giveArtistCopy(b)) emitUserUpdate(req.user); // a creator account's item is approved on the spot, so it is theirs at once
   store.save();
   res.json({ item: itemView(b) });
 });
 app.delete('/api/artists/items/:id', auth, artistOnly, ah(async (req, res) => {
   const b = ownItem(req, res); if (!b) return;
-  if (ownersOf(b.id)) return res.status(409).json({ error: 'People own this badge, so it cannot be deleted. Set its price to nothing to take it off sale.' });
+  if (ownersOf(b.id, b.artistId)) return res.status(409).json({ error: 'People own this badge, so it cannot be deleted. Set its price to nothing to take it off sale.' });
   const img = b.image, stk = stickersLib.stickersOf(b).map((s) => s.id); delete db().badges[b.id];
+  const au = db().users[req.user.id]; if (au && Array.isArray(au.badges)) au.badges = au.badges.filter((x) => x !== b.id); // the artist's own copy goes with it
+  emitUserUpdate(req.user);
   await store.flush();
   if (img) await store.deleteImage(img);
   for (const sid of stk) await store.deleteImage(sid); // a pack's stickers go with it
@@ -3574,6 +3582,7 @@ app.post('/api/artists/review/items/:id', auth, reviewerOnly, (req, res) => {
     rec.badge = true;
     const u = db().users[b.artistId]; if (u) emitUserUpdate(u);
   }
+  if (b.status === 'approved' && giveArtistCopy(b)) { const u = db().users[b.artistId]; if (u) emitUserUpdate(u); } // the artist owns it as soon as it is approved, free
   store.save();
   res.json({ ok: true, status: b.status });
 });
