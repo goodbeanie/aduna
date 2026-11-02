@@ -241,11 +241,12 @@ function StickerEditor({ item, limits, locked, onChange, run }) {
   const file = useRef(null);
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [removeBg, setRemoveBg] = useState(true); // cut out a plain background from new stickers
   const list = item.stickers || [];
   const add = (picked) => run(async () => {
     setBusy(true);
     try {
-      const blob = await processSticker(picked, { minSide: L.minSide, maxSide: L.maxSide, maxRatio: 2, maxBytes: L.bytes });
+      const blob = await processSticker(picked, { minSide: L.minSide, maxSide: L.maxSide, maxRatio: 2, maxBytes: L.bytes, removeBg });
       const label = name.trim() || picked.name.replace(/\.[^.]+$/, '').slice(0, 24) || 'Sticker';
       onChange((await uploadSticker(item.id, label, blob)).item);
       setName('');
@@ -270,6 +271,10 @@ function StickerEditor({ item, limits, locked, onChange, run }) {
           <input ref={file} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) add(f); }} />
           <button type="button" className="btn" disabled={busy} onClick={() => file.current?.click()}>{busy ? 'Adding…' : 'Add sticker'}</button>
           <span className="muted small">{L.minSide}-{L.maxSide} px, up to {Math.round(L.bytes / 1024)} KB. GIFs animate.</span>
+          <label className="small" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} title="Cuts out a plain background colour. Not used for GIFs, photos or pictures that are already see-through.">
+            <input type="checkbox" checked={removeBg} disabled={busy} onChange={(e) => setRemoveBg(e.target.checked)} />
+            Auto-remove background
+          </label>
         </div>
       )}
     </div>

@@ -228,6 +228,7 @@ export async function processSticker(file, L = STICKER) {
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingQuality = 'high';
     ctx.drawImage(bmp, 0, 0, w, h);
+    if (L.removeBg) removeBackground(canvas); // optional: cut out a plain background (does nothing for photos or pictures that are already see-through). GIFs are sent as they are.
     for (const [type, q] of [['image/png'], ['image/webp', 0.9], ['image/webp', 0.75]]) {
       const blob = await toBlob(canvas, type, q);
       if (blob && blob.type === type && blob.size <= L.maxBytes) { bmp.close?.(); return blob; }
