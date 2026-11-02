@@ -7,7 +7,8 @@
 //   1. Application. Anyone can put exactly LIMITS.pieces pieces of their art in a draft (one upload per piece) and send it with an optional
 //      note. db().artists[userId] = { id, status, pieces: [imageId x4], note, appliedAt, reviewNote, reviewedAt, reviewedBy, retryAt, badge }.
 //      status: draft -> pending -> approved | rejected. A rejection needs a note and starts a cooldown (retryAt) before the person can apply again.
-//   2. Review. Moderators (a creator account or a name in ADMIN_USERNAMES) see the pieces and approve or reject. Nobody reviews their own.
+//   2. Review. Moderators (a creator account or a name in ADMIN_USERNAMES) see the pieces and approve or reject, on the admin page. Nobody reviews
+//      their own. A creator account needs no review: its application and its items are approved as soon as they are sent.
 //   3. Items. An approved artist makes shop items. An item is an ordinary badge in db().badges (so wearing, hiding and showing it next to a name
 //      is the existing badge code) with `artistId` and its own `status`: draft -> pending -> approved | rejected. The shop only lists an artist
 //      item once it is approved (shop.js, `listed`). Once approved the picture, name and description are locked (owners are already wearing it);
@@ -58,10 +59,12 @@ function open(rec, uid, now = Date.now()) {
 const validSlot = (s) => (/^[0-3]$/.test(String(s)) ? Number(s) : -1);
 
 // Send the draft in. Needs every piece.
-function submit(rec, note, now = Date.now()) {
+// `auto` (a creator account) skips the review: the application is approved on the spot.
+function submit(rec, note, now = Date.now(), auto = false) {
   if (!rec || rec.status !== 'draft') return { status: 409, error: 'Add your pieces first' };
   if (filled(rec) !== LIMITS.pieces) return { status: 400, error: `Add exactly ${LIMITS.pieces} pieces of your art` };
   rec.status = 'pending'; rec.note = text(note, LIMITS.note); rec.appliedAt = now;
+  if (auto) { rec.status = 'approved'; rec.reviewNote = ''; rec.reviewedAt = now; rec.reviewedBy = 'auto'; }
   return { ok: true };
 }
 
@@ -148,12 +151,14 @@ function applyEdit(b, out) {
 }
 
 // Send an item to the reviewers. Needs a picture and a price.
-function submitItem(b, now = Date.now()) {
+// `auto` (a creator account) skips the review: the item is approved on the spot.
+function submitItem(b, now = Date.now(), auto = false) {
   if (!isItem(b) || b.status !== 'draft') return { status: 409, error: 'This item was already sent, or is already approved' };
   if (isStickers(b)) { const ready = stickers.readyToSend(b); if (!ready.ok) return ready; } // a pack is its stickers, it has no single picture
   else if (!b.image) return { status: 400, error: 'Add a picture first' };
   if (!Number.isInteger(b.price) || b.price < LIMITS.minPrice) return { status: 400, error: 'Set a price first' };
   b.status = 'pending'; b.submittedAt = now; b.reviewNote = '';
+  if (auto) { b.status = 'approved'; b.reviewedAt = now; b.reviewedBy = 'auto'; }
   return { ok: true };
 }
 

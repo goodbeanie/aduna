@@ -3441,9 +3441,10 @@ app.delete('/api/artists/pieces/:slot', auth, ah(async (req, res) => {
 app.post('/api/artists/apply', auth, (req, res) => {
   if (req.user.bot) return res.status(403).json({ error: 'Bots cannot apply' });
   const rec = artistRec(req.user.id);
-  const r = artistsLib.submit(rec, req.body && req.body.note, now());
+  const r = artistsLib.submit(rec, req.body && req.body.note, now(), isCreator(req.user)); // a creator account needs no review
   if (!r.ok) return res.status(r.status).json({ error: r.error });
   store.save();
+  if (rec.status === 'approved') emitUserUpdate(req.user); // the Artist badge shows right away
   res.json({ application: artistsLib.view(rec, now()) });
 });
 
@@ -3530,8 +3531,10 @@ function stickerProblem(uid, content, { hasAtts = false, hasPoll = false } = {})
 
 app.post('/api/artists/items/:id/submit', auth, artistOnly, (req, res) => {
   const b = ownItem(req, res); if (!b) return;
-  const r = artistsLib.submitItem(b, now());
+  const r = artistsLib.submitItem(b, now(), isCreator(req.user)); // a creator account needs no review
   if (!r.ok) return res.status(r.status).json({ error: r.error });
+  const rec = artistRec(req.user.id);
+  if (b.status === 'approved' && artistsLib.isArtist(rec) && rec.badge !== true) { rec.badge = true; emitUserUpdate(req.user); } // their first approved item earns the Artist badge
   store.save();
   res.json({ item: itemView(b) });
 });

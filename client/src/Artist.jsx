@@ -8,7 +8,8 @@ import { askConfirm } from './Dialogs.jsx';
 import { ACCEPT_ATTR, imageUrl, makeFrameTemplate, processBadge, processFrame, processPiece, processSticker, uploadImage, uploadSticker } from './image.js';
 
 // Settings > Artist. Anyone can apply to sell their own badges in the credits shop: send exactly 4 pieces of your art and an optional note.
-// Moderators (creator accounts and the usernames in ADMIN_USERNAMES) review the applications and every item here too. Once approved, an artist
+// Moderators (creator accounts and the usernames in ADMIN_USERNAMES) review the applications and every item on the admin page (Artist review tab).
+// Creator accounts need no review: theirs are approved when they are sent. Once approved, an artist
 // makes shop items (a picture, a name, a description and a price), which also go through review, and earns a share of each sale.
 // An item is a badge (worn next to a name) or a profile frame (a ring drawn around the avatar; the artist downloads a template for its shape).
 // The rules live in server/artists.js; this file is only what it draws.
@@ -45,8 +46,6 @@ export function ArtistSettings() {
   return (
     <div className="badge-admin artist-admin">
       {err && <div className="error-text">{err}</div>}
-      {d.reviewer && <ReviewQueue waiting={d.waiting} onError={setErr} />}
-
       {app.status === 'approved' && <Items d={d} onChange={(items) => setD({ ...d, items })} onError={setErr} />}
       {app.status === 'pending' && (
         <div className="badge-card">
@@ -281,53 +280,3 @@ function StickerEditor({ item, limits, locked, onChange, run }) {
   );
 }
 
-// ---------- moderators ----------
-function ReviewQueue({ waiting, onError }) {
-  const [q, setQ] = useState(null);
-  const load = () => api('/artists/review').then(setQ).catch((e) => onError(e.message));
-  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  if (!q) return null;
-  const decide = async (url, action, note, drop) => {
-    onError('');
-    try { await api(url, { method: 'POST', body: { action, note } }); setQ(drop(q)); } catch (e) { onError(e.message); }
-  };
-  const empty = q.applications.length === 0 && q.items.length === 0;
-  return (
-    <div className="badge-card">
-      <b>Review{waiting && waiting.applications + waiting.items > 0 ? ` (${waiting.applications + waiting.items} waiting)` : ''}</b>
-      {empty && <p className="muted small">Nothing is waiting for review.</p>}
-      {q.applications.map((a) => (
-        <div key={'a' + a.userId} className="artist-review">
-          <div><b>{a.displayName || a.username}</b> <span className="muted small">@{a.username} wants to sell art{a.appliedAt ? ' · ' + day(a.appliedAt) : ''}</span></div>
-          <PieceStrip ids={a.pieces} />
-          {a.note && <p className="muted small">Note: {a.note}</p>}
-          <Decision own={a.own} onDecide={(action, note) => decide('/artists/review/applications/' + a.userId, action, note, (s) => ({ ...s, applications: s.applications.filter((x) => x.userId !== a.userId) }))} />
-        </div>
-      ))}
-      {q.items.map((it) => (
-        <div key={'i' + it.id} className="artist-review">
-          <div className="row">
-            <ItemArt item={it} size={72} />
-            <div><b>{it.name}</b> <span className="muted small">{KIND_LABEL[it.kind] || 'Badge'} · {it.price} credits · by @{it.artist.username}</span>{it.desc && <div className="muted small">{it.desc}</div>}</div>
-          </div>
-          {it.kind === 'stickers' && <div className="stk-strip">{(it.stickers || []).map((s) => <StickerImg key={s.id} id={s.id} animated={s.animated} name={s.name} />)}</div>}
-          <Decision own={it.own} onDecide={(action, note) => decide('/artists/review/items/' + it.id, action, note, (s) => ({ ...s, items: s.items.filter((x) => x.id !== it.id) }))} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// Approve, or reject with a note (the note is what the person sees, so a rejection needs one)
-function Decision({ own, onDecide }) {
-  const [note, setNote] = useState('');
-  if (own) return <p className="muted small">This one is yours, so someone else has to review it.</p>;
-  return (
-    <div className="row">
-      <input placeholder="Note (needed to reject)" maxLength={200} style={{ flex: 1, minWidth: 160 }} value={note} onChange={(e) => setNote(e.target.value)} />
-      <button className="btn primary" onClick={() => onDecide('approve', note)}>Approve</button>
-      <button className="btn danger" disabled={!note.trim()} onClick={() => onDecide('reject', note)}>Reject</button>
-    </div>
-  );
-}

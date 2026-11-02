@@ -7,7 +7,7 @@ import './admin.css';
 // non-admins with a 404; if /api/admin/me fails here anyway, the page sends the visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['people', 'People'], ['reports', 'Reports'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Creator', config: 'Admin (server settings)', admin: 'Admin' };
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
@@ -489,6 +489,61 @@ function Applications() {
   );
 }
 
+// ---------- artist review ----------
+// Artists apply with four pieces of art and then send shop items (badges, profile frames, sticker packs) for review. Both wait here.
+// Creator accounts need no review (the server approves theirs when they are sent). Nobody can decide on their own application or items.
+const ITEM_KIND = { badge: 'Badge', frame: 'Profile frame', stickers: 'Sticker pack' };
+const thumb = { height: 96, maxWidth: 160, objectFit: 'contain', borderRadius: 8, background: 'rgba(128,128,128,.15)' };
+function ArtistReview() {
+  const { say, run, ask } = useAdm();
+  const [q, setQ] = useState(null);
+  const load = useCallback(() => api('/artists/review').then(setQ).catch((e) => { setQ({ applications: [], items: [] }); say(e.message, 'error'); }), [say]);
+  useEffect(() => { load(); }, [load]);
+  const decide = async (url, action) => {
+    let note = '';
+    if (action === 'reject') {
+      const r = await ask({ title: 'Send this back?', body: 'The artist sees your note, so say what to change.', textarea: 'Note to the artist (needed)', confirmLabel: 'Reject', danger: true });
+      if (!r) return;
+      if (!r.text) { say('Write a note so the artist knows what to change', 'error'); return; }
+      note = r.text;
+    }
+    if (await run(() => api(url, { method: 'POST', body: { action, note } }), action === 'approve' ? 'Approved' : 'Sent back')) load();
+  };
+  const buttons = (own, url) => (own
+    ? <p className="adm-muted">This one is yours, so someone else has to review it.</p>
+    : <div className="adm-actions"><button className="adm-btn small primary" onClick={() => decide(url, 'approve')}>Approve</button><button className="adm-btn small danger" onClick={() => decide(url, 'reject')}>Reject</button></div>);
+  if (!q) return <p className="adm-muted">Loading…</p>;
+  if (!q.applications.length && !q.items.length) return <Empty text="Nothing is waiting for artist review." />;
+  return (
+    <>
+      {q.applications.map((a) => (
+        <div className="adm-card" key={'a' + a.userId}>
+          <h3>{a.displayName || a.username} <span className="adm-muted">@{a.username}</span></h3>
+          <span className="adm-muted">Wants to sell art in the shop · applied {when(a.appliedAt)}</span>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0' }}>
+            {(a.pieces || []).filter(Boolean).map((id) => <a key={id} href={imageUrl(id)} target="_blank" rel="noopener noreferrer"><img src={imageUrl(id)} alt="A piece of art" style={thumb} /></a>)}
+          </div>
+          {a.note && <p className="adm-details">{a.note}</p>}
+          {buttons(a.own, '/artists/review/applications/' + a.userId)}
+        </div>
+      ))}
+      {q.items.map((it) => (
+        <div className="adm-card" key={'i' + it.id}>
+          <h3>{it.name} <span className="adm-muted">{ITEM_KIND[it.kind] || 'Badge'} · {it.price} credits · by @{it.artist.username}</span></h3>
+          <span className="adm-muted">Sent {when(it.submittedAt)}</span>
+          {it.desc && <p className="adm-details">{it.desc}</p>}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0' }}>
+            {it.kind === 'stickers'
+              ? (it.stickers || []).map((s) => <img key={s.id} src={imageUrl(s.id)} alt={s.name} title={s.name} style={thumb} />)
+              : it.image && <a href={imageUrl(it.image)} target="_blank" rel="noopener noreferrer"><img src={imageUrl(it.image)} alt={it.name} style={thumb} /></a>}
+          </div>
+          {buttons(it.own, '/artists/review/items/' + it.id)}
+        </div>
+      ))}
+    </>
+  );
+}
+
 // ---------- log ----------
 function Log() {
   const { say } = useAdm();
@@ -597,6 +652,7 @@ export default function AdminPage() {
           <h1>{TABS.find((t) => t[0] === tab)[1]}</h1>
           {tab === 'overview' && <Overview go={go} />}
           {tab === 'applications' && <Applications />}
+          {tab === 'artists' && <ArtistReview />}
           {tab === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
           {tab === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
           {tab === 'admins' && <Admins openUser={openUser} />}
