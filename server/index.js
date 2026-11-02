@@ -229,6 +229,7 @@ function publicUser(u) {
     creator: isCreator(u),
     clipsPage: clipsPageOf(u),
     activity: activityOf(u), // { name, since, source } or null: "Playing ..." on the profile (hidden when the person turned it off, is offline or Invisible)
+    listed: u.showActivity !== false, // false: the person turned the switch off, so the Who's On list (client/src/WhosOn.jsx) leaves them out entirely
     badges: badgeViews(u),
     plus: !u.bot && storagePlan.isSubscriber(u, now()), // has the paid storage plan (Aduna Plus): shows the Plus badge on the profile
     frame: wornFrame(u),

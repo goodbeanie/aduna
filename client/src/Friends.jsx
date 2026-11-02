@@ -4,16 +4,17 @@ import { nameProps } from './namestyle.js';
 import { useLang } from './i18n.js';
 import { EmptyState, PopMenu } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
+import WhosOn from './WhosOn.jsx';
 
-const TABS = [['all', 'fAll'], ['online', 'fOnline'], ['pending', 'fPending'], ['add', 'fAdd']];
+const TABS = [['whoson', 'whoOn'], ['all', 'fAll'], ['online', 'fOnline'], ['pending', 'fPending'], ['add', 'fAdd']];
 
 // Friends list order: Online, then Idle, then Offline, then Do Not Disturb.
 const STATUS_ORDER = { online: 0, idle: 1, offline: 2, dnd: 3 };
 const rankOf = (st) => (st in STATUS_ORDER ? STATUS_ORDER[st] : STATUS_ORDER.offline);
 
-export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, onRequest, onAccept, onRemove, onBack, servers = [], me, onExplore }) {
+export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, onRequest, onAccept, onRemove, onBack, servers = [], me, onExplore, users = {}, voiceMembers = {}, onJoinVoice, onSettings }) {
   const { t } = useLang();
-  const [tab, setTab] = useState('all');
+  const [tab, setTab] = useState('whoson'); // opening the app lands on Who's On
   const [sugErr, setSugErr] = useState('');
   const [name, setName] = useState('');
   const [msg, setMsg] = useState(null); // { ok, text }
@@ -98,6 +99,10 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
       </header>
 
       <div className="friends-body">
+        {tab === 'whoson' && (
+          <WhosOn friends={fr.friends} users={users} statusOf={statusOf} voiceMembers={voiceMembers} servers={servers} me={me}
+            onMessage={onMessage} onUser={onUser} onJoinVoice={onJoinVoice} onSettings={onSettings} />
+        )}
         {tab === 'add' && (
           <form onSubmit={add} className="add-friend">
             <h3>{t('fAdd')}</h3>

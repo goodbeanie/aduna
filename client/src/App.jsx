@@ -1228,7 +1228,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} />}
       {view.kind === 'dm' && !dmUser && view.clips && <Clips onBack={() => setShowList(true)} />}
       {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && !view.clips && (
-        <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} servers={servers} me={me} onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }} />
+        <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} servers={servers} me={me} users={users} voiceMembers={voice.members} onJoinVoice={(sid, cid) => { const sv = servers.find((x) => x.id === sid); const ch = sv?.channels.find((c) => c.id === cid); if (sv && ch) joinEventVoice(sv, ch); }} onSettings={() => setModal({ type: 'edit', tab: 'activity' })} onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }} />
       )}
 
       {/* members */}
