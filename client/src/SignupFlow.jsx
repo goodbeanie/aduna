@@ -15,6 +15,7 @@ import { themeCardStyle, themeGradient } from './profilethemes.js';
 // The design choices (not the email or password) are kept in sessionStorage so a refresh does not throw away what the person made.
 
 const NAME = /^[a-zA-Z0-9_]{3,20}$/; // same rule as the server (POST /api/register)
+const REASON_MIN = 20, REASON_MAX = 1000; // same limits as the server's application rules
 const HUES = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e']; // the avatar colours the server picks from
 const DRAFT = 'aduna-signup-draft';
 const LIGHT = THEMES.filter((x) => !x.dark);
@@ -74,7 +75,7 @@ function Card({ theme, who, name, username, row, compact, t }) {
   );
 }
 
-export default function SignupFlow({ mailOk, onSubmit, onLogin }) {
+export default function SignupFlow({ mailOk, apply, onSubmit, onLogin }) {
   const { lang, t } = useLang();
   const [draft] = useState(readDraft); // what the person had made before a refresh
   const root = useRef(null);
@@ -98,6 +99,8 @@ export default function SignupFlow({ mailOk, onSubmit, onLogin }) {
   // step 2 and 3
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [reason, setReason] = useState(typeof draft.reason === 'string' ? draft.reason.slice(0, REASON_MAX) : ''); // applications only: why they want to join
+  const [source, setSource] = useState(typeof draft.source === 'string' ? draft.source.slice(0, 200) : '');        // applications only: where they heard of Aduna
   const [showPw, setShowPw] = useState(false);       // the Show / Hide button on the password box
   const [useKey, setUseKey] = useState(true);
   const [useMail, setUseMail] = useState(false);
@@ -111,8 +114,8 @@ export default function SignupFlow({ mailOk, onSubmit, onLogin }) {
   }, []);
 
   useEffect(() => {
-    try { sessionStorage.setItem(DRAFT, JSON.stringify({ username, displayName, avatarLogo, avatarColor, themeId })); } catch { /* private mode: nothing is kept */ }
-  }, [username, displayName, avatarLogo, avatarColor, themeId]);
+    try { sessionStorage.setItem(DRAFT, JSON.stringify({ username, displayName, avatarLogo, avatarColor, themeId, reason, source })); } catch { /* private mode: nothing is kept */ }
+  }, [username, displayName, avatarLogo, avatarColor, themeId, reason, source]);
 
   // Ask the server whether the name is free once the person stops typing. The server checks again when the account is made.
   const trimmed = username.trim();
@@ -156,7 +159,11 @@ export default function SignupFlow({ mailOk, onSubmit, onLogin }) {
 
   // Continue stays pressable. Without a usable username it takes the person to the box and says what is missing, instead of doing nothing.
   const to1 = (e) => { e.preventDefault(); if (canNext) { setErr(null); setStep(2); } else { setTouched(true); nameRef.current?.focus(); } };
-  const to2 = (e) => { e.preventDefault(); setErr(null); setStep(3); };
+  const to2 = (e) => {
+    e.preventDefault();
+    if (apply && reason.trim().length < REASON_MIN) { setErr({ step: 2, msg: `Tell us why you want to join (at least ${REASON_MIN} characters).` }); return; }
+    setErr(null); setStep(3);
+  };
   const goTo = (n) => { if (busy || n >= step) return; setErr(null); setStep(n); };
 
   async function finish(e) {
@@ -167,12 +174,13 @@ export default function SignupFlow({ mailOk, onSubmit, onLogin }) {
     try {
       await onSubmit({
         username: trimmed, email: email.trim(), password, useKey, useMail: useMail && mailOk,
+        ...(apply ? { reason: reason.trim(), source: source.trim() } : {}),
         design: { displayName: displayName.trim(), avatarLogo, avatarColor, profileTheme: theme ? theme.id : null },
       });
       try { sessionStorage.removeItem(DRAFT); } catch { /* ignore */ }
     } catch (e2) {
       const msg = e2.message || 'Something went wrong';
-      const at = /username/i.test(msg) ? 1 : /email|password/i.test(msg) ? 2 : 3; // take them back to the step the problem belongs to
+      const at = /username/i.test(msg) ? 1 : /email|password|why you want to join/i.test(msg) ? 2 : 3; // take them back to the step the problem belongs to
       setErr({ step: at, msg });
       setStep(at);
     } finally {
@@ -311,6 +319,19 @@ export default function SignupFlow({ mailOk, onSubmit, onLogin }) {
                 <p id="su-password-hint" className="hint">{t('passwordHint')}</p>
               </section>
 
+              {apply && (
+                <section className="su-sec">
+                  <p className="hint">Aduna is by application. Tell us a little about you, and a person will review it. You can log in once it is approved.</p>
+                  <label htmlFor="su-reason">Why do you want to join?</label>
+                  <textarea id="su-reason" rows={4} value={reason} onChange={(e) => setReason(e.target.value)} required minLength={REASON_MIN} maxLength={REASON_MAX}
+                    style={{ resize: 'vertical' }} placeholder="What brings you to Aduna, and what will you use it for?" aria-describedby="su-reason-hint" />
+                  <p id="su-reason-hint" className="hint">{reason.trim().length < REASON_MIN ? `At least ${REASON_MIN} characters (${reason.trim().length} so far).` : `${reason.length}/${REASON_MAX}`}</p>
+
+                  <label htmlFor="su-source">How did you hear about Aduna? <span className="muted">(optional)</span></label>
+                  <input id="su-source" value={source} onChange={(e) => setSource(e.target.value)} maxLength={200} autoComplete="off" placeholder="A friend, a link, a video…" />
+                </section>
+              )}
+
               {problem}
               <div className="su-actions">
                 <button type="button" className="btn" onClick={() => goTo(1)}>{t('suBack')}</button>
@@ -346,7 +367,7 @@ export default function SignupFlow({ mailOk, onSubmit, onLogin }) {
               {problem}
               <div className="su-actions">
                 <button type="button" className="btn" disabled={busy} onClick={() => goTo(2)}>{t('suBack')}</button>
-                <button className="btn primary" disabled={busy}>{busy ? t('working') : t('suCreate')}</button>
+                <button className="btn primary" disabled={busy}>{busy ? t('working') : apply ? 'Send application' : t('suCreate')}</button>
               </div>
             </div>
           </div>

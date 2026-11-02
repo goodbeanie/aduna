@@ -7,7 +7,7 @@ import './admin.css';
 // non-admins with a 404; if /api/admin/me fails here anyway, the page sends the visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['people', 'People'], ['reports', 'Reports'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['people', 'People'], ['reports', 'Reports'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Creator', config: 'Admin (server settings)', admin: 'Admin' };
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
@@ -440,6 +440,55 @@ function Admins({ openUser }) {
   );
 }
 
+// ---------- applications ----------
+// People ask to join from the sign-up screen; nothing is created until someone approves here. Everything they wrote is shown as plain text.
+function Applications() {
+  const { say, run, ask } = useAdm();
+  const [data, setData] = useState(null);
+  const load = useCallback(() => api('/admin/applications').then(setData).catch((e) => { setData({ pending: [], denied: [], on: true }); say(e.message, 'error'); }), [say]);
+  useEffect(() => { load(); }, [load]);
+  const approve = async (a) => {
+    const r = await ask({ title: `Approve ${a.username}?`, body: 'Their account is made right away and they can log in with the password they chose.', confirmLabel: 'Approve' });
+    if (r) { await run(() => api(`/admin/applications/${a.id}/approve`, { method: 'POST' }), `${a.username} approved`); load(); }
+  };
+  const deny = async (a) => {
+    const r = await ask({ title: `Deny ${a.username}?`, body: 'No account is made. They are told it was not approved the next time they try to log in (and by email, if email is set up).', textarea: 'Note to the applicant (optional)', confirmLabel: 'Deny', danger: true });
+    if (r) { await run(() => api(`/admin/applications/${a.id}/deny`, { method: 'POST', body: { note: r.text } }), 'Application denied'); load(); }
+  };
+  if (!data) return <p className="adm-muted">Loading…</p>;
+  return (
+    <>
+      {!data.on && <div className="adm-card"><p className="adm-muted">Applications are switched off on this server (APPLY_TO_JOIN=off), so new people sign up without one. Any still waiting below can be decided.</p></div>}
+      {!data.pending.length ? <Empty text="No applications are waiting." /> : data.pending.map((a) => (
+        <div className="adm-card" key={a.id}>
+          <div className="adm-row">
+            <div>
+              <h3>{a.displayName} <span className="adm-muted">@{a.username}</span></h3>
+              <span className="adm-muted">{a.email} · applied {when(a.createdAt)}{a.source ? ` · heard about us: ${a.source}` : ''}</span>
+              <p className="adm-details">{a.reason}</p>
+            </div>
+            <div className="adm-actions">
+              <button className="adm-btn small primary" onClick={() => approve(a)}>Approve</button>
+              <button className="adm-btn small danger" onClick={() => deny(a)}>Deny</button>
+            </div>
+          </div>
+        </div>
+      ))}
+      {data.denied.length > 0 && (
+        <div className="adm-card">
+          <h3>Recently denied</h3>
+          {data.denied.map((a) => (
+            <div className="adm-row adm-line" key={a.id}>
+              <div><b>@{a.username}</b> <span className="adm-muted">{a.email} · denied {when(a.decidedAt)} by {a.decidedBy || '—'}{a.note ? ` · “${a.note}”` : ''}</span></div>
+            </div>
+          ))}
+          <p className="adm-muted">Denials are forgotten after 30 days.</p>
+        </div>
+      )}
+    </>
+  );
+}
+
 // ---------- log ----------
 function Log() {
   const { say } = useAdm();
@@ -466,6 +515,7 @@ function Overview({ go }) {
   return (
     <>
       <div className="adm-stats">
+        <button className={'adm-stat' + (summary.applications ? ' hot' : '')} onClick={() => go('applications')}><b>{summary.applications || 0}</b><span>Applications waiting</span></button>
         <button className="adm-stat" onClick={() => go('people')}><b>{summary.users}</b><span>People</span></button>
         <button className="adm-stat" onClick={() => go('people')}><b>{summary.suspended}</b><span>Suspended</span></button>
         <button className={'adm-stat' + (r.users ? ' hot' : '')} onClick={() => open('users')}><b>{r.users}</b><span>People and messages reported</span></button>
@@ -536,7 +586,7 @@ export default function AdminPage() {
           <nav className="adm-nav" aria-label="Admin pages">
             {TABS.map(([id, name]) => (
               <button key={id} className={'adm-tab' + (tab === id ? ' on' : '')} aria-current={tab === id ? 'page' : undefined} onClick={() => go(id)}>
-                {name}{id === 'reports' && reportCount > 0 && <b>{reportCount}</b>}
+                {name}{id === 'reports' && reportCount > 0 && <b>{reportCount}</b>}{id === 'applications' && summary && summary.applications > 0 && <b>{summary.applications}</b>}
               </button>
             ))}
           </nav>
@@ -546,6 +596,7 @@ export default function AdminPage() {
         <main className="adm-main">
           <h1>{TABS.find((t) => t[0] === tab)[1]}</h1>
           {tab === 'overview' && <Overview go={go} />}
+          {tab === 'applications' && <Applications />}
           {tab === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
           {tab === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
           {tab === 'admins' && <Admins openUser={openUser} />}

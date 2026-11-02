@@ -215,7 +215,9 @@ const ownedFrameViews = (u) => (Array.isArray(u.badges) ? u.badges : []).map(fra
 // register or rename into someone's Clips name. `exceptId` is the person asking (their own names never clash with each other).
 function usernameTaken(name, exceptId) {
   const l = String(name).toLowerCase();
-  return Object.values(db().users).some((x) => x.id !== exceptId && (String(x.username).toLowerCase() === l || String((x.clipCreator && x.clipCreator.profile && x.clipCreator.profile.username) || '').toLowerCase() === l));
+  return Object.values(db().users).some((x) => x.id !== exceptId && (String(x.username).toLowerCase() === l || String((x.clipCreator && x.clipCreator.profile && x.clipCreator.profile.username) || '').toLowerCase() === l))
+    // a name someone has applied with is held for them while the application waits for a decision
+    || Object.values(db().applications || {}).some((a) => a.id !== exceptId && a.status === 'pending' && String(a.username).toLowerCase() === l);
 }
 // A Clips creator can switch on a link to their Clips page (/clips/user/<id>) from the creator dashboard. It is off until they do,
 // and only while it is on does their profile carry it (publicUser.clipsPage); null otherwise.
@@ -434,7 +436,7 @@ app.get('/api/app-version', ah(async (req, res) => {
   appVersionCache = { at: Date.now(), data };
   res.json(data);
 }));
-app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled(), adunaServer: !!defaultServer() })); // sign-up screen: can email recovery be offered (needs a mail provider)?
+app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled(), adunaServer: !!defaultServer(), applyToJoin: applicationsOn() })); // sign-up screen: can email recovery be offered (needs a mail provider)? does joining need an application?
 
 // Sign-up, step 1 (design your profile): nobody is signed in yet, so the free profile themes are served here, and the username box can ask
 // whether a name is free while the person types. Usernames are public anyway (register answers 409 for a taken one); the limit keeps it from being a scraper.
@@ -537,6 +539,52 @@ async function loadLimits() {
 }
 const DUMMY_HASH = bcrypt.hashSync('aduna-not-a-real-password', 10); // so a wrong username takes as long as a wrong password
 
+// ----- applying to join -----
+// With APPLY_TO_JOIN on (the default; set APPLY_TO_JOIN=off to open sign-up again), sign-up does not make an account. It files an application
+// (db().applications) holding everything the account will need: username, email, a hashed password, the encryption keys the browser made, the
+// recovery choices, the profile design, and what the person wrote (a reason and where they heard of Aduna). An admin or creator reviews it on the
+// /admin page: approving makes the account exactly as sign-up used to, denying keeps a short note the applicant sees when they try to log in.
+// Creator email addresses skip this (someone has to be able to get in first and review the rest). Tests run with it off unless they ask for it.
+// An application is { id, status: 'pending' | 'denied', username, email, passHash, publicKey, encPrivKey, recovery?, emailRecovery?, lang, setup,
+// design: { displayName, avatarColor, avatarLogo, profileTheme }, reason, source, createdAt, decidedAt?, decidedBy?, note? }.
+const applicationsOn = () => {
+  const v = String(process.env.APPLY_TO_JOIN ?? '').trim().toLowerCase();
+  return v ? !['off', '0', 'false', 'no'].includes(v) : process.env.NODE_ENV !== 'test';
+};
+const REASON_MIN = 20, REASON_MAX = 1000, SOURCE_MAX = 200, MAX_PENDING_APPS = posNum(process.env.MAX_PENDING_APPLICATIONS, 500);
+const DENIED_KEEP_MS = 30 * 24 * 3600_000; // a denial is remembered (so the person can be told) for 30 days
+const appList = () => Object.values(db().applications || {});
+const pendingApps = () => appList().filter((a) => a.status === 'pending');
+// the newest application for a name, which is what that person's login attempt is about
+const appByName = (name) => appList().filter((a) => String(a.username).toLowerCase() === String(name).toLowerCase()).sort((a, b) => b.createdAt - a.createdAt)[0] || null;
+const AVATAR_HUES = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e'];
+
+// The account record for a new person: used by sign-up (directly) and by approving an application. `f` carries what the person gave.
+function newUserFromSignup(f) {
+  return {
+    id: store.id(),
+    username: f.username,
+    passHash: f.passHash,
+    displayName: f.username,
+    email: f.email, // private: never part of publicUser(); stored encrypted like every other record
+    bio: '',
+    avatarColor: AVATAR_HUES[Math.floor(Math.random() * AVATAR_HUES.length)],
+    avatarEmoji: '',
+    bannerColor: '#e3dccb',
+    accentColor: '#2a251e',
+    status: 'online',
+    publicKey: f.publicKey,
+    encPrivKey: f.encPrivKey,
+    ...(f.recovery ? { recovery: f.recovery } : {}),
+    ...(f.emailRecovery === true && mailer.enabled() ? { emailRecovery: true } : {}), // chosen at sign-up; only takes effect once the address is verified (emailRecoveryPossible)
+    lang: cleanLang(f.lang),
+    // The app's sign-up sends setup:true: the person then picks a language and whether to join the Aduna server on the setup screen
+    // (POST /api/me/setup). Other callers keep the old behaviour of joining it straight away.
+    ...(f.setup === true ? { setupPending: true, joinAduna: false } : {}),
+    createdAt: now(),
+  };
+}
+
 app.post('/api/register', authLimiter, async (req, res) => {
   const { username, password, publicKey, encPrivKey } = req.body || {};
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username || '')) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
@@ -549,35 +597,40 @@ app.post('/api/register', authLimiter, async (req, res) => {
   if (!validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing key backup' });
   const recovery = req.body?.recovery == null ? null : recoveryRecord(req.body.recovery);
   if (req.body?.recovery != null && !recovery) return res.status(400).json({ error: 'Bad recovery key backup' });
+  const applying = applicationsOn() && !isCreatorEmail(email);
+  const reason = clip(req.body?.reason, REASON_MAX).trim();
+  if (applying && reason.length < REASON_MIN) return res.status(400).json({ error: `Tell us why you want to join (at least ${REASON_MIN} characters)` });
   if (usernameTaken(username)) return res.status(409).json({ error: 'Username already taken' });
   // With email verification on, a taken address is NOT reported here (that would reveal who is registered): the account is created unverified
   // and uniqueness is decided when the address is verified. With it off nothing can be verified, so the check has to happen now.
   if (!mailer.enabled() && emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
   if (!isCreatorEmail(email) && !signups.allow(req.ip)) return res.status(429).json({ error: 'Too many accounts were created from this connection. Try again later.' });
 
-  const hues = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e'];
-  const user = {
-    id: store.id(),
-    username,
-    passHash: await bcrypt.hash(password, 10),
-    displayName: username,
-    email, // private: never part of publicUser(); stored encrypted like every other record
-    bio: '',
-    avatarColor: hues[Math.floor(Math.random() * hues.length)],
-    avatarEmoji: '',
-    bannerColor: '#e3dccb',
-    accentColor: '#2a251e',
-    status: 'online',
-    publicKey,
-    encPrivKey,
-    ...(recovery ? { recovery } : {}),
-    ...(req.body?.emailRecovery === true && mailer.enabled() ? { emailRecovery: true } : {}), // chosen at sign-up; only takes effect once the address is verified (emailRecoveryPossible)
-    lang: cleanLang(req.body?.lang),
-    // The app's sign-up sends setup:true: the person then picks a language and whether to join the Aduna server on the setup screen
-    // (POST /api/me/setup). Other callers keep the old behaviour of joining it straight away.
-    ...(req.body?.setup === true ? { setupPending: true, joinAduna: false } : {}),
-    createdAt: now(),
-  };
+  if (applying) {
+    const key = security.emailKey(email);
+    if (pendingApps().some((a) => security.emailKey(a.email) === key)) return res.status(409).json({ error: 'An application with this email is already waiting for review' });
+    if (pendingApps().length >= MAX_PENDING_APPS) return res.status(503).json({ error: 'We have a lot of applications waiting right now. Please try again later.' });
+    const d = req.body?.design && typeof req.body.design === 'object' ? req.body.design : {};
+    const a = {
+      id: store.id(), status: 'pending', username, email,
+      passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey,
+      ...(recovery ? { recovery } : {}),
+      ...(req.body?.emailRecovery === true ? { emailRecovery: true } : {}),
+      lang: cleanLang(req.body?.lang), setup: req.body?.setup === true,
+      design: {
+        displayName: clip(d.displayName, 32).trim(),
+        avatarColor: AVATAR_HUES.includes(d.avatarColor) ? d.avatarColor : '',
+        avatarLogo: d.avatarLogo === true,
+        profileTheme: typeof d.profileTheme === 'string' ? d.profileTheme.slice(0, 40) : '',
+      },
+      reason, source: clip(req.body?.source, SOURCE_MAX).trim(), createdAt: now(),
+    };
+    db().applications[a.id] = a;
+    store.save();
+    return res.json({ applied: true });
+  }
+
+  const user = newUserFromSignup({ username, email, passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey, recovery, emailRecovery: req.body?.emailRecovery, lang: req.body?.lang, setup: req.body?.setup });
   db().users[user.id] = user;
 
   if (!needsVerify(user) && user.joinAduna !== false) joinDefaultServer(user);
@@ -712,7 +765,13 @@ app.post('/api/login', authLimiter, ah(async (req, res) => {
     return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
   }
   const user = Object.values(db().users).find((u) => !u.bot && !u.deleted && u.username.toLowerCase() === name.toLowerCase());
-  const ok = await bcrypt.compare(String(password || ''), user ? user.passHash : DUMMY_HASH); // always one comparison: no timing hint about which names exist
+  const applicant = user ? null : appByName(name);
+  const ok = await bcrypt.compare(String(password || ''), user ? user.passHash : applicant ? applicant.passHash : DUMMY_HASH); // always one comparison: no timing hint about which names exist
+  if (!user && ok && applicant) {
+    // someone who applied and knows their password is told where the application stands (names cannot be probed: the password has to be right)
+    if (applicant.status === 'pending') return res.status(403).json({ error: 'Your application is still being reviewed. You can log in once it is approved.', code: 'application_pending' });
+    return res.status(403).json({ error: applicant.note ? `Your application was not approved: ${applicant.note}` : 'Your application was not approved.', code: 'application_denied' });
+  }
   if (!user || !ok) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'Invalid username or password' }); }
   // a moderator suspended this account (admin page): only someone who knows the password is told, so names cannot be probed
   if (user.suspended) return res.status(403).json({ error: user.suspended.reason ? `This account has been suspended: ${user.suspended.reason}` : 'This account has been suspended.', code: 'suspended' });
@@ -3723,6 +3782,7 @@ app.get('/api/admin/summary', auth, adminOnly, (_req, res) => {
   const people = Object.values(db().users).filter((u) => !u.bot);
   res.json({
     users: people.filter((u) => !u.deleted).length, suspended: people.filter((u) => u.suspended).length,
+    applications: pendingApps().length,
     reports: {
       users: people.filter((u) => (u.reports || []).length).length,
       servers: Object.values(db().servers).filter((s) => (s.reports || []).length || s.listingHold).length,
@@ -3730,6 +3790,56 @@ app.get('/api/admin/summary', auth, adminOnly, (_req, res) => {
       clips: clipList().filter((c) => (c.reports || []).length || c.state === 'hidden').length,
     },
   });
+});
+
+// ----- applications to join (see "applying to join" near sign-up) -----
+// Any admin or creator reviews them. Unlike everywhere else on this page the applicant's email IS shown here: it is part of what they applied
+// with, and a reviewer needs it to judge the request. The password hash and encryption keys are never sent.
+const applicationRow = (a) => ({ id: a.id, status: a.status, username: a.username, displayName: (a.design && a.design.displayName) || a.username, email: a.email, reason: a.reason, source: a.source || '', createdAt: a.createdAt, decidedAt: a.decidedAt || null, decidedBy: a.decidedBy || null, note: a.note || '' });
+function pruneApplications() { // denials older than DENIED_KEEP_MS are forgotten, along with the keys and hash they still held
+  for (const a of appList()) if (a.status === 'denied' && now() - (a.decidedAt || a.createdAt) > DENIED_KEEP_MS) delete db().applications[a.id];
+}
+app.get('/api/admin/applications', auth, adminOnly, (_req, res) => {
+  pruneApplications();
+  const all = appList();
+  res.json({
+    pending: all.filter((a) => a.status === 'pending').sort((a, b) => a.createdAt - b.createdAt).map(applicationRow), // oldest first: first come, first reviewed
+    denied: all.filter((a) => a.status === 'denied').sort((a, b) => (b.decidedAt || 0) - (a.decidedAt || 0)).slice(0, 30).map(applicationRow),
+    on: applicationsOn(),
+  });
+});
+function appTarget(req, res) {
+  const a = db().applications[req.params.id];
+  if (!a || a.status !== 'pending') { res.status(404).json({ error: 'That application is not waiting for review (someone may have decided it already)' }); return null; }
+  return a;
+}
+app.post('/api/admin/applications/:id/approve', auth, adminOnly, ah(async (req, res) => {
+  const a = appTarget(req, res); if (!a) return;
+  if (usernameTaken(a.username, a.id)) return res.status(409).json({ error: 'That username has since been taken. Deny this application and ask them to apply again with another one.' });
+  if (!mailer.enabled() && emailTaken(a.email)) return res.status(409).json({ error: 'An account with this email already exists' });
+  const user = newUserFromSignup(a);
+  const d = a.design || {};
+  if (d.displayName) user.displayName = d.displayName;
+  if (d.avatarColor) user.avatarColor = d.avatarColor;
+  if (d.avatarLogo) user.avatarLogo = true;
+  if (d.profileTheme) { try { credits.pthemes.wear(user, d.profileTheme); } catch { /* a theme that is gone just leaves the profile plain */ } }
+  db().users[user.id] = user;
+  delete db().applications[a.id];
+  if (!needsVerify(user) && user.joinAduna !== false) joinDefaultServer(user);
+  store.save();
+  if (needsVerify(user)) { try { await issueCode(user); } catch (e) { console.error('verification email failed:', e.message); } } // they can press "resend" when they log in
+  if (mailer.enabled()) mailer.sendApplicationResult(user.email, user.username, true).catch((e) => console.error('application email failed:', e.message));
+  adminLogAdd(req.user, 'approve application', user.username, '');
+  res.json({ ok: true });
+}));
+app.post('/api/admin/applications/:id/deny', auth, adminOnly, (req, res) => {
+  const a = appTarget(req, res); if (!a) return;
+  const note = clip(req.body?.note, 300).trim();
+  a.status = 'denied'; a.decidedAt = now(); a.decidedBy = req.user.username; a.note = note;
+  store.save();
+  if (mailer.enabled()) mailer.sendApplicationResult(a.email, a.username, false, note).catch((e) => console.error('application email failed:', e.message));
+  adminLogAdd(req.user, 'deny application', a.username, note);
+  res.json({ ok: true });
 });
 
 // find people by username, display name or id (newest accounts first when nothing is typed); at most 30 come back

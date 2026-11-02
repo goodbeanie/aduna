@@ -26,8 +26,10 @@ export default function Auth({ onAuthed }) {
   const [mailed, setMailed] = useState(false); // email method: a link was requested (the new password is chosen on the page the link opens: ResetPassword.jsx)
   const [info, setInfo] = useState('');
   const [mailOk, setMailOk] = useState(false);        // the server can send email, so email recovery can be offered at sign-up
-  useEffect(() => { api('/auth-options').then((o) => setMailOk(!!o.emailRecovery)).catch(() => {}); }, []);
+  const [apply, setApply] = useState(false);          // joining needs an application (an admin approves it) instead of making an account at once
+  useEffect(() => { api('/auth-options').then((o) => { setMailOk(!!o.emailRecovery); setApply(!!o.applyToJoin); }).catch(() => {}); }, []);
   const [fresh, setFresh] = useState(null);     // just registered: { user, privateKey, key } until the recovery key is saved
+  const [sent, setSent] = useState(null);       // just applied: { username, key } (key = the recovery key, shown once, or null) until they go back to log in
 
   // Sign-up (the three steps live in SignupFlow.jsx; it calls this at the end). Throws on a problem so the flow can show it on the right step.
   // `form`: { username, email, password, useKey, useMail, design: { displayName, avatarLogo, avatarColor, profileTheme } }
@@ -37,10 +39,15 @@ export default function Auth({ onAuthed }) {
       const { useKey, useMail } = form;
       if (!useKey && !useMail) throw fieldError('method', 'Pick at least one way to get back into your account.');
       const ident = await createIdentity(form.password);
-      const { user: made } = await api('/register', {
+      const { user: made, applied } = await api('/register', {
         method: 'POST',
-        body: { username: form.username, email: form.email, password: form.password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail ? { emailRecovery: true } : {}) },
+        body: { username: form.username, email: form.email, password: form.password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, design: form.design, ...(form.reason ? { reason: form.reason, source: form.source } : {}), ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail ? { emailRecovery: true } : {}) },
       });
+      if (applied) { // no account yet: an admin decides. The recovery key is shown now because it cannot be shown later.
+        endSession();
+        setSent({ username: form.username, key: useKey ? ident.recovery.key : null });
+        return;
+      }
       markSignedIn(true);
       await saveKey(made.id, ident.privateKey);
       // The profile they designed. The account already exists, so if this fails they just restyle it in Settings: it must not undo the sign-up.
@@ -126,6 +133,22 @@ export default function Auth({ onAuthed }) {
     }
   }
 
+  if (sent) return (
+    <div className="auth-bg">
+      <div className="auth-card">
+        {sent.key ? (
+          <RecoveryKeyCard recoveryKey={sent.key} username={sent.username} onDone={() => setSent({ ...sent, key: null })} doneLabel="Continue" />
+        ) : (
+          <>
+            <span className="wordmark" role="img" aria-label="Aduna" />
+            <h1>Application sent</h1>
+            <p className="muted center">Thanks, {sent.username}. A person will review your application. Once it is approved you can log in with the username and password you just chose{mailOk ? ', and we will email you about the decision' : ''}.</p>
+            <button type="button" className="btn primary full" onClick={() => { setSent(null); setMode('login'); setUsername(sent.username); }}>Back to log in</button>
+          </>
+        )}
+      </div>
+    </div>
+  );
   if (fresh) return (
     <div className="auth-bg">
       <div className="auth-card">
@@ -142,7 +165,7 @@ export default function Auth({ onAuthed }) {
   );
   if (mode === 'register') return (
     <div className="auth-bg su-bg">
-      <SignupFlow mailOk={mailOk} onSubmit={register} onLogin={() => switchMode('login')} />
+      <SignupFlow mailOk={mailOk} apply={apply} onSubmit={register} onLogin={() => switchMode('login')} />
     </div>
   );
   // props for a field that can carry its own error, and the message under it

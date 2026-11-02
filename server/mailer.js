@@ -100,4 +100,18 @@ function sendResetLink(to, link, username, minutes = 30) {
   });
 }
 
-module.exports = { enabled, sendVerificationCode, sendAccountExists, sendSecurityNotice, sendResetLink, outbox };
+// Tells someone who applied for an Aduna account what was decided. `note` is the reviewer's optional message (plain text, shown escaped).
+function sendApplicationResult(to, username, approved, note = '') {
+  const n = String(note || '').trim();
+  const subject = approved ? 'Your Aduna application was approved' : 'About your Aduna application';
+  const body = approved
+    ? `Hi ${username}, good news: your application was approved. Open Aduna and log in with the username and password you chose.`
+    : `Hi ${username}, thanks for applying. Your application was not approved this time.`;
+  return send({
+    to, subject,
+    text: `${body}${n ? `\n\nA note from the reviewer: ${n}` : ''}`,
+    html: `<div style="font-family:system-ui,sans-serif;max-width:420px;margin:auto;padding:24px;color:#2a251e"><h2 style="margin:0 0 12px">${esc(subject)}</h2><p>${esc(body)}</p>${n ? `<p style="color:#6b6458">A note from the reviewer: ${esc(n)}</p>` : ''}</div>`,
+  });
+}
+
+module.exports = { enabled, sendVerificationCode, sendAccountExists, sendSecurityNotice, sendResetLink, sendApplicationResult, outbox };
