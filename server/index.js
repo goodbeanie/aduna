@@ -12,6 +12,10 @@ const animated = require('./animated'); // animated profile pictures, banners an
 const credits = require('./credits');
 const storagePlan = require('./storage');
 const artistsLib = require('./artists'); // artists: apply, get reviewed, sell badges in the shop (see the "artists" block below)
+const stickersLib = require('./stickers'); // sticker packs: big pictures sent on their own, sold in the shop (see the "stickers" block below)
+const profileLib = require('./profile'); // pronouns, the games shelf and the profile song (rules only; the routes sit next to the profile image routes)
+const soundboardLib = require('./soundboard'); // the voice-channel soundboard: short sounds anyone in the channel can play (see the "soundboard" block below)
+const gatheringsLib = require('./gatherings'); // Events: a game night on Friday at eight, Going / Maybe, reminders, a one-tap button into the voice channel (see the "events" block below)
 const security = require('./security');
 const totp = require('./totp');
 const devicelogin = require('./devicelogin');
@@ -56,11 +60,14 @@ const db = () => store.db;
 // drop uploaded images that no profile points at (e.g. left over from a crash mid-upload)
 const referencedImages = () => new Set([
   ...Object.values(store.db.users).flatMap((u) => [u.avatarImage, u.bannerImage, u.avatarAnim, u.bannerAnim]), // the animated copies sit next to the still pictures
+  ...Object.values(store.db.users).map((u) => u.song && u.song.id), // a profile song's bytes live in the same table
   ...Object.values(store.db.users).flatMap((u) => (u.clipCreator && u.clipCreator.profile ? [u.clipCreator.profile.avatarImage, u.clipCreator.profile.bannerImage] : [])), // a Clips creator's own icon and banner
   ...Object.values(store.db.servers).flatMap((sv) => [sv.iconImage, sv.bannerImage, sv.iconAnim, sv.bannerAnim]), // server icon + banner, and their animated copies
+  ...Object.values(store.db.servers).flatMap((sv) => soundboardLib.audioIds(sv)), // the soundboard's clips live in the same table
   ...Object.values(store.db.bots || {}).map((b) => b.avatarImage), // bot pictures (the bot's account points at the same image)
   ...Object.values(store.db.emojis).map((e) => e.imageId), // custom emoji pictures live in the same table
   ...Object.values(store.db.badges || {}).map((b) => b.image), // badge pictures (creator badges and artists' items); without this the startup cleanup deleted them
+  ...Object.values(store.db.badges || {}).flatMap((b) => stickersLib.stickersOf(b).map((s) => s.id)), // the pictures inside sticker packs (a sticker's id is its image id)
   ...Object.values(store.db.artists || {}).flatMap((a) => (Array.isArray(a.pieces) ? a.pieces : [])), // the pieces of art in an artist application
 ].filter(Boolean));
 const now = () => Date.now();
@@ -180,7 +187,7 @@ function allBadgeViews(u) {
   if (!u.bot && artistsLib.isArtist(db().artists && db().artists[u.id])) out.push(ARTIST_BADGE); // an approved artist wears the Artist badge
   for (const id of Array.isArray(u.badges) ? u.badges : []) {
     const b = db().badges && db().badges[id];
-    if (b && b.kind !== 'frame') out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' }); // frames are worn around the avatar, not next to the name (see wornFrame)
+    if (b && b.kind !== 'frame' && b.kind !== 'stickers') out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' }); // frames are worn around the avatar, not next to the name (see wornFrame); sticker packs are never worn
   }
   out.push(...credits.events.badgeViews(u)); // Trick or Treater, Santa's Helper (earned from the Halloween / Christmas events)
   out.push(...credits.shop.badgeViews(u));   // badges bought in the credits shop
@@ -228,6 +235,9 @@ function publicUser(u) {
     username: u.username,
     displayName: u.displayName,
     bio: u.bio,
+    pronouns: profileLib.pronounsView(u), // '' when not set
+    games: profileLib.gamesView(u), // the favorite games shelf: up to 6 names
+    song: profileLib.songView(u), // { id, title, mime } or null: plays (muted until the viewer unmutes) when the profile opens
     avatarColor: u.avatarColor,
     avatarEmoji: u.avatarEmoji,
     avatarLogo: !!u.avatarLogo,
@@ -331,6 +341,8 @@ function serverView(s) {
     roles: s.roles || [],
     everyone: s.everyone || [],
     memberRoles: s.memberRoles || {},
+    ...soundboardLib.view(s), // soundboard: { enabled, who, roles } and sounds: [{ id, name, emoji }]
+    ...gatheringsLib.view(s, now()), // events: gatherings: [{ id, title, desc, startsAt, endsAt, channelId, by, yes: [userId], maybe: [userId] }], soonest first
     onboarding: s.onboarding || null,
     lounge: s.lounge || null, // the info page (server/lounge.js); while lounge.enabled is off the app only shows it to people who manage the server
     bots: (s.installedBots || []).map((i) => ({ botId: i.botId, userId: i.userId, channels: Array.isArray(i.channels) ? i.channels : null })),
@@ -1160,6 +1172,22 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (b.links !== undefined) {
     try { newLinks = cleanLinks(b.links); } catch (e) { return res.status(400).json({ error: e.message }); }
   }
+  let newPronouns, newGames, newSongTitle; // pronouns, the games shelf and the song's title (undefined = unchanged)
+  if (b.pronouns !== undefined) {
+    const p = profileLib.cleanPronouns(b.pronouns);
+    if (p.error) return res.status(400).json({ error: p.error });
+    newPronouns = p.value;
+  }
+  if (b.games !== undefined) {
+    const g = profileLib.cleanGames(b.games);
+    if (g.error) return res.status(400).json({ error: g.error });
+    newGames = g.list;
+  }
+  if (b.songTitle !== undefined) {
+    if (!u.song) return res.status(400).json({ error: 'Add a song first' });
+    if (typeof b.songTitle !== 'string') return res.status(400).json({ error: 'A song title must be text' });
+    newSongTitle = profileLib.cleanSongTitle(b.songTitle, u.song.title);
+  }
   let newHidden; // the badges the person is not wearing: only ids they really own are kept
   if (b.hiddenBadges !== undefined) {
     if (!Array.isArray(b.hiddenBadges) || b.hiddenBadges.length > 500) return res.status(400).json({ error: 'Badges must be a list' });
@@ -1208,6 +1236,9 @@ app.patch('/api/me', authAny, async (req, res) => {
     u.usernameChangedAt = now();
   }
   if (newLinks !== undefined) u.links = newLinks;
+  if (newPronouns !== undefined) { if (newPronouns) u.pronouns = newPronouns; else delete u.pronouns; }
+  if (newGames !== undefined) { if (newGames.length) u.games = newGames; else delete u.games; }
+  if (newSongTitle !== undefined && u.song) u.song = { ...u.song, title: newSongTitle };
   if (newTheme !== undefined) { if (newTheme) u.profileTheme = newTheme; else delete u.profileTheme; }
   if (newGradient) u.profileGradient = newGradient; // kept when they switch to a preset, so their own design is still there next time
   if (newHidden !== undefined) { if (newHidden.length) u.hiddenBadges = newHidden; else delete u.hiddenBadges; }
@@ -1306,6 +1337,50 @@ for (const [kind, rule] of Object.entries(IMAGE_RULES)) {
     res.json({ user: await setProfileImage(req.user, rule.field, null) });
   }));
 }
+
+// ----- profile song -----
+// A short clip (an MP3, M4A, OGG, WAV or WebM file, up to 1 MB and 30 seconds) that plays on the person's profile card. The bytes sit in the
+// images table (encrypted like everything else there); u.song = { id, title, mime } points at them. The id is unguessable, so a plain <audio> tag
+// can load it, and the route supports Range requests because Safari will not play audio it cannot seek in. Nothing plays on its own with sound:
+// the card starts muted and the viewer presses the speaker (client/src/ProfileSong.jsx).
+const rawSong = express.raw({ type: profileLib.SONG_TYPES, limit: profileLib.LIMITS.songBytes + 4096 });
+async function setProfileSong(u, song) {
+  const old = u.song && u.song.id;
+  if (song) u.song = song; else delete u.song;
+  await store.flush(); // the profile points at the new bytes before the old ones go
+  if (old && old !== (song && song.id)) await store.deleteImage(old);
+  emitUserUpdate(u);
+  return selfView(u);
+}
+app.put('/api/me/song', auth, uploadLimiter, rawSong, ah(async (req, res) => {
+  if (req.user.bot) return res.status(403).json({ error: 'Bots cannot have a profile song' });
+  const pic = profileLib.checkSong(req.body);
+  if (pic.error) return res.status(400).json({ error: pic.error });
+  const id = await store.putImage(pic.data);
+  const title = profileLib.cleanSongTitle(req.query.title, '');
+  if (!db().users[req.user.id]) { await store.deleteImage(id); return res.status(409).json({ error: 'This account no longer exists' }); } // removed while uploading
+  res.json({ user: await setProfileSong(req.user, { id, title, mime: pic.mime }) });
+}));
+app.delete('/api/me/song', auth, ah(async (req, res) => {
+  res.json({ user: await setProfileSong(req.user, null) });
+}));
+app.get('/api/songs/:id', ah(async (req, res) => {
+  if (!profileLib.isSongId(req.params.id)) return res.status(404).json({ error: 'Not found' });
+  const buf = await store.getImage(req.params.id);
+  const kind = buf && profileLib.sniffAudio(buf); // a picture with this id is not a song: 404
+  if (!kind) return res.status(404).json({ error: 'Not found' });
+  const headers = {
+    'Content-Type': kind.mime,
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'public, max-age=31536000, immutable', // a new song gets a new id
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'",
+  };
+  const range = profileLib.parseRange(req.headers.range, buf.length);
+  if (range === 'bad') return res.status(416).set({ ...headers, 'Content-Range': `bytes */${buf.length}` }).end();
+  if (range) return res.status(206).set({ ...headers, 'Content-Range': `bytes ${range.start}-${range.end}/${buf.length}`, 'Content-Length': String(range.end - range.start + 1) }).end(buf.subarray(range.start, range.end + 1));
+  res.set(headers).send(buf);
+}));
 
 app.get('/api/images/:id', ah(async (req, res) => {
   const buf = await store.getImage(req.params.id);
@@ -1909,6 +1984,139 @@ app.put('/api/servers/:id/layout', auth, (req, res) => {
   pushServer(s, res);
 });
 
+// ----- soundboard -----
+// Short sounds for voice channels (rules and limits: server/soundboard.js). Anyone with Manage server adds and removes sounds; only the owner decides
+// whether the soundboard is on at all and who may play it. The clips sit in the images table like a profile song. A member's browser fetches a clip
+// by the sound's id (members only) and plays it when the server announces it over the socket (`soundboard:play`, with the voice events below).
+const rawSound = express.raw({ type: soundboardLib.TYPES, limit: soundboardLib.LIMITS.bytes + 4096 });
+const soundsPerm = permOf('manageServer', 'Manage server');
+app.post('/api/servers/:id/sounds', auth, uploadLimiter, rawSound, ah(async (req, res) => {
+  const s = soundsPerm(req, res); if (!s) return;
+  const n = soundboardLib.cleanName(req.query.name);
+  if (n.error) return res.status(400).json({ error: n.error });
+  const e = soundboardLib.cleanEmoji(req.query.emoji);
+  if (e.error) return res.status(400).json({ error: e.error });
+  const room = soundboardLib.roomFor(s, n.name);
+  if (!room.ok) return res.status(room.status).json({ error: room.error });
+  const clipped = soundboardLib.check(req.body);
+  if (clipped.error) return res.status(400).json({ error: clipped.error });
+  const audio = await store.putImage(clipped.data);
+  if (!db().servers[s.id] || !soundboardLib.roomFor(s, n.name).ok) { await store.deleteImage(audio); return res.status(409).json({ error: 'The soundboard changed while uploading. Try again.' }); } // deleted, full or the name taken meanwhile
+  if (!Array.isArray(s.sounds)) s.sounds = [];
+  s.sounds.push({ id: store.id(), name: n.name, emoji: e.emoji, audio, mime: clipped.mime, by: req.user.id, at: now() });
+  pushServer(s, res);
+}));
+app.delete('/api/servers/:id/sounds/:sid', auth, ah(async (req, res) => {
+  const s = soundsPerm(req, res); if (!s) return;
+  const i = soundboardLib.soundsOf(s).findIndex((x) => x.id === req.params.sid);
+  if (i < 0) return res.status(404).json({ error: 'Sound not found' });
+  const [gone] = s.sounds.splice(i, 1);
+  await store.flush(); // the server stops pointing at the clip before its bytes are deleted
+  await store.deleteImage(gone.audio);
+  pushServer(s, res);
+}));
+app.patch('/api/servers/:id/soundboard', auth, (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  const r = soundboardLib.cleanSettings(req.body, s.soundboard, (s.roles || []).map((x) => x.id));
+  if (r.error) return res.status(400).json({ error: r.error });
+  s.soundboard = r.value;
+  pushServer(s, res);
+});
+app.get('/api/servers/:id/sounds/:sid/audio', auth, ah(async (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !Array.isArray(s.members) || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  const sound = soundboardLib.find(s, req.params.sid);
+  const buf = sound && await store.getImage(sound.audio);
+  const kind = buf && profileLib.sniffAudio(buf);
+  if (!kind) return res.status(404).json({ error: 'Not found' });
+  const headers = {
+    'Content-Type': kind.mime,
+    'Accept-Ranges': 'bytes',
+    'Cache-Control': 'private, max-age=31536000, immutable', // a sound is never changed, only replaced by a new one with a new id
+    'X-Content-Type-Options': 'nosniff',
+    'Content-Security-Policy': "default-src 'none'",
+  };
+  const range = profileLib.parseRange(req.headers.range, buf.length);
+  if (range === 'bad') return res.status(416).set({ ...headers, 'Content-Range': `bytes */${buf.length}` }).end();
+  if (range) return res.status(206).set({ ...headers, 'Content-Range': `bytes ${range.start}-${range.end}/${buf.length}`, 'Content-Length': String(range.end - range.start + 1) }).end(buf.subarray(range.start, range.end + 1));
+  res.set(headers).send(buf);
+}));
+
+// ----- events (gatherings) -----
+// "Game night on Friday at eight": a member makes an event, everyone marks Going or Maybe, the people who did get a reminder 15 minutes before and
+// when it starts, and the reminder has a one-tap button into the voice channel. Rules and limits: server/gatherings.js. Any member may make one
+// (up to 5 at a time); the person who made it, or anyone with Manage server, may change or cancel it. The events travel inside the server view
+// (`gatherings`), so every change reaches every member's screen through `server:update`.
+const gatherHits = new security.RateWindow(40, 60_000); // changes per person per minute
+function gatheringOf(req, res, { edit = false } = {}) {
+  const s = db().servers[req.params.id];
+  if (!s || !Array.isArray(s.members) || !s.members.includes(req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
+  if (!gatherHits.allow(req.user.id)) { res.status(429).json({ error: 'Too many changes. Try again in a minute.' }); return null; }
+  if (!req.params.gid) return { s };
+  const g = gatheringsLib.find(s, req.params.gid);
+  if (!g) { res.status(404).json({ error: 'That event is gone' }); return null; }
+  if (edit && g.by !== req.user.id && !can(s, req.user.id, 'manageServer')) { res.status(403).json({ error: 'Only the person who made this event, or someone who manages the server, can change it' }); return null; }
+  return { s, g };
+}
+app.post('/api/servers/:id/gatherings', auth, (req, res) => {
+  const x = gatheringOf(req, res); if (!x) return;
+  const t = now();
+  const room = gatheringsLib.roomFor(x.s, req.user.id, t);
+  if (!room.ok) return res.status(room.status).json({ error: room.error });
+  const r = gatheringsLib.parse(x.s, req.body, t);
+  if (r.error) return res.status(400).json({ error: r.error });
+  gatheringsLib.create(x.s, req.user.id, r.value, t, store.id());
+  pushServer(x.s, res);
+});
+app.patch('/api/servers/:id/gatherings/:gid', auth, (req, res) => {
+  const x = gatheringOf(req, res, { edit: true }); if (!x) return;
+  const t = now();
+  if (x.g.endsAt <= t) return res.status(400).json({ error: 'That event is over' });
+  const r = gatheringsLib.parse(x.s, req.body, t, x.g);
+  if (r.error) return res.status(400).json({ error: r.error });
+  gatheringsLib.update(x.g, r.value, t);
+  pushServer(x.s, res);
+});
+app.delete('/api/servers/:id/gatherings/:gid', auth, (req, res) => {
+  const x = gatheringOf(req, res, { edit: true }); if (!x) return;
+  x.s.gatherings = x.s.gatherings.filter((g) => g.id !== x.g.id);
+  pushServer(x.s, res);
+});
+// Going / Maybe, or { status: null } to take the answer back
+app.put('/api/servers/:id/gatherings/:gid/rsvp', auth, (req, res) => {
+  const x = gatheringOf(req, res); if (!x) return;
+  const status = req.body?.status === undefined ? undefined : req.body.status;
+  if (status === undefined) return res.status(400).json({ error: 'Choose going or maybe' });
+  const r = gatheringsLib.setRsvp(x.g, req.user.id, status, now());
+  if (r.error) return res.status(400).json({ error: r.error });
+  pushServer(x.s, res);
+});
+// The reminder sweep (every 30 seconds, see start()): who is due a "starts in 15 minutes" / "starting now", and the clean-up of events that ended
+// over an hour ago. People in the app get a live `gathering:reminder` (a banner with the Join voice button); people who are not online get a push
+// that opens the voice channel (or the Events page when the event has no voice channel). Anyone already in the voice channel is left out.
+function gatheringSweep() {
+  const t = now();
+  let dirty = false;
+  for (const s of Object.values(db().servers)) {
+    if (!Array.isArray(s.gatherings) || !s.gatherings.length) continue;
+    const { reminders, changed } = gatheringsLib.due(s, t, { skip: (uid, g) => !!g.channelId && voiceUsers(g.channelId).includes(uid) });
+    if (changed) dirty = true;
+    for (const rm of reminders) {
+      const g = gatheringsLib.find(s, rm.gatheringId);
+      if (!g) continue;
+      const ch = g.channelId ? (s.channels || []).find((c) => c.id === g.channelId && c.type === 'voice') : null;
+      const text = gatheringsLib.reminderText(g, rm.kind, ch ? ch.name : '');
+      for (const uid of rm.to) {
+        if (!db().users[uid]) continue;
+        io.to('user:' + uid).emit('gathering:reminder', { serverId: s.id, gatheringId: g.id, kind: rm.kind, title: g.title, text, serverName: s.name, channelId: ch ? ch.id : null, startsAt: g.startsAt });
+        if (!isOnline(uid)) pushSafe(uid, 'announcement', { title: g.title, body: `${s.name} \u00b7 ${text}`, url: `/app?n=${ch ? `v:${s.id}:${ch.id}` : `e:${s.id}`}`, tag: `ev:${g.id}:${rm.kind}`, sender: s.name, icon: imgPath(s.iconImage), theme: s.theme || undefined });
+      }
+    }
+    if (gatheringsLib.prune(s, t)) { dirty = true; io.to('server:' + s.id).emit('server:update', serverView(s)); }
+  }
+  if (dirty) store.save();
+}
+
 // ----- publish settings (owner only) -----
 function publishView(s) {
   return {
@@ -2016,6 +2224,7 @@ app.delete('/api/servers/:id/roles/:rid', auth, (req, res) => {
   if (!r) return res.status(404).json({ error: 'Role not found' });
   if (!belowMe(s, req.user.id, r.id)) return res.status(403).json({ error: 'That role is above your own' });
   s.roles = s.roles.filter((x) => x.id !== r.id);
+  if (s.soundboard && Array.isArray(s.soundboard.roles)) s.soundboard.roles = s.soundboard.roles.filter((id) => id !== r.id); // a deleted role cannot stay on the soundboard's list
   for (const q of s.onboarding?.questions || []) for (const o of q.options) o.roles = o.roles.filter((id) => id !== r.id);
   for (const uid of Object.keys(s.memberRoles || {})) {
     s.memberRoles[uid] = s.memberRoles[uid].filter((id) => id !== r.id);
@@ -2283,6 +2492,7 @@ function destroyServer(s) {
   store.deleteImage(s.bannerImage).catch(() => {});
   store.deleteImage(s.iconAnim).catch(() => {});
   store.deleteImage(s.bannerAnim).catch(() => {});
+  for (const id of soundboardLib.audioIds(s)) store.deleteImage(id).catch(() => {}); // the soundboard's clips
 }
 
 // The owner cannot just walk away: ownership never passes to "whoever is first in the list". They hand it to a chosen member first
@@ -3046,14 +3256,16 @@ app.delete('/api/badges/:id', auth, creatorOnly, ah(async (req, res) => {
   const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
   const holders = Object.values(db().users).filter((u) => Array.isArray(u.badges) && u.badges.includes(b.id));
   for (const u of holders) u.badges = u.badges.filter((x) => x !== b.id);
-  const img = b.image; delete db().badges[b.id];
+  const img = b.image, stk = stickersLib.stickersOf(b).map((s) => s.id); delete db().badges[b.id];
   for (const u of holders) emitUserUpdate(u);
   await store.flush();
   if (img) await store.deleteImage(img);
+  for (const sid of stk) await store.deleteImage(sid); // a sticker pack's pictures go with it
   res.json({ ok: true });
 }));
 app.put('/api/badges/:id/image', auth, creatorOnly, uploadLimiter, rawImage, ah(async (req, res) => {
   const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
+  if (stickersLib.isPack(b)) return res.status(400).json({ error: 'A sticker pack has no single picture' });
   const buf = req.body;
   if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a PNG, JPEG or WebP image' });
   const info = sniffImage(buf);
@@ -3110,6 +3322,7 @@ const ownersOf = (id) => Object.values(db().users).filter((u) => Array.isArray(u
 const itemView = (b) => ({
   id: b.id, kind: artistsLib.kindOf(b), name: b.name, desc: b.desc || '', price: Number.isInteger(b.price) && b.price > 0 ? b.price : null, image: b.image || null,
   status: b.status || 'draft', reviewNote: b.status === 'rejected' || b.status === 'approved' ? b.reviewNote || '' : '', sold: ownersOf(b.id),
+  ...(stickersLib.isPack(b) ? { stickers: stickersLib.stickerViews(b) } : {}), // a sticker pack shows its stickers instead of one picture
 });
 const personOf = (uid) => { const u = db().users[uid]; return { userId: uid, username: u ? u.username : null, displayName: u ? u.displayName : null }; };
 const ownItem = (req, res) => {
@@ -3132,7 +3345,7 @@ app.get('/api/artists/me', auth, (req, res) => {
   res.json({
     application: artistsLib.view(rec, now()),
     items: artistsLib.isArtist(rec) ? myItems(req.user.id).map(itemView) : [],
-    limits: { ...artistsLib.LIMITS, cutPercent: artistsLib.CUT_PERCENT },
+    limits: { ...artistsLib.LIMITS, cutPercent: artistsLib.CUT_PERCENT, stickers: { min: stickersLib.LIMITS.minPack, max: stickersLib.LIMITS.maxPack, bytes: stickersLib.LIMITS.maxBytes, minSide: stickersLib.LIMITS.minSide, maxSide: stickersLib.LIMITS.maxSide } },
     reviewer,
     ...(reviewer ? { waiting: { applications: Object.values(db().artists).filter((r) => r.status === 'pending').length, items: Object.values(db().badges).filter((b) => artistsLib.isItem(b) && b.status === 'pending').length } } : {}),
   });
@@ -3197,6 +3410,7 @@ app.patch('/api/artists/items/:id', auth, artistOnly, (req, res) => {
 app.put('/api/artists/items/:id/image', auth, artistOnly, uploadLimiter, rawImage, ah(async (req, res) => {
   const b = ownItem(req, res); if (!b) return;
   if (b.status === 'approved') return res.status(409).json({ error: 'An approved item’s picture cannot be changed. Make a new item instead.' });
+  if (stickersLib.isPack(b)) return res.status(400).json({ error: 'A sticker pack is made of stickers. Add them one by one.' });
   const pic = readPicture(req, 512);
   if (pic.error) return res.status(400).json({ error: pic.error });
   if (artistsLib.isFrame(b) && (pic.info.width !== pic.info.height || pic.info.width < artistsLib.FRAME.minSide)) return res.status(400).json({ error: `A frame picture is a square, at least ${artistsLib.FRAME.minSide}px. Use the template.` });
@@ -3207,6 +3421,53 @@ app.put('/api/artists/items/:id/image', auth, artistOnly, uploadLimiter, rawImag
   if (old && old !== id) await store.deleteImage(old);
   res.json({ item: itemView(b) });
 }));
+// Stickers in a pack. A sticker is one stored picture (a PNG, JPEG, WebP or a GIF) with a name; its id is the picture's id (stickers.js).
+// Changing a pack that is waiting for review or was rejected takes it back to a draft, like every other edit to an item.
+const rawSticker = express.raw({ type: stickersLib.TYPES, limit: stickersLib.LIMITS.maxBytes + 4096 });
+app.post('/api/artists/items/:id/stickers', auth, artistOnly, uploadLimiter, rawSticker, ah(async (req, res) => {
+  const b = ownItem(req, res); if (!b) return;
+  const n = stickersLib.cleanName(req.query.name);
+  if (n.error) return res.status(400).json({ error: n.error });
+  const room = stickersLib.roomFor(b, n.name);
+  if (!room.ok) return res.status(room.status).json({ error: room.error });
+  const pic = stickersLib.check(req.body);
+  if (pic.error) return res.status(400).json({ error: pic.error });
+  if (!artistSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving too fast. Try again later.' });
+  const id = await store.putImage(pic.data);
+  if (!badgeById(b.id) || !stickersLib.roomFor(b, n.name).ok) { await store.deleteImage(id); return res.status(409).json({ error: 'This pack can no longer be changed' }); } // approved, deleted, full or the name taken while uploading
+  if (!Array.isArray(b.stickers)) b.stickers = [];
+  b.stickers.push({ id, name: n.name, animated: pic.animated, w: pic.w, h: pic.h });
+  artistsLib.applyEdit(b, {});
+  await store.flush();
+  res.json({ item: itemView(b) });
+}));
+app.delete('/api/artists/items/:id/stickers/:sid', auth, artistOnly, ah(async (req, res) => {
+  const b = ownItem(req, res); if (!b) return;
+  if (!stickersLib.isPack(b)) return res.status(400).json({ error: 'That item is not a sticker pack' });
+  if (b.status === 'approved') return res.status(409).json({ error: 'An approved pack cannot be changed. Make a new pack instead.' });
+  const list = stickersLib.stickersOf(b), i = list.findIndex((s) => s.id === req.params.sid);
+  if (i < 0) return res.status(404).json({ error: 'Sticker not found' });
+  const [gone] = list.splice(i, 1);
+  artistsLib.applyEdit(b, {});
+  await store.flush(); // the pack stops pointing at the picture before it is deleted
+  await store.deleteImage(gone.id);
+  res.json({ item: itemView(b) });
+}));
+// The picker: the packs this person bought, and their own (also while they are drafts, so an artist can try them).
+app.get('/api/stickers/mine', auth, (req, res) => {
+  res.json({ packs: req.user.bot ? [] : stickersLib.ownedPacks(req.user, db().badges), limits: { min: stickersLib.LIMITS.minPack, max: stickersLib.LIMITS.maxPack, bytes: stickersLib.LIMITS.maxBytes, minSide: stickersLib.LIMITS.minSide, maxSide: stickersLib.LIMITS.maxSide } });
+});
+
+// Channel messages only: a sticker is a message whose whole text is its token (stickers.js), and the sender has to own the pack. Returns a reason to
+// refuse, or null. (Direct messages and group chats are end-to-end encrypted: the server never sees the token, the browser only offers owned stickers.)
+function stickerProblem(uid, content, { hasAtts = false, hasPoll = false } = {}) {
+  if (stickersLib.mixed(content)) return 'A sticker is sent on its own, not inside a message';
+  const id = stickersLib.idOf(content);
+  if (!id) return null;
+  if (hasAtts || hasPoll) return 'A sticker is sent on its own';
+  return stickersLib.mayUse(db().users[uid], db().badges, id) ? null : 'You do not have that sticker';
+}
+
 app.post('/api/artists/items/:id/submit', auth, artistOnly, (req, res) => {
   const b = ownItem(req, res); if (!b) return;
   const r = artistsLib.submitItem(b, now());
@@ -3217,9 +3478,10 @@ app.post('/api/artists/items/:id/submit', auth, artistOnly, (req, res) => {
 app.delete('/api/artists/items/:id', auth, artistOnly, ah(async (req, res) => {
   const b = ownItem(req, res); if (!b) return;
   if (ownersOf(b.id)) return res.status(409).json({ error: 'People own this badge, so it cannot be deleted. Set its price to nothing to take it off sale.' });
-  const img = b.image; delete db().badges[b.id];
+  const img = b.image, stk = stickersLib.stickersOf(b).map((s) => s.id); delete db().badges[b.id];
   await store.flush();
   if (img) await store.deleteImage(img);
+  for (const sid of stk) await store.deleteImage(sid); // a pack's stickers go with it
   res.json({ ok: true });
 }));
 
@@ -3227,7 +3489,7 @@ app.get('/api/artists/review', auth, reviewerOnly, (req, res) => {
   const applications = Object.values(db().artists).filter((r) => r.status === 'pending').sort((a, b) => (a.appliedAt || 0) - (b.appliedAt || 0))
     .map((r) => ({ ...personOf(r.id), note: r.note || '', pieces: artistsLib.pieceIds(r), appliedAt: r.appliedAt || null, own: r.id === req.user.id }));
   const items = Object.values(db().badges).filter((b) => artistsLib.isItem(b) && b.status === 'pending').sort((a, b) => (a.submittedAt || 0) - (b.submittedAt || 0))
-    .map((b) => ({ id: b.id, kind: artistsLib.kindOf(b), name: b.name, desc: b.desc || '', price: b.price, image: b.image || null, artist: personOf(b.artistId), submittedAt: b.submittedAt || null, own: b.artistId === req.user.id }));
+    .map((b) => ({ id: b.id, kind: artistsLib.kindOf(b), name: b.name, desc: b.desc || '', price: b.price, image: b.image || null, ...(stickersLib.isPack(b) ? { stickers: stickersLib.stickerViews(b) } : {}), artist: personOf(b.artistId), submittedAt: b.submittedAt || null, own: b.artistId === req.user.id }));
   res.json({ applications, items });
 });
 app.post('/api/artists/review/applications/:uid', auth, reviewerOnly, (req, res) => {
@@ -3756,6 +4018,7 @@ app.delete('/api/servers/:id/bots/:botId', auth, (req, res) => {
 
 // ---- running ----
 function postBotMessage(s, channel, botUser, { text, replyTo, mentions }) {
+  text = String(text).replace(/<stk:/g, '<stk\u200b:'); // a bot owns no sticker packs: break the token so it shows as plain text
   const msg = {
     id: store.id(), channelId: channel.id, serverId: s.id, authorId: botUser.id, bot: true, content: text, attachments: [],
     mentions, everyone: false, replyTo, reactions: {}, createdAt: now(),
@@ -4018,6 +4281,7 @@ app.post('/api/channels/:id/quick-reply', auth, (req, res) => {
   if (typeOf(f.channel) !== 'text') return res.status(400).json({ error: 'You can only reply in a text channel' });
   const content = clip(req.body?.content, MAX_MSG).trim();
   if (!content) return res.status(400).json({ error: 'Nothing to send' });
+  if (stickersLib.idOf(content) || stickersLib.mixed(content)) return res.status(400).json({ error: 'Stickers can only be sent from the app' });
   if (!quickReplies.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
   const replyTo = typeof req.body?.replyTo === 'string' ? db().messages[req.body.replyTo] : null;
   const ping = parseMentions(content, f.server, req.user.id);
@@ -4405,6 +4669,7 @@ function logCall(c, reason) {
 // the list of who is in each channel and relays signalling between two members; audio goes browser to browser.
 const MAX_VOICE = 8;
 const voice = new Map(); // channelId -> Map(userId -> socketId)
+const soundPlays = new Map(); // userId -> when they last played a soundboard sound (one every few seconds, see soundboard.js)
 const voiceUsers = (cid) => [...(voice.get(cid)?.keys() || [])];
 const voiceBroadcast = (cid) => { const f = findChannel(cid); if (f) io.to('server:' + f.server.id).emit('voice:state', { channelId: cid, users: voiceUsers(cid) }); };
 function voiceLeave(uid, sid) {
@@ -4423,7 +4688,7 @@ function voiceLeave(uid, sid) {
 const imgPath = (id) => (id ? `/api/images/${id}` : undefined);
 function pushChannelMessage(f, msg, kind, uid) {
   const author = db().users[uid];
-  const preview = clip(msg.content.replace(MENTION_TOKEN, '@someone'), 120) || 'Sent an attachment';
+  const preview = stickersLib.idOf(msg.content) ? stickersLib.LABEL : clip(msg.content.replace(MENTION_TOKEN, '@someone'), 120) || 'Sent an attachment';
   const url = `/app?n=c:${f.server.id}:${f.channel.id}`;
   const who = author?.displayName || 'Someone';
   const where = `${f.server.name} \u00b7 #${f.channel.name}`;
@@ -4525,6 +4790,8 @@ io.on('connection', (socket) => {
       poll = made.poll;
     }
     if (!content && !atts.length && !poll) return reply({ error: 'Cannot send' });
+    const stkErr = stickerProblem(uid, content, { hasAtts: atts.length > 0, hasPoll: !!poll });
+    if (stkErr) return reply({ error: stkErr });
     try { await store.markAttached(atts.map((a) => a.id).filter(Boolean)); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
     const ping = parseMentions(content, f.server, uid);
     const msg = {
@@ -4634,6 +4901,7 @@ io.on('connection', (socket) => {
       if (!f || !f.server.members.includes(uid) || msg.authorId !== uid) return reply({ error: 'Forbidden' });
       const content = clip(p.content, MAX_MSG).trim();
       if (!content && !msg.attachments?.length && !msg.poll) return reply({ error: 'Message cannot be empty' });
+      if (content !== msg.content) { const stkErr = stickerProblem(uid, content, { hasAtts: !!msg.attachments?.length, hasPoll: !!msg.poll }); if (stkErr) return reply({ error: stkErr }); }
       msg.content = content;
       Object.assign(msg, parseMentions(content, f.server, uid)); // an edit refreshes the highlight but never pings again
       msg.editedAt = now();
@@ -4834,6 +5102,22 @@ io.on('connection', (socket) => {
     reply({ ok: true, peers }); // the joiner starts a connection to each of these
   });
   socket.on('voice:leave', () => voiceLeave(uid, socket.id));
+  // Play a soundboard sound for everyone in the voice channel you are in. The server checks the lot again: you are in that channel, the soundboard is on,
+  // you are allowed, the sound exists, and you are not playing too fast. Every browser in the room (yours too) then plays it.
+  socket.on('soundboard:play', (p, ack) => {
+    const reply = typeof ack === 'function' ? ack : () => {};
+    const cid = typeof p?.channelId === 'string' ? p.channelId : '';
+    const room = voice.get(cid);
+    const f = room && room.get(uid) === socket.id ? findChannel(cid) : null;
+    if (!f || !f.server.members.includes(uid)) return reply({ error: 'Join the voice channel first' });
+    const sound = soundboardLib.find(f.server, p.soundId);
+    if (!sound) return reply({ error: 'That sound is gone' });
+    const why = soundboardLib.whyNot(f.server, { owner: uid === f.server.ownerId, admin: permsOf(f.server, uid).has('administrator'), roleIds: heldRoleIds(f.server, uid) });
+    if (why) return reply({ error: why });
+    if (!soundboardLib.allow(soundPlays, uid, now())) return reply({ error: 'One sound every few seconds, please', code: 'cooldown' });
+    for (const sid of room.values()) io.to(sid).emit('soundboard:play', { channelId: cid, soundId: sound.id, userId: uid });
+    reply({ ok: true });
+  });
   socket.on('voice:signal', (p) => {
     const room = voice.get(p?.channelId);
     const target = room && room.get(uid) === socket.id && room.get(p.to);
@@ -4872,6 +5156,9 @@ async function start() {
   const clipSweep = async () => { try { await sweepClips(); } catch (e) { console.error('Clip sweep failed:', e.message); } };
   await clipSweep(); // clips that expired while the server was off
   setInterval(clipSweep, 600_000).unref();
+  const eventSweep = () => { try { gatheringSweep(); } catch (e) { console.error('Event reminder sweep failed:', e.message); } };
+  eventSweep(); // an event that came due while the server was off: a late "starting now" is dropped, one that is still useful goes out
+  if (process.env.NODE_ENV !== 'test') setInterval(eventSweep, 30_000).unref(); // tests call gatheringSweep() themselves
   if (process.env.NODE_ENV !== 'test') botHost.startTimers(); // due bot timers are looked for every few seconds (tests call botHost.tick() themselves)
 }
 const ready = start();
@@ -4882,7 +5169,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep: for the tests
 
 
 /* HANDOFF: see HANDOFF.md in the project root for what this server does, what is done, and what is left. */

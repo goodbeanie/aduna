@@ -24,7 +24,10 @@ import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
 import RulesView from './Rules.jsx';
 import LoungePage, { LOUNGE_ICON } from './LoungePage.jsx';
+import EventsPage from './EventsPage.jsx';
+import { upcomingCount, liveNow } from './gatherings.js';
 import { mentionPreview } from './Mentions.jsx';
+import { plainText } from './stickers.js';
 import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
 import { StorageDock } from './Storage.jsx';
@@ -208,6 +211,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   const socketRef = useRef(null);
   const [toast, setToast] = useState(null); // an announcement banner: { key, serverId, channelId, title, body }
+  const [evToast, setEvToast] = useState(null); // an event reminder: { key, serverId, channelId, title, text, serverName }
   const [syncTick, setSyncTick] = useState(0); // goes up each time the live connection comes back after a drop: the open chat then fetches what it missed
   const serversRef = useRef([]);
   const viewRef = useRef(view);
@@ -254,7 +258,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           const who = usersRef.current[m.from];
           notify.show({
             title: `${who?.displayName || 'Someone'} \u00b7 ${groupsRef.current.titleFor(m.group)}`,
-            body: t.invite ? 'Sent a server invite' : t.text?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent a message'),
+            body: t.invite ? 'Sent a server invite' : plainText(t.text)?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent a message'),
             tag: 'm:' + m.id, target: 'g:' + m.group, kind: 'dm', sender: who?.displayName, icon: imageUrl(who?.avatarImage) || undefined, msgId: m.id, read: true,
           });
         })().catch(() => {});
@@ -302,7 +306,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     clearTimeout(readTimers.current[channelId]);
     readTimers.current[channelId] = setTimeout(() => { api(`/channels/${channelId}/read`, { method: 'POST', body: {} }).catch(() => {}); }, 600);
   };
-  const watchedKey = () => { const v = viewRef.current; return v?.kind === 'server' && !v.lounge && !document.hidden ? 'c:' + v.channelId : null; }; // the Lounge tab is open: no channel is being read
+  const watchedKey = () => { const v = viewRef.current; return v?.kind === 'server' && !v.lounge && !v.events && !document.hidden ? 'c:' + v.channelId : null; }; // the Lounge or Events tab is open: no channel is being read
   // Replace the saved numbers: for every channel (keys === null) or only for the given channel keys.
   const applyCounts = (counts, keys) => {
     const watch = watchedKey();
@@ -407,7 +411,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('message:new', (m) => {
       setChan((p) => ({ ...p, [m.channelId]: mergeById(p[m.channelId] || [], [m]) }));
       const v = viewRef.current;
-      const watching = v?.kind === 'server' && !v.lounge && v.channelId === m.channelId && !document.hidden;
+      const watching = v?.kind === 'server' && !v.lounge && !v.events && v.channelId === m.channelId && !document.hidden;
       if (watching) markRead(m.channelId); // reading it now: the saved position follows
       // The server decides who a message mentions (members only; @everyone only from the owner). Your own settings for the
       // server decide whether it counts and whether it may alert you.
@@ -420,7 +424,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         const who = usersRef.current[m.authorId]?.displayName || 'Someone';
         notify.show({
           title: who,
-          body: `${sv?.name || 'a server'}${ch ? ' \u00b7 #' + ch.name : ''} \u00b7 ${kind === 'everyone' ? '@everyone' : 'mentioned you'}\n${mentionPreview(m.content, usersRef.current).slice(0, 140) || 'Sent an attachment'}`,
+          body: `${sv?.name || 'a server'}${ch ? ' \u00b7 #' + ch.name : ''} \u00b7 ${kind === 'everyone' ? '@everyone' : 'mentioned you'}\n${mentionPreview(plainText(m.content), usersRef.current).slice(0, 140) || 'Sent an attachment'}`,
           tag: 'm:' + m.id, target: `c:${m.serverId}:${m.channelId}`, kind: 'mention',
           sender: who, icon: imageUrl(sv?.iconImage) || imageUrl(usersRef.current[m.authorId]?.avatarImage) || undefined, theme: sv?.theme || undefined,
           serverId: m.serverId, channelId: m.channelId, msgId: m.id, read: true, reply: ch?.type === 'announcements' ? undefined : 'inline',
@@ -444,7 +448,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         // DMs are encrypted: this device decrypts the text for the notification, the server never sees it
         (async () => {
           const [t, who] = await Promise.all([decryptMsg(m), usersRef.current[partner] || api('/users/' + partner).then((r) => r.user).catch(() => null)]);
-          notify.show({ title: who?.displayName || 'New message', body: t.invite ? 'Sent you a server invite' : t.text?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent you a message'), tag: 'm:' + m.id, target: 'd:' + partner, kind: 'dm',
+          notify.show({ title: who?.displayName || 'New message', body: t.invite ? 'Sent you a server invite' : plainText(t.text)?.slice(0, 140) || (t.attachments?.length ? 'Sent an attachment' : 'Sent you a message'), tag: 'm:' + m.id, target: 'd:' + partner, kind: 'dm',
             sender: who?.displayName, icon: imageUrl(who?.avatarImage) || undefined, peerId: partner, msgId: m.id, reply: 'open', read: true });
         })().catch(() => {});
       }
@@ -514,6 +518,14 @@ function Main({ me, setMe, privKey, openServerId }) {
       setToast({ key: messageId, serverId, channelId, title, body });
       if (notify.away() && prefsOf().announcements !== false) notify.show({ title: usersRef.current[authorId]?.displayName || sv.name, body: `${title} \u00b7 announcement\n${body}`, tag: 'm:' + messageId, target: `c:${serverId}:${channelId}`, kind: 'announcement', sender: usersRef.current[authorId]?.displayName || sv.name, icon: imageUrl(sv.iconImage) || undefined, theme: sv.theme || undefined, serverId, channelId, msgId: messageId, read: true });
     });
+    // An event reminder ("Game night · Starts in 15 minutes"): a banner with a one-tap Join voice button, and a system notification when Aduna is not in front.
+    s.on('gathering:reminder', ({ serverId, gatheringId, kind, title, text, serverName, channelId }) => {
+      const sv = serversRef.current.find((x) => x.id === serverId);
+      if (!sv) return;
+      const key = gatheringId + ':' + kind;
+      setEvToast({ key, serverId, channelId, title, text: `${serverName || sv.name} \u00b7 ${text}` });
+      if (notify.away() && prefsOf().announcements !== false) notify.show({ title, body: `${sv.name} \u00b7 ${text}`, tag: 'ev:' + key, target: channelId ? `v:${serverId}:${channelId}` : `e:${serverId}`, kind: 'announcement', sender: sv.name, icon: imageUrl(sv.iconImage) || undefined, theme: sv.theme || undefined, serverId });
+    });
     s.on('credits:update', ({ balance: b, delta, reason }) => {
       setBalance(b); setCreditsRev((n) => n + 1);
       if (delta > 0 && (reason === 'message' || reason === 'purchase' || reason === 'artist')) setGain({ key: Date.now(), delta });
@@ -558,6 +570,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   const voice = useVoice({ socketRef, ready: me.id });
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
+  useEffect(() => { if (!evToast) return undefined; const t = setTimeout(() => setEvToast(null), 60000); return () => clearTimeout(t); }, [evToast]);
 
   // ---------- load history when the view changes ----------
   const [loadedKeys, setLoadedKeys] = useState({}); // 'c:<channel>' / 'd:<user>' whose history has come back at least once (so the chat shows a skeleton, not "No messages yet", until then)
@@ -565,7 +578,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   useEffect(() => {
     if (!view) return;
     if (view.kind === 'server') {
-      if (!view.lounge) { clearUnread('c:' + view.channelId); markRead(view.channelId); } // with the Lounge tab open that channel is not being read (it still loads, so it is ready)
+      if (!view.lounge && !view.events) { clearUnread('c:' + view.channelId); markRead(view.channelId); } // with the Lounge or Events tab open that channel is not being read (it still loads, so it is ready)
       api(`/channels/${view.channelId}/messages`).then((r) => setChan((p) => ({ ...p, [view.channelId]: mergeById(p[view.channelId] || [], r.messages) }))).catch(() => {}).finally(() => markLoaded('c:' + view.channelId));
     } else if (view.userId) {
       clearUnread('d:' + view.userId);
@@ -575,14 +588,14 @@ function Main({ me, setMe, privKey, openServerId }) {
       clearUnread('g:' + view.groupId);
       groupsRef.current.loadMessages(view.groupId).catch(() => {}).finally(() => markLoaded('g:' + view.groupId));
     }
-  }, [view?.kind, view?.channelId, view?.lounge, view?.userId, view?.groupId, syncTick]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [view?.kind, view?.channelId, view?.lounge, view?.events, view?.userId, view?.groupId, syncTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Coming back to the tab counts as reading whatever channel / DM is open (messages that arrived while it was hidden were badged).
   useEffect(() => {
     const seen = () => {
       if (document.hidden) return;
       const v = viewRef.current;
-      if (v?.kind === 'server') { if (!v.lounge) { clearUnread('c:' + v.channelId); markRead(v.channelId); } }
+      if (v?.kind === 'server') { if (!v.lounge && !v.events) { clearUnread('c:' + v.channelId); markRead(v.channelId); } }
       else if (v?.kind === 'dm' && v.userId) clearUnread('d:' + v.userId);
       else if (v?.kind === 'dm' && v.groupId) clearUnread('g:' + v.groupId);
     };
@@ -598,11 +611,16 @@ function Main({ me, setMe, privKey, openServerId }) {
   const openTarget = async (t, { focus = false } = {}) => {
     if (focus) focusComposer();
     const [kind, a, b] = String(t || '').split(':');
-    if (kind === 'c') {
+    if (kind === 'c' || kind === 'v') { // 'v' is an event reminder for a voice channel: it opens the channel, one tap on Join voice from there
       const sv = serversRef.current.find((x) => x.id === a);
       if (!sv || !sv.channels.some((c) => c.id === b)) return;
       lastChan.current[sv.id] = b;
       setView({ kind: 'server', serverId: sv.id, channelId: b }); setShowList(false); setMembersOpen(false);
+    } else if (kind === 'e') { // 'e:<serverId>' the Events page of that server
+      const sv = serversRef.current.find((x) => x.id === a);
+      if (!sv) return;
+      const cid = lastChan.current[sv.id] && sv.channels.some((c) => c.id === lastChan.current[sv.id]) ? lastChan.current[sv.id] : sv.channels[0].id;
+      setView({ kind: 'server', serverId: sv.id, channelId: cid, events: true }); setShowList(false); setMembersOpen(false);
     } else if (kind === 'd' && /^[0-9a-f]{16}$/.test(a || '')) {
       let u = usersRef.current[a];
       if (!u) { try { u = (await api('/users/' + a)).user; } catch { return; } }
@@ -676,6 +694,15 @@ function Main({ me, setMe, privKey, openServerId }) {
   const loungeVisible = !!server && (!!server.lounge?.enabled || can(server, me.id, 'manageServer'));
   const loungeOpen = !!view?.lounge && loungeVisible;
   const openLounge = () => { setView({ kind: 'server', serverId: server.id, channelId: view.channelId, lounge: true }); setShowList(false); setMembersOpen(false); };
+  // The Events tab (server.gatherings): like the Lounge it keeps the channelId you were in, view.events says the page is on screen.
+  const eventsOpen = !!server && !!view?.events;
+  const openEvents = () => { setView({ kind: 'server', serverId: server.id, channelId: view.channelId, events: true }); setShowList(false); setMembersOpen(false); };
+  // The one-tap button: go to the voice channel and be in it (the voice panel shows who is there)
+  const joinEventVoice = (sv, ch) => {
+    lastChan.current[sv.id] = ch.id;
+    setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); setMembersOpen(false);
+    voice.actions.join(ch.id, sv.id);
+  };
   const dmUser = view?.kind === 'dm' && view.userId ? users[view.userId] : null;
   const group = view?.kind === 'dm' && view.groupId ? groups.byId[view.groupId] || null : null; // the group chat on screen
   const stageHere = !!dmUser && inCall(call.call) && call.call.peerId === dmUser.id; // the call is drawn in this conversation
@@ -1010,7 +1037,7 @@ function Main({ me, setMe, privKey, openServerId }) {
                 const loose = server.channels.filter((c) => !c.categoryId || !catIds.has(c.categoryId));
                 const row = (c) => (
                   <React.Fragment key={c.id}>
-                    <button className={'chan' + (c.id === view.channelId && !loungeOpen ? ' on' : '') + (unread['c:' + c.id] || mentions['c:' + c.id] ? ' unread' : '') + (np.effective(notePrefs[server.id], c.id, Date.now()).muted ? ' muted' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} onContextMenu={(e) => channelMenu(e, c)} title={np.effective(notePrefs[server.id], c.id, Date.now()).muted ? 'Muted \u00b7 right-click for notification settings' : undefined} {...chanDnd(c, isOwner)}>
+                    <button className={'chan' + (c.id === view.channelId && !loungeOpen && !eventsOpen ? ' on' : '') + (unread['c:' + c.id] || mentions['c:' + c.id] ? ' unread' : '') + (np.effective(notePrefs[server.id], c.id, Date.now()).muted ? ' muted' : '') + markClass('chan', c.id)} onClick={() => openChannel(c)} onContextMenu={(e) => channelMenu(e, c)} title={np.effective(notePrefs[server.id], c.id, Date.now()).muted ? 'Muted \u00b7 right-click for notification settings' : undefined} {...chanDnd(c, isOwner)}>
                       <span className="hash">{CHANNEL_ICON[c.type] ? <Icon name={CHANNEL_ICON[c.type]} size={18} /> : '#'}</span>{c.name}{mentions['c:' + c.id] > 0 && <span className="badge inline at" title="You were mentioned">@{fmtN(mentions['c:' + c.id])}</span>}{unread['c:' + c.id] > 0 && <span className="unread-dot" title={`${fmtN(unread['c:' + c.id])} unread`} aria-label={`${fmtN(unread['c:' + c.id])} unread`} />}
                     </button>
                     {c.type === 'voice' && (voice.members[c.id] || []).map((id) => users[id] && (
@@ -1025,6 +1052,10 @@ function Main({ me, setMe, privKey, openServerId }) {
                         <span className="hash"><Icon name={LOUNGE_ICON} size={18} /></span>Lounge{!server.lounge?.enabled && <span className="lg-tag" title="Only people who manage the server can see it">Hidden</span>}
                       </button>
                     )}
+                    <button className={'chan events-tab' + (eventsOpen ? ' on' : '')} onClick={openEvents}>
+                      <span className="hash"><Icon name="calendar" size={18} /></span>Events
+                      {upcomingCount(server, Date.now()) > 0 && <span className={'ev-pill' + (liveNow(server, Date.now()) ? ' live' : '')} title={liveNow(server, Date.now()) ? 'An event is happening now' : 'Upcoming events'}>{liveNow(server, Date.now()) ? 'Live' : upcomingCount(server, Date.now())}</span>}
+                    </button>
                     {(loose.length > 0 || cats.length === 0 || (isOwner && dragging)) && (
                       <div className={'cat-head' + markClass('cat', '_loose')} {...headDnd(null, isOwner)}><span className="cat-name static">Channels</span>
                         {isOwner && <button className="icon-btn cat-add" title="Create channel" aria-label="Create channel" onClick={() => setModal({ type: 'channel' })}><Icon name="plus" size={16} /></button>}
@@ -1133,14 +1164,20 @@ function Main({ me, setMe, privKey, openServerId }) {
           onBack={() => setShowList(true)} headerExtra={membersToggle} onChannel={openChannel}
           onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
       )}
-      {server && !loungeOpen && channel?.type === 'voice' && (
-        <VoicePanel channel={channel} voice={voice} users={users} me={me} presence={presence} onBack={() => setShowList(true)} headerExtra={membersToggle} />
+      {server && eventsOpen && !loungeOpen && (
+        <EventsPage key={server.id} server={server} users={users} me={me} voice={voice} canManage={can(server, me.id, 'manageServer')}
+          onBack={() => setShowList(true)} headerExtra={membersToggle}
+          onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))}
+          onJoin={(ch) => joinEventVoice(server, ch)} />
       )}
-      {server && !loungeOpen && channel?.type === 'rules' && (
+      {server && !loungeOpen && !eventsOpen && channel?.type === 'voice' && (
+        <VoicePanel channel={channel} server={server} voice={voice} users={users} me={me} presence={presence} onBack={() => setShowList(true)} headerExtra={membersToggle} />
+      )}
+      {server && !loungeOpen && !eventsOpen && channel?.type === 'rules' && (
         <RulesView server={server} channel={channel} isOwner={can(server, me.id, 'manageChannels')} onBack={() => setShowList(true)} headerExtra={membersToggle}
           onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
       )}
-      {server && !loungeOpen && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
+      {server && !loungeOpen && !eventsOpen && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
         <Chat title={channel.name} draftKey={'c:' + channel.id} loading={!loadedKeys['c:' + channel.id]} unreadCount={unread['c:' + channel.id] || 0} unreadExact={unreadCountsAll(server, channel)} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onPoll={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
           wordle={{ scopes: [{ id: 'global', label: 'Aduna daily' }, { id: server.id, label: server.name }] }}
@@ -1215,11 +1252,24 @@ function Main({ me, setMe, privKey, openServerId }) {
         </>
       )}
       <VoiceAudio voice={voice} />
-      {voice.state.channelId && !(channel?.id === voice.state.channelId) && (() => {
+      {voice.state.channelId && (!(channel?.id === voice.state.channelId) || eventsOpen) && (() => {
         const sv = servers.find((x) => x.channels.some((c) => c.id === voice.state.channelId)); const ch = sv?.channels.find((c) => c.id === voice.state.channelId);
         return ch && <div className="voice-dock"><Icon name="speaker" size={16} /><button className="link-btn" onClick={() => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }}>Voice connected · {ch.name}</button><button className="icon-btn" title={voice.state.muted ? 'Unmute' : 'Mute'} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={16} /></button><button className="icon-btn" title="Leave voice" onClick={voice.actions.leave}><Icon name="phone" size={16} /></button></div>;
       })()}
       {toast && <button className="toast" onClick={() => { const sv = servers.find((x) => x.id === toast.serverId); if (sv) { lastChan.current[sv.id] = toast.channelId; setView({ kind: 'server', serverId: sv.id, channelId: toast.channelId }); setShowList(false); } setToast(null); }}><Icon name="megaphone" size={18} /><span><b>{toast.title}</b><br />{toast.body}</span></button>}
+      {evToast && (() => {
+        const sv = servers.find((x) => x.id === evToast.serverId); const ch = sv?.channels.find((c) => c.id === evToast.channelId);
+        return sv && (
+          <div className="ev-toast" role="status" aria-live="polite">
+            <span className="ev-toast-icon"><Icon name="calendar" size={20} /></span>
+            <span className="ev-toast-text"><b>{evToast.title}</b>{evToast.text}</span>
+            {ch
+              ? <button className="btn primary" onClick={() => { setEvToast(null); joinEventVoice(sv, ch); }}>Join voice</button>
+              : <button className="btn" onClick={() => { setEvToast(null); setView({ kind: 'server', serverId: sv.id, channelId: view.serverId === sv.id ? view.channelId : sv.channels[0].id, events: true }); setShowList(false); }}>View</button>}
+            <button className="icon-btn" title="Dismiss" aria-label="Dismiss" onClick={() => setEvToast(null)}><Icon name="close" size={16} /></button>
+          </div>
+        );
+      })()}
       <Tooltips />
       <NotifyPrompt />
       <CommandPalette servers={servers} users={users} convos={convos} meId={me.id}
