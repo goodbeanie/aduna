@@ -31,6 +31,7 @@ const clipsLib = require('./clips'); // clips: short vertical videos (see the "c
 const screenLib = require('./screen'); // clip screening: OpenAI moderation of frames, music recognition, re-post matching (see POST /api/clips/:id/complete)
 const polls = require('./polls');
 const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global) and one for each server (see the "wordle" block below)
+const featuresLib = require('./features'); // feature releases: off / testing (creator accounts only) / live (see the "feature releases" block below)
 const calllog = require('./calllog');
 const groupsLib = require('./groups');
 const gallery = require('./themegallery');
@@ -176,6 +177,11 @@ const CREATOR_KEYS = new Set(String(process.env.CREATOR_EMAILS || 'adunachatapp@
 const isCreatorEmail = (email) => !!email && CREATOR_KEYS.has(security.emailKey(email));
 const isCreator = (u) => !!u && !u.bot && u.emailVerified === true && isCreatorEmail(u.email);
 storagePlan.setLifetime(isCreator); // the Aduna creator accounts have Aduna Plus for good, with no payment and no end date
+// Feature releases (server/features.js): a feature in testing is on for creator accounts only, a live one for everybody. Gate new work with
+// featureOn('id', req.user) or app.get(path, auth, needFeature('id'), handler): for anyone it is not on for, the route answers a plain 404.
+const featureOn = (id, u) => featuresLib.enabled(db().features, id, isCreator(u));
+const needFeature = (id) => (req, res, next) => (featureOn(id, req.user) ? next() : res.status(404).json({ error: 'Not found' }));
+const featuresFor = (u) => featuresLib.forUser(db().features, isCreator(u));
 const CREATOR_BADGE = { id: 'creator', name: 'Creator', builtin: true, image: null, emoji: '', color: '' };
 // The Artist badge: automatic once an artist's first item has been approved (db().artists[id].badge, see the artists block). The client draws it
 // from /badges/artist.png as a mask in the surrounding text colour (`glyph`), so it is white on dark themes and dark on light ones.
@@ -265,7 +271,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -3788,7 +3794,7 @@ function modTarget(req, res) {
   return u;
 }
 
-app.get('/api/admin/me', auth, adminOnly, (req, res) => res.json({ username: req.user.username, role: adminRole(req.user), canManageAdmins: isCreator(req.user) }));
+app.get('/api/admin/me', auth, adminOnly, (req, res) => res.json({ username: req.user.username, role: adminRole(req.user), canManageAdmins: isCreator(req.user), canManageFeatures: isCreator(req.user) }));
 
 app.get('/api/admin/summary', auth, adminOnly, (_req, res) => {
   const people = Object.values(db().users).filter((u) => !u.bot);
@@ -4016,6 +4022,32 @@ app.delete('/api/admin/admins/:id', auth, adminOnly, needCreator, (req, res) => 
   store.save();
   adminLogAdd(req.user, 'remove admin', u.username, '');
   res.json({ ok: true });
+});
+
+// ----- feature releases (the Features tab) -----
+// Creator accounts only. Each feature in server/features.js is off, testing (creator accounts see it, nobody else) or live (everyone).
+// A feature goes live only from testing; one or several can be released in one go (all or nothing). A change reaches every open app at once.
+function pushFeatures() {
+  const seen = new Set();
+  for (const s of io.sockets.sockets.values()) {
+    const uid = s.data.uid;
+    if (!uid || seen.has(uid) || !db().users[uid]) continue;
+    seen.add(uid);
+    io.to('user:' + uid).emit('features:update', featuresFor(db().users[uid]));
+  }
+}
+app.get('/api/admin/features', auth, adminOnly, needCreator, (_req, res) => res.json({ features: featuresLib.list(db().features) }));
+app.post('/api/admin/features', auth, adminOnly, needCreator, (req, res) => {
+  const state = req.body?.state;
+  const r = featuresLib.apply(db().features, req.body?.ids, state, req.user.id, now());
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  if (r.changed.length) {
+    store.save();
+    adminLogAdd(req.user, state === 'live' ? 'release feature' : state === 'testing' ? 'test feature' : 'switch off feature',
+      r.changed.map((m) => m.id).join(', '), r.changed.map((m) => `${m.from} to ${m.to}`).join(', '));
+    pushFeatures();
+  }
+  res.json({ ok: true, changed: r.changed, features: featuresLib.list(db().features) });
 });
 
 app.get('/api/admin/log', auth, adminOnly, ah(async (_req, res) => {

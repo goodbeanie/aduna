@@ -7,7 +7,7 @@ import './admin.css';
 // non-admins with a 404; if /api/admin/me fails here anyway, the page sends the visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['features', 'Features'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Creator', config: 'Admin (server settings)', admin: 'Admin' };
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
@@ -544,6 +544,81 @@ function ArtistReview() {
   );
 }
 
+// ---------- features ----------
+// Creator accounts only. A feature is off, in testing (only creator accounts see it, so you can try it on the real site) or live (everyone).
+// A feature can only go live from testing; one or several can be released together. The list of features lives in the code (server/features.js).
+const FSTATE = { off: 'Off', testing: 'Testing · creators only', live: 'Live · everyone' };
+function Features() {
+  const { me, say, run, ask } = useAdm();
+  const [rows, setRows] = useState(null);
+  const [sel, setSel] = useState(() => new Set());
+  const load = useCallback(() => api('/admin/features').then((r) => setRows(r.features)).catch((e) => { setRows([]); say(e.message, 'error'); }), [say]);
+  useEffect(() => { if (me.canManageFeatures) load(); }, [load, me.canManageFeatures]);
+  if (!me.canManageFeatures) return <Empty text="Only a creator account can test and release features." />;
+  if (!rows) return <p className="adm-muted">Loading…</p>;
+
+  const chosen = (state) => rows.filter((f) => sel.has(f.id) && f.state === state);
+  const toggle = (id) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const names = (list) => list.map((f) => f.name);
+
+  // list: the features to move, state: where to. Releasing and pulling back are asked about first, because everyone sees the result.
+  const move = async (list, state) => {
+    if (!list.length) return;
+    let ok = true;
+    if (state === 'live') {
+      ok = await ask({ title: list.length === 1 ? `Release “${list[0].name}” to everyone?` : `Release ${list.length} features to everyone?`, body: 'Everyone sees it right away, in every open app. You can pull it back to testing at any time.', lines: names(list), confirmLabel: list.length === 1 ? 'Release' : 'Release all' });
+    } else if (list.some((f) => f.state === 'live')) {
+      ok = await ask({ title: state === 'off' ? 'Switch off a live feature?' : 'Pull back to testing?', body: 'It disappears for everyone else right away' + (state === 'testing' ? ', and stays on for creator accounts.' : '.'), lines: names(list), confirmLabel: state === 'off' ? 'Switch off' : 'Pull back', danger: true });
+    }
+    if (!ok) return;
+    const verb = state === 'live' ? 'released' : state === 'testing' ? 'in testing' : 'switched off';
+    const worked = await run(() => api('/admin/features', { method: 'POST', body: { ids: list.map((f) => f.id), state } }).then((x) => { setRows(x.features); return x; }),
+      (x) => (x.changed.length ? `${x.changed.length === 1 ? x.changed[0].name : x.changed.length + ' features'} ${verb}` : 'Nothing to change'));
+    if (worked) setSel(new Set());
+  };
+
+  const readyToRelease = chosen('testing'), readyToTest = chosen('off');
+  return (
+    <>
+      <div className="adm-card">
+        <h3>How releasing works</h3>
+        <ul className="adm-lines">
+          <li><b>Off</b>: nobody sees it. <b>Testing</b>: only creator accounts see it, so you can try it on the real site first. <b>Live</b>: everyone sees it.</li>
+          <li>A feature goes live only from testing. Tick several and release them together, or release one at a time.</li>
+          <li>Changes reach every open app straight away, and you can pull a live feature back to testing or off. Everything is written to the Log.</li>
+        </ul>
+      </div>
+      <div className="adm-card">
+        <div className="adm-row">
+          <h3>Features</h3>
+          <div className="adm-actions">
+            <button className="adm-btn small" disabled={!readyToTest.length} onClick={() => move(readyToTest, 'testing')}>Start testing{readyToTest.length ? ` (${readyToTest.length})` : ''}</button>
+            <button className="adm-btn small primary" disabled={!readyToRelease.length} onClick={() => move(readyToRelease, 'live')}>Release selected{readyToRelease.length ? ` (${readyToRelease.length})` : ''}</button>
+          </div>
+        </div>
+        {rows.map((f) => (
+          <div className="adm-row adm-line" key={f.id}>
+            <div>
+              <label className="adm-check">
+                <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} aria-label={`Select ${f.name}`} />
+                <span><b>{f.name}</b> <span className={'adm-tag' + (f.state === 'testing' ? ' warn' : '')}>{FSTATE[f.state]}</span>
+                  <span className="adm-muted"> {f.desc}{f.at ? ` · changed ${when(f.at)}` : ''}</span></span>
+              </label>
+            </div>
+            <div className="adm-actions">
+              {f.state === 'off' && <button className="adm-btn small" onClick={() => move([f], 'testing')}>Start testing</button>}
+              {f.state === 'testing' && <button className="adm-btn small primary" onClick={() => move([f], 'live')}>Release</button>}
+              {f.state === 'testing' && <button className="adm-btn small" onClick={() => move([f], 'off')}>Switch off</button>}
+              {f.state === 'live' && <button className="adm-btn small" onClick={() => move([f], 'testing')}>Pull back to testing</button>}
+              {f.state === 'live' && <button className="adm-btn small danger" onClick={() => move([f], 'off')}>Switch off</button>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 // ---------- log ----------
 function Log() {
   const { say } = useAdm();
@@ -639,7 +714,7 @@ export default function AdminPage() {
         <header className="adm-top">
           <a className="adm-logo" href="/admin" onClick={(e) => { e.preventDefault(); go('overview'); }}>Aduna <small>Admin</small></a>
           <nav className="adm-nav" aria-label="Admin pages">
-            {TABS.map(([id, name]) => (
+            {TABS.filter(([id]) => id !== 'features' || me.canManageFeatures).map(([id, name]) => (
               <button key={id} className={'adm-tab' + (tab === id ? ' on' : '')} aria-current={tab === id ? 'page' : undefined} onClick={() => go(id)}>
                 {name}{id === 'reports' && reportCount > 0 && <b>{reportCount}</b>}{id === 'applications' && summary && summary.applications > 0 && <b>{summary.applications}</b>}
               </button>
@@ -655,6 +730,7 @@ export default function AdminPage() {
           {tab === 'artists' && <ArtistReview />}
           {tab === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
           {tab === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
+          {tab === 'features' && <Features />}
           {tab === 'admins' && <Admins openUser={openUser} />}
           {tab === 'log' && <Log />}
         </main>

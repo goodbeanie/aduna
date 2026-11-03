@@ -548,6 +548,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('connect', () => { if (connectedBefore) { loadNotes().catch(() => {}); setSyncTick((n) => n + 1); } connectedBefore = true; });
     s.on('presence', ({ userId, status }) => setPresence((p) => ({ ...p, [userId]: status })));
     s.on('user:update', (u) => { addUsers([u]); if (u.id === me.id) setMe((m) => ({ ...m, ...u })); });
+    s.on('features:update', (f) => setMe((m) => (m ? { ...m, features: f || {} } : m))); // a feature was tested, released or pulled back (server/features.js)
     s.on('server:update', (sv) => {
       setServers((prev) => (prev.some((x) => x.id === sv.id) ? prev.map((x) => (x.id === sv.id ? sv : x)) : [...prev, sv]));
       addUsers(sv.members);
