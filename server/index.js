@@ -4562,6 +4562,7 @@ credits.register(app, {
   notify: (uid, payload) => io.to('user:' + uid).emit('credits:update', payload),
   isDev: (u) => !!u.developer || isCreator(u), // may use the Halloween / Christmas test mode
   isCreator: (u) => isCreator(u),              // sees every badge in the shop, with its shop state
+  featureOn: (id, u) => featureOn(id, u),      // feature releases: 'rewarded-ads' and 'sponsored-card' gate the sponsors on Quests and Shop
   userChanged: (u) => emitUserUpdate(u),       // an event badge was earned
   paypalEvent: (ev) => storagePlan.handleEvent(ev, db()),            // storage plan renewals / cancellations from PayPal's signed webhook
   storageChanged: (uid) => { if (storageApi) storageApi.push(uid); },

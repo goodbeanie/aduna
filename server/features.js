@@ -14,8 +14,8 @@ const STATES = ['off', 'testing', 'live'];
 
 const REGISTRY = [
   { id: 'promoted-items', name: 'Promoted marketplace items', desc: 'Creators pay credits to feature their sticker packs and emoji in the Shop. (Planned: not built yet.)' },
-  { id: 'sponsored-card', name: 'Sponsored card', desc: 'One clearly labelled, static “Sponsored” card in the Shop or Quests. (Planned: not built yet.)' },
-  { id: 'rewarded-ads', name: 'Watch an ad for credits', desc: 'An opt-in “Watch a short ad, earn credits” button on the Quests tab, with a daily cap. (Planned: not built yet.)' },
+  { id: 'sponsored-card', name: 'Sponsored card', desc: 'One clearly labelled, static “Sponsored” card at the bottom of the Shop. Needs ADS_JSON set on the server.' },
+  { id: 'rewarded-ads', name: 'Watch an ad for credits', desc: 'An opt-in “Watch a sponsor, earn credits” button on the Quests tab, with a daily cap. Needs ADS_JSON set on the server.' },
 ];
 
 const has = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);

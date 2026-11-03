@@ -6,7 +6,7 @@ import { askConfirm, toast } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
-const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed', shop: 'Shop', artist: 'Artist sale' };
+const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed', shop: 'Shop', artist: 'Artist sale', ad: 'Sponsor' };
 const when = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 function Quest({ q, locked, busy, onClaim }) {
@@ -22,6 +22,70 @@ function Quest({ q, locked, busy, onClaim }) {
       {q.claimed
         ? <span className="quest-done"><Icon name="check" size={16} /> {q.daily ? 'Done today' : 'Claimed'}</span>
         : <button className="btn primary small-btn" disabled={!q.done || locked || busy === q.id} onClick={() => onClaim(q)}>{busy === q.id ? 'Claiming…' : q.done ? 'Claim' : `${q.have}/${q.need}`}</button>}
+    </div>
+  );
+}
+
+// ---- Sponsors (see server/ads.js). Nothing here ever shows in chat, voice or profiles; it only appears on this page, and only when the server has sponsors. ----
+// The quiet card: one picture, a label, no sound, no autoplay.
+function SponsorCard({ ad }) {
+  if (!ad) return null;
+  return (
+    <a className="sponsor-card" href={ad.url} target="_blank" rel="noopener noreferrer sponsored">
+      {ad.image && <img src={ad.image} alt="" loading="lazy" referrerPolicy="no-referrer" />}
+      <div className="sponsor-text">
+        <span className="sponsor-tag">Sponsored · {ad.sponsor}</span>
+        <b>{ad.title}</b>
+        {ad.body && <span className="muted small">{ad.body}</span>}
+      </div>
+    </a>
+  );
+}
+
+// "Watch a sponsor, earn credits". Opt-in: nothing starts until the button is pressed. The server runs the timer and pays; this only counts down.
+function WatchSponsor({ a, locked, onDone }) {
+  const [run, setRun] = useState(null);   // { token, ad, seconds }
+  const [left, setLeft] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!run) return undefined;
+    setLeft(run.seconds);
+    const iv = setInterval(() => setLeft((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(iv);
+  }, [run]);
+  async function start() {
+    setBusy(true); setErr('');
+    try { setRun(await api('/credits/ads/start', { method: 'POST' })); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+  async function finish() {
+    setBusy(true); setErr('');
+    try { const r = await api('/credits/ads/complete', { method: 'POST', body: { token: run.token } }); setRun(null); onDone(r); }
+    catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+  const cooling = a.nextAt && a.nextAt > Date.now();
+  return (
+    <div className="earn-card sponsor-watch">
+      <p>Watch a short sponsor for <b>{a.reward} credits</b>. Up to <b>{a.dailyMax} a day</b>. It is always your choice; nothing plays on its own.</p>
+      {!run && (
+        <>
+          <button className="btn primary small-btn" disabled={busy || locked || a.left <= 0 || cooling} onClick={start}>
+            {a.left <= 0 ? 'All done for today' : cooling ? 'Next one in a minute' : locked ? 'Unlocks after 30 minutes' : `Watch a sponsor (+${a.reward})`}
+          </button>
+          <div className="muted small">{a.watchedToday} of {a.dailyMax} watched today · resets at midnight UTC</div>
+        </>
+      )}
+      {run && (
+        <div className="sponsor-run">
+          <SponsorCard ad={run.ad} />
+          <button className="btn primary small-btn" disabled={busy || left > 0} onClick={finish}>{left > 0 ? `Keep this open… ${left}s` : `Collect +${a.reward} credits`}</button>
+          <button className="btn small-btn" onClick={() => setRun(null)}>Cancel</button>
+        </div>
+      )}
+      {err && <p className="error-text">{err}</p>}
     </div>
   );
 }
@@ -468,6 +532,12 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
             {locked && page === 'quests' && <p className="muted notice-line">New accounts can earn and claim rewards after 30 minutes. About {mins} min to go.</p>}
             {page === 'quests' && d.streakInfo && <StreakCard s={d.streakInfo} />}
             {page === 'quests' && d.event && <EventSection ev={d.event} locked={locked && !d.event.test} busy={busy} onClaim={claimSeason} onDoor={openDoor} />}
+            {page === 'quests' && d.ads?.enabled && d.ads.rewarded && (
+              <>
+                <h4 className="credit-h">Sponsors</h4>
+                <WatchSponsor a={d.ads} locked={locked} onDone={(r) => { setD(r); setNote(`+${r.amount} credits for watching a sponsor`); }} />
+              </>
+            )}
 
             {page === 'shop' && <>
             <div className="shop-head">
@@ -499,6 +569,8 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
                   </>
                 );
               })()}
+
+            {d.ads?.enabled && d.ads.sponsored && <SponsorCard ad={d.ads.sponsored} />}
 
             <h4 className="credit-h">Recent activity</h4>
             {d.ledger.length === 0 && <p className="muted small">Nothing yet. Credits you earn, buy or spend will show up here.</p>}

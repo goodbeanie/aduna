@@ -17,6 +17,7 @@ const events = require('./events'); // the Halloween / Christmas quests, the Adv
 const shop = require('./shop');     // what credits can be spent on (profile badges)
 const artists = require('./artists'); // artists sell badges in the shop and earn a share of each sale (cutFor)
 const pthemes = require('./profilethemes'); // gradient profile themes: free for everybody (animated ones can be switched on later)
+const ads = require('./ads');       // opt-in "watch a sponsor, earn credits" and the quiet sponsored card (off unless ADS_JSON is set)
 
 // ---------- tunables ----------
 const EARN = {
@@ -308,7 +309,7 @@ function streakView(c, now) {
 }
 
 // ---------- what the client sees ----------
-function view(u, db, { purchases, now = Date.now(), dev = false, creator = false }) {
+function view(u, db, { purchases, now = Date.now(), dev = false, creator = false, features = {} }) {
   const c = acct(u), d = today(c, now);
   return {
     balance: c.balance,
@@ -319,6 +320,7 @@ function view(u, db, { purchases, now = Date.now(), dev = false, creator = false
     packs: PACKS.map((p) => ({ ...p, currency: CURRENCY })),
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
     streakInfo: streakView(c, now),
+    ads: ads.view(u, { now, unlocksAt: unlocksAt(u), rewarded: !!features.rewarded, sponsored: !!features.sponsored }), // { enabled: false } unless sponsors are configured AND a feature switch is on for this person; never anything in chat or voice
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
     quests: questList(u, db, now),
     event: events.view(u, { now, dev }), // the Halloween / Christmas quests and Advent calendar, or null when no event is on
@@ -561,7 +563,13 @@ function register(app, d) {
   // developers (and the creator) can switch an event on for themselves to test it, see events.js
   const isDev = (u) => !!(d.isDev && d.isDev(u));
   const isCreator = (u) => !!(d.isCreator && d.isCreator(u));
-  const fullView = (u) => view(u, d.db(), { purchases: purchasesEnabled(), dev: isDev(u), creator: isCreator(u) });
+  // feature releases (features.js): 'rewarded-ads' and 'sponsored-card' decide whether this person sees the sponsor button and the card
+  const featureOn = (id, u) => !!(d.featureOn && d.featureOn(id, u));
+  const needRewardedAds = (req, res, next) => (featureOn('rewarded-ads', req.user) ? next() : res.status(404).json({ error: 'Not found' }));
+  const fullView = (u) => view(u, d.db(), {
+    purchases: purchasesEnabled(), dev: isDev(u), creator: isCreator(u),
+    features: { rewarded: featureOn('rewarded-ads', u), sponsored: featureOn('sponsored-card', u) },
+  });
 
   app.get('/api/credits', d.auth, (req, res) => res.json(fullView(req.user)));
 
@@ -571,6 +579,21 @@ function register(app, d) {
     d.save();
     push(req.user, r.amount, 'quest');
     res.json({ ...fullView(req.user), amount: r.amount, ...(r.milestone ? { milestone: r.milestone, milestoneStreak: r.streak } : {}) });
+  });
+
+  // ----- sponsors: opt-in "watch a sponsor, earn credits". The reward, timer and daily cap all live in ads.js; the browser only starts and finishes a view. -----
+  app.post('/api/credits/ads/start', d.auth, needRewardedAds, (req, res) => {
+    const r = ads.start(req.user, { unlocksAt: unlocksAt(req.user) });
+    if (!r.ok) return res.status(r.status).json({ error: r.error, ...(r.nextAt ? { nextAt: r.nextAt } : {}), ...(r.unlocksAt ? { unlocksAt: r.unlocksAt } : {}) });
+    d.save(); // the pending view is remembered, so a restart in the middle just means starting again
+    res.json({ token: r.token, ad: r.ad, seconds: r.seconds });
+  });
+  app.post('/api/credits/ads/complete', d.auth, needRewardedAds, (req, res) => {
+    const r = ads.complete(req.user, req.body?.token, { grant, unlocksAt: unlocksAt(req.user) });
+    if (!r.ok) { d.save(); return res.status(r.status).json({ error: r.error, ...(r.waitMs ? { waitMs: r.waitMs } : {}) }); }
+    d.save();
+    push(req.user, r.amount, 'ad');
+    res.json({ ...fullView(req.user), amount: r.amount });
   });
 
   // ----- the shop: spend credits on a badge. The price comes from shop.js; the browser only names the item. -----
@@ -702,7 +725,7 @@ function register(app, d) {
 
 module.exports = {
   EARN, PACKS, QUESTS, acct, grant, spend, claw, normalize, quality, similar, typingProblem,
-  noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events, shop, pthemes, STREAK_MILESTONES, streakView,
+  noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events, shop, pthemes, ads, STREAK_MILESTONES, streakView,
   verifyStripeSignature, createCheckout, handleStripeEvent, purchasesEnabled, register,
   paypalEnabled, ppToken, ppBase, ppId, createPaypalOrder, capturePaypalOrder, applyPaypalCapture, verifyPaypalWebhook, handlePaypalEvent,
   _reset: () => { spoke.clear(); seen.clear(); },
