@@ -117,6 +117,19 @@ html[data-grad] .composer { background: color-mix(in srgb, var(--field) 80%, tra
 .sponsor-tag { font-size: 11px; letter-spacing: .04em; text-transform: uppercase; opacity: .65; }
 .sponsor-run { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .sponsor-run .sponsor-card { margin: 4px 0; align-self: stretch; }
+/* the roomy card shown while watching: wide picture on top */
+.sponsor-card.big { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
+.sponsor-card.big img { width: 100%; height: auto; aspect-ratio: 16 / 9; border-radius: 10px; }
+.sponsor-cta { margin-top: 4px; font-size: 13px; color: var(--accent, inherit); font-weight: 600; }
+/* the countdown bar: fills over the viewing time, turns green when the reward is ready */
+.sponsor-bar { width: 100%; height: 10px; border-radius: 999px; background: var(--bg3, var(--line)); overflow: hidden; }
+.sponsor-bar-fill { height: 100%; border-radius: 999px; background: var(--accent, #5865f2); transition: width 1s linear; }
+.sponsor-bar-fill.done { background: #2ea043; }
+.sponsor-bar-text { margin-top: -2px; }
+.sponsor-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+/* Google AdSense unit in the Shop */
+.adsense-wrap { margin: 14px 0; display: flex; flex-direction: column; gap: 4px; }
+.adsense-unit { display: block; min-height: 90px; }
 .streak-top { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .streak-num { font-size: 28px; color: var(--head); line-height: 1; } .streak-flame { font-size: 22px; }
 .streak-warn { margin-top: 8px; padding: 6px 10px; border-radius: 8px; background: var(--err-bg); color: var(--err-fg); font-size: 13px; }

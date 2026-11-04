@@ -50,6 +50,26 @@ assert.strictEqual(cv({ sponsored: true }).rewarded, false, 'credits view: spons
 delete process.env.ADS_JSON;
 step('feature switches: rewarded-ads and sponsored-card each turn their own part on, and neither means nothing shows');
 
+// --- AdSense: optional, needs a well-formed publisher id and slot ---
+const S = require('./security');
+const gEnv = { ADSENSE_CLIENT: 'ca-pub-1234567890123456', ADSENSE_SLOT: '1234567890' };
+assert.deepStrictEqual(A.adsenseConfig({}), null, 'no AdSense settings: off');
+assert.deepStrictEqual(A.adsenseConfig({ ADSENSE_CLIENT: 'ca-pub-1234567890123456' }), null, 'a publisher id without a slot: off');
+assert.deepStrictEqual(A.adsenseConfig({ ADSENSE_CLIENT: 'nonsense', ADSENSE_SLOT: '1234567890' }), null, 'a malformed publisher id: off');
+assert.deepStrictEqual(A.adsenseConfig({ ADSENSE_CLIENT: 'ca-pub-1234567890123456', ADSENSE_SLOT: '12 34"><script>' }), null, 'a malformed slot: off');
+assert.deepStrictEqual(A.adsenseConfig(gEnv), { client: gEnv.ADSENSE_CLIENT, slot: gEnv.ADSENSE_SLOT });
+const onlyG = A.view(user(), { now: T0, env: gEnv });   // AdSense alone, no own sponsors
+assert.ok(onlyG.enabled && onlyG.adsense && onlyG.sponsored === null && onlyG.rewarded === false, 'AdSense alone shows the display unit but never the watch-for-credits button');
+assert.strictEqual(A.view(user(), { now: T0, env: gEnv, rewarded: false, sponsored: false }).enabled, false, 'both switches off: AdSense is hidden too');
+assert.strictEqual(A.view(user(), { now: T0, env: gEnv, rewarded: true, sponsored: false }).adsense, null, 'the sponsored-card switch off withholds the AdSense settings');
+assert.strictEqual(A.view(user(), { now: T0, env: { ...env, ...gEnv } }).rewarded, true, 'own sponsors plus AdSense: the button still works');
+const csp = (e) => S.securityHeaders(e);
+const hdr = (e) => { const h = {}; csp(e)({ secure: false }, { removeHeader() {}, setHeader: (k, v) => { h[k] = v; } }, () => {}); return h['Content-Security-Policy']; };
+assert.ok(!hdr({}).includes('googlesyndication'), 'no AdSense settings: the security policy is unchanged');
+assert.ok(hdr(gEnv).includes('script-src \'self\' https://pagead2.googlesyndication.com') && /frame-src https:\/\/googleads\.g\.doubleclick\.net/.test(hdr(gEnv)), 'AdSense on: Google script and frames are allowed');
+assert.ok(!hdr({ ADSENSE_CLIENT: 'nonsense' }).includes('googlesyndication'), 'a malformed id never opens the policy');
+step('AdSense: off unless the id and slot are well-formed, hidden by the switch, never gives the reward button, and the security policy opens only when it is on');
+
 // --- a full rewarded view ---
 const u = user();
 const s = A.start(u, { now: T0, env });

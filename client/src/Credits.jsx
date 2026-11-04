@@ -28,17 +28,43 @@ function Quest({ q, locked, busy, onClaim }) {
 
 // ---- Sponsors (see server/ads.js). Nothing here ever shows in chat, voice or profiles; it only appears on this page, and only when the server has sponsors. ----
 // The quiet card: one picture, a label, no sound, no autoplay.
-function SponsorCard({ ad }) {
+// `big` is the roomier layout used while someone is watching: a wide picture on top, then the text and a "Learn more" line.
+function SponsorCard({ ad, big = false }) {
   if (!ad) return null;
   return (
-    <a className="sponsor-card" href={ad.url} target="_blank" rel="noopener noreferrer sponsored">
+    <a className={`sponsor-card${big ? ' big' : ''}`} href={ad.url} target="_blank" rel="noopener noreferrer sponsored">
       {ad.image && <img src={ad.image} alt="" loading="lazy" referrerPolicy="no-referrer" />}
       <div className="sponsor-text">
         <span className="sponsor-tag">Sponsored · {ad.sponsor}</span>
         <b>{ad.title}</b>
         {ad.body && <span className="muted small">{ad.body}</span>}
+        {big && <span className="sponsor-cta">Learn more ↗</span>}
       </div>
     </a>
+  );
+}
+
+// A Google AdSense display unit (see server/ads.js adsenseConfig). Only drawn when the server hands over a publisher id and slot, which it does
+// only for people the 'sponsored-card' switch is on for. If Google or an ad blocker refuses, the box simply stays empty.
+function AdSenseUnit({ cfg }) {
+  useEffect(() => {
+    if (!cfg) return;
+    try {
+      if (!document.querySelector('script[data-adsense]')) {
+        const s = document.createElement('script');
+        s.async = true; s.crossOrigin = 'anonymous'; s.dataset.adsense = '1';
+        s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(cfg.client)}`;
+        document.head.appendChild(s);
+      }
+      (window.adsbygoogle = window.adsbygoogle || []).push({});
+    } catch { /* blocked: no ad, no problem */ }
+  }, [cfg && cfg.client, cfg && cfg.slot]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!cfg) return null;
+  return (
+    <div className="adsense-wrap">
+      <span className="sponsor-tag">Sponsored</span>
+      <ins className="adsbygoogle adsense-unit" data-ad-client={cfg.client} data-ad-slot={cfg.slot} data-ad-format="auto" data-full-width-responsive="true" />
+    </div>
   );
 }
 
@@ -56,7 +82,7 @@ function WatchSponsor({ a, locked, onDone }) {
   }, [run]);
   async function start() {
     setBusy(true); setErr('');
-    try { setRun(await api('/credits/ads/start', { method: 'POST' })); }
+    try { const r = await api('/credits/ads/start', { method: 'POST' }); setLeft(r.seconds); setRun(r); }
     catch (e) { setErr(e.message); }
     setBusy(false);
   }
@@ -80,9 +106,15 @@ function WatchSponsor({ a, locked, onDone }) {
       )}
       {run && (
         <div className="sponsor-run">
-          <SponsorCard ad={run.ad} />
-          <button className="btn primary small-btn" disabled={busy || left > 0} onClick={finish}>{left > 0 ? `Keep this open… ${left}s` : `Collect +${a.reward} credits`}</button>
-          <button className="btn small-btn" onClick={() => setRun(null)}>Cancel</button>
+          <SponsorCard ad={run.ad} big />
+          <div className="sponsor-bar" role="progressbar" aria-label="Time until your reward" aria-valuemin={0} aria-valuemax={run.seconds} aria-valuenow={run.seconds - left}>
+            <div className={`sponsor-bar-fill${left === 0 ? ' done' : ''}`} style={{ width: `${Math.round(((run.seconds - left) / run.seconds) * 100)}%` }} />
+          </div>
+          <div className="muted small sponsor-bar-text">{left > 0 ? `${left}s left to earn +${a.reward} credits` : 'All done. Collect your reward below.'}</div>
+          <div className="sponsor-actions">
+            <button className="btn primary small-btn" disabled={busy || left > 0} onClick={finish}>{left > 0 ? 'Keep this open…' : `Collect +${a.reward} credits`}</button>
+            <button className="btn small-btn" onClick={() => setRun(null)}>Cancel</button>
+          </div>
         </div>
       )}
       {err && <p className="error-text">{err}</p>}
@@ -571,6 +603,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
               })()}
 
             {d.ads?.enabled && d.ads.sponsored && <SponsorCard ad={d.ads.sponsored} />}
+            {d.ads?.enabled && d.ads.adsense && <AdSenseUnit cfg={d.ads.adsense} />}
 
             <h4 className="credit-h">Recent activity</h4>
             {d.ledger.length === 0 && <p className="muted small">Nothing yet. Credits you earn, buy or spend will show up here.</p>}

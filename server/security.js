@@ -34,6 +34,14 @@ function cspFor(env) {
     put('script-src', 'https://*.paypal.com https://*.paypalobjects.com'); put('frame-src', 'https://*.paypal.com');
     put('connect-src', 'https://*.paypal.com https://*.paypalobjects.com' + geo); put('img-src', 'https://*.paypal.com https://*.paypalobjects.com');
   }
+  // Google AdSense (only when ADSENSE_CLIENT is a real publisher id): Google's script, its ad frames and its reporting calls.
+  // If an ad ever fails to show, set CSP_MODE=report-only and read the browser console for the address that was blocked.
+  if (/^ca-pub-\d{10,20}$/.test(String(env.ADSENSE_CLIENT || '').trim())) {
+    put('script-src', 'https://pagead2.googlesyndication.com https://partner.googleadservices.com https://tpc.googlesyndication.com https://www.googletagservices.com https://*.google.com https://*.adtrafficquality.google');
+    put('frame-src', 'https://googleads.g.doubleclick.net https://tpc.googlesyndication.com https://*.googlesyndication.com https://*.google.com https://*.doubleclick.net https://*.adtrafficquality.google');
+    put('connect-src', 'https://pagead2.googlesyndication.com https://*.google.com https://*.doubleclick.net https://*.adtrafficquality.google');
+    put('img-src', 'https://pagead2.googlesyndication.com https://*.google.com https://*.doubleclick.net https://*.adtrafficquality.google');
+  }
   const clips = originOf(env.CLIPS_PUBLIC_URL);
   if (clips) { put('img-src', clips); put('media-src', clips); }
   if (clips && env.CLIPS_R2_BUCKET) {

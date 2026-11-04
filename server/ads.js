@@ -48,6 +48,13 @@ function catalog(env = process.env) {
   return out;
 }
 
+// Google AdSense, optional. ADSENSE_CLIENT is the publisher id ("ca-pub-1234567890123456") and ADSENSE_SLOT the ad unit's number.
+// Both must look right or AdSense stays off. Used for the display card in the Shop only; security.js opens the CSP for Google when it is set.
+function adsenseConfig(env = process.env) {
+  const client = String(env.ADSENSE_CLIENT || '').trim(), slot = String(env.ADSENSE_SLOT || '').trim();
+  return /^ca-pub-\d{10,20}$/.test(client) && /^\d{5,20}$/.test(slot) ? { client, slot } : null;
+}
+
 function rec(u, now) {
   const a = u.ads || (u.ads = {});
   if (!Number.isFinite(a.total)) a.total = 0;
@@ -69,19 +76,20 @@ const publicAd = (a) => ({ id: a.id, sponsor: a.sponsor, title: a.title, body: a
 // What the Quests / Shop pages get. `enabled: false` means show nothing at all.
 // `rewarded` and `sponsored` are the two feature switches (server/features.js: 'rewarded-ads' and 'sponsored-card'), already worked out for this person.
 function view(u, { now = Date.now(), env = process.env, unlocksAt = 0, rewarded = true, sponsored = true } = {}) {
-  const cat = catalog(env);
-  if (!cat.length || (!rewarded && !sponsored)) return { enabled: false };
+  const cat = catalog(env), adsense = adsenseConfig(env);
+  if ((!cat.length && !adsense) || (!rewarded && !sponsored)) return { enabled: false };
   const a = rec(u, now);
   const left = Math.max(0, ADS.dailyMax - a.today.watched);
   const nextAt = a.lastAt + ADS.cooldownMs;
   return {
     enabled: true,
-    rewarded: !!rewarded,
+    rewarded: !!rewarded && cat.length > 0,   // the watch-for-credits button needs our own sponsors (a view is timed and paid here)
     reward: ADS.reward, dailyMax: ADS.dailyMax, watchedToday: a.today.watched, left,
     seconds: Math.round(ADS.minViewMs / 1000),
     nextAt: nextAt > now ? nextAt : null,
     locked: unlocksAt > now,
-    sponsored: sponsored ? publicAd(sponsoredFor(u, now, cat)) : null,
+    sponsored: sponsored && cat.length ? publicAd(sponsoredFor(u, now, cat)) : null,
+    adsense: sponsored ? adsense : null,      // { client, slot } or null
   };
 }
 
@@ -117,4 +125,4 @@ function complete(u, token, { grant, now = Date.now(), env = process.env, unlock
   return { ok: true, amount, balance };
 }
 
-module.exports = { ADS, catalog, view, start, complete, sponsoredFor };
+module.exports = { ADS, catalog, adsenseConfig, view, start, complete, sponsoredFor };
