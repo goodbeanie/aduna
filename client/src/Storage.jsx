@@ -52,7 +52,7 @@ function CleanupModal({ needed = 0, fileName, limitMB = 0, readOnly = false, onU
   }
   return (
     <Modal title={needed ? (readOnly ? 'Attachments are read-only' : limitMB ? 'Your free storage is full' : 'Your storage is full') : 'Your files'} onClose={onCancel} wide>
-      {needed > 0 && readOnly && <p className="st-note">The free storage limit is now {limitMB} MB and you are over it. Your files are safe, but you cannot add attachments until you free up {fmt(needed)}{fileName ? <> for <b>{fileName}</b></> : ''}. Delete some old files{onUpgrade ? `, or get ${fmt(plusBytes)} of your own with Plus` : ''}. The oldest files are ticked.</p>}
+      {needed > 0 && readOnly && <p className="st-note">The free storage limit is now {limitMB} MB and you are over it. You cannot add attachments until you free up {fmt(needed)}{fileName ? <> for <b>{fileName}</b></> : ''}. Delete some old files{onUpgrade ? `, or get ${fmt(plusBytes)} of your own with Plus` : ''}. The oldest files are ticked. Older files could be removed to make room for others.</p>}
       {needed > 0 && !readOnly && <p className="st-note">{fileName ? <b>{fileName}</b> : 'This file'} needs {fmt(needed)} more room. The oldest files are ticked. Tick more if you like, then delete to send it.{onUpgrade ? ` Or get ${fmt(plusBytes)} of your own with Plus.` : ''}</p>}
       {err && <p className="error-text">{err}</p>}
       {!files && !err && <p className="muted small">Loading your files…</p>}
@@ -104,8 +104,8 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, busy }) {
             <>
               <div className="st-stat"><b>{fmt(s.used)}</b><span>of {fmt(s.freeLimit)} free storage used</span></div>
               <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round((s.used / s.freeLimit) * 100))}><i className={s.readOnly || s.used >= s.freeLimit * 0.95 ? 'full' : s.used >= s.freeLimit * 0.8 ? 'warn' : ''} style={{ width: Math.min(100, Math.round((s.used / s.freeLimit) * 100)) + '%' }} /></div>
-              {s.readOnly && <p className="st-note"><b>Attachments are read-only.</b> The free limit is now {fmt(s.freeLimit)} and you are over it. Your files are safe and you can still see and download them, but you cannot add more until you delete some files or get {fmt(s.plan.bytes)} of your own.</p>}
-              <p className="st-note">Free storage is limited per person, and old files expire after a while. The limit follows how many people support Aduna, so it can change. Your files are never removed because of that.</p>
+              {s.readOnly && <p className="st-note"><b>Attachments are read-only.</b> The free limit is now {fmt(s.freeLimit)} and you are over it. You can still see and download your files, but you cannot add more until you delete some files or get {fmt(s.plan.bytes)} of your own. Older files could be removed to make room for others.</p>}
+              <p className="st-note"><b>Heads up:</b> free storage is limited per person ({fmt(s.freeLimit)} right now) and old files expire after a while. The limit follows how many people support Aduna, so it can go down or up. Older files could be removed to make room, so download anything you want to keep, or get {fmt(s.plan.bytes)} of your own so nothing is ever removed.</p>
             </>
           ) : (
             <>
@@ -154,6 +154,15 @@ export function StorageDock({ storage, setStorage }) {
     setStorageFullHandler((info) => new Promise((resolve) => { fullRef.current?.resolve(false); setFull({ ...info, resolve }); }));
     return () => setStorageFullHandler(null);
   }, []);
+
+  // every free person is warned about their limit: once when the app opens, and again whenever the limit changes
+  const warnedLimit = useRef(null);
+  useEffect(() => {
+    if (!storage || storage.subscriber || !storage.freeLimit || warnedLimit.current === storage.freeLimit) return;
+    const first = warnedLimit.current === null;
+    warnedLimit.current = storage.freeLimit;
+    toast(`Free storage ${first ? 'is' : 'is now'} ${fmt(storage.freeLimit)} per person.${storage.readOnly ? ' You are over it, so attachments are read-only.' : ''} Older files could be removed to make room, so keep a copy of anything important.`);
+  }, [storage]);
 
   // back from PayPal: the server asks PayPal whether the plan is on (it never believes the browser)
   useEffect(() => {

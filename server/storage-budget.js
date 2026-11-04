@@ -2,28 +2,29 @@
 // Free storage budget: how much each free person may keep, worked out from what the paying people bring in.
 // Like storage.js this has no Express or database imports, so server/storage-budget-test.js can test it with fakes.
 //
-// The idea: every payer ($4.99 a month, $4.84 after fees) pays for a slice of storage cost, and the rest is profit. The free people
-// share that slice. The slice is split by the WORST case (every free person fills their limit), so the profit is guaranteed:
+// The idea: every payer brings in $4.85 a month (after fees and after the money set aside for their own 10 GB). 53.5% of that is profit
+// and the other 46.5% goes into one shared budget for the free people. The budget is split by the WORST case (every free person fills
+// their limit), so the profit is guaranteed:
 //
-//   budget      = payers x (NET_PER_SUB - PROFIT_FLOOR)  +  STORAGE_SUBSIDY_USD  +  R2's own free 10 GB (once, not per payer)
+//   budget      = payers x NET_PER_SUB x (1 - PROFIT_SHARE)  +  STORAGE_SUBSIDY_USD  +  R2's own free 10 GB (once, not per payer)
 //   free cost   = free people x limit x R2_USD_PER_GB
-//   limit       = the biggest 50 MB step whose free cost fits in (budget - what the paying people really store)
+//   limit       = the biggest 25 MB step whose free cost fits in (budget - what the paying people really store)
 //
-// 500 free : 1 payer gives $3.75, which is exactly 500 people x 500 MB, so the limit stays at the 500 MB ceiling. More free people per payer
-// pull it down in steps of 50 MB (down to a 50 MB floor); more payers let it climb back, one step per run, and only when there is 5% to spare
-// (so it does not flip up and down).
+// The limit is at most 350 MB per free person. More free people per payer pull it down in steps of 25 MB (down to a 50 MB floor); more
+// payers let it climb back, one step per run, and only when there is 5% to spare (so it does not flip up and down).
 //
 // Nothing is ever deleted here. A person over the limit can still see, download and delete their files; only NEW uploads are refused until
-// they are back under it (index.js POST /api/files). Everything is OFF until FREE_STORAGE_CAP=1 is set on the server: until then the worker
-// only works out and logs what the limit WOULD be, and uploads behave as before.
+// they are back under it (index.js POST /api/files). Free people are warned (in the app) about their limit and that older files could be
+// removed to make room. The cap is ON by default; set FREE_STORAGE_CAP=0 on the server to go back to a dry run, where the worker only works
+// out and logs what the limit WOULD be and uploads behave as before.
 
 const MB = 1024 * 1024, GB = 1024 ** 3;
 
 const num = (v, d) => (Number.isFinite(Number(v)) && v !== '' && v !== undefined && v !== null ? Number(v) : d);
 const defaults = (env = process.env) => ({
-  ceilingMB: 500, floorMB: 50, stepMB: 50,
-  netPerSub: 4.84,                                  // $4.99 after PayPal's fees
-  profitFloor: 1.09,                                // what is kept per payer before any free storage is paid for
+  ceilingMB: 350, floorMB: 50, stepMB: 25,
+  netPerSub: 4.85,                                  // what a payer brings in per month, after fees and after their own 10 GB is set aside
+  profitShare: 0.535,                               // the part of that which is kept as profit; the rest (46.5%) is the free people's budget
   usdPerGB: num(env.R2_USD_PER_GB, 0.015),          // R2 bills per GB-month; GB here is 1024^3 like the rest of the app (raise it a little if R2 bills decimal GB)
   r2FreeGB: 10,                                     // R2's free tier, once for the whole app
   subsidyUsd: num(env.STORAGE_SUBSIDY_USD, 0),      // optional: money you add to the budget yourself (launch period, no payers yet)
@@ -34,7 +35,7 @@ const CFG = defaults();
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));
 
 function budgetUsd(paid, cfg = CFG, scale = 1) {
-  return (paid * (cfg.netPerSub - cfg.profitFloor) + cfg.subsidyUsd + cfg.r2FreeGB * cfg.usdPerGB) * scale;
+  return (paid * cfg.netPerSub * (1 - cfg.profitShare) + cfg.subsidyUsd + cfg.r2FreeGB * cfg.usdPerGB) * scale;
 }
 
 // The free limit (in MB, a multiple of stepMB) that fits the budget. counts = { paid, free, paidBytes }:
@@ -63,9 +64,9 @@ const levelOf = (limitMB, cfg = CFG) => (limitMB >= cfg.ceilingMB ? 'healthy' : 
 function create(d) {
   const cfg = d.cfg || CFG;
   const nowMs = () => (d.now ? d.now() : Date.now());
-  const enabled = d.enabled || (() => process.env.FREE_STORAGE_CAP === '1');
+  const enabled = d.enabled || (() => process.env.FREE_STORAGE_CAP !== '0');
   const META = 'storage-budget';
-  let st = { limitMB: cfg.ceilingMB, paid: 0, free: 0, paidBytes: 0, over: 0, level: 'healthy', updatedAt: 0 };
+  let st = { limitMB: cfg.ceilingMB, paid: 0, free: 0, paidBytes: 0, over: 0, level: 'healthy', updatedAt: 0, announced: false };
   let overIds = new Set();
 
   const view = () => ({ ...st, enabled: !!enabled() });
@@ -79,7 +80,9 @@ function create(d) {
   }
 
   // One run. onOver(ids, limitMB) is called with the free people who have just gone over the limit (to show them the warning).
-  async function run(onOver) {
+  // onLimit(ids, limitMB) is called with ALL free people the first time the cap is on and every time the limit changes (so every free
+  // person gets the warning about their limit and about older files that could be removed).
+  async function run(onOver, onLimit) {
     const t = nowMs();
     const users = Object.values((d.db() && d.db().users) || {}).filter((u) => u && !u.bot);
     const bytes = await d.store.ownerBytes();                       // one grouped query for everybody
@@ -97,10 +100,13 @@ function create(d) {
     const fresh = [...nowOver].filter((id) => !overIds.has(id));
     overIds = nowOver;
     const before = st.limitMB;
-    st = { limitMB, paid, free, paidBytes, over: nowOver.size, level: levelOf(limitMB, cfg), updatedAt: t };
+    const on = !!enabled();
+    const announce = on && (limitMB !== before || !st.announced);
+    st = { limitMB, paid, free, paidBytes, over: nowOver.size, level: levelOf(limitMB, cfg), updatedAt: t, announced: !!st.announced || on };
     if (d.setMeta) { try { await d.setMeta(META, JSON.stringify(st)); } catch (e) { (d.log || console).error('Storage budget save failed:', e.message); } }
-    if (d.log) d.log.log(`Storage budget: ${paid} paying, ${free} free, free limit ${limitMB} MB${limitMB !== before ? ` (was ${before} MB)` : ''}, ${nowOver.size} over it${enabled() ? '' : ' (dry run: FREE_STORAGE_CAP is off)'}`);
-    if (enabled() && fresh.length && onOver) onOver(fresh, limitMB);
+    if (d.log) d.log.log(`Storage budget: ${paid} paying, ${free} free, free limit ${limitMB} MB${limitMB !== before ? ` (was ${before} MB)` : ''}, ${nowOver.size} over it${on ? '' : ' (dry run: FREE_STORAGE_CAP=0)'}`);
+    if (on && fresh.length && onOver) onOver(fresh, limitMB);
+    if (announce && freeUsers.length && onLimit) onLimit(freeUsers.map(String), limitMB);
     return view();
   }
 

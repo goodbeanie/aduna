@@ -11,7 +11,7 @@ const { sniffImage, sniffAny, cleanGif, stillGif } = require('./images');
 const animated = require('./animated'); // animated profile pictures, banners and server icons (a GIF cut to size with ffmpeg)
 const credits = require('./credits');
 const storagePlan = require('./storage');
-const storageBudgetLib = require('./storage-budget'); // how much a free person may keep (see the file's header); off until FREE_STORAGE_CAP=1
+const storageBudgetLib = require('./storage-budget'); // how much a free person may keep (see the file's header); on unless FREE_STORAGE_CAP=0
 const artistsLib = require('./artists'); // artists: apply, get reviewed, sell badges in the shop (see the "artists" block below)
 const stickersLib = require('./stickers'); // sticker packs: big pictures sent on their own, sold in the shop (see the "stickers" block below)
 const profileLib = require('./profile'); // pronouns, the games shelf and the profile song (rules only; the routes sit next to the profile image routes)
@@ -1752,7 +1752,7 @@ app.post('/api/files', auth, fileLimiter, express.raw({ type: '*/*', limit: MAX_
     if (cap !== null) {
       const used = await store.userFileBytes(req.user.id);
       const over = storagePlan.overQuota(used, buf.length, cap);
-      if (over) return res.status(409).json({ error: used > cap ? 'Attachments are read-only: you are over the free storage limit. Your files are safe.' : 'Your free storage is full', code: 'storage_full', ...over,
+      if (over) return res.status(409).json({ error: used > cap ? 'Attachments are read-only: you are over the free storage limit. Delete some files or get more room, because older files could be removed.' : 'Your free storage is full', code: 'storage_full', ...over,
         readOnly: used > cap, freeLimitMB: storageBudget.view().limitMB, canUpgrade: true, plusBytes: storagePlan.PLAN.bytes });
     }
     // everybody else shares the pool: when it is full, the oldest files of people without a plan make way
@@ -4633,7 +4633,7 @@ credits.register(app, {
   storageChanged: (uid) => { if (storageApi) storageApi.push(uid); },
 });
 // Free storage budget: the free people's own limit, worked out every 6 hours from how many people pay (server/storage-budget.js).
-// Dry run (only logged) until FREE_STORAGE_CAP=1 is set. Nothing is deleted when someone is over it: they just cannot add attachments.
+// Dry run (only logged) only when FREE_STORAGE_CAP=0 is set. Nothing is deleted when someone is over it: they just cannot add attachments.
 const storageBudget = storageBudgetLib.create({
   store, db,
   isSubscriber: (u, t) => storagePlan.isSubscriber(u, t),
@@ -5383,10 +5383,16 @@ async function start() {
   await store.pruneFiles(referencedFiles());
   await runCleanup(); // also clear out anything that expired while the server was off
   setInterval(runCleanup, 3600_000).unref();
-  // free storage limit: load the last one, work out the new one now and then every 6 hours; people who just went over it get the warning pushed to them
+  // free storage limit: load the last one, work out the new one now and then every 6 hours; people who just went over it get the warning pushed to them,
+  // and every free person gets the new limit (and the warning that older files could be removed) pushed when the cap is first on and whenever the limit changes
   await storageBudget.load();
   const budgetRun = async () => {
-    try { await storageBudget.run((ids) => { for (const id of ids) if (storageApi) storageApi.push(id); }); }
+    try {
+      await storageBudget.run(
+        (ids) => { for (const id of ids) if (storageApi) storageApi.push(id); },
+        (ids) => { for (const id of ids) if (storageApi) storageApi.push(id); },
+      );
+    }
     catch (e) { console.error('Storage budget run failed:', e.message); }
   };
   await budgetRun();
