@@ -5,6 +5,7 @@ import { RecoveryKeyCard } from './Recovery.jsx';
 import { DeviceSignIn } from './DeviceLogin.jsx';
 import SignupFlow from './SignupFlow.jsx';
 import { passkeysSupported, signInWithPasskey } from './passkeys.js';
+import { GoogleButton, GoogleFlow, startGoogle, pendingGoogle, clearGoogle } from './GoogleLogin.jsx';
 import { LANGS, getLang, setLang, useLang } from './i18n.js';
 
 // A problem with one field: submit() shows it under that field and moves focus there, instead of in the general box above the button.
@@ -12,7 +13,12 @@ const fieldError = (field, msg) => Object.assign(new Error(msg), { field });
 
 export default function Auth({ onAuthed }) {
   const { lang, t } = useLang();
-  const [mode, setMode] = useState(typeof location !== 'undefined' && location.hash === '#signup' ? 'register' : 'login');
+  // Back from Google (the server sends the web app to /app?google=1): pick the sign-in up where it left off. Otherwise a stale request id is ignored.
+  const [gid, setGid] = useState(() => (typeof location !== 'undefined' && /[?&]google=1(&|$)/.test(location.search) ? pendingGoogle() : ''));
+  const [gprofile, setGprofile] = useState(null); // Google's answer for a NEW account: { id, email, name }; the sign-up then skips the email box and the emailed code
+  const [googleOn, setGoogleOn] = useState(false); // the server has Google sign-in set up
+  const [mode, setMode] = useState(gid ? 'google' : typeof location !== 'undefined' && location.hash === '#signup' ? 'register' : 'login');
+  useEffect(() => { if (gid && typeof history !== 'undefined') { try { history.replaceState(null, '', location.pathname + location.hash); } catch { /* ignore */ } } }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -27,7 +33,7 @@ export default function Auth({ onAuthed }) {
   const [info, setInfo] = useState('');
   const [mailOk, setMailOk] = useState(false);        // the server can send email, so email recovery can be offered at sign-up
   const [apply, setApply] = useState(false);          // joining needs an application (an admin approves it) instead of making an account at once
-  useEffect(() => { api('/auth-options').then((o) => { setMailOk(!!o.emailRecovery); setApply(!!o.applyToJoin); }).catch(() => {}); }, []);
+  useEffect(() => { api('/auth-options').then((o) => { setMailOk(!!o.emailRecovery); setApply(!!o.applyToJoin); setGoogleOn(!!o.google); }).catch(() => {}); }, []);
   const [fresh, setFresh] = useState(null);     // just registered: { user, privateKey, key } until the recovery key is saved
   const [sent, setSent] = useState(null);       // just applied: { username, key } (key = the recovery key, shown once, or null) until they go back to log in
 
@@ -41,8 +47,9 @@ export default function Auth({ onAuthed }) {
       const ident = await createIdentity(form.password);
       const { user: made, applied } = await api('/register', {
         method: 'POST',
-        body: { username: form.username, email: form.email, password: form.password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, design: form.design, ...(form.reason ? { reason: form.reason, source: form.source } : {}), ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail ? { emailRecovery: true } : {}) },
+        body: { username: form.username, email: form.email, password: form.password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, design: form.design, ...(form.google ? { google: form.google } : {}), ...(form.reason ? { reason: form.reason, source: form.source } : {}), ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail ? { emailRecovery: true } : {}) },
       });
+      if (form.google) { clearGoogle(); setGprofile(null); setGid(''); } // used up: the account (or application) exists now
       if (applied) { // no account yet: an admin decides. The recovery key is shown now because it cannot be shown later.
         endSession();
         setSent({ username: form.username, key: useKey ? ident.recovery.key : null });
@@ -63,8 +70,17 @@ export default function Auth({ onAuthed }) {
       setFresh({ user, privateKey: ident.privateKey, key: ident.recovery.key }); // the recovery key is shown once before the app opens
     } catch (err) {
       endSession(); // a sign-up that did not finish must not leave a session behind
+      if (err.code === 'google_expired' || err.code === 'google_has_account') { clearGoogle(); setGprofile(null); setGid(''); } // fall back to the normal sign-up; the message says what to do
       throw err;
     }
+  }
+
+  // "Continue with Google": goes to Google (web) or opens the browser (apps), then GoogleFlow takes over. Returns a message when it could not start ('' otherwise).
+  async function googleStart() {
+    setError(''); setBusy(true);
+    try { setGid(await startGoogle()); setMode('google'); return ''; }
+    catch (err) { const m = err.message || 'Could not start Google sign-in.'; setError(m); return m; }
+    finally { setBusy(false); }
   }
 
   async function submit(e) {
@@ -163,9 +179,19 @@ export default function Auth({ onAuthed }) {
       <div className="auth-card"><DeviceSignIn onAuthed={onAuthed} onBack={() => switchMode('login')} /></div>
     </div>
   );
+  if (mode === 'google') return (
+    <div className="auth-bg">
+      <div className="auth-card">
+        <GoogleFlow id={gid} onAuthed={onAuthed}
+          onNew={(p) => { setGprofile(p); setMode('register'); }}
+          onBack={() => { setGid(''); switchMode('login'); }}
+          onForgot={() => { setGid(''); switchMode('recover'); }} />
+      </div>
+    </div>
+  );
   if (mode === 'register') return (
     <div className="auth-bg su-bg">
-      <SignupFlow mailOk={mailOk} apply={apply} onSubmit={register} onLogin={() => switchMode('login')} />
+      <SignupFlow mailOk={mailOk} apply={apply} onSubmit={register} onLogin={() => { setGprofile(null); switchMode('login'); }} google={gprofile} googleOn={googleOn} onGoogle={googleStart} />
     </div>
   );
   // props for a field that can carry its own error, and the message under it
@@ -228,6 +254,7 @@ export default function Auth({ onAuthed }) {
         <button className="btn primary full" disabled={busy}>{busy ? t('working') : mode === 'login' ? t('logIn') : (method === 'email' ? (mailed ? t('sendAgain') : t('sendLink')) : t('resetBtn'))}</button>
         {mode === 'login' && (
           <div className="auth-alt">
+            {googleOn && <GoogleButton label="Continue with Google" busy={busy} onClick={googleStart} />}
             {passkeysSupported() && <button type="button" className="btn full" disabled={busy} onClick={passkeyLogin}>{t('passkeyBtn')}</button>}
             <button type="button" className="btn full" disabled={busy} onClick={() => switchMode('device')}>{t('deviceBtn')}</button>
           </div>

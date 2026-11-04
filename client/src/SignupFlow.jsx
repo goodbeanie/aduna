@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
+import { GoogleButton } from './GoogleLogin.jsx';
 import { LANGS, setLang, useLang } from './i18n.js';
 import { Avatar } from './ui.jsx';
 import { Swatch } from './Appearance.jsx';
@@ -75,17 +76,22 @@ function Card({ theme, who, name, username, row, compact, t }) {
   );
 }
 
-export default function SignupFlow({ mailOk, apply, onSubmit, onLogin }) {
+export default function SignupFlow({ mailOk, apply, onSubmit, onLogin, google, googleOn, onGoogle }) {
   const { lang, t } = useLang();
   const [draft] = useState(readDraft); // what the person had made before a refresh
   const root = useRef(null);
   const nameRef = useRef(null);
   const narrow = useNarrow();
   const [step, setStep] = useState(1);
+  // Signed up through Google (`google` = { id, email, name }): the address is already verified, so there is no email box to fill and no emailed code.
+  // A username is suggested from the address; the display name starts as the Google name. Both stay editable.
+  const suggest = google ? String(google.email || '').split('@')[0].replace(/[^a-zA-Z0-9_]/g, '').slice(0, 20) : '';
+  const [gErr, setGErr] = useState('');
+  const [gBusy, setGBusy] = useState(false);
 
   // step 1
-  const [username, setUsername] = useState(typeof draft.username === 'string' ? draft.username.slice(0, 20) : '');
-  const [displayName, setDisplayName] = useState(typeof draft.displayName === 'string' ? draft.displayName.slice(0, 32) : '');
+  const [username, setUsername] = useState(typeof draft.username === 'string' && draft.username ? draft.username.slice(0, 20) : NAME.test(suggest) ? suggest : '');
+  const [displayName, setDisplayName] = useState(typeof draft.displayName === 'string' && draft.displayName ? draft.displayName.slice(0, 32) : google && google.name ? google.name.slice(0, 32) : '');
   const [avatarLogo, setAvatarLogo] = useState(!!draft.avatarLogo);
   const [avatarColor, setAvatarColor] = useState(() => (HUES.includes(draft.avatarColor) ? draft.avatarColor : HUES[Math.floor(Math.random() * HUES.length)]));
   const [themeId, setThemeId] = useState(typeof draft.themeId === 'string' ? draft.themeId : null);
@@ -97,7 +103,7 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin }) {
   const [left, setLeft] = useState(false);           // they have been in the username box and moved on, so a too-short name is worth flagging
 
   // step 2 and 3
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(google ? google.email : '');
   const [password, setPassword] = useState('');
   const [reason, setReason] = useState(typeof draft.reason === 'string' ? draft.reason.slice(0, REASON_MAX) : ''); // applications only: why they want to join
   const [source, setSource] = useState(typeof draft.source === 'string' ? draft.source.slice(0, 200) : '');        // applications only: where they heard of Aduna
@@ -173,7 +179,8 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin }) {
     setBusy(true);
     try {
       await onSubmit({
-        username: trimmed, email: email.trim(), password, useKey, useMail: useMail && mailOk,
+        username: trimmed, email: google ? google.email : email.trim(), password, useKey, useMail: useMail && mailOk,
+        ...(google ? { google: google.id } : {}),
         ...(apply ? { reason: reason.trim(), source: source.trim() } : {}),
         design: { displayName: displayName.trim(), avatarLogo, avatarColor, profileTheme: theme ? theme.id : null },
       });
@@ -187,6 +194,8 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin }) {
       setBusy(false);
     }
   }
+
+  async function useGoogle() { setGErr(''); setGBusy(true); const m = await onGoogle(); if (m) { setGErr(m); setGBusy(false); } } // on success this page is left (web) or replaced (apps)
 
   const problem = err && err.step === step ? <div className="error" role="alert">{err.msg}</div> : null;
   const list = (TABS.find(([g]) => g === tab) || TABS[0])[2];
@@ -229,6 +238,15 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin }) {
             {side}
 
             <div className="su-main">
+              {google ? (
+                <p className="hint su-status ok" role="status"><Tick />Signed in with Google as {google.email}. Your email is already verified: pick how your profile looks, then choose a password.</p>
+              ) : googleOn && onGoogle && (
+                <section className="su-sec">
+                  <GoogleButton label="Sign up with Google" busy={gBusy} onClick={useGoogle} />
+                  {gErr && <div className="error" role="alert">{gErr}</div>}
+                  <p className="hint center">Or make your profile below and use an email and password.</p>
+                </section>
+              )}
               <section className="su-sec">
                 <label htmlFor="su-username">{t('username')}</label>
                 <input id="su-username" ref={nameRef} value={username} onChange={(e) => setUsername(e.target.value.replace(/^@/, ''))} onBlur={() => setLeft(true)} autoFocus required maxLength={20}
@@ -308,15 +326,15 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin }) {
             <div className="su-main">
               <section className="su-sec">
                 <label htmlFor="su-email">{t('email')}</label>
-                <input id="su-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus required autoComplete="email" maxLength={254} placeholder="you@example.com" />
-                <p className="hint">{t('emailHint')}</p>
+                <input id="su-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus={!google} required readOnly={!!google} autoComplete="email" maxLength={254} placeholder="you@example.com" />
+                <p className="hint">{google ? 'Verified by Google. No code to enter.' : t('emailHint')}</p>
 
                 <label htmlFor="su-password">{t('password')}</label>
                 <div className="su-pw">
-                  <input id="su-password" type={showPw ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete="new-password" aria-describedby="su-password-hint" />
+                  <input id="su-password" type={showPw ? 'text' : 'password'} value={password} onChange={(e) => setPassword(e.target.value)} autoFocus={!!google} required minLength={8} autoComplete="new-password" aria-describedby="su-password-hint" />
                   <button type="button" className="su-pw-toggle" aria-pressed={showPw} onClick={() => setShowPw((v) => !v)}>{showPw ? t('suHidePw') : t('suShowPw')}</button>
                 </div>
-                <p id="su-password-hint" className="hint">{t('passwordHint')}</p>
+                <p id="su-password-hint" className="hint">{t('passwordHint')}{google ? ' It locks your messages on your devices. Google never sees it.' : ''}</p>
               </section>
 
               {apply && (

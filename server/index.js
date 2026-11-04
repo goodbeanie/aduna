@@ -22,6 +22,7 @@ const gatheringsLib = require('./gatherings'); // Events: a game night on Friday
 const security = require('./security');
 const totp = require('./totp');
 const devicelogin = require('./devicelogin');
+const googlelogin = require('./googlelogin'); // sign in / sign up with Google (see the file's header and the "Google" block below)
 const passkeys = require('./passkeys');
 const mailer = require('./mailer');
 const webpush = require('web-push');
@@ -445,7 +446,7 @@ app.get('/api/app-version', ah(async (req, res) => {
   appVersionCache = { at: Date.now(), data };
   res.json(data);
 }));
-app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled(), adunaServer: !!defaultServer(), applyToJoin: applicationsOn() })); // sign-up screen: can email recovery be offered (needs a mail provider)? does joining need an application?
+app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled(), adunaServer: !!defaultServer(), applyToJoin: applicationsOn(), google: !!googlelogin.settings() })); // sign-up screen: can email recovery be offered (needs a mail provider)? does joining need an application? is "Continue with Google" set up?
 
 // Sign-up, step 1 (design your profile): nobody is signed in yet, so the free profile themes are served here, and the username box can ask
 // whether a name is free while the person types. Usernames are public anyway (register answers 409 for a taken one); the limit keeps it from being a scraper.
@@ -586,6 +587,8 @@ function newUserFromSignup(f) {
     encPrivKey: f.encPrivKey,
     ...(f.recovery ? { recovery: f.recovery } : {}),
     ...(f.emailRecovery === true && mailer.enabled() ? { emailRecovery: true } : {}), // chosen at sign-up; only takes effect once the address is verified (emailRecoveryPossible)
+    // Signed up with Google: Google already proved the address, so there is no emailed code, and the creator address works with no mail provider.
+    ...(f.googleSub ? { googleSub: f.googleSub, emailVerified: true, ...(isCreatorEmail(f.email) ? { developer: { at: now() } } : {}) } : {}),
     lang: cleanLang(f.lang),
     // The app's sign-up sends setup:true: the person then picks a language and whether to join the Aduna server on the setup screen
     // (POST /api/me/setup). Other callers keep the old behaviour of joining it straight away.
@@ -596,8 +599,12 @@ function newUserFromSignup(f) {
 
 app.post('/api/register', authLimiter, async (req, res) => {
   const { username, password, publicKey, encPrivKey } = req.body || {};
+  // Signing up with Google: the page sends the secret id of its finished Google sign-in. The address then comes from Google (verified), never from the form.
+  const gid = typeof req.body?.google === 'string' ? req.body.google : '';
+  const g = gid ? googleLogins.get(gid) : null;
+  if (gid && !(g && g.status === 'ready' && g.profile)) return res.status(410).json({ error: 'That Google sign-in expired. Start again with Google.', code: 'google_expired' });
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username || '')) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
-  const email = security.cleanEmail(req.body?.email);
+  const email = g ? g.profile.email : security.cleanEmail(req.body?.email);
   if (!email) return res.status(400).json({ error: 'Enter a valid email address' });
   if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
   const weak = process.env.NODE_ENV === 'test' ? null : security.weakPassword(password, { username, email });
@@ -612,16 +619,20 @@ app.post('/api/register', authLimiter, async (req, res) => {
   if (usernameTaken(username)) return res.status(409).json({ error: 'Username already taken' });
   // With email verification on, a taken address is NOT reported here (that would reveal who is registered): the account is created unverified
   // and uniqueness is decided when the address is verified. With it off nothing can be verified, so the check has to happen now.
-  if (!mailer.enabled() && emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
+  if (g) { // Google already vouched for the address: an account that has this Google identity or verified address means "log in", except for the creator address, which can back any number
+    if (googleAccounts(g.profile).length && !isCreatorEmail(email)) return res.status(409).json({ error: 'This Google account already has an Aduna account. Log in with Google instead.', code: 'google_has_account' });
+  } else if (!mailer.enabled() && emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
   if (!isCreatorEmail(email) && !signups.allow(req.ip)) return res.status(429).json({ error: 'Too many accounts were created from this connection. Try again later.' });
 
   if (applying) {
     const key = security.emailKey(email);
     if (pendingApps().some((a) => security.emailKey(a.email) === key)) return res.status(409).json({ error: 'An application with this email is already waiting for review' });
     if (pendingApps().length >= MAX_PENDING_APPS) return res.status(503).json({ error: 'We have a lot of applications waiting right now. Please try again later.' });
+    if (g) googleLogins.consume(gid); // used once, before the slow password hash, so two quick submits cannot both make an account
     const d = req.body?.design && typeof req.body.design === 'object' ? req.body.design : {};
     const a = {
       id: store.id(), status: 'pending', username, email,
+      ...(g ? { googleSub: g.profile.sub } : {}), // approving it makes an account that is already verified, and linked to this Google identity
       passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey,
       ...(recovery ? { recovery } : {}),
       ...(req.body?.emailRecovery === true ? { emailRecovery: true } : {}),
@@ -639,7 +650,8 @@ app.post('/api/register', authLimiter, async (req, res) => {
     return res.json({ applied: true });
   }
 
-  const user = newUserFromSignup({ username, email, passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey, recovery, emailRecovery: req.body?.emailRecovery, lang: req.body?.lang, setup: req.body?.setup });
+  if (g) googleLogins.consume(gid); // used once, before the slow password hash (see above)
+  const user = newUserFromSignup({ username, email, googleSub: g ? g.profile.sub : '', passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey, recovery, emailRecovery: req.body?.emailRecovery, lang: req.body?.lang, setup: req.body?.setup });
   db().users[user.id] = user;
 
   if (!needsVerify(user) && user.joinAduna !== false) joinDefaultServer(user);
@@ -857,6 +869,82 @@ app.post('/api/me/device-login/deny', auth, (req, res) => {
   if (!deviceLooks.allow(req.user.id)) return res.status(429).json({ error: 'Too many tries. Wait a minute.' });
   res.json({ ok: deviceLogins.deny(req.body?.request) });
 });
+
+// ----- sign in / sign up with Google (server/googlelogin.js explains the flow and is tested on its own) -----
+// Google proves WHO the person is (an email it has verified) and nothing more. The password still locks the end-to-end encryption key that opens
+// their messages, so a device that does not hold the key yet asks for the password AFTER Google says yes (the page does that; the server never sees it).
+// What Google's answer means is decided here, from the accounts that match it:
+//   no account    -> a new one: the normal sign-up (profile design, password, recovery), minus the email field and the emailed code
+//   one account   -> sign in to it
+//   several       -> the person picks which one (the creator address can back any number of accounts)
+// An account matches by `googleSub` (stored the first time it is used with Google) or by a VERIFIED email that is the same address (dots and +tags ignored).
+// An UNVERIFIED address never matches: anyone can type someone else's address into the sign-up form, and the owner of that Google account must not
+// be signed in to the account of whoever typed it (they know its password, and so its encryption key).
+const googleLogins = new googlelogin.GoogleLogins();
+const googleStarts = new security.RateWindow(10, 10 * 60_000); // sign-ins started per address per 10 minutes
+const googlePolls = new security.RateWindow(150, 60_000);      // polls per address per minute (one every 2 s is 30)
+const googleRedirectUri = (req) => security.siteOrigin({ protocol: req.protocol, host: req.get('host') }) + '/api/auth/google/callback'; // add this exact address to the OAuth client's "Authorized redirect URIs"
+function googleAccounts(p) {
+  const key = security.emailKey(p.email);
+  return Object.values(db().users).filter((u) => !u.bot && !u.deleted && (u.googleSub === p.sub || (u.emailVerified === true && u.email && security.emailKey(u.email) === key)));
+}
+// What the account picker may show: only to the person who just proved, through Google, that the address is theirs.
+const googleChoice = (u) => ({ id: u.id, username: u.username, displayName: u.displayName, avatarColor: u.avatarColor, avatarLogo: !!u.avatarLogo, avatarImage: u.avatarImage || null, creator: isCreator(u) });
+const htmlEsc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+// The page the system browser shows in the desktop and Android apps once Google has answered (the app itself is polling). No script; only inline styles are allowed.
+const googleDonePage = (ok, msg) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Aduna</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#f6f2e8;color:#2a251e;font:16px/1.5 system-ui,sans-serif;text-align:center}main{max-width:24rem;padding:2rem}h1{font-size:1.3rem;margin:0 0 .5rem}p{margin:0}</style></head><body><main><h1>${ok ? 'Google says it is you' : 'Google sign-in did not finish'}</h1><p>${htmlEsc(msg)}</p></main></body></html>`;
+
+app.post('/api/auth/google/start', authLimiter, (req, res) => {
+  const cfg = googlelogin.settings();
+  if (!cfg) return res.status(503).json({ error: 'Sign in with Google is not set up on this server.' });
+  if (!googleStarts.allow(req.ip)) return res.status(429).json({ error: 'Too many sign-in attempts. Try again in a few minutes.' });
+  const r = googleLogins.start({ native: req.body?.native === true });
+  if (r.error) return res.status(503).json({ error: 'Busy right now. Try again in a minute.' });
+  res.json({ id: r.id, url: googleLogins.authUrl(cfg, googleRedirectUri(req), r) }); // `id` is the secret only this page holds; the address carries a different, throw-away state
+});
+// Google sends the browser back here. Nothing secret is shown or put in the address: the web app is sent back to /app and finds its result by polling
+// with its secret id, and the apps show a plain page (their own window is the one polling).
+app.get('/api/auth/google/callback', ah(async (req, res) => {
+  const cfg = googlelogin.settings();
+  const r = cfg ? await googleLogins.finish({ state: req.query.state, code: req.query.code, error: req.query.error }, cfg, googleRedirectUri(req)) : null;
+  res.set({ 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" });
+  if (!r) return res.redirect(302, '/app'); // not a sign-in this server started (or already used): nothing to say
+  if (r.native) return res.type('html').send(googleDonePage(r.status === 'ready', r.status === 'ready' ? 'Go back to Aduna to finish.' : r.error));
+  res.redirect(302, '/app?google=1');
+}));
+// The page asks how its sign-in went. 'ready' carries the accounts that match (none, one or several) so the page can choose what to show.
+app.post('/api/auth/google/poll', (req, res) => {
+  if (!googlePolls.allow(req.ip)) return res.status(429).json({ error: 'Too many requests. Slow down.' });
+  const r = googleLogins.get(req.body?.id);
+  if (!r) return res.json({ status: 'expired' });
+  if (r.status === 'pending') return res.json({ status: 'pending' });
+  if (r.status === 'failed') { googleLogins.consume(r.id); return res.json({ status: 'failed', error: r.error }); }
+  const accounts = googleAccounts(r.profile);
+  res.json({ status: 'ready', email: r.profile.email, name: r.profile.name, accounts: accounts.map(googleChoice), canCreate: accounts.length === 0 || isCreatorEmail(r.profile.email) });
+});
+// Sign in to one of the matching accounts. Two-factor still applies: Google replaces the password check, not the second factor.
+app.post('/api/auth/google/signin', authLimiter, ah(async (req, res) => {
+  const r = googleLogins.get(req.body?.id);
+  if (!r || r.status !== 'ready' || !r.profile) return res.status(410).json({ error: 'That Google sign-in expired. Start again.', code: 'google_expired' });
+  const user = googleAccounts(r.profile).find((u) => u.id === String(req.body?.account ?? ''));
+  if (!user) return res.status(404).json({ error: 'That account does not match this Google account.' });
+  if (user.suspended) return res.status(403).json({ error: user.suspended.reason ? `This account has been suspended: ${user.suspended.reason}` : 'This account has been suspended.', code: 'suspended' });
+  const lock = loginGuard.check(user.username, req.ip);
+  if (lock.blocked) {
+    res.set('Retry-After', String(lock.retryAfterSec));
+    return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
+  }
+  if (user.totp && user.totp.enabled) {
+    const code = String(req.body?.code ?? '').trim();
+    if (!code) return res.status(401).json({ error: 'Enter the 6-digit code from your authenticator app.', code: '2fa_required' });
+    if (!secondFactorOk(user, code)) { loginGuard.fail(user.username, req.ip); return res.status(401).json({ error: 'That code is not right.', code: '2fa_invalid' }); }
+  }
+  loginGuard.success(user.username, req.ip);
+  if (user.googleSub !== r.profile.sub) user.googleSub = r.profile.sub; // remembered, so the account is found even if the Google address changes later
+  googleLogins.consume(r.id);
+  store.save();
+  res.json({ token: startSession(req, res, user), user: ownUser(user), encPrivKey: user.encPrivKey });
+}));
 
 // ----- passkeys (server/passkeys.js explains the idea) -----
 // A passkey signs a one-time challenge instead of typing the password, and (through the browser's "prf" extension) unlocks the same
@@ -3899,7 +3987,7 @@ function appTarget(req, res) {
 app.post('/api/admin/applications/:id/approve', auth, adminOnly, ah(async (req, res) => {
   const a = appTarget(req, res); if (!a) return;
   if (usernameTaken(a.username, a.id)) return res.status(409).json({ error: 'That username has since been taken. Deny this application and ask them to apply again with another one.' });
-  if (!mailer.enabled() && emailTaken(a.email)) return res.status(409).json({ error: 'An account with this email already exists' });
+  if (a.googleSub ? emailClaimed(a.email) : (!mailer.enabled() && emailTaken(a.email))) return res.status(409).json({ error: 'An account with this email already exists' });
   const user = newUserFromSignup(a);
   const d = a.design || {};
   if (d.displayName) user.displayName = d.displayName;
