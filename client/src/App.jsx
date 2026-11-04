@@ -799,7 +799,10 @@ function Main({ me, setMe, privKey, openServerId }) {
     if (view.kind === 'server') return emitAck(s, 'message:send', { channelId: view.channelId, content: text, replyTo, attachments: atts, typing });
     if (group) return groups.send(group.id, text, atts, replyTo);
     const enc = await encryptFor(privKey, dmUser.publicKey, wrapDm(text, atts));
-    return emitAck(s, 'dm:send', { to: dmUser.id, ...enc, replyTo, files: atts.map((a) => a.id).filter(Boolean), quest: questHint(text, atts) });
+    // The server cannot read the message, so the phone notification would only say who wrote. If they left "Show message text in
+    // notifications" on (the default), attach a short plain preview for that one push (the server never stores it).
+    const preview = dmUser.dmPreview !== false ? (plainText(text) || '').slice(0, 140) : '';
+    return emitAck(s, 'dm:send', { to: dmUser.id, ...enc, replyTo, files: atts.map((a) => a.id).filter(Boolean), quest: questHint(text, atts), ...(preview ? { preview } : {}) });
   };
   // The getting-started list ticks "Say hello" once a message has gone out (FirstRun.jsx keeps the flag in this browser).
   const send = async (...args) => { const r = await sendMsg(...args); markSaidHello(me.id); return r; };

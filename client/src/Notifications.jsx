@@ -57,6 +57,13 @@ export function NotificationSettings({ me, onPrefs }) {
     try { const r = await api('/me/notifications', { method: 'PUT', body: next }); onPrefs(r.notifPrefs); }
     catch { onPrefs(prefs); setMsg('Could not save that. Try again.'); }
   };
+  const [preview, setPreview] = useState(me.dmPreview !== false);
+  useEffect(() => { setPreview(me.dmPreview !== false); }, [me.dmPreview]);
+  const setPreviewPref = async (value) => {
+    setPreview(value);
+    try { const r = await api('/me/notifications', { method: 'PUT', body: { dmPreview: value } }); setPreview(r.dmPreview !== false); }
+    catch { setPreview(!value); setMsg('Could not save that. Try again.'); }
+  };
 
   return (
     <div className="notify-settings">
@@ -103,6 +110,13 @@ export function NotificationSettings({ me, onPrefs }) {
         </React.Fragment>
       ))}
       <p className="muted small hint">{t('nFooter')}</p>
+
+      <label>Message text</label>
+      <label className="check-row">
+        <input type="checkbox" checked={preview} onChange={(e) => setPreviewPref(e.target.checked)} />
+        <span>Show message text in notifications</span>
+      </label>
+      <p className="muted small hint">Direct messages are end-to-end encrypted, so the server can’t read them. When this is on, your friends’ apps attach a short preview (up to 140 characters) to the one notification sent to your phone, so it can show what was said. It isn’t stored. Turn it off and DM notifications only say who wrote.</p>
     </div>
   );
 }

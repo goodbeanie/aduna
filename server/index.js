@@ -267,6 +267,7 @@ function publicUser(u) {
     profileGradient: credits.pthemes.customOf(u), // the colours and angle when that theme is the person's own custom gradient
     status: u.status === 'invisible' ? 'offline' : u.status, // other people never learn that someone chose Invisible (ownUser / selfView carry the real value)
     publicKey: u.publicKey,
+    dmPreview: u.dmPreview !== false, // whether this person wants the text of a DM in their phone notifications (default on); friends' apps read it to decide whether to send a preview
     createdAt: u.createdAt,
     bot: !!u.bot, // a bot account (see the bots runtime block): shown with a BOT tag
   };
@@ -4825,8 +4826,12 @@ app.post('/api/push/unsubscribe', auth, (req, res) => {
 // Which kinds of notification this account gets (on every device).
 app.put('/api/me/notifications', auth, (req, res) => {
   req.user.notifPrefs = cleanPrefs(req.body, req.user.notifPrefs);
+  // "Show message text in notifications": a separate switch, default on. Friends' apps read it (publicUser.dmPreview) before they send a DM preview.
+  const prevPreview = req.user.dmPreview !== false;
+  if (typeof req.body?.dmPreview === 'boolean') req.user.dmPreview = req.body.dmPreview;
   store.save();
-  res.json({ notifPrefs: req.user.notifPrefs });
+  if ((req.user.dmPreview !== false) !== prevPreview) emitUserUpdate(req.user);
+  res.json({ notifPrefs: req.user.notifPrefs, dmPreview: req.user.dmPreview !== false });
 });
 // "Playing ..." on the profile (server/activity.js). PUT { name, source: 'auto' | 'manual' } sets or refreshes the game; { name: null, source } clears it.
 // The desktop app reports a detected game ('auto') about once a minute; Settings > Activity types one ('manual'). While the person has
@@ -5184,8 +5189,15 @@ io.on('connection', (socket) => {
     if (p.quest === 'trick' || p.quest === 'gif') credits.events.noteDm(db().users[uid], to, p.quest, { dev: !!db().users[uid].developer || isCreator(db().users[uid]), minAgeMs: credits.EARN.minAccountAgeMs });
     store.save();
     io.to('user:' + uid).to('user:' + to.id).emit('dm:new', msg);
-    // end-to-end encrypted: the server cannot read it, so the notification only says who wrote
-    pushSafe(to.id, 'dm', { title: db().users[uid]?.displayName || 'Someone', body: 'Sent you a message', url: `/app?n=d:${uid}`, tag: 'm:' + msg.id,
+    // end-to-end encrypted: the server cannot read it. The notification says who wrote, and, only if the recipient left "Show message text in
+    // notifications" on (the default), a short preview the sender's app attached for this one push. The preview is never stored or sent anywhere else.
+    let pushBody = 'Sent you a message';
+    if (to.dmPreview !== false) {
+      const pv = typeof p.preview === 'string' ? p.preview.replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 140) : '';
+      if (pv) pushBody = pv;
+      else if (files.length) pushBody = 'Sent an attachment';
+    }
+    pushSafe(to.id, 'dm', { title: db().users[uid]?.displayName || 'Someone', body: pushBody, url: `/app?n=d:${uid}`, tag: 'm:' + msg.id,
       sender: db().users[uid]?.displayName, icon: imgPath(db().users[uid]?.avatarImage), peerId: uid, msgId: msg.id, reply: 'open', read: true });
     reply({ ok: true });
   });

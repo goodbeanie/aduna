@@ -77,6 +77,21 @@ const sub = (n) => ({ endpoint: 'https://fcm.googleapis.com/fcm/send/secret-endp
   assert.strictEqual(got[0].peerId, alice.user.id); assert.strictEqual(got[0].reply, 'open', 'a DM cannot be answered from the notification (encrypted): it opens the chat'); assert.strictEqual(got[0].read, true);
   step('DM pushes who wrote, never what');
 
+  // ---- DM preview: on by default, the recipient can turn it off ----
+  take();
+  assert.ok((await ack(sa, 'dm:send', { to: bob.user.id, ciphertext: 'SECRETCIPHERTEXT2', iv: 'iv', preview: '  hello\n\tthere  ' })).ok);
+  await wait(50);
+  got = take();
+  assert.strictEqual(got.length, 1); assert.strictEqual(got[0].body, 'hello there', 'the preview is cleaned and used while the recipient has previews on');
+  assert.ok(!JSON.stringify(got[0]).includes('SECRETCIPHERTEXT2'));
+  assert.strictEqual((await call('/me/notifications', { method: 'PUT', token: bob.token, body: { dmPreview: false } })).dmPreview, false);
+  assert.ok(await ack(sa, 'dm:send', { to: bob.user.id, ciphertext: 'c3', iv: 'iv', preview: 'should not show' }));
+  await wait(50);
+  got = take();
+  assert.strictEqual(got.length, 1); assert.strictEqual(got[0].body, 'Sent you a message', 'with previews off the preview is ignored');
+  assert.strictEqual((await call('/me/notifications', { method: 'PUT', token: bob.token, body: { dmPreview: true } })).dmPreview, true);
+  step('DM preview follows the recipient\u2019s switch');
+
   // ---- channel messages: only pings notify ----
   const server = (await call('/servers', { method: 'POST', token: alice.token, body: { name: 'Hangout' } })).server;
   for (const u of [bob, carol]) assert.strictEqual((await call('/servers/join', { method: 'POST', token: u.token, body: { code: server.inviteCode } })).status, 200);

@@ -1,7 +1,9 @@
 // Web Push for the installed mobile app (PWA) and for browsers: notifications that arrive while Aduna is closed.
 // Like credits.js and security.js this has no Express / Postgres imports, so server/push-test.js can test it alone.
 //
-// Privacy: DMs are end-to-end encrypted, so a DM push only says who wrote ("New message"), never what.
+// Privacy: DMs are end-to-end encrypted, so by itself a DM push only says who wrote ("Sent you a message"), never what.
+// The one exception is the recipient's own "Show message text in notifications" switch (user.dmPreview, default on): then the sender's app
+// attaches a short preview to that single push (see dm:send in index.js). It is never stored.
 // Channel pings carry a short preview because the server already stores channel messages.
 
 const KINDS = { dm: 'dm', mention: 'mentions', announcement: 'announcements', call: 'calls', friend: 'friends' };
