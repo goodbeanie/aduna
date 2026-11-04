@@ -32,7 +32,7 @@ let returnUsed = false;
 
 // The window that lists your files, oldest first. With `needed` (a full plan) the oldest are ticked until that much is freed, and Delete
 // stays off until enough is ticked; you can tick more. Without it, it is just a file manager.
-function CleanupModal({ needed = 0, fileName, onDone, onCancel }) {
+function CleanupModal({ needed = 0, fileName, limitMB = 0, readOnly = false, onUpgrade, plusBytes = 0, onDone, onCancel }) {
   const [files, setFiles] = useState(null);
   const [pick, setPick] = useState(new Set());
   const [busy, setBusy] = useState(false);
@@ -51,8 +51,9 @@ function CleanupModal({ needed = 0, fileName, onDone, onCancel }) {
     catch (e) { setErr(e.message); setBusy(false); }
   }
   return (
-    <Modal title={needed ? 'Your storage is full' : 'Your files'} onClose={onCancel} wide>
-      {needed > 0 && <p className="st-note">{fileName ? <b>{fileName}</b> : 'This file'} needs {fmt(needed)} more room. The oldest files are ticked. Tick more if you like, then delete to send it.</p>}
+    <Modal title={needed ? (readOnly ? 'Attachments are read-only' : limitMB ? 'Your free storage is full' : 'Your storage is full') : 'Your files'} onClose={onCancel} wide>
+      {needed > 0 && readOnly && <p className="st-note">The free storage limit is now {limitMB} MB and you are over it. Your files are safe, but you cannot add attachments until you free up {fmt(needed)}{fileName ? <> for <b>{fileName}</b></> : ''}. Delete some old files{onUpgrade ? `, or get ${fmt(plusBytes)} of your own with Plus` : ''}. The oldest files are ticked.</p>}
+      {needed > 0 && !readOnly && <p className="st-note">{fileName ? <b>{fileName}</b> : 'This file'} needs {fmt(needed)} more room. The oldest files are ticked. Tick more if you like, then delete to send it.{onUpgrade ? ` Or get ${fmt(plusBytes)} of your own with Plus.` : ''}</p>}
       {err && <p className="error-text">{err}</p>}
       {!files && !err && <p className="muted small">Loading your files…</p>}
       {files && files.length === 0 && <p className="muted small">You have no stored files.</p>}
@@ -80,6 +81,7 @@ function CleanupModal({ needed = 0, fileName, onDone, onCancel }) {
       <div className="st-actions">
         <span className="muted small">{pick.size ? `${pick.size} selected · ${fmt(sum)}` : 'Nothing selected'}{needed > 0 && !enough && pick.size > 0 ? ` · ${fmt(needed - sum)} more needed` : ''}</span>
         <button className="btn" onClick={onCancel} disabled={busy}>Cancel</button>
+        {onUpgrade && <button className="btn" onClick={onUpgrade} disabled={busy}><Icon name="bag" size={14} /> Get {fmt(plusBytes)}</button>}
         <button className="btn primary" onClick={remove} disabled={busy || !enough}><Icon name="trash" size={14} /> {busy ? 'Deleting…' : 'Delete selected'}</button>
       </div>
     </Modal>
@@ -98,8 +100,19 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, busy }) {
         </>
       ) : (
         <>
-          <div className="st-stat"><b>{fmt(s.used)}</b><span>stored</span></div>
-          <p className="st-note">Free storage is shared by everyone. When it fills up, the oldest files are removed to make room, and old files expire after a while.</p>
+          {s.freeLimit ? (
+            <>
+              <div className="st-stat"><b>{fmt(s.used)}</b><span>of {fmt(s.freeLimit)} free storage used</span></div>
+              <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round((s.used / s.freeLimit) * 100))}><i className={s.readOnly || s.used >= s.freeLimit * 0.95 ? 'full' : s.used >= s.freeLimit * 0.8 ? 'warn' : ''} style={{ width: Math.min(100, Math.round((s.used / s.freeLimit) * 100)) + '%' }} /></div>
+              {s.readOnly && <p className="st-note"><b>Attachments are read-only.</b> The free limit is now {fmt(s.freeLimit)} and you are over it. Your files are safe and you can still see and download them, but you cannot add more until you delete some files or get {fmt(s.plan.bytes)} of your own.</p>}
+              <p className="st-note">Free storage is limited per person, and old files expire after a while. The limit follows how many people support Aduna, so it can change. Your files are never removed because of that.</p>
+            </>
+          ) : (
+            <>
+              <div className="st-stat"><b>{fmt(s.used)}</b><span>stored</span></div>
+              <p className="st-note">Free storage is shared by everyone. When it fills up, the oldest files are removed to make room, and old files expire after a while.</p>
+            </>
+          )}
           <div className="st-offer">
             <div className="st-offer-head">
               <div><div className="st-offer-title">{fmt(s.plan.bytes)} of your own</div><div className="st-note">Just for you</div></div>
@@ -180,20 +193,25 @@ export function StorageDock({ storage, setStorage }) {
   const pct = s.limit ? Math.min(100, Math.round((s.used / s.limit) * 100)) : 0;
   const plan = { ...s.plan, recurring: true, title: 'Aduna Storage', subtitle: `${fmt(s.plan.bytes)} of your own · billed monthly`, icon: 'bag' };
 
+  const freePct = s.freeLimit ? Math.min(100, Math.round((s.used / s.freeLimit) * 100)) : 0;
+
   if (checkout) return <Checkout pack={plan} provider={s.provider} clientId={null} tax={s.tax} busy={busy} error={coErr} onPay={subscribe} onPaid={() => {}} onError={setCoErr} onClose={() => { setCheckout(false); setBusy(false); }} />;
 
   return (
     <>
-      <button className="storage-bar" onClick={() => setModal('plan')} title={s.subscriber ? `${fmt(s.used)} of ${fmt(s.limit)} used` : 'Storage'} aria-label={s.subscriber ? `Storage: ${fmt(s.used)} of ${fmt(s.limit)} used` : `Storage: ${fmt(s.used)} stored. Get more room`}>
+      <button className="storage-bar" onClick={() => setModal('plan')} title={s.subscriber ? `${fmt(s.used)} of ${fmt(s.limit)} used` : s.freeLimit ? `${fmt(s.used)} of ${fmt(s.freeLimit)} free storage used` : 'Storage'} aria-label={s.subscriber ? `Storage: ${fmt(s.used)} of ${fmt(s.limit)} used` : s.freeLimit ? `Storage: ${fmt(s.used)} of ${fmt(s.freeLimit)} used${s.readOnly ? ', attachments are read-only' : ''}. Get more room` : `Storage: ${fmt(s.used)} stored. Get more room`}>
         <span className="st-top">
-          <span className="st-label"><Icon name="bag" size={13} /> {s.subscriber ? `${fmt(s.used)} of ${fmt(s.limit)}` : `${fmt(s.used)} stored`}</span>
-          {!s.subscriber && <span className="st-up">Get {fmt(s.plan.bytes)}</span>}
+          <span className="st-label"><Icon name="bag" size={13} /> {s.subscriber ? `${fmt(s.used)} of ${fmt(s.limit)}` : s.freeLimit ? `${fmt(s.used)} of ${fmt(s.freeLimit)}` : `${fmt(s.used)} stored`}</span>
+          {!s.subscriber && <span className="st-up">{s.readOnly ? 'Read-only' : `Get ${fmt(s.plan.bytes)}`}</span>}
         </span>
         {s.subscriber && <span className="st-track"><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></span>}
+        {!s.subscriber && s.freeLimit && <span className="st-track"><i className={s.readOnly || freePct >= 95 ? 'full' : freePct >= 80 ? 'warn' : ''} style={{ width: freePct + '%' }} /></span>}
       </button>
       {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={() => { setModal(null); setCoErr(''); setCheckout(true); }} onManage={() => setModal('files')} onCancelPlan={cancelPlan} />}
       {modal === 'files' && <CleanupModal onDone={() => { setModal('plan'); reload(); }} onCancel={() => setModal('plan')} />}
-      {full && <CleanupModal needed={full.needed} fileName={full.fileName} onDone={() => finishFull(true)} onCancel={() => finishFull(false)} />}
+      {full && <CleanupModal needed={full.needed} fileName={full.fileName} limitMB={full.freeLimitMB || 0} readOnly={!!full.readOnly} plusBytes={s.plan.bytes}
+        onUpgrade={full.canUpgrade && s.purchases ? () => { finishFull(false); setCoErr(''); setCheckout(true); } : null}
+        onDone={() => finishFull(true)} onCancel={() => finishFull(false)} />}
     </>
   );
 }

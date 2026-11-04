@@ -6,3 +6,6 @@ export const hasFeature = (me, id) => !!(me && me.features && Object.prototype.h
 
 // 'live', 'testing' (a creator trying it out) or null (not on for this person): use it to show a small "Testing" tag on unreleased work
 export const featureState = (me, id) => (hasFeature(me, id) ? me.features[id] : null);
+
+// Master switch for the Clips section. false = Clips are hidden everywhere in the app (the server also refuses the Clips routes, see CLIPS_ENABLED in server/index.js).
+export const CLIPS_ENABLED = false;

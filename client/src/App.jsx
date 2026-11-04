@@ -32,6 +32,7 @@ import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
 import { StorageDock } from './Storage.jsx';
 import Clips from './Clips.jsx';
+import { CLIPS_ENABLED } from './features.js';
 import { OnboardingFlow } from './Onboarding.jsx';
 import Setup from './Setup.jsx';
 import { setLang, useLang } from './i18n.js';
@@ -969,9 +970,9 @@ function Main({ me, setMe, privKey, openServerId }) {
         <button className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
           <span className="dm-home-mark" aria-hidden="true" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
-        <button className="rail-btn clips-home" title="Clips" aria-label="Clips" onClick={() => { window.location.assign('/clips'); }}>
+        {CLIPS_ENABLED && <button className="rail-btn clips-home" title="Clips" aria-label="Clips" onClick={() => { window.location.assign('/clips'); }}>
           <span className="clips-mark" aria-hidden="true" />
-        </button>
+        </button>}
         <div className="rail-sep" />
         <RailList>
           {servers.map((s) => (
@@ -997,9 +998,9 @@ function Main({ me, setMe, privKey, openServerId }) {
           <Icon name="message" size={22} /><span>DMs</span>
           {dmUnread + fr.incoming.length > 0 && <span className="tab-badge">{fmtN(dmUnread + fr.incoming.length)}</span>}
         </button>
-        <button onClick={() => window.location.assign('/clips')} aria-label="Clips">
+        {CLIPS_ENABLED && <button onClick={() => window.location.assign('/clips')} aria-label="Clips">
           <span className="tab-clips-mark" aria-hidden="true" /><span>Clips</span>
-        </button>
+        </button>}
         <button onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={22} /><span>Search</span></button>
         <button onClick={() => setModal({ type: 'edit', tab: 'profile' })}><Icon name="user" size={22} /><span>You</span></button>
       </nav>

@@ -222,7 +222,7 @@ function handleEvent(ev, db, now = Date.now()) {
 
 // ---------- routes ----------
 // d: { auth, ah, db() -> store.db, save(), store, notify(uid, view), fileLabels() -> Map(id -> { name, type, where }), filesGone(ids),
-//      fetchImpl?, getMeta?, setMeta?, now? }
+//      fetchImpl?, getMeta?, setMeta?, now?, freeBudget? (server/storage-budget.js: the free people's own limit) }
 function register(app, d) {
   const nowMs = () => (d.now ? d.now() : Date.now());
   let planMem = null;
@@ -240,6 +240,8 @@ function register(app, d) {
   async function viewOf(u) {
     const now = nowMs(), s = rec(u), sub = isSubscriber(u, now);
     const pay = credits.paypalEnabled();
+    const used = await d.store.userFileBytes(u.id);
+    const cap = !sub && d.freeBudget ? d.freeBudget.limitBytes() : null; // a free person's own limit (null: none, or the cap is not switched on)
     return {
       plan: { ...PLAN },
       subscriber: sub,
@@ -247,8 +249,10 @@ function register(app, d) {
       status: s ? s.status : 'none',
       paidThrough: s && s.paidThrough ? s.paidThrough : null,
       renews: sub && !!s && s.status === 'active',
-      used: await d.store.userFileBytes(u.id),
-      limit: sub ? PLAN.bytes : null, // free: no limit of your own
+      used,
+      limit: sub ? PLAN.bytes : null, // free: see freeLimit
+      freeLimit: cap,                 // bytes a free person may keep (null: no limit of their own)
+      readOnly: cap !== null && used > cap, // over it: new attachments are refused until files are deleted or the person upgrades (their files are kept)
       purchases: pay,
       provider: pay ? 'paypal' : null,
       tax: pay ? TAX.publicInfo() : null,
@@ -349,6 +353,6 @@ function register(app, d) {
 }
 
 module.exports = {
-  PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, setLifetime, isProtected, protectedIds, overQuota, pickOldest, makeRoom,
+  PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, hasLifetime, setLifetime, isProtected, protectedIds, overQuota, pickOldest, makeRoom,
   createPlan, createSubscription, confirmSubscription, syncSubscription, cancelSubscription, applyActive, handleEvent, register,
 };

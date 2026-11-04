@@ -68,7 +68,8 @@ ready.then(() => httpServer.listen(0, async () => {
     assert.strictEqual(r.user.pronouns, 'she/her'); console.log('✓ an unrelated update keeps the pronouns');
 
     r = await call('/me', { method: 'PATCH', token: t, body: { games: ['Hades', '  Celeste ', '', 'hades', { name: 'Hollow Knight' }] } });
-    assert.strictEqual(r.status, 200); assert.deepStrictEqual(r.user.games, ['Hades', 'Celeste', 'Hollow Knight']); console.log('✓ games saved: blanks dropped, repeats kept once, order kept');
+    assert.strictEqual(r.status, 200); assert.deepStrictEqual(r.user.games.map((x) => x.name), ['Hades', 'Celeste', 'Hollow Knight']); console.log('✓ games saved: blanks dropped, repeats kept once, order kept');
+    assert.deepStrictEqual(r.user.games.map((x) => x.app), [1145360, 504230, 367520]); console.log('✓ games from the list get their Steam picture id');
     r = await call('/me', { method: 'PATCH', token: t, body: { games: ['a', 'b', 'c', 'd', 'e', 'f', 'g'] } });
     assert.strictEqual(r.status, 400); console.log('✓ more than 6 games rejected');
     r = await call('/me', { method: 'PATCH', token: t, body: { games: ['y'.repeat(41)] } });
@@ -76,9 +77,11 @@ ready.then(() => httpServer.listen(0, async () => {
     r = await call('/me', { method: 'PATCH', token: t, body: { games: 'Hades' } });
     assert.strictEqual(r.status, 400); console.log('✓ games must be a list');
     r = await call('/me', { method: 'PATCH', token: t, body: { games: ['<b>Hades</b>'] } });
-    assert.strictEqual(r.status, 200); assert.ok(!/[<>]/.test(r.user.games[0])); console.log('✓ angle brackets removed from a game name');
+    assert.strictEqual(r.status, 200); assert.ok(!/[<>]/.test(r.user.games[0].name)); console.log('✓ angle brackets removed from a game name');
+    r = await call('/me', { method: 'PATCH', token: t, body: { games: [{ name: 'Some Steam Game', app: 12345 }, { name: 'Homemade', app: -5 }, { name: 'Other', app: 'x' }] } });
+    assert.deepStrictEqual(r.user.games, [{ name: 'Some Steam Game', app: 12345 }, { name: 'Homemade', app: 0 }, { name: 'Other', app: 0 }]); console.log('✓ a game found through search keeps its id; a bad id is dropped');
     r = await call('/me', { method: 'PATCH', token: t, body: { games: ['Hades', 'Celeste'] } });
-    assert.deepStrictEqual(r.user.games, ['Hades', 'Celeste']);
+    assert.deepStrictEqual(r.user.games.map((x) => x.name), ['Hades', 'Celeste']);
     r = await call('/me', { method: 'PATCH', token: t, body: { songTitle: 'Nope' } });
     assert.strictEqual(r.status, 400); console.log('✓ a song title needs a song first');
 
@@ -114,7 +117,7 @@ ready.then(() => httpServer.listen(0, async () => {
     r = await call('/me', { method: 'PATCH', token: t, body: { songTitle: '  Better Title ' } });
     assert.strictEqual(r.status, 200); assert.deepStrictEqual([r.user.song.id, r.user.song.title], [song1.id, 'Better Title']); console.log('✓ song renamed without a new upload');
     r = await call('/users/' + a.user.id, { token: b.token });
-    if (r.status === 200) { assert.strictEqual(r.user.pronouns, 'she/her'); assert.deepStrictEqual(r.user.games, ['Hades', 'Celeste']); assert.strictEqual(r.user.song.id, song1.id); console.log('✓ other people see pronouns, games and the song'); }
+    if (r.status === 200) { assert.strictEqual(r.user.pronouns, 'she/her'); assert.deepStrictEqual(r.user.games.map((x) => x.name), ['Hades', 'Celeste']); assert.strictEqual(r.user.song.id, song1.id); console.log('✓ other people see pronouns, games and the song'); }
     r = await putSong(t, wav(1), 'audio/wav');
     assert.strictEqual(r.status, 200); assert.notStrictEqual(r.user.song.id, song1.id); assert.strictEqual(r.user.song.title, 'My song');
     const song2 = r.user.song;

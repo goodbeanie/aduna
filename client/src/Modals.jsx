@@ -6,6 +6,8 @@ import { nameProps, NAME_FONTS, MAX_NAME_STOPS, DEFAULT_NAME_GRADIENT, nameGradi
 import { uploadImage, uploadAnimated, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE, checkSongFile, uploadSong, songNameOf, SONG } from './image.js';
 import Cropper from './Cropper.jsx';
 import ProfileSong from './ProfileSong.jsx';
+import GamePicker, { GameIcon, gameName } from './GamePicker.jsx';
+import SongPicker from './SongPicker.jsx';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
 import { BotTag } from './Bots.jsx';
@@ -215,15 +217,16 @@ export function ProfileLinks({ links }) {
   );
 }
 
-// The favorite-games shelf on a profile card: up to 6 names, in the order the person chose.
+// The favorite-games shelf on a profile card: up to 6 games with their pictures, in the order the person chose.
+// Each game is { name, app }; older profiles hold plain names, so both are accepted.
 export function GameShelf({ games }) {
-  const list = (games || []).filter((g) => typeof g === 'string' && g.trim());
+  const list = (games || []).filter((g) => gameName(g).trim());
   if (!list.length) return null;
   return (
     <>
       <h4>FAVORITE GAMES</h4>
       <ul className="pgames">
-        {list.map((g, i) => <li key={i} className="pgame" title={g}><span>{g}</span></li>)}
+        {list.map((g, i) => <li key={i} className="pgame" title={gameName(g)}><GameIcon game={g} size={24} /><span>{gameName(g)}</span></li>)}
       </ul>
     </>
   );
@@ -406,20 +409,21 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const addLink = (label = '') => setF((s) => (s.links.length >= MAX_LINKS ? s : { ...s, links: [...s.links, { label, url: '' }] }));
   const removeLink = (i) => setF((s) => ({ ...s, links: s.links.filter((_, j) => j !== i) }));
 
-  // Favorite games shelf (up to MAX_GAMES names; the server drops blanks and repeats when it saves).
-  const setGame = (i, v) => setF((s) => ({ ...s, games: s.games.map((g, j) => (j === i ? v : g)) }));
-  const addGame = () => setF((s) => (s.games.length >= MAX_GAMES ? s : { ...s, games: [...s.games, ''] }));
-  const removeGame = (i) => setF((s) => ({ ...s, games: s.games.filter((_, j) => j !== i) }));
+  // Favorite games shelf: up to MAX_GAMES games, each { name, app } (GamePicker.jsx). The server drops blanks and repeats when it saves.
 
-  // Profile song: staged until "Save changes", like the pictures. undefined = unchanged, null = remove, { file, url } = a new clip (url previews it).
-  // The title of the saved song is renamed with the profile (PATCH songTitle); a new clip carries its title in the upload.
+  // Profile song: staged until "Save changes", like the pictures. undefined = unchanged, null = remove, { file, url } = a new clip (url previews it),
+  // { track } = a song picked from the search (previewed with its own 30 second preview address).
+  // The title of the saved clip is renamed with the profile (PATCH songTitle); a new clip carries its title in the upload.
   const [songStage, setSongStage] = useState(undefined);
   const [songTitle, setSongTitle] = useState(me.song ? me.song.title : '');
+  const [songSearch, setSongSearch] = useState(false); // the song search box is open
   const songStageRef = useRef(songStage);
   songStageRef.current = songStage;
   const songInput = useRef(null);
-  useEffect(() => () => { if (songStageRef.current) URL.revokeObjectURL(songStageRef.current.url); }, []);
+  useEffect(() => () => { if (songStageRef.current && songStageRef.current.file) URL.revokeObjectURL(songStageRef.current.url); }, []);
   const hasSong = songStage === undefined ? !!me.song : songStage !== null;
+  const savedTrack = !!me.song && me.song.kind === 'track';
+  const shownTrack = songStage === undefined ? (savedTrack ? me.song : null) : songStage && songStage.track ? { ...songStage.track, url: songStage.track.preview } : null; // the song on show when it is a search result
   async function pickSong(e) {
     const file = e.target.files?.[0];
     e.target.value = '';
@@ -427,20 +431,28 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     setErr('');
     try { await checkSongFile(file); }
     catch (ex) { setErr(ex.message); return; }
-    setSongStage((s) => { if (s) URL.revokeObjectURL(s.url); return { file, url: URL.createObjectURL(file) }; });
+    setSongSearch(false);
+    setSongStage((s) => { if (s && s.file) URL.revokeObjectURL(s.url); return { file, url: URL.createObjectURL(file) }; });
     setSongTitle(songNameOf(file));
   }
+  function pickTrack(track) {
+    setSongSearch(false);
+    setSongStage((s) => { if (s && s.file) URL.revokeObjectURL(s.url); return { track }; });
+    setSongTitle(track.title);
+  }
   function removeSong() {
-    setSongStage((s) => { if (s) URL.revokeObjectURL(s.url); return me.song ? null : undefined; });
+    setSongStage((s) => { if (s && s.file) URL.revokeObjectURL(s.url); return me.song ? null : undefined; });
     setSongTitle('');
   }
-  const previewSong = songStage ? { url: songStage.url, title: songTitle.trim() || songNameOf(songStage.file) }
-    : songStage === null || !me.song ? null : { id: me.song.id, title: songTitle.trim() || me.song.title };
+  const previewSong = songStage === null || (songStage === undefined && !me.song) ? null
+    : shownTrack ? { kind: 'track', title: shownTrack.title, artist: shownTrack.artist, art: shownTrack.art, url: shownTrack.url, link: shownTrack.link }
+    : songStage ? { url: songStage.url, title: songTitle.trim() || songNameOf(songStage.file) }
+    : { id: me.song.id, title: songTitle.trim() || me.song.title };
 
   // Unsaved changes: compare everything the form holds with how it looked when it opened. Save stays off until something changed.
   const snapshot = JSON.stringify([f, mode, nameFont, gradOn, gradOn ? nameG : null, theme, theme === CUSTOM_THEME_ID ? customG : null, [...hidden].sort(), frameId,
     staged.avatar === undefined ? 0 : staged.avatar === null ? 'x' : staged.avatar.url, staged.banner === undefined ? 0 : staged.banner === null ? 'x' : staged.banner.url,
-    songTitle, songStage === undefined ? 0 : songStage === null ? 'x' : songStage.url]);
+    songTitle, songStage === undefined ? 0 : songStage === null ? 'x' : songStage.track ? 't' + songStage.track.tid : songStage.url]);
   const openSnapshot = useRef(null);
   if (openSnapshot.current === null) openSnapshot.current = snapshot;
   const dirty = snapshot !== openSnapshot.current;
@@ -488,6 +500,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
         if (s && s.anim) ({ user } = await uploadAnimated(kind, s.anim.file, s.anim.crop)); // a GIF: the animated copy goes up after the still picture
       }
       if (songStage === null) ({ user } = await api('/me/song', { method: 'DELETE' }));
+      else if (songStage && songStage.track) ({ user } = await api('/me/track', { method: 'PUT', body: { tid: songStage.track.tid } }));
       else if (songStage) ({ user } = await uploadSong(songStage.file, songTitle.trim() || songNameOf(songStage.file)));
       onSaved(user);
       onClose();
@@ -566,29 +579,35 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           </div>
 
           <label>Favorite games</label>
-          <div className="links-edit">
-            {f.games.map((g, i) => (
-              <div className="link-row" key={i}>
-                <input className="link-url" value={g} maxLength={40} placeholder="Game name" aria-label={`Favorite game ${i + 1}`} onChange={(e) => setGame(i, e.target.value)} />
-                <button type="button" className="icon-btn" title="Remove this game" aria-label={`Remove favorite game ${i + 1}`} onClick={() => removeGame(i)}><Icon name="close" size={16} /></button>
-              </div>
-            ))}
-            {f.games.length < MAX_GAMES && <div className="social-chips"><button type="button" className="btn" onClick={addGame}><Icon name="plus" size={14} className="inline-icon" /> Add a game</button></div>}
-            <p className="muted small hint">Up to {MAX_GAMES} games, shown in this order on your card.</p>
-          </div>
+          <GamePicker games={f.games} max={MAX_GAMES} onChange={set('games')} />
 
           <label>Profile song</label>
-          {hasSong ? (
-            <div className="song-edit">
-              <input value={songTitle} maxLength={60} placeholder="Song title" aria-label="Song title" onChange={(e) => setSongTitle(e.target.value)} />
-              <button type="button" className="btn" onClick={() => songInput.current.click()}>Replace</button>
-              <button type="button" className="btn ghost" onClick={removeSong}>Remove</button>
-            </div>
-          ) : (
-            <div className="upload-row"><button type="button" className="btn" onClick={() => songInput.current.click()}><Icon name="music" size={14} className="inline-icon" /> Add a song</button></div>
+          {hasSong && (
+            shownTrack ? (
+              <div className="song-edit">
+                <span className="sp-cover">{shownTrack.art ? <img src={shownTrack.art} alt="" draggable={false} /> : <Icon name="music" size={18} />}</span>
+                <span className="sp-meta"><b>{shownTrack.title}</b><span>{shownTrack.artist}</span></span>
+                <button type="button" className="btn" onClick={() => setSongSearch(true)}>Change</button>
+                <button type="button" className="btn ghost" onClick={removeSong}>Remove</button>
+              </div>
+            ) : (
+              <div className="song-edit">
+                <input value={songTitle} maxLength={60} placeholder="Song title" aria-label="Song title" onChange={(e) => setSongTitle(e.target.value)} />
+                <button type="button" className="btn" onClick={() => setSongSearch(true)}>Search</button>
+                <button type="button" className="btn" onClick={() => songInput.current.click()}>Replace</button>
+                <button type="button" className="btn ghost" onClick={removeSong}>Remove</button>
+              </div>
+            )
           )}
+          {!hasSong && !songSearch && (
+            <div className="upload-row">
+              <button type="button" className="btn" onClick={() => setSongSearch(true)}><Icon name="search" size={14} className="inline-icon" /> Search for a song</button>
+              <button type="button" className="btn" onClick={() => songInput.current.click()}><Icon name="music" size={14} className="inline-icon" /> Upload a clip</button>
+            </div>
+          )}
+          {songSearch && <SongPicker onPick={pickTrack} onClose={() => setSongSearch(false)} />}
           <input ref={songInput} type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav,.webm" hidden onChange={pickSong} />
-          <p className="muted small hint">A clip of up to {SONG.secs} seconds (MP3, M4A, OGG, WAV or WebM, up to {SONG.bytes / 1024} KB). It plays on your card when someone opens it, muted until they press the speaker.</p>
+          <p className="muted small hint">Search for a song to give your card a play button with a 30 second preview, plus links to find it on Spotify and YouTube Music. Or upload a clip of up to {SONG.secs} seconds (MP3, M4A, OGG, WAV or WebM, up to {SONG.bytes / 1024} KB), which plays on your card muted until someone presses the speaker.</p>
           </section>
 
           <section className="ed-sec" aria-labelledby="pe-look">

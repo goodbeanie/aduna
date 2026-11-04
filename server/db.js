@@ -413,6 +413,11 @@ async function userFileBytes(uid) {
   const { rows } = await q('SELECT COALESCE(SUM(size), 0) AS n FROM files WHERE owner = $1', [String(uid)]);
   return Number(rows[0].n);
 }
+// bytes stored by everybody at once: Map(owner id -> bytes). One grouped query, used by the free-storage budget (server/storage-budget.js)
+async function ownerBytes() {
+  const { rows } = await q('SELECT owner, COALESCE(SUM(size), 0) AS n FROM files GROUP BY owner');
+  return new Map(rows.map((r) => [String(r.owner), Number(r.n)]));
+}
 // the person's files, oldest first, with the file type that was saved with each one (mime and ext; older files have none)
 async function userFiles(uid, limit = 2000) {
   const { rows } = await q('SELECT id, size, created_at, meta FROM files WHERE owner = $1 ORDER BY created_at ASC LIMIT $2', [String(uid), limit]);
@@ -494,7 +499,7 @@ module.exports = {
   get vapid() { return vapidKeys; },
   init, close, save, flush, reload: load, id, inviteCode, query: q, getMeta, setMeta, closeHooks,
   putImage, getImage, deleteImage, pruneImages, putFile, fileMeta, getFileBytes, markAttached, deleteFiles, expireFiles, pruneFiles,
-  backfillFileOwners, userFileBytes, userFiles, poolBytesUsed, setProtectedOwners,
+  backfillFileOwners, userFileBytes, ownerBytes, userFiles, poolBytesUsed, setProtectedOwners,
   get usingR2() { return !!r2; },
   get clipsR2() { return clipsR2; },
   r2BytesUsed,

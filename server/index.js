@@ -11,9 +11,12 @@ const { sniffImage, sniffAny, cleanGif, stillGif } = require('./images');
 const animated = require('./animated'); // animated profile pictures, banners and server icons (a GIF cut to size with ffmpeg)
 const credits = require('./credits');
 const storagePlan = require('./storage');
+const storageBudgetLib = require('./storage-budget'); // how much a free person may keep (see the file's header); off until FREE_STORAGE_CAP=1
 const artistsLib = require('./artists'); // artists: apply, get reviewed, sell badges in the shop (see the "artists" block below)
 const stickersLib = require('./stickers'); // sticker packs: big pictures sent on their own, sold in the shop (see the "stickers" block below)
 const profileLib = require('./profile'); // pronouns, the games shelf and the profile song (rules only; the routes sit next to the profile image routes)
+const musicLib = require('./music'); // song search for the profile song (iTunes Search API, see the file's header)
+const gameCatalog = require('./gamecatalog'); // the game list behind the Favorite games picker
 const soundboardLib = require('./soundboard'); // the voice-channel soundboard: short sounds anyone in the channel can play (see the "soundboard" block below)
 const gatheringsLib = require('./gatherings'); // Events: a game night on Friday at eight, Going / Maybe, reminders, a one-tap button into the voice channel (see the "events" block below)
 const security = require('./security');
@@ -1448,6 +1451,58 @@ app.get('/api/songs/:id', ah(async (req, res) => {
   res.set(headers).send(buf);
 }));
 
+// ----- the pickers behind "Favorite games" and "Profile song" -----
+// Games: the built-in list (gamecatalog.js) comes in one go and is searched in the browser; /api/games/search adds Steam's store search so any Steam game can be
+// found. Songs: /api/music/search looks songs up in the iTunes Search API (music.js) and PUT /api/me/track saves the one the person picked. The browser only ever sends
+// the track id: the server looks the song up itself and keeps what Apple returned, so a profile can never point at a picture or sound from somewhere else.
+const lookupHits = new Map();
+function lookupLimiter(req, res, next) {
+  const t = now();
+  const arr = (lookupHits.get(req.user.id) || []).filter((x) => t - x < 60_000);
+  if (arr.length >= 40) return res.status(429).json({ error: 'Slow down, try again in a moment' }); // typing in a search box asks a few times a second
+  arr.push(t); lookupHits.set(req.user.id, arr);
+  next();
+}
+app.get('/api/games/catalog', auth, (_req, res) => {
+  res.set('Cache-Control', 'private, max-age=86400');
+  res.json({ games: gameCatalog.LIST });
+});
+const steamFinds = new Map();
+app.get('/api/games/search', auth, lookupLimiter, async (req, res) => {
+  const q = clip(req.query.q, 40).trim();
+  if (q.length < 2) return res.json({ games: [] });
+  const key = q.toLowerCase();
+  const hit = steamFinds.get(key);
+  if (hit && now() - hit.at < 600_000) return res.json({ games: hit.games });
+  try {
+    const r = await fetch(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(q)}&l=english&cc=US`, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) throw new Error('bad status');
+    const body = await r.json();
+    const games = (Array.isArray(body.items) ? body.items : [])
+      .filter((i) => i && (i.type === undefined || i.type === 'app') && Number.isInteger(i.id) && i.id > 0 && typeof i.name === 'string' && i.name.trim())
+      .slice(0, 12).map((i) => ({ name: Array.from(i.name.trim()).slice(0, profileLib.LIMITS.gameName).join(''), app: i.id }));
+    if (steamFinds.size > 500) steamFinds.clear();
+    steamFinds.set(key, { at: now(), games });
+    res.json({ games });
+  } catch { res.status(502).json({ error: 'Could not reach the game search. The built-in list still works.' }); }
+});
+app.get('/api/music/search', auth, lookupLimiter, async (req, res) => {
+  const q = clip(req.query.q, 80).trim();
+  if (q.length < 2) return res.json({ tracks: [] });
+  try { res.json({ tracks: await musicLib.search(q) }); }
+  catch { res.status(502).json({ error: 'Could not reach the music search. Try again in a moment.' }); }
+});
+app.put('/api/me/track', auth, lookupLimiter, ah(async (req, res) => {
+  if (req.user.bot) return res.status(403).json({ error: 'Bots cannot have a profile song' });
+  const tid = Number(req.body && req.body.tid);
+  if (!Number.isInteger(tid) || tid <= 0) return res.status(400).json({ error: 'Pick a song from the search' });
+  let track;
+  try { track = await musicLib.lookup(tid); }
+  catch { return res.status(502).json({ error: 'Could not reach the music search. Try again in a moment.' }); }
+  if (!track) return res.status(404).json({ error: 'That song was not found, or it has no preview' });
+  res.json({ user: await setProfileSong(req.user, { kind: 'track', ...track }) }); // an uploaded clip it replaces is deleted by setProfileSong
+}));
+
 app.get('/api/images/:id', ah(async (req, res) => {
   const buf = await store.getImage(req.params.id);
   const info = buf && sniffAny(buf); // a GIF here is the animated copy of a picture
@@ -1691,6 +1746,15 @@ app.post('/api/files', auth, fileLimiter, express.raw({ type: '*/*', limit: MAX_
     const over = storagePlan.overQuota(await store.userFileBytes(req.user.id), buf.length);
     if (over) return res.status(409).json({ error: 'Your storage is full', code: 'storage_full', ...over });
   } else {
+    // a free person has a limit of their own while the free-storage cap is on (server/storage-budget.js). Over it, new attachments are refused,
+    // nothing is deleted, and the app opens the cleanup window (with a Get 10 GB button) through the same 'storage_full' answer a full plan uses.
+    const cap = storageBudget.limitBytes();
+    if (cap !== null) {
+      const used = await store.userFileBytes(req.user.id);
+      const over = storagePlan.overQuota(used, buf.length, cap);
+      if (over) return res.status(409).json({ error: used > cap ? 'Attachments are read-only: you are over the free storage limit. Your files are safe.' : 'Your free storage is full', code: 'storage_full', ...over,
+        readOnly: used > cap, freeLimitMB: storageBudget.view().limitMB, canUpgrade: true, plusBytes: storagePlan.PLAN.bytes });
+    }
     // everybody else shares the pool: when it is full, the oldest files of people without a plan make way
     const out = await storagePlan.makeRoom({ store, bytes: buf.length + 64, protect: storagePlan.protectedIds(db(), now()) });
     if (out.length) flagGone(out);
@@ -2754,7 +2818,8 @@ app.post('/api/admin/servers/:id/listing', auth, adminOnly, (req, res) => {
 // clip that is too big is deleted at that point, and an upload nobody finishes is deleted by the sweep a few minutes later.
 // Storage: clips have their own bucket and their own cap (CLIPS_LIMIT_GB, default 5). They are deleted after CLIPS_TTL_DAYS (default 7);
 // the record stays with its numbers (views, likes, reports) and only the video and cover are gone. Rules and limits: clips.js.
-const clipsOn = () => !!(store.clipsR2 && clipsLib.settings().publicUrl);
+// Master switch: Clips stay off unless CLIPS_ENABLED=1 is set on the server (the app's own buttons are switched off in client/src/features.js).
+const clipsOn = () => process.env.CLIPS_ENABLED === '1' && !!(store.clipsR2 && clipsLib.settings().publicUrl);
 const needClips = (_req, res, next) => (clipsOn() ? next() : res.status(503).json({ error: 'Clips are not set up on this server' }));
 // Anyone signed in can watch, like and report. Posting needs a clips creator registration (accepting the creator terms on /dashboard).
 // This is NOT the same as the site's own "creator" (the people who make Aduna, see isCreator above): their accounts register as clips creators like everyone else.
@@ -4567,9 +4632,18 @@ credits.register(app, {
   paypalEvent: (ev) => storagePlan.handleEvent(ev, db()),            // storage plan renewals / cancellations from PayPal's signed webhook
   storageChanged: (uid) => { if (storageApi) storageApi.push(uid); },
 });
+// Free storage budget: the free people's own limit, worked out every 6 hours from how many people pay (server/storage-budget.js).
+// Dry run (only logged) until FREE_STORAGE_CAP=1 is set. Nothing is deleted when someone is over it: they just cannot add attachments.
+const storageBudget = storageBudgetLib.create({
+  store, db,
+  isSubscriber: (u, t) => storagePlan.isSubscriber(u, t),
+  isLifetime: (u) => storagePlan.hasLifetime(u),
+  getMeta: (k) => store.getMeta(k), setMeta: (k, v) => store.setMeta(k, v),
+  log: console,
+});
 // Storage plan (10 GB for $4.99 a month): usage, cleanup list, PayPal subscription. Registered here so /api/files can push usage updates.
 storageApi = storagePlan.register(app, {
-  auth, ah, db, save: () => store.save(), store,
+  auth, ah, db, save: () => store.save(), store, freeBudget: storageBudget,
   notify: (uid, v) => io.to('user:' + uid).emit('storage:update', v),
   userChanged: (uid) => { const u = db().users[uid]; if (u) emitUserUpdate(u); }, // the Plus badge on their profile turned on or off
   getMeta: (k) => store.getMeta(k), setMeta: (k, v) => store.setMeta(k, v),
@@ -5309,6 +5383,14 @@ async function start() {
   await store.pruneFiles(referencedFiles());
   await runCleanup(); // also clear out anything that expired while the server was off
   setInterval(runCleanup, 3600_000).unref();
+  // free storage limit: load the last one, work out the new one now and then every 6 hours; people who just went over it get the warning pushed to them
+  await storageBudget.load();
+  const budgetRun = async () => {
+    try { await storageBudget.run((ids) => { for (const id of ids) if (storageApi) storageApi.push(id); }); }
+    catch (e) { console.error('Storage budget run failed:', e.message); }
+  };
+  await budgetRun();
+  if (process.env.NODE_ENV !== 'test') setInterval(budgetRun, 6 * 3600_000).unref();
   const clipSweep = async () => { try { await sweepClips(); } catch (e) { console.error('Clip sweep failed:', e.message); } };
   await clipSweep(); // clips that expired while the server was off
   setInterval(clipSweep, 600_000).unref();

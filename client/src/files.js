@@ -55,7 +55,7 @@ export async function uploadFile(file, scope, onProgress) {
     x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     x.onload = () => {
       let d = {}; try { d = JSON.parse(x.responseText); } catch {}
-      x.status >= 200 && x.status < 300 && d.id ? resolve(d.id) : reject(Object.assign(new Error(d.error || 'Upload failed'), { code: d.code, needed: d.needed, used: d.used, limit: d.limit }));
+      x.status >= 200 && x.status < 300 && d.id ? resolve(d.id) : reject(Object.assign(new Error(d.error || 'Upload failed'), { code: d.code, needed: d.needed, used: d.used, limit: d.limit, readOnly: d.readOnly, freeLimitMB: d.freeLimitMB, canUpgrade: d.canUpgrade }));
     };
     x.onerror = () => reject(new Error('Upload failed'));
     x.send(body);
@@ -66,7 +66,7 @@ export async function uploadFile(file, scope, onProgress) {
     try { id = await send(); break; }
     catch (e) {
       if (e.code !== 'storage_full' || !storageFullHandler) throw e;
-      if (!(await storageFullHandler({ needed: e.needed, used: e.used, limit: e.limit, fileName: file.name }))) throw new Error('Your storage is full, so the file was not sent');
+      if (!(await storageFullHandler({ needed: e.needed, used: e.used, limit: e.limit, fileName: file.name, readOnly: e.readOnly, freeLimitMB: e.freeLimitMB, canUpgrade: e.canUpgrade }))) throw new Error(e.readOnly ? 'Attachments are read-only until you free up space or get Plus, so the file was not sent' : 'Your storage is full, so the file was not sent');
     }
   }
   return { id, name: file.name || 'file', type: file.type || 'application/octet-stream', size: file.size, ...(scope.kind === 'group' ? { epoch: scope.epoch } : {}), ...(await imageSize(file)) };

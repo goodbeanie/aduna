@@ -4,11 +4,15 @@
 // so server/profile-test.js can run them without a server. index.js wires them to PATCH /api/me and the song routes (next to the profile image routes).
 //
 //   u.pronouns  'she/her'                     up to 24 characters, free text ('' = not set)
-//   u.games     ['Hades', 'Celeste', ...]     up to 6 names of up to 40 characters, in the order the person chose
-//   u.song      { id, title, mime }           a short audio clip; id is the stored bytes' id (the 32 hex characters the image table uses)
+//   u.games     [{ name, app }, ...]          up to 6 games, in the order the person chose; app = Steam app id for the picture (0 = none). Older accounts hold plain names: gamesView upgrades them on the way out
+//   u.song      { id, title, mime }           an uploaded audio clip; id is the stored bytes' id (the 32 hex characters the image table uses)
+//          or   { kind: 'track', tid, title, artist, art, preview, link }   a song picked from the search (music.js): the card plays its 30 second preview
 //
-// The song is served by GET /api/songs/:id with Range support (Safari will not play an audio file it cannot seek in). Whoever opens the profile
-// hears it only after pressing the speaker: it starts out muted, and nothing here changes that default.
+// The uploaded clip is served by GET /api/songs/:id with Range support (Safari will not play an audio file it cannot seek in). Whoever opens the profile
+// hears either kind only after pressing the speaker: it starts out muted, and nothing here changes that default.
+
+const { appFor } = require('./gamecatalog');
+const music = require('./music');
 
 const LIMITS = {
   pronouns: 24,
@@ -34,7 +38,10 @@ function cleanPronouns(raw) {
   return { value: cut };
 }
 
-// The games shelf: a list of names (or { name } objects). Blank entries are dropped, a name listed twice is kept once (the first spelling wins).
+// The games shelf: a list of names (or { name, app } objects). Blank entries are dropped, a name listed twice is kept once (the first spelling wins).
+// Each kept game is { name, app }: app is the Steam app id that gives it a picture (0 = no picture, the card draws a lettered tile). A game from the
+// list (gamecatalog.js) gets its id even when only the name was sent; an id for a name that is not in the list is taken as sent when it is a plain number.
+const cleanApp = (v) => (Number.isInteger(v) && v > 0 && v < 100_000_000 ? v : 0);
 function cleanGames(input) {
   if (input === null || input === undefined) return { list: [] };
   if (!Array.isArray(input)) return { error: 'Games must be a list' };
@@ -48,11 +55,13 @@ function cleanGames(input) {
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(name);
+    const listed = appFor(name);
+    out.push({ name, app: listed || cleanApp(item && typeof item === 'object' ? item.app : 0) });
     if (out.length > LIMITS.games) return { error: `Your shelf holds up to ${LIMITS.games} games` };
   }
   return { list: out };
 }
+
 
 // The name shown for a song (the file's name without its ending when the person gave none)
 function cleanSongTitle(raw, fallback = '') {
@@ -112,8 +121,16 @@ function parseRange(header, size) {
 }
 
 // What other people get of a person's song (null when there is none)
-const songView = (u) => (u && u.song && isSongId(u.song.id) ? { id: u.song.id, title: u.song.title || 'My song', mime: u.song.mime || 'audio/mpeg' } : null);
-const gamesView = (u) => (u && Array.isArray(u.games) ? u.games.filter((g) => typeof g === 'string' && g).slice(0, LIMITS.games) : []);
+const songView = (u) => {
+  const s = u && u.song;
+  if (!s) return null;
+  if (s.kind === 'track') return music.trackView(s);
+  return isSongId(s.id) ? { id: s.id, title: s.title || 'My song', mime: s.mime || 'audio/mpeg' } : null;
+};
+// Games leave as { name, app }. A plain name saved before pictures existed gets its picture from the list here, so older profiles pick it up without a migration.
+const gamesView = (u) => (u && Array.isArray(u.games)
+  ? u.games.map((g) => (typeof g === 'string' ? { name: g, app: appFor(g) } : g && typeof g.name === 'string' ? { name: g.name, app: cleanApp(g.app) } : null)).filter((g) => g && g.name).slice(0, LIMITS.games)
+  : []);
 const pronounsView = (u) => (u && typeof u.pronouns === 'string' ? u.pronouns : '');
 
 module.exports = { LIMITS, SONG_TYPES, cleanPronouns, cleanGames, cleanSongTitle, sniffAudio, wavSeconds, checkSong, isSongId, parseRange, songView, gamesView, pronounsView };

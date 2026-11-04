@@ -1,7 +1,8 @@
 // Security helpers. Like credits.js this has no Express / Postgres imports, so server/security-test.js can test it alone.
 
 // ---------- browser security headers ----------
-// The app serves its own scripts, styles, fonts and images, plus GIFs from GIPHY. Anything else is blocked, which is what
+// The app serves its own scripts, styles, fonts and images, plus GIFs from GIPHY, game pictures from Steam's image servers (profile game icons) and
+// song covers and 30 second previews from Apple's (profile song search). Anything else is blocked, which is what
 // stops an injected <script> from running or sending data elsewhere. Styles must come from our own files: an injected <style> or style="..." attribute is blocked
 // (React sets inline styles through the CSSOM, which the policy does not restrict, so it needs no 'unsafe-inline').
 // CSP_MODE=report-only makes the browser log violations instead of blocking (handy if a page ever looks broken);
@@ -10,8 +11,8 @@ const CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self'",
-  "img-src 'self' data: blob: https://*.giphy.com",
-  "media-src 'self' blob: https://*.giphy.com",
+  "img-src 'self' data: blob: https://*.giphy.com https://*.steamstatic.com https://*.mzstatic.com",
+  "media-src 'self' blob: https://*.giphy.com https://*.mzstatic.com https://audio-ssl.itunes.apple.com",
   "font-src 'self'",
   "connect-src 'self'",
   "worker-src 'self' blob:",
