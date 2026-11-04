@@ -777,23 +777,41 @@ async function revokeAllSessions(u, keepSocketId = '') {
   }
 }
 
+// Finds the account for what was typed in the login box: a username, or an email address. Usernames are only letters, numbers and
+// underscores (see /api/register), so anything with an "@" is an email. An address can sit on several accounts (only VERIFIED ones are
+// unique, and the creator address can back any number), so the verified one wins and anything still ambiguous finds nobody: the same
+// answer as a wrong password, never a guess between two accounts.
+function findLoginUser(typed) {
+  const live = Object.values(db().users).filter((u) => !u.bot && !u.deleted);
+  if (!typed.includes('@')) return live.find((u) => u.username.toLowerCase() === typed.toLowerCase()) || null;
+  const email = security.cleanEmail(typed);
+  if (!email) return null;
+  const hits = live.filter((u) => u.email && security.cleanEmail(u.email) === email);
+  const verified = hits.filter((u) => u.emailVerified === true);
+  const pool = verified.length ? verified : hits;
+  return pool.length === 1 ? pool[0] : null;
+}
+
 app.post('/api/login', authLimiter, ah(async (req, res) => {
   const { username, password } = req.body || {};
-  const name = String(username || '');
+  const typed = String(username || '').trim(); // a username or an email address
+  const user = findLoginUser(typed);
+  // One lockout counter per account, however it was typed (username or email), so switching between the two cannot dodge the lockout.
+  // Names that match nobody are counted under what was typed.
+  const name = user ? user.username : typed.includes('@') ? typed.toLowerCase() : typed;
   const lock = loginGuard.check(name, req.ip);
   if (lock.blocked) {
     res.set('Retry-After', String(lock.retryAfterSec));
     return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
   }
-  const user = Object.values(db().users).find((u) => !u.bot && !u.deleted && u.username.toLowerCase() === name.toLowerCase());
-  const applicant = user ? null : appByName(name);
+  const applicant = user ? null : appByName(typed);
   const ok = await bcrypt.compare(String(password || ''), user ? user.passHash : applicant ? applicant.passHash : DUMMY_HASH); // always one comparison: no timing hint about which names exist
   if (!user && ok && applicant) {
     // someone who applied and knows their password is told where the application stands (names cannot be probed: the password has to be right)
     if (applicant.status === 'pending') return res.status(403).json({ error: 'Your application is still being reviewed. You can log in once it is approved.', code: 'application_pending' });
     return res.status(403).json({ error: applicant.note ? `Your application was not approved: ${applicant.note}` : 'Your application was not approved.', code: 'application_denied' });
   }
-  if (!user || !ok) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'Invalid username or password' }); }
+  if (!user || !ok) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'Invalid username, email or password' }); }
   // a moderator suspended this account (admin page): only someone who knows the password is told, so names cannot be probed
   if (user.suspended) return res.status(403).json({ error: user.suspended.reason ? `This account has been suspended: ${user.suspended.reason}` : 'This account has been suspended.', code: 'suspended' });
   // Two-factor: the password was right, so say a code is needed (nothing is issued yet). Wrong codes feed the same lockout, and the

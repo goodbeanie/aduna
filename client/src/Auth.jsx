@@ -206,8 +206,9 @@ export default function Auth({ onAuthed }) {
         <h1>{mode === 'login' ? t('welcomeBack') : t('resetTitle')}</h1>
         <p className="muted center">{mode === 'login' ? t('excited') : (method === 'key' ? t('resetKeyHelp') : t('resetMailHelp'))}</p>
 
-        <label>{t('username')}</label>
-        <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required autoComplete="username" maxLength={20} />
+        {/* Log in takes a username or an email address (an email is longer than a username, so no 20-character cap there); password recovery is still by username. */}
+        <label>{mode === 'login' ? t('loginId') : t('username')}</label>
+        <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required autoComplete="username" maxLength={mode === 'login' ? 254 : 20} autoCapitalize="none" spellCheck={false} />
 
         {mode === 'recover' && (
           <div className="seg">
