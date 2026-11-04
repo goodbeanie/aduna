@@ -81,6 +81,7 @@ function createPush(d) {
     return true;
   }
   // caps.callUi: the app says it can show the native call screen (Answer / Decline, ringtone). Only then does it get data-only call pushes.
+  // caps.cardUi: the app draws its own notification card (themed like the desktop card). Only then does it get data-only pushes for everything else.
   function addFcm(u, token, ua, caps) {
     const t = cleanFcm(token);
     if (!t) return false;
@@ -88,7 +89,7 @@ function createPush(d) {
     for (const other of Object.values(users())) {
       if (other.pushSubs?.some((x) => x.endpoint === endpoint)) other.pushSubs = other.pushSubs.filter((x) => x.endpoint !== endpoint);
     }
-    u.pushSubs = [...(u.pushSubs || []), { endpoint, fcm: t, ...(caps && caps.callUi === true ? { callUi: true } : {}), ua: clip(ua, 120), createdAt: nowFn() }].slice(-MAX_SUBS);
+    u.pushSubs = [...(u.pushSubs || []), { endpoint, fcm: t, ...(caps && caps.callUi === true ? { callUi: true } : {}), ...(caps && caps.cardUi === true ? { cardUi: true } : {}), ua: clip(ua, 120), createdAt: nowFn() }].slice(-MAX_SUBS);
     d.save();
     return true;
   }

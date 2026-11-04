@@ -132,6 +132,12 @@ assert.deepStrictEqual(cleanPrefs({ calls: false }, { ...DEFAULT_PREFS, dm: fals
     await cp.send('b', 'call', { title: 'Sam is calling', body: 'Incoming voice call', tag: 'call', callId: 'ab12cd34ef56ab78', video: false, declineToken: 'a1'.repeat(16) });
     assert.strictEqual(sent.length, 3, 'a ring goes to every device');
     assert.ok(sent.every((s) => s.body.callId === 'ab12cd34ef56ab78' && s.body.declineToken === 'a1'.repeat(16)));
+    // the notification card capability is remembered per device, and only when the app says true
+    assert.ok(cp.addFcm(cu.b, 'H'.repeat(40), 'app', { cardUi: true }), 'new app: draws its own card');
+    assert.ok(cp.addFcm(cu.b, 'I'.repeat(40), 'app', { cardUi: 'yes' }), 'a non-true flag is ignored');
+    assert.strictEqual(cu.b.pushSubs.find((s) => s.fcm === 'H'.repeat(40)).cardUi, true);
+    assert.strictEqual(cu.b.pushSubs.find((s) => s.fcm === 'I'.repeat(40)).cardUi, undefined);
+    assert.strictEqual(cu.b.pushSubs.find((s) => s.fcm === 'F'.repeat(40)).cardUi, undefined, 'older registrations keep the system notification');
   }
 
   // remove

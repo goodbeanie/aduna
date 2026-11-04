@@ -54,16 +54,19 @@ function createFcm({ raw, fetchFn = globalThis.fetch, now = Date.now } = {}) {
     return inflight;
   }
 
-  // body: the same JSON string the Web Push path gets: { kind, title, body, url, tag }. opts: { TTL (seconds), callUi }
+  // body: the same JSON string the Web Push path gets: { kind, title, body, url, tag }. opts: { TTL (seconds), callUi, cardUi }
   // callUi: this device's app has the native call screen (Answer / Decline buttons, looping ringtone). For it, a call is sent as a
   // data-only message (no "notification" block), because only the app's own service can draw that screen, even while the app is closed.
-  // Older apps never say callUi, so they keep getting the plain system notification below.
+  // cardUi: this device's app draws its own notification card (themed like the desktop app's card, see mobile/scripts/prepare-android.mjs).
+  // For it every kind is data-only too, with card: '1' so the service knows to draw it. The system draws nothing, so the app must have the service.
+  // Older apps never say callUi / cardUi, so they keep getting the plain system notification below.
   async function send(token, body, opts = {}) {
     if (!acct) throw Object.assign(new Error('FCM is not configured'), { statusCode: 503 });
     const p = typeof body === 'string' ? JSON.parse(body) : body;
     const kind = String(p.kind || 'dm');
     const ttl = Math.max(0, Math.floor(opts.TTL || 3600)) + 's';
     const ring = kind === 'call' && opts.callUi === true && /^[A-Za-z0-9_-]{1,64}$/.test(String(p.callId || ''));
+    const card = !ring && opts.cardUi === true;
     const message = ring
       ? {
         token,
@@ -75,16 +78,22 @@ function createFcm({ raw, fetchFn = globalThis.fetch, now = Date.now } = {}) {
         },
         android: { priority: 'HIGH', ttl },
       }
-      : {
-        token,
-        notification: { title: String(p.title || 'Aduna'), body: String(p.body || '') },
-        data: { url: String(p.url || '/app'), kind, tag: String(p.tag || '') },
-        android: {
-          priority: 'HIGH',
-          ttl,
-          notification: { channel_id: kind === 'call' ? 'calls' : 'messages', icon: 'ic_stat_icon', ...(p.tag ? { tag: String(p.tag) } : {}) },
-        },
-      };
+      : card
+        ? {
+          token,
+          data: { card: '1', kind, url: String(p.url || '/app'), tag: String(p.tag || ''), title: String(p.title || 'Aduna'), body: String(p.body || '') },
+          android: { priority: 'HIGH', ttl },
+        }
+        : {
+          token,
+          notification: { title: String(p.title || 'Aduna'), body: String(p.body || '') },
+          data: { url: String(p.url || '/app'), kind, tag: String(p.tag || '') },
+          android: {
+            priority: 'HIGH',
+            ttl,
+            notification: { channel_id: kind === 'call' ? 'calls' : 'messages', icon: 'ic_stat_icon', ...(p.tag ? { tag: String(p.tag) } : {}) },
+          },
+        };
     const url = `https://fcm.googleapis.com/v1/projects/${encodeURIComponent(acct.projectId)}/messages:send`;
     for (let attempt = 0; attempt < 2; attempt++) {
       const access = await accessToken(attempt > 0);

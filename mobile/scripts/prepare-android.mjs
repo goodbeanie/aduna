@@ -35,6 +35,7 @@ for (const d of readdirSync(res).filter((n) => n.startsWith('mipmap-'))) {
   writeFileSync(join(javaDir, 'MainActivity.java'), `package com.aduna.app;
 
 import android.app.AlertDialog;
+import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
 import android.view.ViewGroup;
@@ -47,6 +48,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import org.json.JSONObject;
 
 public class MainActivity extends BridgeActivity {
     // If the app ever crashes, the error is saved and shown in a box the next time it opens (phone-only debugging: no cable, no log viewer needed).
@@ -72,11 +74,46 @@ public class MainActivity extends BridgeActivity {
         } catch (Throwable ignored) { }
     }
 
+    // A tapped notification card carries the chat it opens ("adunaOpen", e.g. d:<userId>). Cold start: kept until the page asks for it
+    // (AdunaNotify.takeOpen). Already running: handed to the page straight away, which opens the chat.
+    private void rememberOpen(Intent intent, boolean running) {
+        try {
+            if (intent == null) return;
+            String target = intent.getStringExtra("adunaOpen");
+            if (target == null || target.isEmpty()) return;
+            intent.removeExtra("adunaOpen");
+            if (!running) { AdunaNotify.pendingOpen = target; return; }
+            final String js = "window.dispatchEvent(new CustomEvent('aduna:open',{detail:" + JSONObject.quote(target) + "}))";
+            getBridge().getWebView().post(() -> getBridge().getWebView().evaluateJavascript(js, null));
+        } catch (Throwable t) { logCrash(t); }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        rememberOpen(intent, true);
+    }
+
+    // Cards are only drawn while the app is out of sight (the page already shows what is going on while it is open).
+    @Override
+    public void onStart() {
+        super.onStart();
+        AdunaCards.foreground = true;
+    }
+
+    @Override
+    public void onStop() {
+        AdunaCards.foreground = false;
+        super.onStop();
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         final Thread.UncaughtExceptionHandler prev = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((th, ex) -> { logCrash(ex); if (prev != null) prev.uncaughtException(th, ex); });
         try { registerPlugin(AdunaUpdater.class); } catch (Throwable t) { logCrash(t); }
+        try { registerPlugin(AdunaNotify.class); } catch (Throwable t) { logCrash(t); }
+        rememberOpen(getIntent(), false);
         super.onCreate(savedInstanceState);
         try {
             View web = getBridge().getWebView();
@@ -218,6 +255,199 @@ public class AdunaUpdater extends Plugin {
     }
 }
 `);
+
+  // Notification cards: the same card the desktop app draws (rounded, in the person's Aduna theme, a round icon, title and text),
+  // built as a custom notification. The server sends devices that register cardUi data-only pushes (card=1) and this service draws them.
+  writeFileSync(join(javaDir, 'AdunaCards.java'), `package com.aduna.app;
+
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
+import android.graphics.Color;
+import android.net.Uri;
+import android.os.Build;
+import android.widget.RemoteViews;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
+
+// Draws one notification card. The theme colours are saved by the page (AdunaNotify.setTheme) so this also works while the app is closed.
+final class AdunaCards {
+    static final String PREFS = "aduna_notif";
+    static volatile boolean foreground = false; // set by MainActivity: true while the app is on screen
+
+    private AdunaCards() { }
+
+    private static int col(SharedPreferences sp, String key, String fallback) {
+        try { return Color.parseColor(sp.getString(key, fallback)); } catch (Throwable t) { return Color.parseColor(fallback); }
+    }
+
+    private static int glyph(String kind) {
+        if ("dm".equals(kind)) return R.drawable.aduna_g_chat;
+        if ("mention".equals(kind)) return R.drawable.aduna_g_at;
+        if ("announcement".equals(kind)) return R.drawable.aduna_g_horn;
+        if ("call".equals(kind)) return R.drawable.aduna_g_phone;
+        if ("friend".equals(kind)) return R.drawable.aduna_g_user;
+        return R.drawable.aduna_g_bell;
+    }
+
+    static void channels(Context ctx) {
+        if (Build.VERSION.SDK_INT < 26) return;
+        NotificationManager m = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (m == null) return;
+        if (m.getNotificationChannel("messages") == null) {
+            NotificationChannel c = new NotificationChannel("messages", "Messages", NotificationManager.IMPORTANCE_HIGH);
+            c.setDescription("DMs, mentions, announcements and friend requests");
+            c.enableVibration(true);
+            m.createNotificationChannel(c);
+        }
+        if (m.getNotificationChannel("calls") == null) {
+            NotificationChannel c = new NotificationChannel("calls", "Calls", NotificationManager.IMPORTANCE_MAX);
+            c.setDescription("Incoming calls");
+            c.enableVibration(true);
+            m.createNotificationChannel(c);
+        }
+    }
+
+    private static RemoteViews view(Context ctx, int layout, String title, String body, int glyph, int bg, int head, int muted, int dot, int dotFg) {
+        RemoteViews v = new RemoteViews(ctx.getPackageName(), layout);
+        v.setInt(R.id.an_root, "setBackgroundColor", bg);
+        v.setTextViewText(R.id.an_title, title);
+        v.setTextColor(R.id.an_title, head);
+        if (body == null || body.isEmpty()) {
+            v.setViewVisibility(R.id.an_body, android.view.View.GONE);
+        } else {
+            v.setTextViewText(R.id.an_body, body);
+            v.setTextColor(R.id.an_body, muted);
+        }
+        v.setInt(R.id.an_dot, "setColorFilter", dot);
+        v.setImageViewResource(R.id.an_glyph, glyph);
+        v.setInt(R.id.an_glyph, "setColorFilter", dotFg);
+        return v;
+    }
+
+    // force: draw even while the app is on screen (the Send test button in Settings)
+    static void show(Context ctx, String kind, String title, String body, String tag, String url, boolean force) {
+        try {
+            if (foreground && !force) return;
+            NotificationManagerCompat nm = NotificationManagerCompat.from(ctx);
+            if (!nm.areNotificationsEnabled()) return;
+            channels(ctx);
+            if (kind == null || kind.isEmpty()) kind = "test";
+            if (title == null || title.isEmpty()) title = "Aduna";
+            if (body == null) body = "";
+            if (tag == null || tag.isEmpty()) tag = "n" + System.nanoTime();
+            boolean call = "call".equals(kind);
+
+            SharedPreferences sp = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+            int raised = col(sp, "raised", "#FFFDF8");
+            int head = col(sp, "head", "#14110D");
+            int muted = col(sp, "muted", "#857B6A");
+            int ink = col(sp, "ink", "#1C1812");
+            int onInk = col(sp, "onInk", "#FBF8F1");
+            int green = col(sp, "green", "#3F8F5B");
+            int dot = call ? green : ink;
+            int dotFg = call ? Color.WHITE : onInk;
+            int g = glyph(kind);
+
+            RemoteViews small = view(ctx, R.layout.aduna_notif, title, body, g, raised, head, muted, dot, dotFg);
+            RemoteViews big = view(ctx, R.layout.aduna_notif_big, title, body, g, raised, head, muted, dot, dotFg);
+
+            String target = "";
+            try { String n = Uri.parse(url == null ? "" : url).getQueryParameter("n"); if (n != null) target = n; } catch (Throwable ignored) { }
+            Intent open = new Intent(ctx, MainActivity.class);
+            open.setAction(Intent.ACTION_MAIN);
+            open.addCategory(Intent.CATEGORY_LAUNCHER);
+            open.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+            open.putExtra("adunaOpen", target);
+            PendingIntent pi = PendingIntent.getActivity(ctx, tag.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+
+            NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, call ? "calls" : "messages")
+                .setSmallIcon(R.drawable.ic_stat_icon)
+                .setColor(ink)
+                .setContentTitle(title)
+                .setContentText(body)
+                .setCustomContentView(small)
+                .setCustomBigContentView(big)
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .setCategory(call ? NotificationCompat.CATEGORY_CALL : NotificationCompat.CATEGORY_MESSAGE)
+                .setPriority(NotificationCompat.PRIORITY_HIGH);
+            if (call) b.setTimeoutAfter(45000);
+            Notification n = b.build();
+            nm.notify(tag, 1, n);
+        } catch (Throwable ignored) { /* a card is a nicety: never crash a push */ }
+    }
+}
+`);
+
+  // Receives the data-only pushes. Everything else goes to Capacitor's own service, so the page still hears about every push.
+  writeFileSync(join(javaDir, 'AdunaMessagingService.java'), `package com.aduna.app;
+
+import com.capacitorjs.plugins.pushnotifications.MessagingService;
+import com.google.firebase.messaging.RemoteMessage;
+import java.util.Map;
+
+public class AdunaMessagingService extends MessagingService {
+    @Override
+    public void onMessageReceived(RemoteMessage message) {
+        try {
+            Map<String, String> d = message.getData();
+            if (message.getNotification() == null && "1".equals(d.get("card"))) {
+                AdunaCards.show(getApplicationContext(), d.get("kind"), d.get("title"), d.get("body"), d.get("tag"), d.get("url"), false);
+            }
+        } catch (Throwable ignored) { /* never lose the message because a card failed */ }
+        super.onMessageReceived(message);
+    }
+}
+`);
+
+  // The page's side: save the theme, show a card now (Settings > Send test), and hand over a tap that opened the app from closed.
+  writeFileSync(join(javaDir, 'AdunaNotify.java'), `package com.aduna.app;
+
+import android.content.SharedPreferences;
+import com.getcapacitor.JSObject;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+@CapacitorPlugin(name = "AdunaNotify")
+public class AdunaNotify extends Plugin {
+    static volatile String pendingOpen = "";
+
+    // { raised, head, muted, ink, onInk, green }: "#rrggbb" each. Anything else is ignored.
+    @PluginMethod
+    public void setTheme(PluginCall call) {
+        try {
+            SharedPreferences.Editor e = getContext().getSharedPreferences(AdunaCards.PREFS, 0).edit();
+            for (String k : new String[] { "raised", "head", "muted", "ink", "onInk", "green" }) {
+                String v = call.getString(k, "");
+                if (v != null && v.matches("#[0-9a-fA-F]{6}")) e.putString(k, v);
+            }
+            e.apply();
+        } catch (Throwable ignored) { }
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void show(PluginCall call) {
+        AdunaCards.show(getContext(), call.getString("kind", "test"), call.getString("title", "Aduna"), call.getString("body", ""), call.getString("tag", ""), call.getString("url", "/app"), true);
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void takeOpen(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("target", pendingOpen);
+        pendingOpen = "";
+        call.resolve(r);
+    }
+}
+`);
 }
 
 // 3. manifest: calls need camera + microphone, notifications need the Android 13+ permission, and the Firebase defaults
@@ -252,6 +482,24 @@ if (!m.includes('<!-- aduna -->')) {
   }
 }
 
+// notification cards: our own push service replaces Capacitor's (it extends it, so the page still hears about every push), and the manifest
+// needs the tools namespace to drop the original. Added separately so projects made by an earlier version get it too.
+{
+  let mm = readFileSync(manifestPath, 'utf8');
+  if (!mm.includes('AdunaMessagingService')) {
+    if (!mm.includes('xmlns:tools=')) mm = mm.replace('<manifest ', '<manifest xmlns:tools="http://schemas.android.com/tools" ');
+    const svc = `        <service android:name=".AdunaMessagingService" android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <service android:name="com.capacitorjs.plugins.pushnotifications.MessagingService" tools:node="remove" />
+`;
+    mm = mm.replace('</application>', `${svc}    </application>`);
+    writeFileSync(manifestPath, mm);
+  }
+}
+
 // 4. version + release signing, appended to the module's build.gradle (a second android {} block merges with the first)
 const gradlePath = join(app, 'build.gradle');
 let g = readFileSync(gradlePath, 'utf8');
@@ -261,6 +509,11 @@ if (marker !== -1) g = g.slice(0, marker) + '\n';
 {
   g += `
 // aduna: version and release signing come from the environment (see mobile/README.md)
+// Firebase Messaging is also needed here (not only inside Capacitor's plugin) because our push service in the app extends Capacitor's.
+def fcmVersion = rootProject.ext.has('firebaseMessagingVersion') ? rootProject.ext.firebaseMessagingVersion : '24.1.0'
+dependencies {
+    implementation "com.google.firebase:firebase-messaging:" + fcmVersion
+}
 android {
     defaultConfig {
         versionCode = Integer.parseInt(System.getenv("ADUNA_VERSION_CODE") ?: "1")

@@ -72,7 +72,7 @@ export function NotificationSettings({ me, onPrefs }) {
         {!desktop && perm === 'unsupported' && <p>{t('nUnsupported')}</p>}
         <div className="notify-actions">
           {!desktop && perm === 'default' && <button className="btn primary" disabled={busy} onClick={turnOn}>{t('nTurnOn')}</button>}
-          {!desktop && !native && perm === 'granted' && <button className="btn" disabled={busy} onClick={() => notify.show({ title: 'Test notification', body: 'This is what Aduna notifications look like.', tag: 'aduna-test' })}>{t('nSendTest')}</button>}
+          {!desktop && (!native || notify.hasNativeCards()) && perm === 'granted' && <button className="btn" disabled={busy} onClick={() => notify.show({ title: 'Test notification', body: 'This is what Aduna notifications look like.', tag: 'aduna-test', local: true })}>{t('nSendTest')}</button>}
           {!desktop && perm === 'granted' && subbed === false && notify.pushSupported() && <button className="btn" disabled={busy} onClick={turnOn}>{t('nEnableClosed')}</button>}
           {!desktop && perm === 'granted' && subbed && <button className="btn" disabled={busy} onClick={turnOff}>{t('nStopClosed')}</button>}
           {!desktop && perm === 'granted' && notify.pushSupported() && <button className="btn" disabled={busy} onClick={serverTest}>{t('nServerTest')}</button>}

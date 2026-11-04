@@ -75,6 +75,19 @@ assert.strictEqual(createFcm({ raw: '' }).enabled, false);
   assert.ok(JSON.parse(calls[calls.length - 1].init.body).message.notification, 'a malformed call id never becomes a ring');
   await fcm.send(TOKEN, JSON.stringify({ kind: 'dm', title: 'x', body: 'y', callId: 'ab12cd34ef56ab78' }), { callUi: true });
   assert.ok(JSON.parse(calls[calls.length - 1].init.body).message.notification, 'only calls are data-only');
+  // an app that draws its own card gets every kind data-only, marked card: '1' (the system draws nothing)
+  await fcm.send(TOKEN, JSON.stringify({ kind: 'dm', title: 'Sam', body: 'Sent you a message', url: '/app?n=d:1', tag: 'm:9' }), { TTL: 3600, cardUi: true });
+  const cd = JSON.parse(calls[calls.length - 1].init.body).message;
+  assert.strictEqual(cd.notification, undefined, 'card: nothing for the system to draw');
+  assert.deepStrictEqual(cd.data, { card: '1', kind: 'dm', url: '/app?n=d:1', tag: 'm:9', title: 'Sam', body: 'Sent you a message' });
+  assert.deepStrictEqual([cd.android.priority, cd.android.ttl], ['HIGH', '3600s']);
+  Object.values(cd.data).forEach((v) => assert.strictEqual(typeof v, 'string', 'FCM data values must be strings'));
+  await fcm.send(TOKEN, JSON.stringify({ kind: 'call', title: 'Sam is calling', body: 'Incoming voice call' }), { TTL: 45, cardUi: true });
+  assert.deepStrictEqual(JSON.parse(calls[calls.length - 1].init.body).message.data, { card: '1', kind: 'call', url: '/app', tag: '', title: 'Sam is calling', body: 'Incoming voice call' }, 'a call without the call screen is a card too');
+  // the call screen wins over the card when the app has both
+  await fcm.send(TOKEN, JSON.stringify({ kind: 'call', title: 'Sam is calling', body: 'Incoming voice call', callId: 'ab12cd34ef56ab78' }), { TTL: 45, callUi: true, cardUi: true });
+  assert.strictEqual(JSON.parse(calls[calls.length - 1].init.body).message.data.callId, 'ab12cd34ef56ab78');
+  assert.strictEqual(JSON.parse(calls[calls.length - 1].init.body).message.data.card, undefined);
   calls.length = 3; // the checks below count requests from here
 
   // a new token is fetched after it expires

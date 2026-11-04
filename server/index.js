@@ -4773,7 +4773,7 @@ const push = createPush({
   get enabled() { return !!store.vapid && process.env.PUSH !== 'off'; },
   get publicKey() { return store.vapid?.publicKey; },
   sender: (sub, body, opts) => {
-    if (sub.fcm) return fcm.send(sub.fcm, body, { ...opts, callUi: !!sub.callUi }); // an Android app device
+    if (sub.fcm) return fcm.send(sub.fcm, body, { ...opts, callUi: !!sub.callUi, cardUi: !!sub.cardUi }); // an Android app device
     if (!vapidReady) {
       webpush.setVapidDetails(process.env.VAPID_SUBJECT || (/^https:/.test(process.env.PUBLIC_URL || '') ? process.env.PUBLIC_URL : 'https://aduna.onrender.com'), store.vapid.publicKey, store.vapid.privateKey);
       vapidReady = true;
@@ -4796,7 +4796,7 @@ app.post('/api/push/subscribe', auth, (req, res) => {
 // The Android app registers its Firebase token here (Web Push is not available inside an Android WebView).
 app.post('/api/push/fcm', auth, (req, res) => {
   if (!push.enabled || !fcm.enabled) return res.status(503).json({ error: 'Android push is not set up on this server' });
-  if (!push.addFcm(req.user, req.body?.token, req.headers['user-agent'], { callUi: req.body?.callUi === true })) return res.status(400).json({ error: 'Bad token' });
+  if (!push.addFcm(req.user, req.body?.token, req.headers['user-agent'], { callUi: req.body?.callUi === true, cardUi: req.body?.cardUi === true })) return res.status(400).json({ error: 'Bad token' });
   res.json({ ok: true });
 });
 // The Decline button on the Android ringing screen. Not signed in (the app may be closed), so it is proved by the signature the server put

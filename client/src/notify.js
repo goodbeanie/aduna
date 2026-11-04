@@ -1,6 +1,7 @@
 // Notifications, in one place.
 //   - Android app (Capacitor shell around this site): Web Push does not exist in an Android WebView, so the app registers a
-//     Firebase (FCM) token with the server (/api/push/fcm) and the server pushes to it. The system draws the notification.
+//     Firebase (FCM) token with the server (/api/push/fcm) and the server pushes to it. Newer builds draw the notification
+//     themselves as a card like the desktop one (mobile/scripts/prepare-android.mjs: AdunaCards); older builds let the system draw it.
 //   - Desktop app (Electron): the page asks the app to show a native Windows notification (window.adunaDesktop).
 //   - Phones / installed web app / browsers: shown through the service worker, which is also what receives Web Push
 //     from the server while Aduna is closed. Phones only allow notifications that way.
@@ -22,6 +23,7 @@ let nativePerm = store.get('aduna_native_perm') || 'default'; // 'granted' | 'de
 let fcmToken = store.get('aduna_fcm_token');                    // only kept once the server has accepted it
 let pendingOpen = '';                                           // a notification tapped before the page was ready
 export const takePendingOpen = () => { const t = pendingOpen; pendingOpen = ''; return t; };
+export const hasNativeCards = () => isNativeApp() && !!cap()?.Plugins?.AdunaNotify; // this app build draws the same notification card as the desktop app
 const setNativePerm = (r) => { nativePerm = r === 'granted' ? 'granted' : r === 'denied' ? 'denied' : 'default'; store.set('aduna_native_perm', nativePerm); };
 
 let nativeReady = null;
@@ -32,12 +34,14 @@ function nativeInit() {
   nativeReady = (async () => {
     await pn.addListener('registration', async (t) => {
       // callUi: this app build has the native call screen (Answer / Decline buttons, ringtone), so the server may send it data-only call pushes
-      try { await api('/push/fcm', { method: 'POST', body: { token: t.value, callUi: !!cap()?.Plugins?.AdunaCalls } }); fcmToken = t.value; store.set('aduna_fcm_token', t.value); lastError = ''; }
+      // cardUi: this build draws its own notification card (like the desktop one), so the server sends it data-only pushes for everything
+      try { await api('/push/fcm', { method: 'POST', body: { token: t.value, callUi: !!cap()?.Plugins?.AdunaCalls, cardUi: !!cap()?.Plugins?.AdunaNotify } }); fcmToken = t.value; store.set('aduna_fcm_token', t.value); lastError = ''; }
       catch (e) { lastError = e?.message || 'The server did not accept this device.'; }
     });
     await pn.addListener('registrationError', (e) => { lastError = (e && (e.error || e.message)) || 'Could not register with Firebase.'; });
     // The app is open: the system shows nothing, the page already shows its own toasts. A test push is acknowledged in Settings.
-    await pn.addListener('pushNotificationReceived', (n) => window.dispatchEvent(new CustomEvent('aduna:push-received', { detail: { kind: n?.data?.kind || '', title: n?.title || '', body: n?.body || '' } })));
+    // A card push is data-only, so its title and text arrive in data rather than in the notification part.
+    await pn.addListener('pushNotificationReceived', (n) => window.dispatchEvent(new CustomEvent('aduna:push-received', { detail: { kind: n?.data?.kind || '', title: n?.title || n?.data?.title || '', body: n?.body || n?.data?.body || '' } })));
     await pn.addListener('pushNotificationActionPerformed', (a) => {
       let target = '';
       try { target = new URL(a?.notification?.data?.url || '/app', location.origin).searchParams.get('n') || ''; } catch { /* no target: just open the app */ }
@@ -49,11 +53,49 @@ function nativeInit() {
       await pn.createChannel({ id: 'calls', name: 'Calls', description: 'Incoming calls', importance: 5, visibility: 0, vibration: true });
     } catch { /* channels are a nicety */ }
     try { setNativePerm((await pn.checkPermissions()).receive); } catch { /* keep the cached value */ }
+    // The app was opened from closed by tapping a notification card: the native side kept which chat it was for
+    try { const o = await cap()?.Plugins?.AdunaNotify?.takeOpen?.(); if (o?.target && !pendingOpen) pendingOpen = o.target; } catch { /* older app build */ }
     return true;
   })().catch(() => false);
   return nativeReady;
 }
 if (isNativeApp()) nativeInit();
+
+// ---- Android: the notification card wears the person's own Aduna colours (the native side saves them, so it also works while the app is closed) ----
+// The page paints its theme as CSS variables; they are turned into plain #rrggbb here (a canvas understands every CSS colour, color-mix included).
+let lastCardTheme = '';
+function syncCardTheme() {
+  try {
+    const plugin = cap()?.Plugins?.AdunaNotify;
+    const root = document.documentElement;
+    if (!plugin?.setTheme || root.dataset.theme === 'server') return; // cards always wear the person's own theme, never a server's
+    const cs = getComputedStyle(root);
+    const v = (k) => cs.getPropertyValue(k).trim();
+    const ctx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+    ctx.canvas.width = ctx.canvas.height = 1;
+    const hex = (...layers) => { // each colour drawn over the one before it (some themes have see-through panels)
+      ctx.clearRect(0, 0, 1, 1);
+      for (const c of layers) if (c) { ctx.fillStyle = '#000000'; ctx.fillStyle = c; ctx.fillRect(0, 0, 1, 1); }
+      const d = ctx.getImageData(0, 0, 1, 1).data;
+      return '#' + [d[0], d[1], d[2]].map((n) => n.toString(16).padStart(2, '0')).join('');
+    };
+    const bg = v('--bg'), raised = v('--raised');
+    const theme = {
+      raised: hex(bg, raised), head: hex(bg, raised, v('--head')), muted: hex(bg, raised, v('--muted')),
+      ink: hex(bg, v('--ink')), onInk: hex(bg, v('--on-ink')), green: hex(bg, v('--green')),
+    };
+    const json = JSON.stringify(theme);
+    if (json === lastCardTheme) return;
+    lastCardTheme = json;
+    plugin.setTheme(theme);
+  } catch { /* the card keeps its Parchment default */ }
+}
+if (isNativeApp() && typeof document !== 'undefined') {
+  let timer = 0;
+  const later = () => { clearTimeout(timer); timer = setTimeout(syncCardTheme, 900); }; // the page fades its theme over .6 s: read it once it has settled
+  const start = () => { later(); new MutationObserver(later).observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-theme'] }); };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+}
 
 export const isIos = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 export const isInstalled = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
@@ -83,8 +125,11 @@ export const away = () => { const d = desktop(); return d?.isActive ? !d.isActiv
 export async function show(n) {
   try {
     if (permission() !== 'granted') return;
-    if (isNativeApp()) return; // the server's push shows it (Android draws it; nothing to draw from the page)
     const url = '/app' + (n.target ? '?n=' + encodeURIComponent(n.target) : '');
+    if (isNativeApp()) { // the server's push shows it (the app draws the card); from the page only Settings' test button draws one, with local: true
+      if (n.local) await cap()?.Plugins?.AdunaNotify?.show?.({ kind: n.kind || 'test', title: n.title || 'Aduna', body: n.body || '', tag: n.tag || '', url });
+      return;
+    }
     const d = desktop();
     if (d) { d.notify({ title: n.title, body: n.body || '', tag: n.tag || '', target: n.target || '', kind: n.kind || '', sticky: !!n.sticky }); return; }
     const opts = { body: n.body || '', tag: n.tag, icon: '/notif-icon-192.png', badge: '/icon-192.png', data: { url }, requireInteraction: !!n.sticky };
