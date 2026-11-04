@@ -23,10 +23,12 @@ import './studio.css';
 import './clips.css';
 import './wordle.css';
 import './events.css';
-import Dashboard from './Dashboard.jsx';
 import AdminPage from './AdminPage.jsx';
-import ClipPage from './ClipPage.jsx';
-import ClipsSite from './ClipsSite.jsx';
+import { CLIPS_ENABLED } from './features.js';
+// The Clips pages (feed, one clip, creator dashboard) are only loaded when Clips are switched on (features.js). While they are off nothing of them is fetched.
+const Dashboard = CLIPS_ENABLED ? React.lazy(() => import('./Dashboard.jsx')) : null;
+const ClipPage = CLIPS_ENABLED ? React.lazy(() => import('./ClipPage.jsx')) : null;
+const ClipsSite = CLIPS_ENABLED ? React.lazy(() => import('./ClipsSite.jsx')) : null;
 import './even.css'; // last on purpose: small evenness fixes that must win over every older layer
 import './sidebar.css'; // after even.css: the one sidebar pass (spacing, labels, icon weight, states)
 import './friends.css'; // after sidebar.css: the Friends page rows (one column, hover, quiet actions)
@@ -49,18 +51,20 @@ startPhrases();
 // /dashboard is the Clips creator page (upload clips), /admin is the admin page (admins only), /clips is the Clips website (the feed), /clips/user/<id> is one person's Clips page,
 // /clips/<clip id> is one clip on its own page; everything else is the app
 const path = location.pathname;
-const onDashboard = /^\/dashboard\/?$/.test(path);
+const onDashboard = CLIPS_ENABLED && /^\/dashboard\/?$/.test(path);
 const onAdmin = /^\/admin\/?$/.test(path);
-const onClipsFeed = /^\/clips\/?$/.test(path);
-const clipsUser = /^\/clips\/user\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null;
-const clipId = /^\/clips\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null;
+const onClipsFeed = CLIPS_ENABLED && /^\/clips\/?$/.test(path);
+const clipsUser = CLIPS_ENABLED ? /^\/clips\/user\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null : null;
+const clipId = CLIPS_ENABLED ? /^\/clips\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null : null;
 createRoot(document.getElementById('root')).render(
   <ErrorBoundary>
-    {onDashboard ? <Dashboard />
-      : onAdmin ? <AdminPage />
-        : onClipsFeed ? <ClipsSite />
-          : clipsUser ? <ClipsSite userId={clipsUser} />
-            : clipId ? <ClipPage id={clipId} />
-              : <App />}
+    <React.Suspense fallback={null}>
+      {onDashboard ? <Dashboard />
+        : onAdmin ? <AdminPage />
+          : onClipsFeed ? <ClipsSite />
+            : clipsUser ? <ClipsSite userId={clipsUser} />
+              : clipId ? <ClipPage id={clipId} />
+                : <App />}
+    </React.Suspense>
   </ErrorBoundary>
 );

@@ -1,6 +1,7 @@
 // Attachment helpers: upload (with progress), fetch + decrypt, and small formatting utilities.
 import { encryptBytesFor, decryptBytesFrom, encryptBytesWithKey, decryptBytesWithKey } from './crypto.js';
 import { STICKER_LABEL, stickerIdOf } from './stickers.js';
+import { shrinkImage } from './imageShrink.js';
 
 export const MAX_FILE = 20 * 1024 * 1024;
 // The server deletes attachments after FILE_DAYS days, or LARGE_FILE_DAYS for files over LARGE_FILE_BYTES (see server/index.js).
@@ -43,6 +44,7 @@ export const setStorageFullHandler = (fn) => { storageFullHandler = fn; };
 // scope: { kind: 'channel', target: channelId } or { kind: 'dm', target: userId, privKey, theirPublic }
 //        or { kind: 'group', target: groupId, key, epoch } (key = the current epoch's AES key; the epoch is stored in the attachment)
 export async function uploadFile(file, scope, onProgress) {
+  file = await shrinkImage(file); // photos are compressed before anything else (imageShrink.js), so they also count smaller against the size limit
   if (file.size > MAX_FILE) throw new Error(`${file.name} is larger than 20 MB`);
   if (!file.size) throw new Error(`${file.name} is empty`);
   let body = await file.arrayBuffer();

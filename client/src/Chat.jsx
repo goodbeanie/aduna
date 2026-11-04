@@ -7,7 +7,10 @@ import { StickerMessage, StickerPop } from './Stickers.jsx';
 import { stickerIdOf, stickerToken } from './stickers.js';
 import { EmojiImg, Rich, useEmoji } from './Emoji.jsx';
 import { InviteCard, inviteCodesIn } from './Invite.jsx';
-import { ClipEmbed, clipIdsIn, isOnlyClipLink } from './ClipEmbed.jsx';
+import { clipIdsIn, isOnlyClipLink } from './clipLinks.js';
+import { CLIPS_ENABLED } from './features.js';
+// the clip card (and the whole Clips player behind it) is only loaded when Clips are switched on; otherwise a clip link is just a link
+const ClipEmbed = CLIPS_ENABLED ? React.lazy(() => import('./ClipEmbed.jsx').then((m) => ({ default: m.ClipEmbed }))) : null;
 import { MentionMenu, fromMentionTokens, mentionPreview, toMentionTokens, useMentionComplete } from './Mentions.jsx';
 import { useTypingProof } from './typing.js';
 import { BotTag } from './Bots.jsx';
@@ -16,6 +19,8 @@ import { WordleModal, WordleShareCard, parseWordleShare } from './Wordle.jsx';
 import { callSummary } from './callhistory.js';
 import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, MAX_FILE, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
 import { canCompress, compressVideo } from './compress.js';
+const AUTO_VIDEO_MIN = 4 * 1024 * 1024;   // videos bigger than this are compressed automatically before they are sent
+const AUTO_VIDEO_BPS = 1_800_000;         // ...to at most about 1.8 Mbit/s of picture, a good size for chat
 import { getDraft, setDraft } from './drafts.js';
 import { getSeen, markSeen } from './seen.js';
 import VoiceRecorder, { voiceSupported } from './VoiceRecorder.jsx';
@@ -241,13 +246,13 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           )}
           {editing
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > 2000) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
-            : (m.content || m.editedAt) && !wshare && !sticker && !(isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+            : (m.content || m.editedAt) && !wshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
           {wshare && !editing && <WordleShareCard share={wshare} />}
           {m.poll && <PollCard m={m} users={users} me={me} onVote={onVote} onClose={onClosePoll} canClose={canDelete} />}
           {m.invite && <InviteCard code={m.invite} />}
           {!editing && inviteCodesIn(m.content).filter((c) => c !== m.invite).map((c) => <InviteCard key={c} code={c} />)}
-          {!editing && clipIdsIn(m.content).map((id) => <ClipEmbed key={id} id={id} />)}
+          {CLIPS_ENABLED && !editing && clipIdsIn(m.content).map((id) => <React.Suspense key={id} fallback={null}><ClipEmbed id={id} /></React.Suspense>)}
           <Attachments atts={m.attachments} dm={dm} onOpen={(v) => onOpen({ ...v, dm })} />
           {Object.keys(m.reactions || {}).length > 0 && (
             <div className="reactions">
@@ -453,7 +458,8 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     aborts.current[p.key]?.abort(); // stops compressing a video that is still being squeezed
     setPending((l) => l.filter((x) => x.key !== p.key));
   }
-  // Uploads one file. compress: shrink the video first (it was over the limit and the person said yes).
+  // Uploads one file. compress: true = shrink the video first (it was over the limit and the person said yes), 'auto' = shrink it because it is
+  // a video of a size worth shrinking (kept only if it really got smaller; if the browser cannot, the original is sent). Photos are shrunk in uploadFile.
   function startUpload(f, compress) {
     const key = Math.random().toString(36).slice(2);
     const entry = { key, name: f.name || 'pasted-file', size: f.size, type: f.type, progress: 0, compressing: !!compress, preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : null };
@@ -463,11 +469,17 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
       if (compress) {
         const ctl = new AbortController();
         aborts.current[key] = ctl;
-        try { file = await compressVideo(f, { signal: ctl.signal, onProgress: (progress) => patch(key, { progress }) }); } finally { delete aborts.current[key]; }
+        try {
+          const out = await compressVideo(f, { signal: ctl.signal, onProgress: (progress) => patch(key, { progress }), ...(compress === 'auto' ? { maxBps: AUTO_VIDEO_BPS } : {}) });
+          file = compress === 'auto' && out.size >= f.size * 0.85 ? f : out;
+        } catch (e) {
+          if (compress !== 'auto' || e.cancelled) throw e;
+          file = f; // could not be compressed: send it as it is
+        } finally { delete aborts.current[key]; }
         patch(key, { compressing: false, progress: 0, name: file.name, size: file.size, type: file.type });
       }
       const att = await uploadFile(file, files.scope, (progress) => patch(key, { progress }));
-      patch(key, { att, progress: 1 });
+      patch(key, { att, progress: 1, size: att.size });
     })().catch((e) => { if (!e.cancelled) patch(key, { err: e.message, compressing: false }); });
   }
   function addFiles(list) {
@@ -478,8 +490,9 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     if (picked.length > room) setErr(`You can attach up to ${MAX_ATTACH} files per message`);
     else setErr('');
     for (const f of picked.slice(0, Math.max(room, 0))) {
-      if (f.size > MAX_FILE && f.type.startsWith('video/') && canCompress()) setBigVideos((l) => [...l, f]); // ask before squeezing it
-      else startUpload(f, false);
+      const video = f.type.startsWith('video/') && canCompress();
+      if (video && f.size > MAX_FILE) setBigVideos((l) => [...l, f]); // ask before squeezing it
+      else startUpload(f, video && f.size > AUTO_VIDEO_MIN ? 'auto' : false);
     }
   }
   function answerBigVideo(yes) {

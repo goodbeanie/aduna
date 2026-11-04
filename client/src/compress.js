@@ -27,8 +27,9 @@ const cancelled = () => Object.assign(new Error('Cancelled'), { cancelled: true 
 
 // Returns a smaller File (video/mp4 or video/webm). onProgress gets 0..1. Abort the signal to cancel.
 // Clips use the extra options: target/limit (bytes), maxSide (longest edge in pixels), maxSeconds (anything longer is cut off)
-// and mp4Only (the clips server only accepts MP4).
-export async function compressVideo(file, { onProgress, signal, target = COMPRESS_TARGET, limit = MAX_FILE, maxSide = 1280, maxSeconds = 0, mp4Only = false } = {}) {
+// and mp4Only (the clips server only accepts MP4). maxBps caps the video bitrate (automatic compression of ordinary attachments uses it, so a short
+// video is never re-recorded at a higher bitrate than it needs).
+export async function compressVideo(file, { onProgress, signal, target = COMPRESS_TARGET, limit = MAX_FILE, maxSide = 1280, maxSeconds = 0, mp4Only = false, maxBps = Infinity } = {}) {
   const pick = pickType(mp4Only);
   if (!pick || !canCompress()) throw new Error(mp4Only ? 'This device cannot make MP4 clips' : 'This browser cannot compress video');
   const url = URL.createObjectURL(file);
@@ -42,8 +43,9 @@ export async function compressVideo(file, { onProgress, signal, target = COMPRES
     const duration = maxSeconds > 0 ? Math.min(full, maxSeconds) : full;
 
     // what the size limit allows, per second, minus the sound and a safety margin
-    const videoBps = Math.floor((target * 8 * 0.85) / duration - AUDIO_BPS);
-    if (videoBps < MIN_VIDEO_BPS) throw new Error(`Too long to fit in ${sizeLabel(target)}. Trim it first`);
+    const roomBps = Math.floor((target * 8 * 0.85) / duration - AUDIO_BPS);
+    if (roomBps < MIN_VIDEO_BPS) throw new Error(`Too long to fit in ${sizeLabel(target)}. Trim it first`);
+    const videoBps = Math.min(roomBps, maxBps);
     const longSide = Math.min(maxSide, videoBps >= 2500000 ? 1280 : videoBps >= 1200000 ? 854 : videoBps >= 500000 ? 640 : 426); // 720p, 480p, 360p, 240p
     const scale = Math.min(1, longSide / Math.max(video.videoWidth, video.videoHeight));
     const even = (n) => Math.max(2, Math.round((n * scale) / 2) * 2);
