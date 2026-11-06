@@ -274,8 +274,8 @@ function Analytics({ rows, followers }) {
   );
 }
 
-// "Your Clips page": a creator can switch on a link to their page (/clips/user/<id>). It is off until they do; while it is on, it shows on their
-// Aduna profile, and here they can copy it to share anywhere.
+// "Your Clips page": a creator can switch on a link to their page (/clips/user/<id>). It is off until they do, and here they can copy it to share anywhere.
+// (It no longer shows on their Aduna profile.)
 function PageLinkCard({ on, path, onChange }) {
   const [busy, setBusy] = useState(false);
   const url = location.origin + (path || '');
@@ -296,10 +296,10 @@ function PageLinkCard({ on, path, onChange }) {
   return (
     <div className="dash-card" id="page-link">
       <h2>Your Clips page</h2>
-      <p className="muted">Your page shows your clips and how many people follow you. Switch the link on to show it on your Aduna profile and share it anywhere.</p>
+      <p className="muted">Your page shows your clips and how many people follow you. Switch the link on to share it anywhere.</p>
       <label className="dash-check">
         <input type="checkbox" checked={!!on} disabled={busy} onChange={(e) => flip(e.target.checked)} />
-        <span>Show a link to my Clips page on my profile</span>
+        <span>Turn on my Clips page link</span>
       </label>
       {on && (
         <div className="dash-page-link">

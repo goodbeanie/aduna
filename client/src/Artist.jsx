@@ -47,6 +47,7 @@ export function ArtistSettings() {
   return (
     <div className="badge-admin artist-admin">
       {err && <div className="error-text">{err}</div>}
+      {app.status === 'approved' && <ShopLink on={!!d.shopLink} onChange={(shopLink) => setD({ ...d, shopLink })} onError={setErr} />}
       {app.status === 'approved' && <Items d={d} onChange={(items) => setD({ ...d, items })} onError={setErr} />}
       {app.status === 'pending' && (
         <div className="badge-card">
@@ -60,6 +61,27 @@ export function ArtistSettings() {
       {(app.status === 'none' || app.status === 'draft' || app.status === 'rejected') && (
         <Apply d={d} onApp={(application) => setD({ ...d, application })} onError={setErr} />
       )}
+    </div>
+  );
+}
+
+// An approved artist chooses whether their profile links to their marketplace (their items in the shop).
+function ShopLink({ on, onChange, onError }) {
+  const [busy, setBusy] = useState(false);
+  const flip = async (enabled) => {
+    if (busy) return;
+    setBusy(true); onError('');
+    try { onChange((await api('/artists/shop-link', { method: 'POST', body: { enabled } })).shopLink); }
+    catch (e) { onError(e.message); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="badge-card">
+      <label className="row" style={{ alignItems: 'center', gap: 10, cursor: 'pointer' }}>
+        <input type="checkbox" checked={on} disabled={busy} onChange={(e) => flip(e.target.checked)} />
+        <span><b>Show a link to my marketplace on my profile</b></span>
+      </label>
+      <p className="muted small">People who open your profile get a Marketplace button that shows the items you sell in the shop.</p>
     </div>
   );
 }

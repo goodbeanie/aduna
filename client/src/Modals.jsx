@@ -232,7 +232,7 @@ export function GameShelf({ games }) {
   );
 }
 
-export function UserCard({ user, presence, relation, onClose, onMessage, onEdit, onAddFriend, onAccept }) {
+export function UserCard({ user, presence, relation, onClose, onMessage, onEdit, onShop, onAddFriend, onAccept }) {
   const th = useCardTheme(user);
   if (!user) return null;
   return (
@@ -252,12 +252,12 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
           {/* the profile song starts muted: the viewer presses the speaker (ProfileSong.jsx) */}
           {!user.bot && <ProfileSong song={user.song} />}
           <ProfileLinks links={user.links} />
-          {/* a Clips creator who switched their page link on (Clips dashboard) shows it here */}
-          {!user.bot && typeof user.clipsPage === 'string' && user.clipsPage.startsWith('/clips/user/') && (
+          {/* an approved artist who switched the link on (Settings > Artist) shows their marketplace here: the shop, only their items */}
+          {!user.bot && typeof user.artistShop === 'string' && user.artistShop && onShop && (
             <>
-              <h4>CLIPS</h4>
+              <h4>MARKETPLACE</h4>
               <div className="plinks">
-                <a className="plink" href={user.clipsPage} target="_blank" rel="noopener noreferrer"><Icon name="link" size={14} /><span>Clips page</span></a>
+                <button type="button" className="plink" onClick={onShop}><Icon name="bag" size={14} /><span>Marketplace</span></button>
               </div>
             </>
           )}

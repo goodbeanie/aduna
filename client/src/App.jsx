@@ -1232,7 +1232,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             : <><Icon name="alert" size={14} className="inline-icon" /> You cannot read new messages in this group on this device yet. Another member’s Aduna will refresh its keys when they are online. <button className="link-btn" onClick={() => refreshKeys(group.id)}>Refresh keys now</button></>} />
       )}
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
-      {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} />}
+      {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} artistId={view.shop ? view.shopArtist || null : null} onAllItems={() => setView({ kind: 'dm', userId: null, shop: true })} />}
       {CLIPS_ENABLED && view.kind === 'dm' && !dmUser && view.clips && <React.Suspense fallback={null}><Clips onBack={() => setShowList(true)} /></React.Suspense>}
       {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && !view.clips && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} servers={servers} me={me} users={users} voiceMembers={voice.members} onJoinVoice={(sid, cid) => { const sv = servers.find((x) => x.id === sid); const ch = sv?.channels.find((c) => c.id === cid); if (sv && ch) joinEventVoice(sv, ch); }} onSettings={() => setModal({ type: 'edit', tab: 'activity' })} onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }} />
@@ -1319,6 +1319,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {modal?.type === 'user' && users[modal.id] && (
         <UserCard user={users[modal.id]} relation={relationOf(modal.id)} presence={statusOf(modal.id)} onClose={() => setModal(null)}
           onMessage={() => openDm(users[modal.id])} onEdit={() => setModal({ type: 'edit' })}
+          onShop={() => { setModal(null); setView({ kind: 'dm', userId: null, shop: true, shopArtist: modal.id }); setShowList(false); }}
           onAddFriend={() => requestFriend(users[modal.id].username).catch((e) => showToast(e.message, 'error'))} onAccept={() => acceptFriend(modal.id)} />
       )}
       {modal?.type === 'edit' && <SettingsScreen key={modal.ai || 0} initialTab={modal.tab} aiFocus={modal.ai} me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} getSocketId={() => socketRef.current?.id} />}

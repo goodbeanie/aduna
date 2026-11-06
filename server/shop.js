@@ -84,7 +84,7 @@ function view(u, badges = {}, { now = Date.now(), all = false, users = null } = 
         pinned: b.pinned === true, daily: b.daily === true, ends: Number.isFinite(b.shopEnds) && b.shopEnds > 0 ? b.shopEnds : null,
       };
       if (b.kind === 'stickers') item.stickers = stickers.stickerViews(b); // a pack shows its stickers instead of one picture
-      if (typeof b.artistId === 'string' && b.artistId) item.by = (users && users[b.artistId] && users[b.artistId].displayName) || null;
+      if (typeof b.artistId === 'string' && b.artistId) { item.by = (users && users[b.artistId] && users[b.artistId].displayName) || null; item.byId = b.artistId; }
       if (all) item.state = !listed(b) ? 'review' : ended(b, now) ? 'ended' : shown(b, picks, now) ? 'live' : 'resting';
       return item;
     })

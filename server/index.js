@@ -229,9 +229,11 @@ function usernameTaken(name, exceptId) {
     // a name someone has applied with is held for them while the application waits for a decision
     || Object.values(db().applications || {}).some((a) => a.id !== exceptId && a.status === 'pending' && String(a.username).toLowerCase() === l);
 }
-// A Clips creator can switch on a link to their Clips page (/clips/user/<id>) from the creator dashboard. It is off until they do,
-// and only while it is on does their profile carry it (publicUser.clipsPage); null otherwise.
+// A Clips creator can switch on a link to their Clips page (/clips/user/<id>) from the creator dashboard. It is off until they do.
+// (The profile card no longer shows it.)
 const clipsPageOf = (u) => (u && !u.bot && u.clipCreator && u.clipCreator.pageLink === true ? '/clips/user/' + u.id : null);
+// An approved artist can switch on a link to their marketplace (their items in the shop) on their profile (Settings > Artist). null otherwise.
+const artistShopOf = (u) => (u && !u.bot && u.showShop === true && artistsLib.isArtist(db().artists && db().artists[u.id]) ? u.id : null);
 // The game someone is playing right now (server/activity.js). Memory only: it is not saved, and a restart simply forgets it.
 const activities = new Map(); // userId -> { name, source, since, seen, changedAt }
 const activityOf = (u) => activityLib.view(u, activityLib.current(activities, u.id, now()), isOnline(u.id) && u.status !== 'invisible');
@@ -239,7 +241,7 @@ function publicUser(u) {
   return {
     id: u.id,
     creator: isCreator(u),
-    clipsPage: clipsPageOf(u),
+    artistShop: artistShopOf(u), // the artist's id while they have the marketplace link switched on (Settings > Artist), else null: the profile shows "Marketplace"
     activity: activityOf(u), // { name, since, source } or null: "Playing ..." on the profile (hidden when the person turned it off, is offline or Invisible)
     listed: u.showActivity !== false, // false: the person turned the switch off, so the Who's On list (client/src/WhosOn.jsx) leaves them out entirely
     badges: badgeViews(u),
@@ -3591,8 +3593,17 @@ app.get('/api/artists/me', auth, (req, res) => {
     items: artistsLib.isArtist(rec) ? myItems(req.user.id).map(itemView) : [],
     limits: { ...artistsLib.LIMITS, cutPercent: artistsLib.CUT_PERCENT, stickers: { min: stickersLib.LIMITS.minPack, max: stickersLib.LIMITS.maxPack, bytes: stickersLib.LIMITS.maxBytes, minSide: stickersLib.LIMITS.minSide, maxSide: stickersLib.LIMITS.maxSide } },
     reviewer,
+    shopLink: req.user.showShop === true, // the checkbox in Settings > Artist: show a link to my marketplace on my profile
     ...(reviewer ? { waiting: { applications: Object.values(db().artists).filter((r) => r.status === 'pending').length, items: Object.values(db().badges).filter((b) => artistsLib.isItem(b) && b.status === 'pending').length } } : {}),
   });
+});
+
+// An approved artist switches a link to their marketplace (their items in the shop) on or off on their profile. Off until they choose.
+app.post('/api/artists/shop-link', auth, artistOnly, (req, res) => {
+  if (typeof (req.body && req.body.enabled) !== 'boolean') return res.status(400).json({ error: 'Say whether the link is on or off' });
+  if (req.body.enabled) req.user.showShop = true; else delete req.user.showShop;
+  store.save(); emitUserUpdate(req.user);
+  res.json({ shopLink: req.user.showShop === true });
 });
 
 app.put('/api/artists/pieces/:slot', auth, uploadLimiter, rawImage, ah(async (req, res) => {

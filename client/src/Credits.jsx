@@ -404,7 +404,7 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
 // Credits: balance, buying, the earning rules, quests and recent activity.
 // `rev` goes up whenever the server says the balance changed, so this page refreshes itself.
 // `page` picks the tab: 'shop' (buy credits, spend them on badges, recent activity) or 'quests' (earn credits: events, chatting, quests).
-export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOrder, creator = false }) {
+export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOrder, creator = false, artistId = null, onAllItems }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
@@ -517,7 +517,8 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
   const locked = d?.unlocksAt && d.unlocksAt > Date.now();
   const mins = locked ? Math.max(1, Math.ceil((d.unlocksAt - Date.now()) / 60000)) : 0;
   const m = d?.messaging;
-
+  // an artist's marketplace shows only their items; otherwise the whole shop
+  const shopItems = d ? (artistId ? d.shop.filter((it) => it.byId === artistId) : d.shop) : [];
   if (checkout && d) return <Checkout pack={checkout} provider={d.provider} clientId={d.paypalClientId} tax={d.tax} busy={!!busy} error={coErr} onPay={pay} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(null); setBusy(''); }} />;
 
   return (
@@ -573,15 +574,17 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
 
             {page === 'shop' && <>
             <div className="shop-head">
-              <h4 className="credit-h">Badges</h4>
-              {creator && <button className="btn primary small-btn" onClick={() => setAdding(true)}><Icon name="plus" size={14} /> Add a badge</button>}
+              <h4 className="credit-h">{artistId ? `Marketplace${shopItems[0]?.by ? ': ' + shopItems[0].by : ''}` : 'Badges'}</h4>
+              {artistId
+                ? <button className="btn small-btn" onClick={() => onAllItems?.()}>Show all items</button>
+                : creator && <button className="btn primary small-btn" onClick={() => setAdding(true)}><Icon name="plus" size={14} /> Add a badge</button>}
             </div>
-            <p className="muted small shop-intro">Spend your credits on badges that show next to your name everywhere in Aduna, and on profile frames that go around your picture. Each one is yours to keep.</p>
-            {d.shop.length === 0
-              ? <EmptyState compact icon="bag" title={creator ? 'No badges for sale yet' : 'Nothing for sale right now'}>{creator ? 'Add one with a picture and a price.' : 'Check back soon.'}</EmptyState>
+            <p className="muted small shop-intro">{artistId ? 'Everything this artist has for sale. Each one is yours to keep.' : 'Spend your credits on badges that show next to your name everywhere in Aduna, and on profile frames that go around your picture. Each one is yours to keep.'}</p>
+            {shopItems.length === 0
+              ? <EmptyState compact icon="bag" title={artistId ? 'Nothing for sale right now' : creator ? 'No badges for sale yet' : 'Nothing for sale right now'}>{artistId ? 'This artist has no items on sale at the moment.' : creator ? 'Add one with a picture and a price.' : 'Check back soon.'}</EmptyState>
               : (() => {
                 const tile = (it) => <ShopTile key={it.id} item={it} balance={d.balance} busy={busy} creator={creator} onOpen={setConfirm} onOffSale={takeOffSale} onPin={togglePin} onDaily={toggleDaily} onEdit={setEditing} />;
-                const regular = d.shop.filter((it) => !it.daily), daily = d.shop.filter((it) => it.daily);
+                const regular = shopItems.filter((it) => !it.daily), daily = shopItems.filter((it) => it.daily);
                 const max = d.shopInfo?.dailyMax || 5;
                 return (
                   <>
