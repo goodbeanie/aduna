@@ -48,9 +48,15 @@ export function lightness(hex) {
 export function themeCardStyle(t) {
   const light = t.colors.reduce((s, c) => s + lightness(c), 0) / t.colors.length > 0.4;
   const ink = light ? '#14110d' : '#fbf8f1';
+  // The boxes on the card (games, profile song, link chips) are the theme again, just a little darker: a black veil over the gradient,
+  // so they follow its colours instead of falling back to the app's dark field colour.
+  const shade = light ? 0.14 : 0.24;
   return {
     backgroundImage: themeGradient(t),
     '--bg2': t.colors[0],
+    '--field': `rgba(0,0,0,${shade})`,
+    '--hover': `rgba(0,0,0,${shade + 0.1})`,
+    '--line2': light ? '#14110d66' : '#ffffff55',
     '--text': ink, '--head': light ? '#14110d' : '#ffffff',
     '--muted': light ? '#14110dc0' : '#fbf8f1c4',
     '--line': light ? '#14110d33' : '#ffffff33',
