@@ -3,8 +3,10 @@ import { api } from './api.js';
 import { Icon } from './ui.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import { can } from './perms.js';
-import { checkSoundFile, soundNameOf, uploadSound } from './image.js';
+import { checkSoundFile, inspectSoundFile, soundNameOf, uploadSound } from './image.js';
 import { SOUND, settingsOf, soundUrl, whyNotPlay, playClip } from './soundboard.js';
+import { SoundTrim } from './SoundTrim.jsx';
+import { canTrim } from './soundtrim.js';
 
 // The buttons under a voice channel's tiles. Pressing one asks the server to play it for everyone in the channel (the server checks that you are in
 // the channel, that the soundboard is on and that you may use it); every browser then plays the clip when the server announces it (Voice.jsx).
@@ -52,6 +54,7 @@ export function SoundboardTab({ server, me, onChange }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState(null);
+  const [trimming, setTrimming] = useState(null); // a chosen file that is too long or heavy, while the person picks the part to use
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('');
   const input = useRef(null);
@@ -70,10 +73,16 @@ export function SoundboardTab({ server, me, onChange }) {
     const f = e.target.files?.[0];
     e.target.value = '';
     if (!f) return;
-    setErr('');
-    try { await checkSoundFile(f); setFile(f); setName((n) => n || soundNameOf(f)); }
+    setErr(''); setTrimming(null);
+    try {
+      const { trim } = await inspectSoundFile(f);
+      if (!trim) { await checkSoundFile(f); setFile(f); setName((n) => n || soundNameOf(f)); return; }
+      if (!canTrim()) { await checkSoundFile(f); return; } // this browser cannot cut audio: say why the file does not fit
+      setFile(null); setTrimming(f); // longer or heavier than a sound can be: the person picks the part to use
+    }
     catch (ex) { setFile(null); setErr(ex.message); }
   }
+  const trimmed = (cut) => { setName((n) => n || soundNameOf(trimming)); setFile(cut); setTrimming(null); }
   async function add(e) {
     e.preventDefault();
     if (!file || !name.trim()) return;
@@ -116,7 +125,7 @@ export function SoundboardTab({ server, me, onChange }) {
       <label>SOUNDS ({sounds.length}/{SOUND.sounds})</label>
       <input ref={input} type="file" accept="audio/*,.mp3,.m4a,.ogg,.oga,.wav,.webm" hidden onChange={pick} />
       <form className="sb-add" onSubmit={add}>
-        <button type="button" className="btn" disabled={busy || sounds.length >= SOUND.sounds} onClick={() => input.current.click()}>{file ? 'Change file' : 'Choose audio file'}</button>
+        <button type="button" className="btn" disabled={busy || sounds.length >= SOUND.sounds} onClick={() => input.current.click()}>{file || trimming ? 'Change file' : 'Choose audio file'}</button>
         {file && (
           <>
             <input className="sb-emoji-in" value={emoji} maxLength={SOUND.emoji} placeholder="🔊" aria-label="Icon (an emoji, optional)" onChange={(e) => setEmoji(e.target.value)} />
@@ -126,7 +135,8 @@ export function SoundboardTab({ server, me, onChange }) {
           </>
         )}
       </form>
-      <p className="muted small hint">MP3, M4A, OGG, WAV or WebM, up to {SOUND.secs} seconds and {SOUND.bytes / 1024} KB. The icon is optional.</p>
+      {trimming && <SoundTrim file={trimming} onUse={trimmed} onCancel={() => setTrimming(null)} />}
+      <p className="muted small hint">MP3, M4A, OGG, WAV or WebM. A sound is up to {SOUND.secs} seconds: if your file is longer, you choose which part to use. The icon is optional.</p>
       {err && <div className="error" role="alert">{err}</div>}
 
       {sounds.length === 0 ? <p className="muted">No sounds yet.</p> : (

@@ -333,6 +333,16 @@ export async function checkSoundFile(file) {
   if (Number.isFinite(secs) && secs > SOUND.secs + 0.5) throw new Error(`That sound is too long (max ${SOUND.secs} seconds)`);
 }
 export const soundNameOf = (file) => Array.from(songNameOf(file)).slice(0, SOUND.name).join('');
+// A chosen file may be longer or heavier than a sound can be: then the person cuts the part they want (SoundTrim.jsx). Source files up to 25 MB are read.
+export const SOUND_SOURCE_MAX = 25 * 1024 * 1024;
+// Returns { secs, trim }: trim is true when the file must be cut (or shrunk) first. Throws a message the person can read when it cannot be used at all.
+export async function inspectSoundFile(file) {
+  if (!songType(file)) throw new Error('Choose an MP3, M4A, OGG, WAV or WebM audio file');
+  if (file.size > SOUND_SOURCE_MAX) throw new Error(`That file is too big (max ${SOUND_SOURCE_MAX / 1024 / 1024} MB)`);
+  const secs = await audioSeconds(file);
+  const trim = file.size > SOUND.bytes || (Number.isFinite(secs) && secs > SOUND.secs + 0.5);
+  return { secs, trim };
+}
 export async function uploadSound(serverId, file, name, emoji) {
   const q = new URLSearchParams({ name: name || '', emoji: emoji || '' });
   const res = await fetch(`/api/servers/${serverId}/sounds?${q}`, { method: 'POST', headers: { 'Content-Type': songType(file) }, body: file });

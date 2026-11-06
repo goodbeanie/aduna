@@ -29,6 +29,22 @@
 .sb-row:last-child { border-bottom: 0; }
 .sb-row .sb-name { flex: 0 1 auto; }
 
+/* The cutter for a sound that is longer than allowed (SoundTrim.jsx): the wave, a movable box over the part that is kept, and Listen / Use this part. */
+.sb-trim { margin-top: 12px; padding: 12px; background: var(--bg2); border-radius: var(--r-md); box-shadow: inset 0 0 0 1px var(--line2); }
+.sb-trim p { margin: 0 0 10px; }
+.sb-trim-wave { position: relative; height: 88px; border-radius: var(--r-sm); background: var(--raised, var(--bg)); box-shadow: inset 0 0 0 1px var(--line2); cursor: pointer; touch-action: none; user-select: none; overflow: hidden; }
+.sb-trim-canvas { display: block; width: 100%; height: 100%; color: var(--muted); }
+.sb-trim-dim { position: absolute; top: 0; bottom: 0; background: color-mix(in srgb, var(--bg) 70%, transparent); pointer-events: none; }
+.sb-trim-win { position: absolute; top: 0; bottom: 0; box-shadow: inset 0 0 0 2px var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); cursor: grab; }
+.sb-trim-h { position: absolute; top: 0; bottom: 0; width: 10px; background: var(--green); opacity: .85; cursor: ew-resize; }
+.sb-trim-h.l { left: 0; border-radius: 0 3px 3px 0; }
+.sb-trim-h.r { right: 0; border-radius: 3px 0 0 3px; }
+.sb-trim-head { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--head, currentColor); pointer-events: none; }
+.sb-trim-info { display: flex; justify-content: space-between; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.sb-trim-slide { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.sb-trim-slide input { flex: 1; accent-color: var(--green); }
+.sb-trim-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
 @media (max-width: 720px) {
   .sb-btn { min-height: 44px; }
 }
