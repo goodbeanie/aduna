@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api.js';
-import { Avatar, BadgeIcons, Banner, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
+import { Avatar, BadgeIcons, Banner, BannerBlur, bannerBlurClass, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, lightness, CUSTOM_THEME_ID } from './profilethemes.js';
 import { nameProps, NAME_FONTS, MAX_NAME_STOPS, DEFAULT_NAME_GRADIENT, nameGradientCss } from './namestyle.js';
 import { uploadImage, uploadAnimated, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE, checkSongFile, uploadSong, songNameOf, SONG } from './image.js';
@@ -237,7 +237,8 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
   if (!user) return null;
   return (
     <Modal title="Profile" bare onClose={onClose}>
-      <div className={'card' + th.className} style={{ '--accent': user.accentColor, ...th.style }}>
+      <div className={'card' + th.className + bannerBlurClass(user)} style={{ '--accent': user.accentColor, ...th.style }}>
+        <BannerBlur user={user} />
         <Banner user={user} />
         <div className="card-avatar"><Avatar user={user} size={80} presence={presence} play /></div>
         {user.plus && <PlusBadge />}
@@ -766,7 +767,8 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
 
         <div className="editor-preview">
           <div className="ed-preview-label">Preview</div>
-          <div className={'card' + cardTheme.className} style={cardTheme.style}>
+          <div className={'card' + cardTheme.className + bannerBlurClass(preview)} style={cardTheme.style}>
+            <BannerBlur user={preview} />
             <div className="banner-edit">
               <Banner user={preview} />
               <button type="button" className="img-overlay banner-ov" onClick={() => bannerInput.current.click()} aria-label={t('changeBannerAria')}>

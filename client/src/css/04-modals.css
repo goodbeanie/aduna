@@ -23,6 +23,11 @@
 .card { background: var(--bg2); overflow: hidden; position: relative; border: 1px solid var(--line); }
 .banner { height: 90px; background-size: cover; background-position: center; } .card-avatar { position: absolute; top: 52px; left: 18px; border: 4px solid var(--bg2); border-radius: calc(26% + 2px); background: var(--bg2); }
 .card-avatar .dot { border-color: var(--bg2); }
+/* banner blur (like the lounges): a soft blurred copy of the banner glows behind the top of the card and fades out going down */
+.card.has-blur { isolation: isolate; }
+.card-blur { position: absolute; top: -40px; left: -40px; right: -40px; height: 340px; z-index: -1; pointer-events: none; background-size: cover; background-position: center top; filter: blur(40px) saturate(1.25); opacity: .55;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0, #000 35%, transparent 100%); mask-image: linear-gradient(to bottom, #000 0, #000 35%, transparent 100%); }
+@media (prefers-reduced-transparency: reduce) { .card-blur { display: none; } }
 /* Aduna Plus badge: bottom-right of the picture. The body is a mask filled with the card's text colour, the star keeps its purple. */
 .plus-badge { position: absolute; left: 112px; top: 108px; width: var(--pb, 24px); aspect-ratio: 192 / 207; display: block; filter: drop-shadow(0 1px 2px rgba(0,0,0,.18)); }
 .plus-badge i { position: absolute; inset: 0; display: block; background-size: 100% 100%; background-repeat: no-repeat; }

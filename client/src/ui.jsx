@@ -70,6 +70,16 @@ export function Banner({ user }) {
   return <div className="banner" style={{ backgroundColor: user.bannerColor, backgroundImage: src ? `url("${src}")` : undefined }} />;
 }
 
+// A soft blurred copy of the banner behind the top of a profile card (the lounges do the same). Put it first inside the card and add the
+// `has-blur` class (bannerBlurClass) to the card. Uses the still banner picture, or just the banner colour; nothing when the banner is empty.
+const bannerBlurSrc = (user) => user.bannerPreview || imageUrl(user.bannerImage || user.bannerAnim);
+export const bannerBlurClass = (user) => (user && (bannerBlurSrc(user) || user.bannerColor) ? ' has-blur' : '');
+export function BannerBlur({ user }) {
+  const src = bannerBlurSrc(user);
+  if (!src && !user.bannerColor) return null;
+  return <div className="card-blur" aria-hidden="true" style={{ backgroundColor: user.bannerColor, backgroundImage: src ? `url("${src}")` : undefined }} />;
+}
+
 // A profile theme paints the card under the banner (the banner stays as the person set it).
 // Returns { className, style } to put on the card: empty when the person wears no gradient theme.
 export function useCardTheme(user) {
