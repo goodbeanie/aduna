@@ -71,12 +71,24 @@ export function preloadRingtone(now = new Date()) {
   try { elementFor(ringtoneFor(now).url).load(); } catch { /* nothing to warm up */ }
 }
 
+// The ringtone cannot be paused by the system media controls (media keys, the Windows volume/media overlay, a headset button,
+// the browser's media hub): while it rings those handlers do nothing, and if something pauses it anyway it starts again at once.
+const MEDIA_ACTIONS = ['play', 'pause', 'stop', 'seekbackward', 'seekforward', 'seekto', 'previoustrack', 'nexttrack'];
+function lockMediaControls(on) {
+  const ms = typeof navigator !== 'undefined' ? navigator.mediaSession : null;
+  if (!ms || !ms.setActionHandler) return;
+  for (const a of MEDIA_ACTIONS) { try { ms.setActionHandler(a, on ? () => {} : null); } catch { /* this action is not supported here */ } }
+}
+
 export function startRing(kind, now = new Date()) {
   stopRing();
   const me = (ring = { kind }); // kind: 'in' (someone is calling you) or 'out' (you are calling): both play the ringtone
   let el;
   try { el = elementFor(ringtoneFor(now).url); } catch { me.timer = beepRing(); return; }
   me.el = el;
+  lockMediaControls(true);
+  me.onPause = () => { if (ring === me && !el.ended) { const p = el.play(); if (p && p.catch) p.catch(() => {}); } };
+  el.addEventListener('pause', me.onPause);
   el.loop = true; el.volume = VOLUME;
   applyOutput(el); // the speakers chosen in Settings > Voice & Video
   try { el.currentTime = 0; } catch { /* not loaded yet */ }
@@ -105,6 +117,8 @@ export function stopRing() {
   if (r.retry) for (const ev of interactions) window.removeEventListener(ev, r.retry);
   if (r.el) {
     r.el.removeEventListener('error', r.onError);
+    r.el.removeEventListener('pause', r.onPause);
+    lockMediaControls(false);
     try { r.el.pause(); r.el.currentTime = 0; } catch { /* already gone */ } // kept loaded for the next call
   }
 }
