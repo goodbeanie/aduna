@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Select } from './Controls.jsx';
 import { api } from './api.js';
 import { Icon } from './ui.jsx';
 
@@ -130,9 +131,9 @@ export default function BotSim({ code, fetchHosts }) {
 
       {editing && <div className="muted small">Editing a message. <button type="button" className="link-btn" onClick={cancelEdit}>Cancel</button></div>}
       <div className="bot-test-row sim-compose">
-        <select value={as} disabled={!!editing} onChange={(e) => setAs(e.target.value)} aria-label="Who is writing">
+        <Select value={as} disabled={!!editing} onChange={(e) => setAs(e.target.value)} aria-label="Who is writing">
           {PEOPLE.map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-        </select>
+        </Select>
         <input value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} aria-label="Test message" placeholder="Write a message" onKeyDown={(e) => e.key === 'Enter' && send()} />
         <button className="btn primary" disabled={busy || blank || !text.trim()} onClick={send}><Icon name="send" size={14} className="inline-icon" /> {editing ? 'Save edit' : 'Send'}</button>
       </div>

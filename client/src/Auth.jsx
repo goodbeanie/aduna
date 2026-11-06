@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Select } from './Controls.jsx';
 import { api, markSignedIn, endSession } from './api.js';
 import { createIdentity, unlockIdentity, saveKey, hasCrypto, recoverIdentity, isRecoveryKey } from './crypto.js';
 import { RecoveryKeyCard } from './Recovery.jsx';
@@ -266,9 +267,9 @@ export default function Auth({ onAuthed }) {
             {mode === 'login' ? t('register') : t('logInLink')}
           </a>
         </p>
-        <select className="auth-lang" aria-label="Language" value={lang} onChange={(e) => setLang(e.target.value)}>
+        <Select className="auth-lang" aria-label="Language" value={lang} onChange={(e) => setLang(e.target.value)}>
           {LANGS.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
-        </select>
+        </Select>
       </form>
     </div>
   );

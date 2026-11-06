@@ -22,6 +22,7 @@ export default function ShareSheet({ clip, onClose, onShared }) {
   const [q, setQ] = useState('');
   const [done, setDone] = useState({}); // id -> 'sending' | 'sent'
   const [unlock, setUnlock] = useState(null); // { f, pw, busy, err } when this browser does not hold the message key yet
+  const [manual, setManual] = useState(false); // the clipboard was blocked: show the link to copy by hand
   const key = useRef(null);
   const keyReady = useRef(null);
   const sock = useRef(null);
@@ -82,7 +83,7 @@ export default function ShareSheet({ clip, onClose, onShared }) {
   };
   const copy = async () => {
     try { await navigator.clipboard.writeText(link); toast('Link copied'); onShared(); }
-    catch { window.prompt('Copy this link', link); }
+    catch { setManual(true); } // clipboard blocked: show the link in the panel (selected, ready to copy) instead of the browser's prompt box
   };
   const more = async () => {
     if (!navigator.share) return copy();
@@ -115,6 +116,15 @@ export default function ShareSheet({ clip, onClose, onShared }) {
               <button type="button" disabled={unlock.busy || !unlock.pw} onClick={unlockNow}>{unlock.busy ? '…' : 'Unlock'}</button>
             </div>
             {unlock.err && <p className="ss-err">{unlock.err}</p>}
+          </div>
+        )}
+        {manual && (
+          <div className="ss-unlock">
+            <p>Copy this link:</p>
+            <div className="ss-unlock-row">
+              <input readOnly autoFocus value={link} aria-label="Link to copy" onFocus={(e) => e.target.select()} onClick={(e) => e.target.select()} />
+              <button type="button" onClick={() => setManual(false)}>Done</button>
+            </div>
           </div>
         )}
         {many && <input className="ss-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search friends and servers" aria-label="Search friends and servers" />}

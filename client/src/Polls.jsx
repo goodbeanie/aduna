@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Select } from './Controls.jsx';
 import { Icon, Modal } from './ui.jsx';
 
 // Polls on channel messages (rules and storage: server/polls.js). The server owns the truth: a vote is sent, and the new tallies
@@ -118,9 +119,9 @@ export function PollModal({ onSubmit, onClose }) {
         {dup && <p className="error-text small">Every answer must be different.</p>}
         <label className="check-row"><input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} /> Allow picking more than one answer</label>
         <label>DURATION</label>
-        <select value={hours} onChange={(e) => setHours(e.target.value)}>
+        <Select value={hours} onChange={(e) => setHours(e.target.value)}>
           {DURATIONS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
-        </select>
+        </Select>
         <p className="hint">Everyone in the channel can see who voted for what. You (or anyone who can manage messages) can end it early.</p>
         {err && <div className="error">{err}</div>}
         <div className="modal-foot">

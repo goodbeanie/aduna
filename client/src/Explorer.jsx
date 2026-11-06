@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Select } from './Controls.jsx';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { InviteBox } from './Invite.jsx';
@@ -105,9 +106,9 @@ function ServerList() {
           </div>
           <label className="explore-sort">
             <span className="muted small">Sort by</span>
-            <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort by">
+            <Select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort by">
               {SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
+            </Select>
           </label>
         </div>
         {state === 'error' && <div className="error">{err}</div>}
@@ -175,9 +176,9 @@ function BotList({ servers, me, onServerUpdate }) {
           </div>
           <label className="explore-sort">
             <span className="muted small">Sort by</span>
-            <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort by">
+            <Select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort by">
               {[...SORTS, ['new', 'Newest']].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-            </select>
+            </Select>
           </label>
         </div>
         {state === 'error' && <div className="error">{err}</div>}

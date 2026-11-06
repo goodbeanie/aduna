@@ -114,9 +114,19 @@ function sync(map, d) {
   return added;
 }
 
+// Every deploy is a release, even when nobody wrote notes and no desktop or Android version changed (a plain website update).
+// buildId: the hash of the built site (BUILD_ID in index.js). Adds ONE private draft with no notes; the creator fills it in and publishes it in /admin.
+// Returns the id that was added, or null when this build already has a draft.
+function syncBuild(map, buildId, now) {
+  const id = 'site-' + String(buildId || '').replace(/[^\w.\-]/g, '').slice(0, 20);
+  if (id === 'site-' || map[id]) return null;
+  map[id] = { id, status: 'draft', createdAt: now, date: today(now), title: 'Aduna update ' + today(now), items: [], desktop: null, android: null, build: String(buildId) };
+  return id;
+}
+
 // The two hand-written releases, once (index.js remembers that it did this so a later delete stays deleted).
 function seedLegacy(map, now) {
   for (const r of LEGACY) if (!map[r.id]) map[r.id] = { ...r, status: 'public', createdAt: now, publishedAt: now, publishedBy: null };
 }
 
-module.exports = { LIMITS, LEGACY, cleanItems, cleanEdit, publicList, adminList, publishProblem, desktopVersion, androidVersion, readPending, sync, seedLegacy };
+module.exports = { LIMITS, LEGACY, cleanItems, cleanEdit, publicList, adminList, publishProblem, desktopVersion, androidVersion, readPending, sync, syncBuild, seedLegacy };

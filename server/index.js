@@ -4247,6 +4247,13 @@ async function syncReleases() {
   let changed = false;
   if (!(await store.getMeta('releases-seeded'))) { releasesLib.seedLegacy(map, now()); await store.setMeta('releases-seeded', '1'); changed = true; }
   const added = releasesLib.sync(map, { dir: UPDATES_DIR, pending: RELEASES_PENDING, now: now() });
+  // Every deploy gets a draft too, so nothing depends on someone adding it by hand. If notes or a new app version already made a draft in this
+  // same start, that one is the release for this deploy and no second draft is added. The very first run only remembers the current build.
+  if (BUILD_ID !== 'dev' && (await store.getMeta('releases-build')) !== BUILD_ID) {
+    const first = !(await store.getMeta('releases-build'));
+    if (!first && !added.length) { const id = releasesLib.syncBuild(map, BUILD_ID, now()); if (id) added.push(id); }
+    await store.setMeta('releases-build', BUILD_ID);
+  }
   if (added.length) console.log('Releases: added as drafts: ' + added.join(', '));
   if (changed || added.length) store.save();
 }

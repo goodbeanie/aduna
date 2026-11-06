@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ColorInput } from './Controls.jsx';
 import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
 import { nameProps } from './namestyle.js';
@@ -94,7 +95,7 @@ export function RolesTab({ server, me, onChange }) {
                   <div className="color-row"><div className="swatches">
                     <button type="button" className={'swatch none' + (!draft.color ? ' on' : '')} title="No colour" aria-label="No colour" disabled={!editable} onClick={() => setDraft({ ...draft, color: null })} />
                     {COLORS.map((c) => <button key={c} type="button" className={'swatch' + (draft.color === c ? ' on' : '')} style={{ background: c }} aria-label={c} disabled={!editable} onClick={() => setDraft({ ...draft, color: c })} />)}
-                    <input type="color" className="role-color-input" value={draft.color || '#888888'} disabled={!editable} onChange={(e) => setDraft({ ...draft, color: e.target.value })} aria-label="Custom colour" />
+                    <ColorInput className="role-color-input" value={draft.color || '#888888'} disabled={!editable} onChange={(e) => setDraft({ ...draft, color: e.target.value })} aria-label="Custom colour" />
                   </div></div>
                 </>
               )}

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Select } from './Controls.jsx';
 import { api } from './api.js';
 import { BadgeArt } from './Shop.jsx';
 import { Avatar, Icon } from './ui.jsx';
@@ -174,9 +175,9 @@ function Items({ d, onChange, onError }) {
         <form className="badge-card" onSubmit={create}>
           <b>New item</b>
           <div className="row">
-            <select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })} aria-label="Kind of item">
+            <Select value={draft.kind} onChange={(e) => setDraft({ ...draft, kind: e.target.value })} aria-label="Kind of item">
               {Object.entries(KIND_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
+            </Select>
             <input placeholder="Name" maxLength={L.name} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             <input placeholder="Description (optional)" maxLength={L.desc} style={{ flex: 1, minWidth: 160 }} value={draft.desc} onChange={(e) => setDraft({ ...draft, desc: e.target.value })} />
             <input type="number" min={L.minPrice} step="1" placeholder={'Price (min ' + L.minPrice + ')'} style={{ width: 140 }} value={draft.price} onChange={(e) => setDraft({ ...draft, price: e.target.value })} />

@@ -220,6 +220,7 @@ export function VoicePanel({ channel, server, voice, users, me, presence, onBack
         {onBack && <button className="icon-btn back-btn" title="Back" aria-label="Back to list" onClick={onBack}><Icon name="back" size={22} /></button>}
         <span className="hash"><Icon name="speaker" size={20} /></span>
         <h3>{channel.name}</h3>
+        {ids.length > 0 && <span className="voice-count muted" title="People in this channel">{ids.length}/8</span>}
         <div className="spacer" />
         {headerExtra}
       </header>
@@ -231,7 +232,7 @@ export function VoicePanel({ channel, server, voice, users, me, presence, onBack
               const snd = soundOf(id);
               return u && (
                 <div key={id} className={'voice-tile' + (snd ? ' sb-flash' : '')}>
-                  <Avatar user={u} size={72} presence={presence[id] || 'offline'} />
+                  <Avatar user={u} size={88} presence={presence[id] || 'offline'} />
                   <div className="voice-name" {...nameProps(u)}>{u.displayName}{id === me.id ? ' (you)' : ''}</div>
                   {id === me.id && here && state.muted && <Icon name="micoff" size={16} className="voice-muted" />}
                   {snd && <div className="sb-said" role="status">{snd.emoji || '🔊'} {snd.name}</div>}

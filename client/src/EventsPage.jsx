@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { DateTimeInput, Select } from './Controls.jsx';
 import { Avatar, Icon, Modal } from './ui.jsx';
 import { toast, askConfirm } from './Dialogs.jsx';
 import { EmptyState } from './ShellBits.jsx';
@@ -46,14 +47,14 @@ function EventForm({ server, event, onClose, onDone }) {
         <label htmlFor="ev-title">EVENT NAME</label>
         <input id="ev-title" autoFocus value={title} onChange={(e) => { setTitle(e.target.value); setErr(''); }} maxLength={G.LIMITS.title} required placeholder="Game night" />
         <label htmlFor="ev-start">STARTS</label>
-        <input id="ev-start" type="datetime-local" value={start} onChange={(e) => moveStart(e.target.value)} required />
+        <DateTimeInput id="ev-start" value={start} onChange={(e) => moveStart(e.target.value)} required />
         <label htmlFor="ev-end">ENDS</label>
-        <input id="ev-end" type="datetime-local" value={end} onChange={(e) => { setEnd(e.target.value); setErr(''); }} required />
+        <DateTimeInput id="ev-end" value={end} onChange={(e) => { setEnd(e.target.value); setErr(''); }} required />
         <label htmlFor="ev-chan">VOICE CHANNEL</label>
-        <select id="ev-chan" value={channelId} onChange={(e) => setChannelId(e.target.value)}>
+        <Select id="ev-chan" value={channelId} onChange={(e) => setChannelId(e.target.value)}>
           <option value="">No voice channel</option>
           {voices.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-        </select>
+        </Select>
         {voices.length === 0 && <p className="muted small hint">This server has no voice channel yet. Add one and the reminder will carry a one-tap Join voice button.</p>}
         <label htmlFor="ev-desc">DETAILS (OPTIONAL)</label>
         <textarea id="ev-desc" rows={3} value={desc} onChange={(e) => { setDesc(e.target.value); setErr(''); }} maxLength={G.LIMITS.desc} placeholder="What are we playing?" />

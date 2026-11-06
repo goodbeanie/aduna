@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ColorInput } from './Controls.jsx';
 import { Modal } from './ui.jsx';
 import { THEMES, GRADIENT_THEMES, DEFAULT_CUSTOM, MAX_STOPS, customStops, applyTheme, loadTheme, previewColors } from './themes.js';
 import { ThemeGallery, PublishTheme } from './ThemeGallery.jsx';
@@ -80,12 +81,12 @@ export function AppearancePicker() {
         </div>
         <div className="custom-row">
           <span>{tr('background')}</span>
-          <input type="color" value={c.bg} onChange={(e) => setCustom({ bg: e.target.value })} aria-label={tr('customBgAria')} />
+          <ColorInput value={c.bg} onChange={(e) => setCustom({ bg: e.target.value })} aria-label={tr('customBgAria')} />
           <code>{c.bg}</code>
         </div>
         <div className="custom-row">
           <span>{tr('accent')}</span>
-          <input type="color" value={c.accent} onChange={(e) => setCustom({ accent: e.target.value })} aria-label={tr('customAccentAria')} />
+          <ColorInput value={c.accent} onChange={(e) => setCustom({ accent: e.target.value })} aria-label={tr('customAccentAria')} />
           <code>{c.accent}</code>
         </div>
         <label className="check-row">
@@ -98,7 +99,7 @@ export function AppearancePicker() {
               <span>Gradient</span>
               {stops.map((col, i) => (
                 <span className="cg-stop" key={i}>
-                  <input type="color" value={col} onChange={(e) => setStops(stops.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Gradient colour ${i + 1}`} />
+                  <ColorInput value={col} onChange={(e) => setStops(stops.map((x, j) => (j === i ? e.target.value : x)))} aria-label={`Gradient colour ${i + 1}`} />
                   {stops.length > 2 && <button type="button" className="icon-btn" title="Remove this colour" aria-label={`Remove gradient colour ${i + 1}`} onClick={() => setStops(stops.filter((_, j) => j !== i))}>×</button>}
                 </span>
               ))}

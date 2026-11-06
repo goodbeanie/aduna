@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { ColorInput, Select } from './Controls.jsx';
 import { api } from './api.js';
 import { Avatar, BadgeIcons, Banner, BannerBlur, bannerBlurClass, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, lightness, CUSTOM_THEME_ID } from './profilethemes.js';
@@ -311,7 +312,7 @@ function ColorRow({ label, value, onChange, colors = COLORS }) {
       <div className="swatches" role="radiogroup" aria-label={label}>
         {colors.map((c) => <button type="button" role="radio" aria-checked={c === value} key={c} className={'swatch' + (c === value ? ' on' : '')} style={{ background: c }} onClick={() => onChange(c)} aria-label={c} />)}
         <span className={'swatch-custom' + (custom ? ' on' : '')} style={custom ? { '--cc': value } : undefined} title="Pick any colour">
-          <input type="color" value={value} onChange={(e) => onChange(e.target.value)} aria-label={label + ': custom colour'} />
+          <ColorInput value={value} onChange={(e) => onChange(e.target.value)} aria-label={label + ': custom colour'} />
         </span>
       </div>
     </div>
@@ -659,7 +660,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
               <div className="cg-stops">
                 {customG.colors.map((c, i) => (
                   <span className="cg-stop" key={i}>
-                    <input type="color" value={c} onChange={(e) => setStop(i, e.target.value)} aria-label={`Gradient colour ${i + 1}`} />
+                    <ColorInput value={c} onChange={(e) => setStop(i, e.target.value)} aria-label={`Gradient colour ${i + 1}`} />
                     {customG.colors.length > 2 && <button type="button" className="icon-btn" title="Remove this colour" aria-label={`Remove gradient colour ${i + 1}`} onClick={() => removeStop(i)}><Icon name="close" size={14} /></button>}
                   </span>
                 ))}
@@ -702,7 +703,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
               <div className="cg-stops">
                 {nameG.colors.map((c, i) => (
                   <span className="cg-stop" key={i}>
-                    <input type="color" value={c} onChange={(e) => setNameStop(i, e.target.value)} aria-label={`Name gradient colour ${i + 1}`} />
+                    <ColorInput value={c} onChange={(e) => setNameStop(i, e.target.value)} aria-label={`Name gradient colour ${i + 1}`} />
                     {nameG.colors.length > 2 && <button type="button" className="icon-btn" title="Remove this colour" aria-label={`Remove name gradient colour ${i + 1}`} onClick={() => removeNameStop(i)}><Icon name="close" size={14} /></button>}
                   </span>
                 ))}
@@ -721,9 +722,9 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           <section className="ed-sec" aria-labelledby="pe-status">
           <EdHead id="pe-status" title="Status and badges" note="Who can see you online, and which badges you wear." />
           <label htmlFor="pe-status-sel">{t('statusLbl')}</label>
-          <select id="pe-status-sel" value={f.status} onChange={(e) => set('status')(e.target.value)}>
+          <Select id="pe-status-sel" value={f.status} onChange={(e) => set('status')(e.target.value)}>
             {['online', 'idle', 'dnd', 'invisible'].map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-          </select>
+          </Select>
           {ownedBadges.length > 0 && (
             <>
               <label>Badges</label>

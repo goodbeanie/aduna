@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { ColorInput } from './Controls.jsx';
 import { api } from './api.js';
 import { BadgeIcons } from './ui.jsx';
 import { PanelSkeleton } from './ShellBits.jsx';
@@ -35,7 +36,7 @@ export function BadgeSettings() {
         <div className="row">
           <input placeholder="Name" maxLength={24} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           <input placeholder="Emoji (optional)" maxLength={8} style={{ width: 130 }} value={draft.emoji} onChange={(e) => setDraft({ ...draft, emoji: e.target.value })} />
-          <input type="color" aria-label="Colour" value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })} />
+          <ColorInput aria-label="Colour" value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })} />
           <BadgeIcons user={asUser({ id: 'new', ...draft })} size={28} />
           <button className="btn primary" disabled={busy || !draft.name.trim()}>Create</button>
         </div>
@@ -59,7 +60,7 @@ function BadgeCard({ badge, onChange, onDeleted, onError }) {
         <BadgeIcons user={asUser({ ...badge, ...f })} size={32} />
         <input value={f.name} maxLength={24} onChange={(e) => setF({ ...f, name: e.target.value })} aria-label="Badge name" />
         <input value={f.emoji} maxLength={8} style={{ width: 90 }} placeholder="Emoji" onChange={(e) => setF({ ...f, emoji: e.target.value })} aria-label="Emoji" />
-        <input type="color" value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} aria-label="Colour" />
+        <ColorInput value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} aria-label="Colour" />
         {dirty && <button className="btn primary" onClick={() => run(async () => onChange((await api('/badges/' + badge.id, { method: 'PATCH', body: f })).badge))}>Save</button>}
       </div>
       <div className="row">

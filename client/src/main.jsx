@@ -38,6 +38,9 @@ import './signup.css'; // the three-step sign-up (SignupFlow.jsx)
 import './profile-editor.css'; // after signup.css: the Settings > My profile editor (sections, sticky preview, switches)
 import './legibility.css'; // last: raises the few remaining sub-12px labels to the 12px floor (remove this line to undo)
 import './checkbox.css'; // the custom checkbox look for every checkbox in the app (remove this line to get the browser's boxes back)
+import './controls.css'; // after checkbox.css: the custom dropdown, date and colour pickers (Controls.jsx), sliders, scrollbars and the details arrow
+import './buttons.css'; // last: text on accent-coloured buttons (Leave, etc.) follows --on-ink so it stays readable on light accents (remove this line to undo)
+import './voice-channel.css'; // last: the voice channel page (tiles, soundboard card, control bar); remove this line to undo
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';

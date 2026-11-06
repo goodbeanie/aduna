@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { Select } from './Controls.jsx';
 import { askConfirm } from './Dialogs.jsx';
 
 // "Build with AI on this PC": a panel in the bot editor, only in the Aduna desktop app (window.adunaDesktop.ai, see desktop/ai/ai-service.js).
@@ -209,7 +210,7 @@ export default function AiBuilder({ fetchHosts, defaultOpen, onUse }) {
           <textarea rows={4} value={req} maxLength={4000} disabled={busy} onChange={(e) => setReq(e.target.value)} aria-label="What should the bot do" placeholder={'e.g. A dice bot. !roll gives a number from 1 to 6, !roll 20 uses a 20-sided die, and it keeps a count of how many times each person rolled.'}
             onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) build(); }} />
           <div className="ai-controls">
-            <label className="muted small">Model <select value={model} onChange={(e) => pick(e.target.value)} disabled={busy} aria-label="Model">{installed.map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+            <label className="muted small">Model <Select value={model} onChange={(e) => pick(e.target.value)} disabled={busy} aria-label="Model">{installed.map((n) => <option key={n} value={n}>{n}</option>)}</Select></label>
             {busy
               ? <button type="button" className="btn danger" onClick={() => desk().stop()}>Stop</button>
               : <button type="button" className="btn primary" disabled={!req.trim() || !model || !ollamaOk} onClick={build}>Build it</button>}

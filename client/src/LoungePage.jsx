@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { ColorInput, Select } from './Controls.jsx';
 import './lounge.css';
 import { Avatar, Icon, ServerIcon } from './ui.jsx';
 import { imageUrl } from './image.js';
@@ -180,11 +181,11 @@ function ItemsForm({ s, chans, patch }) {
         <div key={n} className="lg-item">
           <input className="lg-input" placeholder="Label" maxLength={LIMITS.label} value={it.label || ''} onChange={(e) => edit(n, { label: e.target.value })} aria-label="Label" />
           {isBtn && (
-            <select className="lg-input" value={it.channelId ? 'c:' + it.channelId : 'link'} aria-label="Where it goes"
+            <Select className="lg-input" value={it.channelId ? 'c:' + it.channelId : 'link'} aria-label="Where it goes"
               onChange={(e) => { const v = e.target.value; edit(n, v === 'link' ? { channelId: undefined, url: it.url || '' } : { channelId: v.slice(2), url: undefined }); }}>
               <option value="link">A link</option>
               {chans.map((c) => <option key={c.id} value={'c:' + c.id}>#{c.name}</option>)}
-            </select>
+            </Select>
           )}
           {!(isBtn && it.channelId) && <input className="lg-input" placeholder="example.com" maxLength={LIMITS.url} value={it.url || ''} onChange={(e) => edit(n, { url: e.target.value })} aria-label="Link" />}
           <button type="button" className="icon-btn" title="Remove" aria-label="Remove" onClick={() => setItems(items.filter((_, i) => i !== n))}><Icon name="close" size={14} /></button>
@@ -324,7 +325,7 @@ function Editor({ server, draft, setDraft, dirty, changed, saved, saving, err, d
                 <button type="button" className={'lg-swatch auto' + (look.accent === 'auto' ? ' on' : '')} onClick={() => updLook({ accent: 'auto' })} aria-label="Automatic accent" aria-pressed={look.accent === 'auto'}>Auto</button>
                 {ACCENTS.map((c) => <button key={c} type="button" className={'lg-swatch' + (look.accent === c ? ' on' : '')} style={{ background: c }} onClick={() => updLook({ accent: c })} aria-label={'Accent ' + c} aria-pressed={look.accent === c} />)}
                 <label className={'lg-swatch custom' + (look.accent !== 'auto' && !ACCENTS.includes(look.accent) ? ' on' : '')} title="Pick any colour">
-                  <input type="color" value={look.accent !== 'auto' ? look.accent : '#e8743b'} onChange={(e) => updLook({ accent: e.target.value })} aria-label="Custom accent colour" />
+                  <ColorInput value={look.accent !== 'auto' ? look.accent : '#e8743b'} onChange={(e) => updLook({ accent: e.target.value })} aria-label="Custom accent colour" />
                 </label>
               </div>
             </div>

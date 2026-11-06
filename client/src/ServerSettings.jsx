@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { ColorInput, Select } from './Controls.jsx';
 import { api } from './api.js';
 import { Avatar, Icon, Modal, ServerIcon } from './ui.jsx';
 import { PanelSkeleton } from './ShellBits.jsx';
@@ -232,12 +233,12 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
                   </div>
                   <div className="custom-row">
                     <span>Background</span>
-                    <input type="color" value={theme.bg} onChange={(e) => setSeed({ bg: e.target.value })} aria-label="Server background colour" />
+                    <ColorInput value={theme.bg} onChange={(e) => setSeed({ bg: e.target.value })} aria-label="Server background colour" />
                     <code>{theme.bg}</code>
                   </div>
                   <div className="custom-row">
                     <span>Accent (buttons, highlights)</span>
-                    <input type="color" value={theme.accent} onChange={(e) => setSeed({ accent: e.target.value })} aria-label="Server accent colour" />
+                    <ColorInput value={theme.accent} onChange={(e) => setSeed({ accent: e.target.value })} aria-label="Server accent colour" />
                     <code>{theme.accent}</code>
                   </div>
                   <div className="mode-pick"><button type="button" onClick={() => setPublishing(true)}>Publish this theme to the gallery…</button></div>
@@ -322,10 +323,10 @@ function ChannelsTab({ server, onChange }) {
         {nameCell('chan', c, <span className="hash">{CH_ICON[c.type] ? <Icon name={CH_ICON[c.type]} size={16} /> : '#'}</span>)}
         <div className="grow" />
         {cats.length > 0 && (
-          <select className="ch-cat" value={catId || ''} aria-label={`Category of ${c.name}`} disabled={busy} onChange={(e) => move(moveChannel(lay, c.id, e.target.value || null, null))}>
+          <Select className="ch-cat" value={catId || ''} aria-label={`Category of ${c.name}`} disabled={busy} onChange={(e) => move(moveChannel(lay, c.id, e.target.value || null, null))}>
             <option value="">No category</option>
             {cats.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
-          </select>
+          </Select>
         )}
         {arrows(prev && (() => move(moveChannel(lay, c.id, catId, prev.id))), next && (() => move(moveChannel(lay, c.id, catId, group[i + 2]?.id || null))), c.name)}
         <button className="icon-btn" title="Delete channel" aria-label={`Delete ${c.name}`} disabled={server.channels.length <= 1} onClick={() => setConfirm({ kind: 'chan', item: c })}><Icon name="trash" size={16} /></button>
@@ -561,10 +562,10 @@ function OwnershipTab({ server, me, onChange, onClose }) {
           {mode === 'transfer' ? (
             <>
               <label className="field">New owner
-                <select value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy}>
+                <Select value={target} onChange={(e) => setTarget(e.target.value)} disabled={busy}>
                   <option value="">Choose a member…</option>
                   {others.map((u) => <option key={u.id} value={u.id}>{u.displayName} (@{u.username})</option>)}
-                </select>
+                </Select>
               </label>
               {picked && <p className="muted small">After this, <b>{picked.displayName}</b> can change or delete everything here and you cannot take it back unless they give it to you.</p>}
             </>

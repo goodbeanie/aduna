@@ -1,0 +1,7 @@
+/* Buttons filled with the theme's accent colour (--ink) use --on-ink for their text, which the theme picks to be readable on that accent.
+   danger-fill used to force white text on top of the accent, which is unreadable when the accent is light (for example the Leave button in a voice channel).
+   The Clips dashboard (.yt-dash) keeps its own red Leave/danger buttons (dash.css), because its selector is more specific. */
+.btn.primary,
+.btn.primary.danger-fill { color: var(--on-ink); }
+.btn.primary .inline-icon,
+.btn.primary.danger-fill .inline-icon { color: inherit; }

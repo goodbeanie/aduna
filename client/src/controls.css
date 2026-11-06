@@ -1,0 +1,152 @@
+/* Custom controls (Controls.jsx) and the last browser defaults, restyled. Loaded last; follows the theme variables so every theme gets it.
+   Remove the import in main.jsx to undo the CSS part. */
+
+/* ---------- dropdown button (Select, DateTimeInput) ---------- */
+.cx-select {
+  display: inline-flex; align-items: center; justify-content: space-between; gap: 8px;
+  box-sizing: border-box; min-height: 40px; max-width: 100%; padding: 0 12px;
+  border: 1px solid var(--line2, var(--line)); border-radius: var(--r-md, 8px);
+  background: var(--field); color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer;
+  transition: border-color .12s ease, box-shadow .12s ease, background-color .12s ease;
+}
+.cx-select:hover:not(:disabled) { border-color: var(--ink); }
+.cx-select:focus-visible, .cx-select[aria-expanded="true"] { outline: none; border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
+.cx-select:disabled { opacity: .5; cursor: not-allowed; }
+.cx-select-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cx-select-label.cx-empty { color: var(--placeholder, var(--muted)); }
+.cx-chev { flex: none; color: var(--muted); transition: transform .14s ease; }
+.cx-select[aria-expanded="true"] .cx-chev { transform: rotate(180deg); }
+.cx-date .cx-chev { transform: none !important; }
+@media (hover: none) { .cx-select { min-height: 44px; } }
+
+/* A native <select> was width:100% by default (css/01-base.css), so the button is too. The rules below repeat the places where a
+   `select` rule set something else, because those selectors do not match a button. */
+.cx-select { width: 100%; }
+.cx-select.auth-lang { display: flex; width: fit-content; }                                   /* was display:block; margin:auto, centred */
+.su-top .cx-select.auth-lang { display: flex; width: auto; min-width: 0; margin: 0; }          /* sign-up top bar (SignupFlow) */
+.note-chan-head .cx-select { width: auto; max-width: 52%; padding: 0 8px; margin: 0; font-size: 13px; }
+@media (max-width: 720px) { .note-chan-head .cx-select { max-width: 100%; flex: 1 1 100%; order: 3; } }
+.bot-test-row .cx-select { width: auto; flex: none; }
+.ai-controls .cx-select { width: auto; max-width: 100%; }
+.gallery-filters .cx-select { width: auto; margin: 0; flex: 1 1 120px; min-width: 0; }
+.explore-sort .cx-select { margin: 0; padding: 0 12px; background: var(--bg3); }
+
+/* a hidden box that only exists so a required date still blocks form submit */
+.cx-req { position: absolute; width: 1px; height: 1px; min-height: 0 !important; padding: 0; border: 0; opacity: 0; pointer-events: none; }
+
+/* ---------- popup ---------- */
+.cx-pop {
+  position: fixed; z-index: 100000; box-sizing: border-box; overflow: auto; overscroll-behavior: contain;
+  background: var(--raised, var(--bg)); color: var(--text);
+  border: 1px solid var(--line2, var(--line)); border-radius: var(--r-md, 10px);
+  box-shadow: 0 10px 30px var(--shadow, #0003), 0 2px 6px var(--shadow, #0002);
+  animation: cx-in .12s ease;
+}
+@keyframes cx-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.cx-list { padding: 4px; min-width: 120px; }
+.cx-list ul { list-style: none; margin: 0; padding: 0; }
+.cx-opt { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: calc(var(--r-md, 8px) - 2px); font-size: 14px; cursor: pointer; }
+.cx-opt.hi { background: var(--hover); }
+.cx-opt.on { font-weight: 600; }
+.cx-opt.off { opacity: .45; cursor: not-allowed; }
+.cx-group { padding: 8px 10px 4px; font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--muted); }
+@media (hover: none) { .cx-opt { padding: 11px 12px; } }
+
+/* ---------- date and time ---------- */
+.cx-dialog { padding: 12px; }
+.cx-cal { width: 264px; max-width: calc(100vw - 40px); }
+.cx-cal-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cx-cal-head b { font-size: 14px; }
+.cx-cal-head button { width: 30px; height: 30px; border: 0; border-radius: 50%; background: none; color: var(--text); font-size: 20px; line-height: 1; cursor: pointer; }
+.cx-cal-head button:hover { background: var(--hover); }
+.cx-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; }
+.cx-wk { text-align: center; font-size: 12px; color: var(--muted); padding: 4px 0; }
+.cx-day { aspect-ratio: 1; min-height: 0; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.cx-day:hover { background: var(--hover); }
+.cx-day.today { box-shadow: inset 0 0 0 1px var(--line2, var(--line)); }
+.cx-day.on { background: var(--ink); color: var(--on-ink, var(--bg)); }
+.cx-time { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.cx-time-l { margin-right: auto; font-size: 13px; color: var(--muted); }
+.cx-tf { display: flex; flex-direction: column; align-items: center; }
+.cx-tf button { width: 36px; height: 14px; min-height: 0; padding: 0; border: 0; background: none; color: var(--muted); font-size: 9px; line-height: 1; cursor: pointer; }
+.cx-tf button:hover { color: var(--text); }
+.cx-tf input { width: 36px; min-height: 0 !important; height: 30px; padding: 0; text-align: center; border: 1px solid var(--line2, var(--line)); border-radius: var(--r-sm, 6px); background: var(--field); color: var(--text); font: inherit; font-size: 14px; }
+.cx-ampm { display: flex; margin-left: 4px; border: 1px solid var(--line2, var(--line)); border-radius: var(--r-sm, 6px); overflow: hidden; }
+.cx-ampm button { min-height: 0; height: 30px; padding: 0 8px; border: 0; background: none; color: var(--text); font: inherit; font-size: 12px; cursor: pointer; }
+.cx-ampm button.on { background: var(--ink); color: var(--on-ink, var(--bg)); }
+.cx-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
+.cx-link { min-height: 0; padding: 4px 6px; border: 0; background: none; color: var(--link, var(--text)); font: inherit; font-size: 13px; cursor: pointer; }
+.cx-link:hover { text-decoration: underline; }
+.cx-done { min-height: 0; margin-left: auto; padding: 6px 14px; border: 0; border-radius: var(--r-md, 8px); background: var(--ink); color: var(--on-ink, var(--bg)); font: inherit; font-size: 13px; cursor: pointer; }
+.cx-done:hover { background: var(--ink-h, var(--ink)); }
+
+/* ---------- colour ---------- */
+.cx-color {
+  flex: none; box-sizing: border-box; width: 36px; height: 32px; min-height: 0; padding: 0; cursor: pointer;
+  border: 1px solid var(--line2, var(--line)); border-radius: var(--r-sm, 6px);
+  box-shadow: inset 0 0 0 1px #0002; transition: transform .1s ease, border-color .12s ease;
+}
+.cx-color:hover:not(:disabled) { border-color: var(--ink); }
+.cx-color:focus-visible, .cx-color[aria-expanded="true"] { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 25%, transparent); }
+.cx-color:disabled { opacity: .45; cursor: not-allowed; }
+.cg-stop .cx-color { width: 44px; height: 34px; }
+.settings-pane .cg-stop .cx-color { width: 32px; height: 32px; }
+.color-row .cx-color { width: 26px; height: 26px; border-radius: 50%; }
+.custom-row .cx-color { width: 44px; height: 32px; }
+.swatch-custom .cx-color { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; border-radius: 0; }
+.lg-swatch.custom .cx-color { position: absolute; inset: -6px; width: 40px; height: 40px; opacity: 0; border: 0; border-radius: 0; } /* Lounge: invisible button over the rainbow swatch (was `.lg-swatch.custom input`) */
+
+.cx-color-panel { width: 224px; max-width: calc(100vw - 40px); display: flex; flex-direction: column; gap: 10px; }
+.cx-sv { position: relative; height: 140px; border-radius: var(--r-sm, 6px); cursor: crosshair; touch-action: none;
+  background: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, var(--hue)); }
+.cx-hue { position: relative; height: 14px; border-radius: 7px; cursor: pointer; touch-action: none;
+  background: linear-gradient(to right, #f00, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00); }
+.cx-sv i, .cx-hue i { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #0006, 0 1px 4px #0006; pointer-events: none; }
+.cx-hue i { top: 50%; }
+.cx-sv:focus-visible, .cx-hue:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.cx-hexrow { display: flex; align-items: center; gap: 8px; }
+.cx-chip { flex: none; width: 28px; height: 28px; border-radius: 50%; box-shadow: inset 0 0 0 1px #0002; }
+.cx-hexrow input { flex: 1; min-width: 0; min-height: 0 !important; height: 32px; padding: 0 10px; font: inherit; font-size: 14px; text-transform: lowercase; }
+.cx-presets { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+.cx-presets button { aspect-ratio: 1; min-height: 0; padding: 0; border: 0; border-radius: 50%; box-shadow: inset 0 0 0 1px #0002; cursor: pointer; }
+.cx-presets button:hover { transform: scale(1.1); }
+.cx-presets button.on { box-shadow: 0 0 0 2px var(--raised, var(--bg)), 0 0 0 4px var(--ink); }
+
+/* ---------- sliders (the players' own seek bars keep their own look) ---------- */
+input:where([type=range]:not(.ap-seek):not(.vp-seek)) {
+  -webkit-appearance: none; appearance: none; height: 20px; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer;
+}
+input:where([type=range]:not(.ap-seek):not(.vp-seek))::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line2, var(--line)); }
+input:where([type=range]:not(.ap-seek):not(.vp-seek))::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line2, var(--line)); }
+input:where([type=range]:not(.ap-seek):not(.vp-seek))::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -6px; border: 2px solid var(--raised, var(--bg)); border-radius: 50%;
+  background: var(--ink); box-shadow: 0 0 0 1px var(--line2, var(--line)); transition: transform .1s ease;
+}
+input:where([type=range]:not(.ap-seek):not(.vp-seek))::-moz-range-thumb {
+  width: 12px; height: 12px; border: 2px solid var(--raised, var(--bg)); border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 1px var(--line2, var(--line));
+}
+input:where([type=range]:not(.ap-seek):not(.vp-seek)):hover::-webkit-slider-thumb { transform: scale(1.12); }
+input:where([type=range]:not(.ap-seek):not(.vp-seek)):focus-visible { outline: none; }
+input:where([type=range]:not(.ap-seek):not(.vp-seek)):focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 25%, transparent); }
+input:where([type=range]):disabled { opacity: .45; cursor: not-allowed; }
+
+/* ---------- number boxes: no browser spinner arrows ---------- */
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+/* ---------- scrollbars: thin and quiet, in the theme's colours (a rule that hides a scrollbar still wins: this has no weight) ---------- */
+:where(*) { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--ink) 30%, transparent) transparent; }
+
+/* ---------- details / summary: our own arrow instead of the browser's triangle ---------- */
+:where(summary) { list-style: none; cursor: pointer; }
+:where(summary)::-webkit-details-marker { display: none; }
+:where(details > summary)::before {
+  content: ''; display: inline-block; width: 6px; height: 6px; margin: 0 8px 2px 2px;
+  border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(-45deg); transition: transform .14s ease; opacity: .7;
+}
+:where(details[open] > summary)::before { transform: rotate(45deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .cx-pop { animation: none; }
+  .cx-select, .cx-chev, .cx-color { transition: none; }
+}

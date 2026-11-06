@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Select } from './Controls.jsx';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { EmptyState, PanelSkeleton } from './ShellBits.jsx';
@@ -321,16 +322,16 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
                 setLocBusy(false);
               }}><Icon name="pin" size={16} /> {locBusy ? 'Finding you…' : 'Use my location'}</button>
               {locMsg && <p className="muted small co-locmsg">{locMsg}</p>}
-              <select id="co-country" className="co-select" value={country} onChange={(e) => { setCountry(e.target.value); setRegion(''); }} disabled={busy}>
+              <Select id="co-country" className="co-select" value={country} onChange={(e) => { setCountry(e.target.value); setRegion(''); }} disabled={busy}>
                 <option value="" disabled>Choose your country</option>
                 {tax.countries.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
                 <option value="ZZ">Somewhere else</option>
-              </select>
+              </Select>
               {needsRegion && (
-                <select className="co-select" aria-label={country === 'US' ? 'State' : 'Province'} value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}>
+                <Select className="co-select" aria-label={country === 'US' ? 'State' : 'Province'} value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}>
                   <option value="" disabled>{country === 'US' ? 'Choose your state' : 'Choose your province'}</option>
                   {Object.entries(REGIONS[country]).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
-                </select>
+                </Select>
               )}
             </div>
           )}

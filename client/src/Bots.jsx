@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Select } from './Controls.jsx';
 import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
 import { PanelSkeleton, EmptyState } from './ShellBits.jsx';
@@ -204,10 +205,10 @@ function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack
       <label>TAGS</label>
       <input value={tags} maxLength={120} onChange={(e) => setTags(e.target.value)} aria-label="Bot tags" placeholder="fun, moderation, music (up to 5)" disabled={held} />
       <label>WHO CAN ADD IT</label>
-      <select value={visibility} onChange={(e) => setVisibility(e.target.value)} aria-label="Visibility" disabled={held}>
+      <Select value={visibility} onChange={(e) => setVisibility(e.target.value)} aria-label="Visibility" disabled={held}>
         <option value="private">Only me (private)</option>
         <option value="public">Anyone, listed on the Bots tab (public)</option>
-      </select>
+      </Select>
       {visibility === 'public' && <p className="muted small hint">Public bots are checked like public servers (no links or blocked words in the name, description or tags) and can be reported. Making a public bot private again removes it from servers you do not manage.</p>}
 
       <label>CODE</label>
