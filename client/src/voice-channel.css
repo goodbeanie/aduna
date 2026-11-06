@@ -33,6 +33,7 @@
   box-sizing: content-box; width: 16px; height: 16px; padding: 4px;
   border-radius: 50%; background: var(--danger); color: #fff;
 }
+.voice-panel .voice-muted.voice-sbmuted { background: var(--muted, #6b6b6b); }
 .voice-panel .sb-said {
   max-width: 100%; margin-top: 0; padding: 3px 10px;
   border-radius: 999px; background: var(--green); color: #fff; font-weight: 600;

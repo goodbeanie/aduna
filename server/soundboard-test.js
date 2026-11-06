@@ -89,15 +89,15 @@ c = S.check(Buffer.concat([Buffer.from('ID3'), Buffer.alloc(100)])); assert.deep
 c = S.check(Buffer.concat([Buffer.from('OggS'), Buffer.alloc(100)])); assert.strictEqual(c.mime, 'audio/ogg');
 step('clips: 256 KB, a real audio signature, and a WAV is measured');
 
-// ---- the pause ----
+// ---- flood protection ----
 const plays = new Map();
-assert.strictEqual(S.allow(plays, 'u1', 1000), true);
-assert.strictEqual(S.allow(plays, 'u1', 2000), false, 'too soon');
-assert.strictEqual(S.allow(plays, 'u2', 2000), true, 'someone else is not held up');
-assert.strictEqual(S.allow(plays, 'u1', 1000 + S.LIMITS.cooldownMs - 1), false);
-assert.strictEqual(S.allow(plays, 'u1', 1000 + S.LIMITS.cooldownMs), true);
-for (let i = 0; i < 600; i++) plays.set('x' + i, 0);
+for (let i = 0; i < S.LIMITS.burst; i++) assert.strictEqual(S.allow(plays, 'u1', 1000 + i), true, 'rapid presses all play (#' + (i + 1) + ')');
+assert.strictEqual(S.allow(plays, 'u1', 1100), false, 'a flood past the burst is refused');
+assert.strictEqual(S.allow(plays, 'u2', 1100), true, 'someone else is not held up');
+assert.strictEqual(S.allow(plays, 'u1', 1000 + S.LIMITS.windowMs - 1), false, 'still inside the window');
+assert.strictEqual(S.allow(plays, 'u1', 1000 + S.LIMITS.windowMs + S.LIMITS.burst), true, 'the window slides on');
+for (let i = 0; i < 600; i++) plays.set('x' + i, [0]);
 assert.strictEqual(S.allow(plays, 'late', 1e9), true); assert.ok(plays.size < 10, 'old entries are swept when the map grows');
-step('a person can play one sound every 3 seconds; the map stays small');
+step('sounds can be pressed as fast as you like; only a flood of 40 in 5 seconds is refused; the map stays small');
 
 console.log('soundboard tests passed');

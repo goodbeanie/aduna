@@ -5077,7 +5077,7 @@ function logCall(c, reason) {
 // the list of who is in each channel and relays signalling between two members; audio goes browser to browser.
 const MAX_VOICE = 8;
 const voice = new Map(); // channelId -> Map(userId -> socketId)
-const soundPlays = new Map(); // userId -> when they last played a soundboard sound (one every few seconds, see soundboard.js)
+const soundPlays = new Map(); // userId -> the times of their recent soundboard plays (only a flood is refused, see soundboard.js)
 const voiceUsers = (cid) => [...(voice.get(cid)?.keys() || [])];
 const voiceBroadcast = (cid) => { const f = findChannel(cid); if (f) io.to('server:' + f.server.id).emit('voice:state', { channelId: cid, users: voiceUsers(cid) }); };
 function voiceLeave(uid, sid) {
@@ -5529,7 +5529,7 @@ io.on('connection', (socket) => {
     if (!sound) return reply({ error: 'That sound is gone' });
     const why = soundboardLib.whyNot(f.server, { owner: uid === f.server.ownerId, admin: permsOf(f.server, uid).has('administrator'), roleIds: heldRoleIds(f.server, uid) });
     if (why) return reply({ error: why });
-    if (!soundboardLib.allow(soundPlays, uid, now())) return reply({ error: 'One sound every few seconds, please', code: 'cooldown' });
+    if (!soundboardLib.allow(soundPlays, uid, now())) return reply({ error: 'That is a lot of sounds at once. Ease off for a moment.', code: 'cooldown' });
     for (const sid of room.values()) io.to(sid).emit('soundboard:play', { channelId: cid, soundId: sound.id, userId: uid });
     reply({ ok: true });
   });

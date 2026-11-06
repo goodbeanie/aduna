@@ -9,5 +9,13 @@
       { "title": "Optional banner blur", "text": "Turn on “Blur my banner behind my profile” in your profile editor. Your banner is stretched, blurred and faded into your card theme." },
       { "title": "New checkboxes", "text": "Every checkbox in Aduna now has the same rounded look, in your theme’s colors." }
     ]
+  },
+  {
+    "id": "2026.11.6.2",
+    "date": "2026-11-06",
+    "title": "Behind-the-scenes improvements",
+    "items": [
+      { "title": "Smoother update notes", "text": "Update notes are now prepared for every release, so What’s new stays complete and up to date." }
+    ]
   }
 ]

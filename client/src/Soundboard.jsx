@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon } from './ui.jsx';
 import { askConfirm } from './Dialogs.jsx';
@@ -11,9 +11,6 @@ import { SOUND, settingsOf, soundUrl, whyNotPlay, playClip } from './soundboard.
 // Nothing at all is shown while the owner has the soundboard turned off.
 export function SoundBar({ server, me, play }) {
   const [err, setErr] = useState('');
-  const [cool, setCool] = useState(false);
-  const timer = useRef(0);
-  useEffect(() => () => clearTimeout(timer.current), []);
   const cfg = settingsOf(server);
   if (!cfg.enabled) return null;
   const sounds = server.sounds || [];
@@ -21,17 +18,9 @@ export function SoundBar({ server, me, play }) {
   const canAdd = can(server, me.id, 'manageServer');
   if (!sounds.length && !canAdd) return null;
 
-  async function go(s) {
-    if (cool) return;
-    setErr('');
-    try {
-      await play(s.id);
-      setCool(true); // the server allows one sound every few seconds; the buttons rest for the same time
-      timer.current = setTimeout(() => setCool(false), SOUND.cooldownMs);
-    } catch (e) {
-      setErr(e.message);
-      if (e.data?.code === 'cooldown') { setCool(true); timer.current = setTimeout(() => setCool(false), SOUND.cooldownMs); }
-    }
+  // No resting between presses: every click plays (the server only turns away a flood, and says so here).
+  function go(s) {
+    play(s.id).then(() => setErr(''), (e) => setErr(e.message));
   }
 
   return (
@@ -42,7 +31,7 @@ export function SoundBar({ server, me, play }) {
           : (
             <div className="sb-grid">
               {sounds.map((s) => (
-                <button key={s.id} type="button" className="sb-btn" disabled={cool} title={s.name} onClick={() => go(s)}>
+                <button key={s.id} type="button" className="sb-btn" title={s.name} onClick={() => go(s)}>
                   <span className="sb-emoji" aria-hidden="true">{s.emoji || <Icon name="play" size={14} />}</span>
                   <span className="sb-name">{s.name}</span>
                 </button>

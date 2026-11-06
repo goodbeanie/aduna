@@ -6,6 +6,8 @@ import { emitAck } from './api.js';
 import { getIce } from './rtc.js';
 import { SoundBar } from './Soundboard.jsx';
 import { soundUrl, playClip, stopAllClips } from './soundboard.js';
+import { useContextMenu } from './ContextMenu.jsx';
+import { VOL, prefsOf, setPrefs, soundVolume, useUserPrefs, useAllUserPrefs } from './voiceprefs.js';
 
 // Voice channels. Everyone in a channel connects directly to everyone else (WebRTC mesh, audio only),
 // so it suits small groups (the server allows 8). The server keeps the list of who is in a channel and
@@ -132,7 +134,9 @@ export function useVoice({ socketRef, ready }) {
       if (channelId !== st.channelId || !st.serverId || typeof soundId !== 'string') return;
       setFlash((f) => ({ ...f, [userId]: soundId }));
       setTimeout(() => setFlash((f) => { if (f[userId] !== soundId) return f; const n = { ...f }; delete n[userId]; return n; }), 1800);
-      if (!st.deafened) playClip(soundUrl(st.serverId, soundId)); // deafened: you hear nothing, like everyone else's voice
+      // deafened: you hear nothing, like everyone else's voice. Your own settings for that person apply too (their sounds muted, or turned down).
+      const mine = prefsOf(userId);
+      if (!st.deafened && !mine.sbMute && mine.vol > 0) playClip(soundUrl(st.serverId, soundId), soundVolume(mine));
     };
     s.on('voice:state', onState); s.on('voice:left', onLeft); s.on('voice:kicked', onKicked);
     s.on('voice:signal', onSignal); s.on('disconnect', onDisconnect); s.on('soundboard:play', onSound);
@@ -197,15 +201,68 @@ export function useVoice({ socketRef, ready }) {
   return { state, members, remote, flash, actions };
 }
 
-function RemoteAudio({ stream, deafened }) {
-  const ref = useRef(null);
-  useEffect(() => { if (ref.current) ref.current.srcObject = stream; }, [stream]);
-  useEffect(() => { const go = () => applyOutput(ref.current); go(); window.addEventListener(DEVICES_EVENT, go); return () => window.removeEventListener(DEVICES_EVENT, go); }, []);
-  return <audio ref={ref} autoPlay muted={deafened} />;
+// One shared Web Audio context for the per-person volume (a plain <audio> element cannot go above 100%).
+let audioCtx = null;
+function getAudioCtx() {
+  try {
+    if (!audioCtx || audioCtx.state === 'closed') { const AC = window.AudioContext || window.webkitAudioContext; audioCtx = AC ? new AC() : null; }
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    return audioCtx;
+  } catch { return null; }
+}
+
+// Plays one person's voice at the level you chose for them (right-click their tile: volume 0 to 150%, or mute).
+// Path: stream -> volume (gain) -> a second stream -> a hidden <audio> that follows your speaker choice. The first <audio> holds the incoming stream
+// silently, because browsers only feed a call's audio into Web Audio while a media element has it. If Web Audio is missing, that first element plays
+// the voice itself (volume up to 100% only).
+function RemoteAudio({ stream, deafened, userId }) {
+  const rawRef = useRef(null);
+  const outRef = useRef(null);
+  const gainRef = useRef(null);
+  const [mode, setMode] = useState('pending'); // 'pending' (silent until decided) | 'graph' | 'direct'
+  const p = useUserPrefs(userId);
+  const level = p.mute ? 0 : p.vol / VOL.normal;
+  const levelRef = useRef(level);
+  levelRef.current = level;
+
+  useEffect(() => {
+    const raw = rawRef.current, out = outRef.current;
+    if (raw) raw.srcObject = stream;
+    const ctx = getAudioCtx();
+    if (!ctx || !raw || !out) { setMode('direct'); return undefined; }
+    let src = null, gain = null;
+    try {
+      src = ctx.createMediaStreamSource(stream);
+      gain = ctx.createGain();
+      gain.gain.value = levelRef.current;
+      const dest = ctx.createMediaStreamDestination();
+      src.connect(gain); gain.connect(dest);
+      out.srcObject = dest.stream;
+      out.play().catch(() => {});
+      gainRef.current = gain;
+      setMode('graph');
+    } catch { gainRef.current = null; setMode('direct'); }
+    return () => {
+      gainRef.current = null;
+      try { src?.disconnect(); gain?.disconnect(); } catch { /* already gone */ }
+      out.srcObject = null;
+    };
+  }, [stream]);
+
+  useEffect(() => {
+    if (mode === 'graph' && gainRef.current) gainRef.current.gain.setTargetAtTime(level, gainRef.current.context.currentTime, 0.015);
+    else if (rawRef.current) rawRef.current.volume = Math.min(1, level);
+  }, [level, mode]);
+  useEffect(() => {
+    const go = () => { applyOutput(outRef.current); applyOutput(rawRef.current); };
+    go(); window.addEventListener(DEVICES_EVENT, go);
+    return () => window.removeEventListener(DEVICES_EVENT, go);
+  }, [mode]);
+  return <><audio ref={rawRef} autoPlay muted={mode !== 'direct' || deafened} /><audio ref={outRef} autoPlay muted={deafened} /></>;
 }
 // Hidden elements that play everyone else's audio while you are in a channel.
 export function VoiceAudio({ voice }) {
-  return <>{Object.entries(voice.remote).map(([id, stream]) => <RemoteAudio key={id} stream={stream} deafened={voice.state.deafened} />)}</>;
+  return <>{Object.entries(voice.remote).map(([id, stream]) => <RemoteAudio key={id} stream={stream} userId={id} deafened={voice.state.deafened} />)}</>;
 }
 
 export function VoicePanel({ channel, server, voice, users, me, presence, onBack, headerExtra }) {
@@ -214,6 +271,22 @@ export function VoicePanel({ channel, server, voice, users, me, presence, onBack
   const ids = members[channel.id] || [];
   const full = ids.length >= 8 && !ids.includes(me.id);
   const soundOf = (id) => (flash[id] && server ? (server.sounds || []).find((s) => s.id === flash[id]) : null); // the sound this person just played, if it still exists
+  const ctxMenu = useContextMenu();
+  const mine = useAllUserPrefs(); // your own volume / mute choices per person (voiceprefs.js), so a tile shows when you muted someone
+  // Right-click (or long-press) a person's tile: how loud they are for you, mute them, or mute only their soundboard sounds. Only you are affected.
+  const tileMenu = (e, id, u) => {
+    if (id === me.id) return;
+    const p = prefsOf(id);
+    ctxMenu.open(e, {
+      header: <><Avatar user={u} size={32} /><div className="cmenu-who"><b>{u.displayName}</b><span className="small muted">Only you hear the change</span></div></>,
+      items: [
+        { slider: { label: 'Volume', min: VOL.min, max: VOL.max, value: p.vol, normal: VOL.normal, onChange: (v) => setPrefs(id, { vol: v }) } },
+        'sep',
+        { label: p.mute ? 'Unmute' : 'Mute', icon: p.mute ? 'mic' : 'micoff', onClick: () => setPrefs(id, { mute: !p.mute }) },
+        { label: p.sbMute ? 'Unmute soundboard' : 'Mute soundboard', icon: 'music', onClick: () => setPrefs(id, { sbMute: !p.sbMute }) },
+      ],
+    });
+  };
   return (
     <section className="chat voice-panel">
       <header className="chat-head">
@@ -231,10 +304,12 @@ export function VoicePanel({ channel, server, voice, users, me, presence, onBack
               const u = users[id];
               const snd = soundOf(id);
               return u && (
-                <div key={id} className={'voice-tile' + (snd ? ' sb-flash' : '')}>
+                <div key={id} className={'voice-tile' + (snd ? ' sb-flash' : '')} onContextMenu={(e) => tileMenu(e, id, u)}>
                   <Avatar user={u} size={88} presence={presence[id] || 'offline'} />
                   <div className="voice-name" {...nameProps(u)}>{u.displayName}{id === me.id ? ' (you)' : ''}</div>
                   {id === me.id && here && state.muted && <Icon name="micoff" size={16} className="voice-muted" />}
+                  {id !== me.id && mine[id]?.mute && <Icon name="micoff" size={16} className="voice-muted" title="You muted this person" />}
+                  {id !== me.id && !mine[id]?.mute && mine[id]?.sbMute && <Icon name="music" size={16} className="voice-muted voice-sbmuted" title="You muted this person's soundboard" />}
                   {snd && <div className="sb-said" role="status">{snd.emoji || '🔊'} {snd.name}</div>}
                 </div>
               );

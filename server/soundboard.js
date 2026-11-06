@@ -21,7 +21,8 @@ const LIMITS = {
   emoji: 8,              // characters (code points) of the little icon on the button
   bytes: 256 * 1024,
   secs: 5,               // the browser measures the length before upload; the server can only measure a WAV, so the size limit backs it up
-  cooldownMs: 3000,      // one sound per person every 3 seconds
+  burst: 40,             // a person may press sound buttons as fast as they like, up to this many plays...
+  windowMs: 5000,        // ...in any window this long (only a flood is refused; it protects the server, not the room)
   roles: 25,
 };
 const TYPES = SONG_TYPES;
@@ -117,13 +118,15 @@ function check(buf) {
   return { data: buf, mime: kind.mime, ext: kind.ext };
 }
 
-// ---------- the pause between plays ----------
-// plays: a Map of userId -> time of their last sound. Returns true (and notes the time) when the person may play now.
+// ---------- flood protection ----------
+// No pause between sounds: pressing a button many times plays it many times. Only a flood is refused: more than LIMITS.burst plays by one person
+// in LIMITS.windowMs. plays: a Map of userId -> the times of their recent sounds. Returns true (and notes the time) when the person may play now.
 function allow(plays, uid, t = Date.now()) {
-  const last = plays.get(uid);
-  if (last !== undefined && t - last < LIMITS.cooldownMs) return false;
-  if (plays.size > 500) for (const [k, v] of plays) if (t - v >= LIMITS.cooldownMs) plays.delete(k); // keep the map small
-  plays.set(uid, t);
+  const recent = (plays.get(uid) || []).filter((x) => t - x < LIMITS.windowMs);
+  if (recent.length >= LIMITS.burst) { plays.set(uid, recent); return false; }
+  recent.push(t);
+  plays.set(uid, recent);
+  if (plays.size > 500) for (const [k, v] of plays) if (!v.length || t - v[v.length - 1] >= LIMITS.windowMs) plays.delete(k); // keep the map small
   return true;
 }
 

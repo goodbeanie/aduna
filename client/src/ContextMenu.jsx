@@ -5,6 +5,8 @@ import { Icon } from './ui.jsx';
 //   header  optional: anything to show at the top (a picture and a name, say)
 //   items   a list of { label, icon, onClick, danger, disabled } and 'sep' for a divider. Anything falsy is skipped, so
 //           `canDelete && { ... }` works, and dividers that would sit first, last or twice in a row are dropped.
+//           A { slider: { label, min, max, value, normal, onChange } } item is a slider that stays open while you drag it
+//           (onChange gets the number; double-click jumps back to `normal`).
 // It closes on Escape, a click or tap elsewhere, scrolling, resizing and Tab; arrow keys move between items.
 // On a touch screen a long press sends the same "contextmenu" event, so it works there too.
 const Ctx = createContext({ open: () => {}, copy: () => {}, flash: () => {} });
@@ -42,6 +44,18 @@ const tidy = (items) => {
   return out;
 };
 
+function MenuSlider({ label, min, max, value, normal, onChange }) {
+  const [v, setV] = useState(value);
+  const set = (n) => { setV(n); onChange(n); };
+  return (
+    <div className="cmenu-slider">
+      <div className="cmenu-slider-top"><span>{label}</span><b>{v}%</b></div>
+      <input type="range" min={min} max={max} step="1" value={v} aria-label={label} title={normal != null ? `Double-click to reset to ${normal}%` : undefined}
+        onChange={(e) => set(Number(e.target.value))} onDoubleClick={() => { if (normal != null) set(normal); }} />
+    </div>
+  );
+}
+
 function Menu({ menu, close }) {
   const ref = useRef(null);
   const [pos, setPos] = useState(null);
@@ -71,7 +85,7 @@ function Menu({ menu, close }) {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
       if (e.key === 'Tab') { close(); return; }
       if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key) || !ref.current) return;
-      const btns = [...ref.current.querySelectorAll('button:not(:disabled)')];
+      const btns = [...ref.current.querySelectorAll('button:not(:disabled), input[type="range"]')];
       if (!btns.length) return;
       e.preventDefault();
       const i = btns.indexOf(document.activeElement);
@@ -101,6 +115,7 @@ function Menu({ menu, close }) {
       {menu.header && <div className="cmenu-head">{menu.header}</div>}
       {menu.items.map((it, i) => it === 'sep'
         ? <div key={'s' + i} className="cmenu-sep" role="separator" />
+        : it.slider ? <MenuSlider key={i} {...it.slider} />
         : (
           <button key={i} type="button" role="menuitem" className={'cmenu-item' + (it.danger ? ' danger' : '')} disabled={it.disabled} onClick={() => run(it)}>
             {it.icon && <Icon name={it.icon} size={16} />}<span>{it.label}</span>

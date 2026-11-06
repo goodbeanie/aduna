@@ -37,7 +37,7 @@ for (const uid of ['plain', 'dj1', 'owner', 'admin1']) assert.strictEqual(whyNot
 ok('off completely: nobody can play, the owner included');
 
 assert.strictEqual(soundUrl('s1', 'x9'), '/api/servers/s1/sounds/x9/audio');
-assert.deepStrictEqual([SOUND.sounds, SOUND.secs, SOUND.bytes, SOUND.cooldownMs], [24, 5, 256 * 1024, 3000], 'limits match LIMITS in server/soundboard.js');
+assert.deepStrictEqual([SOUND.sounds, SOUND.secs, SOUND.bytes, SOUND.burst, SOUND.windowMs], [24, 5, 256 * 1024, 40, 5000], 'limits match LIMITS in server/soundboard.js');
 ok('sound url and limits');
 
 console.log('soundboard (client) tests passed');
