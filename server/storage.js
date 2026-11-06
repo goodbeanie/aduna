@@ -51,6 +51,13 @@ const isProtected = (u, now = Date.now()) => {
 };
 const protectedIds = (db, now = Date.now()) => Object.values((db && db.users) || {}).filter((u) => isProtected(u, now)).map((u) => u.id);
 
+// A Plus person has no limit unless they set one themselves. u.plusLimit: undefined = never asked, null = asked and chose no limit,
+// a number = the limit (bytes) they chose. The first upload as a Plus person asks (code 'plus_limit_needed'); the answer is saved with
+// POST /api/storage/limit.
+const MIN_LIMIT_BYTES = 1 * GB;
+const plusLimitOf = (u) => (u && typeof u.plusLimit === 'number' && u.plusLimit >= MIN_LIMIT_BYTES ? u.plusLimit : null);
+const needsLimitChoice = (u, now = Date.now()) => isSubscriber(u, now) && (!u || u.plusLimit === undefined);
+
 // null when `add` more bytes fit in the plan; otherwise how far over it would be
 const overQuota = (used, add, limit = PLAN.bytes) => (used + add > limit ? { used, limit, needed: used + add - limit } : null);
 // the oldest files whose sizes add up to at least `needed` (what the cleanup window ticks first)
@@ -250,7 +257,8 @@ function register(app, d) {
       paidThrough: s && s.paidThrough ? s.paidThrough : null,
       renews: sub && !!s && s.status === 'active',
       used,
-      limit: sub ? PLAN.bytes : null, // free: see freeLimit
+      limit: sub ? plusLimitOf(u) : null, // Plus: null means no limit (or a limit the person chose, see plusLimitOf). free: see freeLimit
+      limitAsked: !sub || u.plusLimit !== undefined, // a Plus person is asked once, at their first upload, whether they want a limit of their own
       freeLimit: cap,                 // bytes a free person may keep (null: no limit of their own)
       readOnly: cap !== null && used > cap, // over it: new attachments are refused until files are deleted or the person upgrades (their files are kept)
       purchases: pay,
@@ -296,6 +304,21 @@ function register(app, d) {
     });
     const needed = Math.max(0, Math.floor(Number(req.query.needed) || 0));
     res.json({ files, suggest: needed ? pickOldest(files, needed).map((f) => f.id) : [] });
+  }));
+
+  // A Plus person chooses their own limit (or none): body { gb: null } for no limit, or { gb: 50 } for 50 GB. Never below 1 GB.
+  app.post('/api/storage/limit', d.auth, d.ah(async (req, res) => {
+    if (!isSubscriber(req.user, nowMs())) return res.status(403).json({ error: 'Choosing a storage limit is part of Plus' });
+    const gb = req.body ? req.body.gb : undefined;
+    if (gb === null) req.user.plusLimit = null;
+    else {
+      const n = Number(gb);
+      if (!Number.isFinite(n) || n < MIN_LIMIT_BYTES / GB || n > 100_000) return res.status(400).json({ error: 'Pick a limit of at least 1 GB, or no limit' });
+      req.user.plusLimit = Math.round(n * GB);
+    }
+    d.save();
+    push(req.user.id);
+    res.json(await viewOf(req.user));
   }));
 
   // delete some of your own files (never anybody else's); the messages that held them show "expired"
@@ -353,6 +376,6 @@ function register(app, d) {
 }
 
 module.exports = {
-  PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, hasLifetime, setLifetime, isProtected, protectedIds, overQuota, pickOldest, makeRoom,
+  PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, hasLifetime, setLifetime, isProtected, protectedIds, plusLimitOf, needsLimitChoice, overQuota, pickOldest, makeRoom,
   createPlan, createSubscription, confirmSubscription, syncSubscription, cancelSubscription, applyActive, handleEvent, register,
 };

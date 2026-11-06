@@ -1848,10 +1848,14 @@ app.post('/api/files', auth, fileLimiter, express.raw({ type: '*/*', limit: MAX_
   const scope = fileScope(req.user.id, req.query.kind, String(req.query.target || ''));
   if (!scope) return res.status(403).json({ error: 'You cannot send files here' });
   if (req.query.kind !== 'dm' && buf.length > MAX_FILE) return res.status(413).json({ error: 'File is too large (max 20 MB)' });
-  // A storage plan has its own 10 GB: when it is full the app lets the person choose files to delete, then sends again.
+  // Plus has no limit unless the person set one. Their first upload asks them (the app shows the question, saves the answer and sends again).
   if (storagePlan.isSubscriber(req.user, now())) {
-    const over = storagePlan.overQuota(await store.userFileBytes(req.user.id), buf.length);
-    if (over) return res.status(409).json({ error: 'Your storage is full', code: 'storage_full', ...over });
+    if (storagePlan.needsLimitChoice(req.user, now())) return res.status(409).json({ error: 'Choose a storage limit first', code: 'plus_limit_needed' });
+    const mine = storagePlan.plusLimitOf(req.user);
+    if (mine !== null) {
+      const over = storagePlan.overQuota(await store.userFileBytes(req.user.id), buf.length, mine);
+      if (over) return res.status(409).json({ error: 'You reached the storage limit you set', code: 'storage_full', ...over, selfSet: true });
+    }
   } else {
     // a free person has a limit of their own while the free-storage cap is on (server/storage-budget.js). Over it, new attachments are refused,
     // nothing is deleted, and the app opens the cleanup window (with a Get 10 GB button) through the same 'storage_full' answer a full plan uses.

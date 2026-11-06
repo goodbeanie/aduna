@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { askConfirm, toast } from './Dialogs.jsx';
 import { Checkout } from './Credits.jsx';
-import { setStorageFullHandler, sizeLabel } from './files.js';
+import { setStorageFullHandler, setPlusLimitHandler, sizeLabel } from './files.js';
 
 // The storage plan: a usage bar above the profile bar, the plan window, the cleanup window (when a plan's 10 GB is full) and the checkout.
 // The server decides everything (server/storage.js); this only draws it.
@@ -88,15 +88,33 @@ function CleanupModal({ needed = 0, fileName, limitMB = 0, readOnly = false, onU
   );
 }
 
-function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, busy }) {
+// Plus: no limit unless you want one. Used by the first-upload question and by the storage window.
+function LimitForm({ current, onSave, busy, saveLabel = 'Save' }) {
+  const [mode, setMode] = useState(current ? 'set' : 'none');
+  const [gb, setGb] = useState(current ? String(Math.round((current / GB) * 10) / 10) : '50');
+  const n = Number(gb);
+  const valid = mode === 'none' || (Number.isFinite(n) && n >= 1 && n <= 100000);
+  return (
+    <div className="st-limit">
+      <label className="st-row on"><input type="radio" name="plus-limit" checked={mode === 'none'} onChange={() => setMode('none')} /><span className="st-main"><span className="st-name">No limit</span><span className="st-sub">Keep everything. Nothing is ever removed.</span></span></label>
+      <label className="st-row on"><input type="radio" name="plus-limit" checked={mode === 'set'} onChange={() => setMode('set')} /><span className="st-main"><span className="st-name">Set a limit</span><span className="st-sub">Uploads stop when you reach it. You can change it any time.</span></span></label>
+      {mode === 'set' && <label className="st-sub" style={{ display: 'block', margin: '8px 0' }}>Limit in GB <input type="number" min="1" step="1" value={gb} onChange={(e) => setGb(e.target.value)} style={{ width: 90, marginLeft: 8 }} /></label>}
+      <button className="btn primary" onClick={() => onSave(mode === 'none' ? null : n)} disabled={busy || !valid}>{saveLabel}</button>
+    </div>
+  );
+}
+
+function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimit, busy }) {
   const pct = s.limit ? Math.min(100, Math.round((s.used / s.limit) * 100)) : 0;
   return (
     <Modal title="Storage" onClose={onClose}>
       {s.subscriber ? (
         <>
-          <div className="st-stat"><b>{fmt(s.used)}</b><span>of {fmt(s.limit)} used</span></div>
-          <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></div>
+          <div className="st-stat"><b>{fmt(s.used)}</b><span>{s.limit ? `of ${fmt(s.limit)} used` : 'stored · no limit'}</span></div>
+          {s.limit && <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></div>}
           <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${(s.plan.cents / 100).toFixed(2)}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
+          <p className="st-note"><b>Your limit</b></p>
+          <LimitForm current={s.limit} onSave={onSaveLimit} busy={busy} />
         </>
       ) : (
         <>
@@ -145,6 +163,8 @@ export function StorageDock({ storage, setStorage }) {
   const [coErr, setCoErr] = useState('');
   const [busy, setBusy] = useState(false);
   const fullRef = useRef(null); fullRef.current = full;
+  const [ask, setAsk] = useState(null);            // { resolve } while a Plus person's first upload waits for "do you want a limit?"
+  const askRef = useRef(null); askRef.current = ask;
 
   const reload = useCallback(() => api('/storage').then(setStorage).catch(() => {}), [setStorage]);
   useEffect(() => { reload(); const f = () => reload(); window.addEventListener('focus', f); return () => window.removeEventListener('focus', f); }, [reload]);
@@ -152,8 +172,19 @@ export function StorageDock({ storage, setStorage }) {
   // an upload that does not fit asks for the cleanup window and waits for the answer
   useEffect(() => {
     setStorageFullHandler((info) => new Promise((resolve) => { fullRef.current?.resolve(false); setFull({ ...info, resolve }); }));
-    return () => setStorageFullHandler(null);
+    setPlusLimitHandler(() => new Promise((resolve) => { askRef.current?.resolve(false); setAsk({ resolve }); }));
+    return () => { setStorageFullHandler(null); setPlusLimitHandler(null); };
   }, []);
+
+  async function saveLimit(gb, afterAsk = false) {
+    setBusy(true);
+    try {
+      setStorage(await api('/storage/limit', { method: 'POST', body: { gb } }));
+      toast(gb === null ? 'No storage limit. Nothing will be removed.' : `Storage limit set to ${gb} GB.`);
+      if (afterAsk) { askRef.current?.resolve(true); setAsk(null); }
+    } catch (e) { toast(e.message, 'error'); }
+    setBusy(false);
+  }
 
   // every free person is warned about their limit: once when the app opens, and again whenever the limit changes
   const warnedLimit = useRef(null);
@@ -208,15 +239,21 @@ export function StorageDock({ storage, setStorage }) {
 
   return (
     <>
-      <button className="storage-bar" onClick={() => setModal('plan')} title={s.subscriber ? `${fmt(s.used)} of ${fmt(s.limit)} used` : s.freeLimit ? `${fmt(s.used)} of ${fmt(s.freeLimit)} free storage used` : 'Storage'} aria-label={s.subscriber ? `Storage: ${fmt(s.used)} of ${fmt(s.limit)} used` : s.freeLimit ? `Storage: ${fmt(s.used)} of ${fmt(s.freeLimit)} used${s.readOnly ? ', attachments are read-only' : ''}. Get more room` : `Storage: ${fmt(s.used)} stored. Get more room`}>
+      <button className="storage-bar" onClick={() => setModal('plan')} title={s.subscriber ? (s.limit ? `${fmt(s.used)} of ${fmt(s.limit)} used` : `${fmt(s.used)} stored, no limit`) : s.freeLimit ? `${fmt(s.used)} of ${fmt(s.freeLimit)} free storage used` : 'Storage'} aria-label={s.subscriber ? (s.limit ? `Storage: ${fmt(s.used)} of ${fmt(s.limit)} used` : `Storage: ${fmt(s.used)} stored, no limit`) : s.freeLimit ? `Storage: ${fmt(s.used)} of ${fmt(s.freeLimit)} used${s.readOnly ? ', attachments are read-only' : ''}. Get more room` : `Storage: ${fmt(s.used)} stored. Get more room`}>
         <span className="st-top">
-          <span className="st-label"><Icon name="bag" size={13} /> {s.subscriber ? `${fmt(s.used)} of ${fmt(s.limit)}` : s.freeLimit ? `${fmt(s.used)} of ${fmt(s.freeLimit)}` : `${fmt(s.used)} stored`}</span>
+          <span className="st-label"><Icon name="bag" size={13} /> {s.subscriber ? (s.limit ? `${fmt(s.used)} of ${fmt(s.limit)}` : `${fmt(s.used)} stored`) : s.freeLimit ? `${fmt(s.used)} of ${fmt(s.freeLimit)}` : `${fmt(s.used)} stored`}</span>
           {!s.subscriber && <span className="st-up">{s.readOnly ? 'Read-only' : `Get ${fmt(s.plan.bytes)}`}</span>}
         </span>
-        {s.subscriber && <span className="st-track"><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></span>}
+        {s.subscriber && s.limit && <span className="st-track"><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></span>}
         {!s.subscriber && s.freeLimit && <span className="st-track"><i className={s.readOnly || freePct >= 95 ? 'full' : freePct >= 80 ? 'warn' : ''} style={{ width: freePct + '%' }} /></span>}
       </button>
-      {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={() => { setModal(null); setCoErr(''); setCheckout(true); }} onManage={() => setModal('files')} onCancelPlan={cancelPlan} />}
+      {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={() => { setModal(null); setCoErr(''); setCheckout(true); }} onManage={() => setModal('files')} onCancelPlan={cancelPlan} onSaveLimit={(gb) => saveLimit(gb)} />}
+      {ask && (
+        <Modal title="Do you want a storage limit?" onClose={() => { ask.resolve(false); setAsk(null); }}>
+          <p className="st-note">With Plus your files are never removed. You can keep uploading with no limit, or set one yourself so uploads stop at a size you choose. You can change this any time in Storage.</p>
+          <LimitForm current={null} onSave={(gb) => saveLimit(gb, true)} busy={busy} saveLabel="Save and upload" />
+        </Modal>
+      )}
       {modal === 'files' && <CleanupModal onDone={() => { setModal('plan'); reload(); }} onCancel={() => setModal('plan')} />}
       {full && <CleanupModal needed={full.needed} fileName={full.fileName} limitMB={full.freeLimitMB || 0} readOnly={!!full.readOnly} plusBytes={s.plan.bytes}
         onUpgrade={full.canUpgrade && s.purchases ? () => { finishFull(false); setCoErr(''); setCheckout(true); } : null}

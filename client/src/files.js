@@ -40,6 +40,9 @@ async function imageSize(file) {
 // Set by the storage window: gets { needed, used, limit, fileName } and resolves true once the person made room, false if they backed out.
 let storageFullHandler = null;
 export const setStorageFullHandler = (fn) => { storageFullHandler = fn; };
+// Set by the storage window: a Plus person's first upload asks "do you want a storage limit?"; resolves true once they answered, false if they backed out.
+let plusLimitHandler = null;
+export const setPlusLimitHandler = (fn) => { plusLimitHandler = fn; };
 
 // scope: { kind: 'channel', target: channelId } or { kind: 'dm', target: userId, privKey, theirPublic }
 //        or { kind: 'group', target: groupId, key, epoch } (key = the current epoch's AES key; the epoch is stored in the attachment)
@@ -57,7 +60,7 @@ export async function uploadFile(file, scope, onProgress) {
     x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     x.onload = () => {
       let d = {}; try { d = JSON.parse(x.responseText); } catch {}
-      x.status >= 200 && x.status < 300 && d.id ? resolve(d.id) : reject(Object.assign(new Error(d.error || 'Upload failed'), { code: d.code, needed: d.needed, used: d.used, limit: d.limit, readOnly: d.readOnly, freeLimitMB: d.freeLimitMB, canUpgrade: d.canUpgrade }));
+      x.status >= 200 && x.status < 300 && d.id ? resolve(d.id) : reject(Object.assign(new Error(d.error || 'Upload failed'), { code: d.code, needed: d.needed, used: d.used, limit: d.limit, readOnly: d.readOnly, freeLimitMB: d.freeLimitMB, canUpgrade: d.canUpgrade, selfSet: d.selfSet }));
     };
     x.onerror = () => reject(new Error('Upload failed'));
     x.send(body);
@@ -67,8 +70,12 @@ export async function uploadFile(file, scope, onProgress) {
   for (;;) {
     try { id = await send(); break; }
     catch (e) {
+      if (e.code === 'plus_limit_needed' && plusLimitHandler) {
+        if (!(await plusLimitHandler())) throw new Error('The file was not sent. Choose a storage limit (or no limit) to start uploading with Plus');
+        continue;
+      }
       if (e.code !== 'storage_full' || !storageFullHandler) throw e;
-      if (!(await storageFullHandler({ needed: e.needed, used: e.used, limit: e.limit, fileName: file.name, readOnly: e.readOnly, freeLimitMB: e.freeLimitMB, canUpgrade: e.canUpgrade }))) throw new Error(e.readOnly ? 'Attachments are read-only until you free up space or get Plus, so the file was not sent' : 'Your storage is full, so the file was not sent');
+      if (!(await storageFullHandler({ needed: e.needed, used: e.used, limit: e.limit, fileName: file.name, readOnly: e.readOnly, freeLimitMB: e.freeLimitMB, canUpgrade: e.canUpgrade, selfSet: e.selfSet }))) throw new Error(e.readOnly ? 'Attachments are read-only until you free up space or get Plus, so the file was not sent' : e.selfSet ? 'You reached the storage limit you set, so the file was not sent' : 'Your storage is full, so the file was not sent');
     }
   }
   return { id, name: file.name || 'file', type: file.type || 'application/octet-stream', size: file.size, ...(scope.kind === 'group' ? { epoch: scope.epoch } : {}), ...(await imageSize(file)) };
