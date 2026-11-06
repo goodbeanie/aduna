@@ -70,13 +70,15 @@ export function Banner({ user }) {
   return <div className="banner" style={{ backgroundColor: user.bannerColor, backgroundImage: src ? `url("${src}")` : undefined }} />;
 }
 
-// A soft blurred copy of the banner behind the top of a profile card (the lounges do the same). Put it first inside the card and add the
-// `has-blur` class (bannerBlurClass) to the card. Uses the still banner picture, or just the banner colour; nothing when the banner is empty.
-const bannerBlurSrc = (user) => user.bannerPreview || imageUrl(user.bannerImage || user.bannerAnim);
-export const bannerBlurClass = (user) => (user && (bannerBlurSrc(user) || user.bannerColor) ? ' has-blur' : '');
+// A blurred, expanded copy of the banner under the top of a profile card. Put it first inside the card and add the `has-blur` class
+// (bannerBlurClass) to the card. The banner stays sharp on top, the copy is stretched to fill a taller area, blurred, and fades out into the
+// card's own colour / profile theme: banner -> blur fade -> theme. Only when the person ticked "Blur my banner" (user.bannerBlur).
+// It uses the same picture as the banner (the GIF when there is one), or just the banner colour; nothing when the banner is empty.
+const bannerBlurSrc = (user) => user.bannerPreview || imageUrl(user.bannerAnim || user.bannerImage);
+export const bannerBlurClass = (user) => (user && user.bannerBlur && (bannerBlurSrc(user) || user.bannerColor) ? ' has-blur' : '');
 export function BannerBlur({ user }) {
   const src = bannerBlurSrc(user);
-  if (!src && !user.bannerColor) return null;
+  if (!user.bannerBlur || (!src && !user.bannerColor)) return null;
   return <div className="card-blur" aria-hidden="true" style={{ backgroundColor: user.bannerColor, backgroundImage: src ? `url("${src}")` : undefined }} />;
 }
 

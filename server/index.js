@@ -263,6 +263,7 @@ function publicUser(u) {
     bannerImage: u.bannerImage || null,
     avatarAnim: u.avatarAnim || null, // the animated copy (a GIF) of the picture above, shown only while hovered or on an open profile
     bannerAnim: u.bannerAnim || null,
+    bannerBlur: !!u.bannerBlur, // "Blur my banner behind my profile": the banner is expanded, blurred and faded into the card theme (off by default)
     accentColor: u.accentColor,
     ...nameStyle.view(u), // nameFont and nameGradient: how the display name is drawn (null = the app's font / the plain colour)
     profileTheme: credits.pthemes.wornId(u), // a gradient profile theme (see profilethemes.js), or null
@@ -1432,6 +1433,7 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (b.showActivity !== undefined) { // "Show what I'm playing": off removes the game straight away and nothing is shown or stored while it stays off
     if (b.showActivity === false) { u.showActivity = false; activityLib.clear(activities, u.id); } else delete u.showActivity;
   }
+  if (b.bannerBlur !== undefined) { if (b.bannerBlur === true) u.bannerBlur = true; else delete u.bannerBlur; } // "Blur my banner behind my profile": off until they tick it
   store.save();
   emitUserUpdate(u);
   broadcastPresence(u.id);

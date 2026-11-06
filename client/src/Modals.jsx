@@ -322,7 +322,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const { t } = useLang();
   const [f, setF] = useState({
     displayName: me.displayName, username: me.username, email: me.email || '', bio: me.bio, avatarEmoji: me.avatarEmoji, avatarColor: me.avatarColor,
-    bannerColor: me.bannerColor, accentColor: me.accentColor, status: me.status,
+    bannerColor: me.bannerColor, accentColor: me.accentColor, status: me.status, bannerBlur: !!me.bannerBlur,
     links: (me.links || []).map((l) => ({ ...l })),
     pronouns: me.pronouns || '', games: [...(me.games || [])],
   });
@@ -630,6 +630,8 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
             {hasBanner && <button type="button" className="btn ghost" onClick={removeBanner}>{t('removeBanner')}</button>}
           </div>
           <input ref={bannerInput} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => pick('banner', e)} />
+          <label className="check-row"><input type="checkbox" checked={!!f.bannerBlur} onChange={(e) => set('bannerBlur')(e.target.checked)} /> <span>Blur my banner behind my profile</span></label>
+          <p className="muted small hint">Stretches your banner (or GIF) under it, blurs it and fades it into your card theme.</p>
           {cropping && <Cropper file={cropping.file} size={cropping.kind === 'avatar' ? AVATAR_SIZE : BANNER_SIZE} shape={cropping.kind === 'avatar' ? 'square' : 'wide'} title={cropping.kind === 'avatar' ? t('cropTitleAvatar') : t('cropTitleBanner')} onApply={applyCrop} onCancel={() => setCropping(null)} />}
 
           </section>
