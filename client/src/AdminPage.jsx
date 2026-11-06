@@ -9,7 +9,7 @@ import './admin.css';
 
 const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['features', 'Features'], ['releases', 'Releases'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
-const ROLE = { creator: 'Creator', config: 'Admin (server settings)', admin: 'Admin' };
+const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin' };
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
 const label = (s) => String(s || '').replace(/[_-]/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const tabFromHash = () => { const h = location.hash.replace('#', ''); return TABS.some((t) => t[0] === h) ? h : 'overview'; };
@@ -334,7 +334,7 @@ function UserDetail({ id, onChanged, onClose }) {
           {me.canManageAdmins && (u.role === 'admin' ? <button className="adm-btn" onClick={dropAdmin}>Remove as admin</button> : !u.role && !u.suspended && <button className="adm-btn" onClick={makeAdmin}>Make admin</button>)}
         </div>
       ) : (
-        <p className="adm-muted">{u.id === me.id ? 'This is you.' : u.role === 'creator' ? 'Creator accounts cannot be moderated here.' : 'Only a creator can act on an admin.'}</p>
+        <p className="adm-muted">{u.id === me.id ? 'This is you.' : u.role === 'creator' ? 'Founder accounts cannot be moderated here.' : 'Only a founder can act on an admin.'}</p>
       )}
       {u.ownsOfficialServer && <p className="adm-muted">This account owns the official Aduna server, so it cannot be deleted until that is transferred.</p>}
 
@@ -369,7 +369,7 @@ function People({ focusId, clearFocus, refresh }) {
                   <button className={'adm-person' + (sel === u.id ? ' on' : '')} onClick={() => setSel(u.id)}>
                     <Face u={u} />
                     <span><b>{u.displayName}</b><small className="adm-muted"> @{u.username}</small></span>
-                    {u.role && <span className="adm-tag">{u.role === 'creator' ? 'Creator' : 'Admin'}</span>}
+                    {u.role && <span className="adm-tag">{u.role === 'creator' ? 'Founder' : 'Admin'}</span>}
                     {u.suspended && <span className="adm-tag bad">Suspended</span>}
                     {u.reports > 0 && <span className="adm-tag warn">{u.reports}</span>}
                   </button>
@@ -434,7 +434,7 @@ function Admins({ openUser }) {
             </div>
           </div>
         ))}
-        <p className="adm-muted">Creator accounts and names in the server’s ADMIN_USERNAMES setting always have access and cannot be removed here.</p>
+        <p className="adm-muted">Founder accounts and names in the server’s ADMIN_USERNAMES setting always have access and cannot be removed here.</p>
       </div>
     </>
   );

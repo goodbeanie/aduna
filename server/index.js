@@ -187,7 +187,7 @@ storagePlan.setLifetime(isCreator); // the Aduna creator accounts have Aduna Plu
 const featureOn = (id, u) => featuresLib.enabled(db().features, id, isCreator(u));
 const needFeature = (id) => (req, res, next) => (featureOn(id, req.user) ? next() : res.status(404).json({ error: 'Not found' }));
 const featuresFor = (u) => featuresLib.forUser(db().features, isCreator(u));
-const CREATOR_BADGE = { id: 'creator', name: 'Creator', builtin: true, image: null, emoji: '', color: '' };
+const CREATOR_BADGE = { id: 'creator', name: 'Founder', builtin: true, image: null, emoji: '', color: '' };
 // The Artist badge: automatic once an artist's first item has been approved (db().artists[id].badge, see the artists block). The client draws it
 // from /badges/artist.png as a mask in the surrounding text colour (`glyph`), so it is white on dark themes and dark on light ones.
 const ARTIST_BADGE = { id: 'artist', name: 'Artist', glyph: 'artist', image: null, emoji: '', color: '' };
@@ -3476,7 +3476,7 @@ function cleanBadgeFields(body, partial) {
   if (body.daily !== undefined) out.daily = body.daily === true;
   return { out };
 }
-const badgeNameTaken = (name, exceptId) => ['creator', 'artist'].includes(name.toLowerCase()) || Object.values(db().badges).some((b) => b.id !== exceptId && b.name.toLowerCase() === name.toLowerCase());
+const badgeNameTaken = (name, exceptId) => ['creator', 'founder', 'artist'].includes(name.toLowerCase()) || Object.values(db().badges).some((b) => b.id !== exceptId && b.name.toLowerCase() === name.toLowerCase());
 const tellHolders = (id) => { for (const u of Object.values(db().users)) if (Array.isArray(u.badges) && u.badges.includes(id)) emitUserUpdate(u); };
 app.get('/api/badges', auth, creatorOnly, (_req, res) => res.json({ badges: Object.values(db().badges).map(badgeOwnView), limits: BADGE_LIMITS }));
 app.post('/api/badges', auth, creatorOnly, (req, res) => {

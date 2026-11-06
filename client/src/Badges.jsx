@@ -29,7 +29,7 @@ export function BadgeSettings() {
   if (!badges) return err ? <p className="muted">{err}</p> : <PanelSkeleton label="Loading" />;
   return (
     <div className="badge-admin">
-      <p className="muted">The <b>Creator</b> badge is added to your account automatically. Make your own badges here, then give them to people by username. A badge is a picture, or an emoji on a colour.</p>
+      <p className="muted">The <b>Founder</b> badge is added to your account automatically. Make your own badges here, then give them to people by username. A badge is a picture, or an emoji on a colour.</p>
       {err && <div className="error-text">{err}</div>}
       <form className="badge-card" onSubmit={create}>
         <b>New badge</b>

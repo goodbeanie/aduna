@@ -161,7 +161,7 @@ export function GoogleFlow({ id, onAuthed, onNew, onBack, onForgot }) {
             <Avatar user={a} size={36} />
             <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <strong style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.displayName || a.username}</strong>
-              <span className="muted small">@{a.username}{a.creator ? ' · Creator' : ''}</span>
+              <span className="muted small">@{a.username}{a.creator ? ' · Founder' : ''}</span>
             </span>
           </button>
         ))}
