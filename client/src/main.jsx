@@ -37,6 +37,7 @@ import './messages.css'; // after header.css: the message area (divider contrast
 import './signup.css'; // the three-step sign-up (SignupFlow.jsx)
 import './profile-editor.css'; // after signup.css: the Settings > My profile editor (sections, sticky preview, switches)
 import './legibility.css'; // last: raises the few remaining sub-12px labels to the 12px floor (remove this line to undo)
+import './checkbox.css'; // the custom checkbox look for every checkbox in the app (remove this line to get the browser's boxes back)
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { initTheme } from './themes.js';
 import { startPhrases } from './phrases.js';
