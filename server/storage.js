@@ -51,12 +51,12 @@ const isProtected = (u, now = Date.now()) => {
 };
 const protectedIds = (db, now = Date.now()) => Object.values((db && db.users) || {}).filter((u) => isProtected(u, now)).map((u) => u.id);
 
-// A Plus person has no limit unless they set one themselves. u.plusLimit: undefined = never asked, null = asked and chose no limit,
-// a number = the limit (bytes) they chose. The first upload as a Plus person asks (code 'plus_limit_needed'); the answer is saved with
-// POST /api/storage/limit.
+// Plus always has the plan's 10 GB. On top of that a person MAY set an upload limit of their own (u.plusLimit, bytes, between 1 GB and the
+// plan's 10 GB): uploads stop when they reach it. Nothing asks them; null = no limit of their own. Saved with POST /api/storage/limit.
 const MIN_LIMIT_BYTES = 1 * GB;
-const plusLimitOf = (u) => (u && typeof u.plusLimit === 'number' && u.plusLimit >= MIN_LIMIT_BYTES ? u.plusLimit : null);
-const needsLimitChoice = (u, now = Date.now()) => isSubscriber(u, now) && (!u || u.plusLimit === undefined);
+const plusLimitOf = (u) => (u && typeof u.plusLimit === 'number' && u.plusLimit >= MIN_LIMIT_BYTES ? Math.min(u.plusLimit, PLAN.bytes) : null);
+// the limit uploads are checked against: the plan, or the person's own smaller limit
+const effectiveLimit = (u) => { const m = plusLimitOf(u); return m !== null && m < PLAN.bytes ? m : PLAN.bytes; };
 
 // null when `add` more bytes fit in the plan; otherwise how far over it would be
 const overQuota = (used, add, limit = PLAN.bytes) => (used + add > limit ? { used, limit, needed: used + add - limit } : null);
@@ -257,8 +257,8 @@ function register(app, d) {
       paidThrough: s && s.paidThrough ? s.paidThrough : null,
       renews: sub && !!s && s.status === 'active',
       used,
-      limit: sub ? plusLimitOf(u) : null, // Plus: null means no limit (or a limit the person chose, see plusLimitOf). free: see freeLimit
-      limitAsked: !sub || u.plusLimit !== undefined, // a Plus person is asked once, at their first upload, whether they want a limit of their own
+      limit: sub ? PLAN.bytes : null, // Plus: the plan's 10 GB. free: see freeLimit
+      uploadLimit: sub ? plusLimitOf(u) : null, // Plus: the optional upload limit the person set for themselves (null: none)
       freeLimit: cap,                 // bytes a free person may keep (null: no limit of their own)
       readOnly: cap !== null && used > cap, // over it: new attachments are refused until files are deleted or the person upgrades (their files are kept)
       purchases: pay,
@@ -306,14 +306,14 @@ function register(app, d) {
     res.json({ files, suggest: needed ? pickOldest(files, needed).map((f) => f.id) : [] });
   }));
 
-  // A Plus person chooses their own limit (or none): body { gb: null } for no limit, or { gb: 50 } for 50 GB. Never below 1 GB.
+  // A Plus person sets an optional upload limit: body { gb: null } for none, or { gb: 5 } for 5 GB. Between 1 GB and the plan's 10 GB.
   app.post('/api/storage/limit', d.auth, d.ah(async (req, res) => {
-    if (!isSubscriber(req.user, nowMs())) return res.status(403).json({ error: 'Choosing a storage limit is part of Plus' });
+    if (!isSubscriber(req.user, nowMs())) return res.status(403).json({ error: 'Setting an upload limit is part of Plus' });
     const gb = req.body ? req.body.gb : undefined;
     if (gb === null) req.user.plusLimit = null;
     else {
       const n = Number(gb);
-      if (!Number.isFinite(n) || n < MIN_LIMIT_BYTES / GB || n > 100_000) return res.status(400).json({ error: 'Pick a limit of at least 1 GB, or no limit' });
+      if (!Number.isFinite(n) || n < MIN_LIMIT_BYTES / GB || n > PLAN.bytes / GB) return res.status(400).json({ error: `Pick an upload limit between 1 and ${PLAN.bytes / GB} GB, or none` });
       req.user.plusLimit = Math.round(n * GB);
     }
     d.save();
@@ -376,6 +376,6 @@ function register(app, d) {
 }
 
 module.exports = {
-  PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, hasLifetime, setLifetime, isProtected, protectedIds, plusLimitOf, needsLimitChoice, overQuota, pickOldest, makeRoom,
+  PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, hasLifetime, setLifetime, isProtected, protectedIds, plusLimitOf, effectiveLimit, overQuota, pickOldest, makeRoom,
   createPlan, createSubscription, confirmSubscription, syncSubscription, cancelSubscription, applyActive, handleEvent, register,
 };

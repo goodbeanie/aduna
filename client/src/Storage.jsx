@@ -88,17 +88,17 @@ function CleanupModal({ needed = 0, fileName, limitMB = 0, readOnly = false, onU
   );
 }
 
-// Plus: no limit unless you want one. Used by the first-upload question and by the storage window.
-function LimitForm({ current, onSave, busy, saveLabel = 'Save' }) {
+// Plus: the plan's 10 GB always applies. An upload limit of your own is optional (a smaller number than the plan).
+function LimitForm({ current, onSave, busy, saveLabel = 'Save', max = 10 }) {
   const [mode, setMode] = useState(current ? 'set' : 'none');
-  const [gb, setGb] = useState(current ? String(Math.round((current / GB) * 10) / 10) : '50');
+  const [gb, setGb] = useState(current ? String(Math.round((current / GB) * 10) / 10) : String(Math.min(5, max)));
   const n = Number(gb);
-  const valid = mode === 'none' || (Number.isFinite(n) && n >= 1 && n <= 100000);
+  const valid = mode === 'none' || (Number.isFinite(n) && n >= 1 && n <= max);
   return (
     <div className="st-limit">
-      <label className="st-row on"><input type="radio" name="plus-limit" checked={mode === 'none'} onChange={() => setMode('none')} /><span className="st-main"><span className="st-name">No limit</span><span className="st-sub">Keep everything. Nothing is ever removed.</span></span></label>
-      <label className="st-row on"><input type="radio" name="plus-limit" checked={mode === 'set'} onChange={() => setMode('set')} /><span className="st-main"><span className="st-name">Set a limit</span><span className="st-sub">Uploads stop when you reach it. You can change it any time.</span></span></label>
-      {mode === 'set' && <label className="st-sub" style={{ display: 'block', margin: '8px 0' }}>Limit in GB <input type="number" min="1" step="1" value={gb} onChange={(e) => setGb(e.target.value)} style={{ width: 90, marginLeft: 8 }} /></label>}
+      <label className="st-row on"><input type="radio" name="plus-limit" checked={mode === 'none'} onChange={() => setMode('none')} /><span className="st-main"><span className="st-name">No upload limit</span><span className="st-sub">Upload up to the full {max} GB of your plan.</span></span></label>
+      <label className="st-row on"><input type="radio" name="plus-limit" checked={mode === 'set'} onChange={() => setMode('set')} /><span className="st-main"><span className="st-name">Set an upload limit</span><span className="st-sub">Uploads stop when you reach it. You can change it any time.</span></span></label>
+      {mode === 'set' && <label className="st-sub" style={{ display: 'block', margin: '8px 0' }}>Limit in GB (1 to {max}) <input type="number" min="1" max={max} step="1" value={gb} onChange={(e) => setGb(e.target.value)} style={{ width: 90, marginLeft: 8 }} /></label>}
       <button className="btn primary" onClick={() => onSave(mode === 'none' ? null : n)} disabled={busy || !valid}>{saveLabel}</button>
     </div>
   );
@@ -110,11 +110,11 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
     <Modal title="Storage" onClose={onClose}>
       {s.subscriber ? (
         <>
-          <div className="st-stat"><b>{fmt(s.used)}</b><span>{s.limit ? `of ${fmt(s.limit)} used` : 'stored · no limit'}</span></div>
-          {s.limit && <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></div>}
+          <div className="st-stat"><b>{fmt(s.used)}</b><span>of {fmt(s.limit)} used</span></div>
+          <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></div>
           <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${(s.plan.cents / 100).toFixed(2)}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
-          <p className="st-note"><b>Your limit</b></p>
-          <LimitForm current={s.limit} onSave={onSaveLimit} busy={busy} />
+          <p className="st-note"><b>Upload limit (optional)</b></p>
+          <LimitForm current={s.uploadLimit} max={Math.round(s.limit / GB)} onSave={onSaveLimit} busy={busy} />
         </>
       ) : (
         <>
@@ -180,7 +180,7 @@ export function StorageDock({ storage, setStorage }) {
     setBusy(true);
     try {
       setStorage(await api('/storage/limit', { method: 'POST', body: { gb } }));
-      toast(gb === null ? 'No storage limit. Nothing will be removed.' : `Storage limit set to ${gb} GB.`);
+      toast(gb === null ? 'Upload limit removed. You can use all of your plan.' : `Upload limit set to ${gb} GB.`);
       if (afterAsk) { askRef.current?.resolve(true); setAsk(null); }
     } catch (e) { toast(e.message, 'error'); }
     setBusy(false);
