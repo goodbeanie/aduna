@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Modal } from './ui.jsx';
 import { useLang } from './i18n.js';
-import { RELEASES, markWhatsNewSeen, setWhatsNewEnabled, unseenReleases, whatsNewEnabled } from './whatsnew.js';
+import { getReleases, loadReleases, markWhatsNewSeen, setWhatsNewEnabled, unseenReleases, whatsNewEnabled } from './whatsnew.js';
+
+const EVENT = 'aduna:releases'; // App.jsx fires this when a creator publishes (or pulls back) a release
 
 function ReleaseList({ releases }) {
   const { t } = useLang();
@@ -23,8 +25,11 @@ export function WhatsNewPopup() {
   const { t } = useLang();
   const [releases, setReleases] = useState([]);
   useEffect(() => {
-    const id = setTimeout(() => setReleases(unseenReleases()), 1500); // let the app settle before interrupting
-    return () => clearTimeout(id);
+    let dead = false;
+    const check = () => loadReleases().then(() => { if (!dead) setReleases(unseenReleases()); });
+    const id = setTimeout(check, 1500); // let the app settle before interrupting
+    window.addEventListener(EVENT, check);
+    return () => { dead = true; clearTimeout(id); window.removeEventListener(EVENT, check); };
   }, []);
   if (!releases.length) return null;
   const close = () => { markWhatsNewSeen(); setReleases([]); };
@@ -44,6 +49,14 @@ export function WhatsNewPopup() {
 export function WhatsNewSettings() {
   const { t } = useLang();
   const [on, setOn] = useState(whatsNewEnabled);
+  const [releases, setReleases] = useState(getReleases);
+  useEffect(() => {
+    let dead = false;
+    const load = () => loadReleases().then((r) => { if (!dead) setReleases(r); });
+    load();
+    window.addEventListener(EVENT, load);
+    return () => { dead = true; window.removeEventListener(EVENT, load); };
+  }, []);
   return (
     <div className="whatsnew-settings">
       <label className="check-row">
@@ -52,7 +65,7 @@ export function WhatsNewSettings() {
       </label>
       <p className="muted small hint">{t('whatsNewHint')}</p>
       <label>{t('whatsNewPast')}</label>
-      <ReleaseList releases={RELEASES} />
+      <ReleaseList releases={releases} />
     </div>
   );
 }

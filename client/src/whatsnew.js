@@ -1,28 +1,17 @@
 // "What's new": the list of what each update added, the on/off switch, and which update this device has already been told about.
 //
-// To announce an update: add a release at the TOP of RELEASES (newest first) with a new unique `id`. Each person sees the popup once,
-// the next time they open Aduna after that release reaches them, unless they turned it off in Settings > What's new.
-export const RELEASES = [
-  {
-    id: '2026.10.23.2',
-    date: '2026-10-23',
-    title: 'Shop, Quests and easier updates',
-    items: [
-      { title: 'Shop tab', text: 'The shop now has its own tab. Buy credits, spend them on badges and see your recent activity there.' },
-      { title: 'Quests tab', text: 'Daily quests, events and the ways to earn credits moved to their own Quests tab.' },
-      { title: 'Updates install themselves', text: 'The desktop app now downloads updates in the background and shows New Update [Refresh] when one is ready. The website says Refresh too.' },
-    ],
-  },
-  {
-    id: '2026.10.23',
-    date: '2026-10-23',
-    title: 'What’s new in Aduna',
-    items: [
-      { title: 'New Features popup', text: 'After an update, Aduna now tells you what was added. You can turn this off in Settings > What’s new.' },
-      { title: 'Credits shop', text: 'Spend your credits on profile badges.' },
-    ],
-  },
-];
+// The list comes from the server (GET /api/releases) and holds PUBLIC releases only. Every release is added there automatically as a private
+// draft; a creator account makes it public in /admin > Releases. Each person sees the popup once, the next time they open Aduna after a
+// release is published, unless they turned it off in Settings > What's new.
+import { api } from './api.js';
+
+let RELEASES = []; // public releases, newest first (filled by loadReleases)
+export const getReleases = () => RELEASES;
+
+export async function loadReleases() {
+  try { RELEASES = (await api('/releases')).releases || []; } catch { /* offline or signed out: keep what we have */ }
+  return RELEASES;
+}
 
 const SEEN = 'aduna_whatsnew_seen'; // id of the newest release this device has been shown
 const OFF = 'aduna_whatsnew_off'; // '1' when the person turned the popup off

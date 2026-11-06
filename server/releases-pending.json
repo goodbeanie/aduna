@@ -1,0 +1,13 @@
+[
+  {
+    "id": "2026.11.6",
+    "date": "2026-11-06",
+    "title": "Banner blur and new checkboxes",
+    "desktop": "1.4.96",
+    "android": "2026.11.6.502",
+    "items": [
+      { "title": "Optional banner blur", "text": "Turn on “Blur my banner behind my profile” in your profile editor. Your banner is stretched, blurred and faded into your card theme." },
+      { "title": "New checkboxes", "text": "Every checkbox in Aduna now has the same rounded look, in your theme’s colors." }
+    ]
+  }
+]

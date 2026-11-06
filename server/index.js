@@ -36,6 +36,7 @@ const screenLib = require('./screen'); // clip screening: OpenAI moderation of f
 const polls = require('./polls');
 const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global) and one for each server (see the "wordle" block below)
 const featuresLib = require('./features'); // feature releases: off / testing (creator accounts only) / live (see the "feature releases" block below)
+const releasesLib = require('./releases'); // "What's new" releases: every release is a private draft until a creator publishes it (see the "releases" block below)
 const calllog = require('./calllog');
 const groupsLib = require('./groups');
 const gallery = require('./themegallery');
@@ -4236,6 +4237,51 @@ app.post('/api/admin/features', auth, adminOnly, needCreator, (req, res) => {
   res.json({ ok: true, changed: r.changed, features: featuresLib.list(db().features) });
 });
 
+// ----- releases (the Releases tab; Settings > What's new) -----
+// Every release is added automatically as a DRAFT (server/releases.js, run on every start). A draft is private: only a creator account sees it,
+// here in /admin. It shows up in What's new for everybody only after a creator account publishes it. Publishing reaches every open app at once.
+const UPDATES_DIR = path.join(__dirname, '..', 'client', 'dist', 'updates');
+const RELEASES_PENDING = path.join(__dirname, 'releases-pending.json');
+async function syncReleases() {
+  const map = db().releases;
+  let changed = false;
+  if (!(await store.getMeta('releases-seeded'))) { releasesLib.seedLegacy(map, now()); await store.setMeta('releases-seeded', '1'); changed = true; }
+  const added = releasesLib.sync(map, { dir: UPDATES_DIR, pending: RELEASES_PENDING, now: now() });
+  if (added.length) console.log('Releases: added as drafts: ' + added.join(', '));
+  if (changed || added.length) store.save();
+}
+const pushReleases = () => io.emit('releases:update');
+app.get('/api/releases', auth, (_req, res) => res.json({ releases: releasesLib.publicList(db().releases) })); // public releases only
+app.get('/api/admin/releases', auth, adminOnly, needCreator, (_req, res) => res.json({ releases: releasesLib.adminList(db().releases) }));
+app.patch('/api/admin/releases/:id', auth, adminOnly, needCreator, (req, res) => {
+  const r = db().releases[req.params.id];
+  if (!r) return res.status(404).json({ error: 'Release not found' });
+  const edit = releasesLib.cleanEdit(req.body);
+  if (edit.error) return res.status(400).json({ error: edit.error });
+  Object.assign(r, edit);
+  r.updatedAt = now();
+  store.save();
+  adminLogAdd(req.user, 'edit release', r.id, r.title);
+  if (r.status === 'public') pushReleases();
+  res.json({ ok: true, releases: releasesLib.adminList(db().releases) });
+});
+app.post('/api/admin/releases/:id/:action(publish|unpublish)', auth, adminOnly, needCreator, (req, res) => {
+  const r = db().releases[req.params.id];
+  if (!r) return res.status(404).json({ error: 'Release not found' });
+  const publish = req.params.action === 'publish';
+  if (publish) {
+    const problem = releasesLib.publishProblem(r);
+    if (problem) return res.status(400).json({ error: problem });
+    r.status = 'public'; r.publishedAt = now(); r.publishedBy = req.user.id;
+  } else {
+    r.status = 'draft'; delete r.publishedAt; delete r.publishedBy;
+  }
+  store.save();
+  adminLogAdd(req.user, publish ? 'publish release' : 'unpublish release', r.id, r.title);
+  pushReleases();
+  res.json({ ok: true, releases: releasesLib.adminList(db().releases) });
+});
+
 app.get('/api/admin/log', auth, adminOnly, ah(async (_req, res) => {
   let list = [];
   try { list = JSON.parse((await store.getMeta('adminlog')) || '[]'); } catch { /* an unreadable log shows as empty */ }
@@ -5508,6 +5554,7 @@ async function start() {
   await store.init();
   store.setProtectedOwners(() => storagePlan.protectedIds(store.db, Date.now())); // storage-plan files are outside the shared pool
   await store.backfillFileOwners();                                               // files from before owners were kept in the open
+  try { await syncReleases(); } catch (e) { console.error('Releases sync failed:', e.message); } // new releases arrive as private drafts
   SECRET = store.jwtSecret;
   await loadLimits();
   store.closeHooks.add(saveLimits);

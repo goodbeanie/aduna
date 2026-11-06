@@ -7,7 +7,7 @@ import './admin.css';
 // non-admins with a 404; if /api/admin/me fails here anyway, the page sends the visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['features', 'Features'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['features', 'Features'], ['releases', 'Releases'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Creator', config: 'Admin (server settings)', admin: 'Admin' };
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
@@ -619,6 +619,84 @@ function Features() {
   );
 }
 
+// ---------- releases ----------
+// Creator accounts only. Every release is added here by itself as a private DRAFT (the server does it on every deploy). Nobody else sees a draft:
+// it shows up in What's new for everybody only once a creator account presses Publish. The notes can be edited before and after.
+function Releases() {
+  const { me, say, run, ask } = useAdm();
+  const [rows, setRows] = useState(null);
+  const [edit, setEdit] = useState(null); // { id, title, items: [{ title, text }] } while a release is being edited
+  const load = useCallback(() => api('/admin/releases').then((r) => setRows(r.releases)).catch((e) => { setRows([]); say(e.message, 'error'); }), [say]);
+  useEffect(() => { if (me.canManageFeatures) load(); }, [load, me.canManageFeatures]);
+  if (!me.canManageFeatures) return <Empty text="Only a creator account can publish releases." />;
+  if (!rows) return <p className="adm-muted">Loading…</p>;
+
+  const startEdit = (r) => setEdit({ id: r.id, title: r.title, items: r.items.length ? r.items.map((i) => ({ ...i })) : [{ title: '', text: '' }] });
+  const setItem = (i, k, v) => setEdit((e) => ({ ...e, items: e.items.map((it, j) => (j === i ? { ...it, [k]: v } : it)) }));
+  const save = async () => {
+    const ok = await run(() => api('/admin/releases/' + encodeURIComponent(edit.id), { method: 'PATCH', body: { title: edit.title, items: edit.items.filter((i) => i.title.trim() || i.text.trim()) } }).then((x) => { setRows(x.releases); return x; }), () => 'Release saved');
+    if (ok) setEdit(null);
+  };
+  const publish = async (r) => {
+    const ok = await ask({ title: `Publish “${r.title}”?`, body: 'Everyone sees it in What’s new, and people who have the popup on are told about it the next time they open Aduna. You can pull it back to a draft at any time.', confirmLabel: 'Publish' });
+    if (ok) await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/publish`, { method: 'POST' }).then((x) => { setRows(x.releases); return x; }), () => 'Release published');
+  };
+  const unpublish = async (r) => {
+    const ok = await ask({ title: `Make “${r.title}” a draft again?`, body: 'It disappears from What’s new for everyone except creator accounts.', confirmLabel: 'Back to draft', danger: true });
+    if (ok) await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/unpublish`, { method: 'POST' }).then((x) => { setRows(x.releases); return x; }), () => 'Release is a draft again');
+  };
+
+  return (
+    <>
+      <div className="adm-card">
+        <h3>How releases work</h3>
+        <ul className="adm-lines">
+          <li>Every release is added here by itself, as a <b>draft</b>. A draft is private: only creator accounts can see it.</li>
+          <li>Check the notes (edit them if you want), then <b>Publish</b>. Only then does it appear in What’s new for everyone.</li>
+          <li>You can pull a published release back to a draft. Everything is written to the Log.</li>
+        </ul>
+      </div>
+      {!rows.length && <Empty text="No releases yet. The next release will show up here as a draft." />}
+      {rows.map((r) => (
+        <div className="adm-card" key={r.id}>
+          <div className="adm-row">
+            <div>
+              <h3>{r.title} <span className={'adm-tag' + (r.status === 'draft' ? ' warn' : '')}>{r.status === 'draft' ? 'Draft · private' : 'Public · everyone'}</span></h3>
+              <span className="adm-muted">{r.date}{r.desktop ? ` · desktop ${r.desktop}` : ''}{r.android ? ` · Android ${r.android}` : ''}{r.publishedAt ? ` · published ${when(r.publishedAt)}` : ''}</span>
+            </div>
+            <div className="adm-actions">
+              {edit?.id !== r.id && <button className="adm-btn small" onClick={() => startEdit(r)}>Edit notes</button>}
+              {r.status === 'draft' && <button className="adm-btn small primary" onClick={() => publish(r)}>Publish</button>}
+              {r.status === 'public' && <button className="adm-btn small danger" onClick={() => unpublish(r)}>Back to draft</button>}
+            </div>
+          </div>
+          {edit?.id === r.id ? (
+            <>
+              <label className="adm-field"><span><b>Title</b></span><input value={edit.title} maxLength={80} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></label>
+              {edit.items.map((it, i) => (
+                <div className="adm-field" key={i}>
+                  <input value={it.title} maxLength={60} placeholder="Short title" aria-label={`Note ${i + 1} title`} onChange={(e) => setItem(i, 'title', e.target.value)} />
+                  <textarea rows={2} value={it.text} maxLength={300} placeholder="What changed" aria-label={`Note ${i + 1} text`} onChange={(e) => setItem(i, 'text', e.target.value)} />
+                  <div className="adm-actions"><button className="adm-btn small" onClick={() => setEdit((e) => ({ ...e, items: e.items.filter((_, j) => j !== i) }))}>Remove note</button></div>
+                </div>
+              ))}
+              <div className="adm-actions">
+                {edit.items.length < 12 && <button className="adm-btn small" onClick={() => setEdit((e) => ({ ...e, items: [...e.items, { title: '', text: '' }] }))}>Add a note</button>}
+                <button className="adm-btn small" onClick={() => setEdit(null)}>Cancel</button>
+                <button className="adm-btn small primary" onClick={save}>Save</button>
+              </div>
+            </>
+          ) : r.items.length ? (
+            <ul className="adm-lines">{r.items.map((it, i) => <li key={i}><b>{it.title}</b>{it.text ? ` — ${it.text}` : ''}</li>)}</ul>
+          ) : (
+            <p className="adm-muted">No notes yet. Use Edit notes to say what changed before publishing.</p>
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
 // ---------- log ----------
 function Log() {
   const { say } = useAdm();
@@ -714,7 +792,7 @@ export default function AdminPage() {
         <header className="adm-top">
           <a className="adm-logo" href="/admin" onClick={(e) => { e.preventDefault(); go('overview'); }}>Aduna <small>Admin</small></a>
           <nav className="adm-nav" aria-label="Admin pages">
-            {TABS.filter(([id]) => id !== 'features' || me.canManageFeatures).map(([id, name]) => (
+            {TABS.filter(([id]) => (id !== 'features' && id !== 'releases') || me.canManageFeatures).map(([id, name]) => (
               <button key={id} className={'adm-tab' + (tab === id ? ' on' : '')} aria-current={tab === id ? 'page' : undefined} onClick={() => go(id)}>
                 {name}{id === 'reports' && reportCount > 0 && <b>{reportCount}</b>}{id === 'applications' && summary && summary.applications > 0 && <b>{summary.applications}</b>}
               </button>
@@ -731,6 +809,7 @@ export default function AdminPage() {
           {tab === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
           {tab === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
           {tab === 'features' && <Features />}
+          {tab === 'releases' && <Releases />}
           {tab === 'admins' && <Admins openUser={openUser} />}
           {tab === 'log' && <Log />}
         </main>
