@@ -81,6 +81,7 @@ export function ContextoModal({ scopes, users = {}, onShare, onClose }) {
     catch (e) { if (scopeRef.current === id) setErr(e.message || 'Could not load Contexto'); }
   }
   useEffect(() => { setData(null); setLast(null); setWord(''); setMsg(''); setSure(false); setShared(false); load(scope); }, [scope]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (data && data.status === 'playing') inputRef.current?.focus(); }, [!!data, scope]); // eslint-disable-line react-hooks/exhaustive-deps -- the box is disabled while loading, so autoFocus alone misses
   useEffect(() => { // a new word at the end of the day: refresh when the time is up
     const t = setInterval(() => { tick((n) => n + 1); const d = dataRef.current; if (d && Date.now() >= d.resetsAt) { setLast(null); load(scopeRef.current); } }, 30000);
     return () => clearInterval(t);
@@ -155,7 +156,7 @@ export function ContextoModal({ scopes, users = {}, onShare, onClose }) {
           ) : (
             <div className="cx-play">
               <div className="cx-input-row">
-                <input ref={inputRef} className="cx-input" value={word} placeholder={data ? 'Type a word' : 'Loading…'} disabled={!data || busy} maxLength={14} autoFocus
+                <input ref={inputRef} className="cx-input" value={word} placeholder={data ? 'Type a word' : 'Loading…'} disabled={!data} readOnly={busy} maxLength={14} autoFocus
                   autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="go" aria-label="Your guess"
                   onChange={(e) => { setWord(e.target.value.replace(/[^a-zA-Z]/g, '')); setMsg(''); }}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }} />
