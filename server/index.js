@@ -1608,11 +1608,13 @@ app.put('/api/me/track', auth, lookupLimiter, ah(async (req, res) => {
   if (req.user.bot) return res.status(403).json({ error: 'Bots cannot have a profile song' });
   const tid = Number(req.body && req.body.tid);
   if (!Number.isInteger(tid) || tid <= 0) return res.status(400).json({ error: 'Pick a song from the search' });
+  const sec = musicLib.cleanSection(req.body && req.body.start, req.body && req.body.end); // the part of the 30 second preview to play (none = all of it)
+  if (sec.error) return res.status(400).json({ error: sec.error });
   let track;
   try { track = await musicLib.lookup(tid); }
   catch { return res.status(502).json({ error: 'Could not reach the music search. Try again in a moment.' }); }
   if (!track) return res.status(404).json({ error: 'That song was not found, or it has no preview' });
-  res.json({ user: await setProfileSong(req.user, { kind: 'track', ...track }) }); // an uploaded clip it replaces is deleted by setProfileSong
+  res.json({ user: await setProfileSong(req.user, { kind: 'track', ...track, ...(sec.section || {}) }) }); // an uploaded clip it replaces is deleted by setProfileSong
 }));
 
 app.get('/api/images/:id', ah(async (req, res) => {

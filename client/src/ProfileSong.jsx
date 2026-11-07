@@ -20,6 +20,9 @@ function TrackSong({ song }) {
   const [failed, setFailed] = useState(false);
   const [progress, setProgress] = useState(0);
   const src = song.url;
+  // The part of the preview the person picked (song.start / song.end, seconds). Without one the whole preview plays.
+  const start = Number.isFinite(song.start) && song.start >= 0 ? song.start : 0;
+  const end = Number.isFinite(song.end) && song.end > start ? song.end : Infinity;
 
   useEffect(() => {
     setPlaying(false); setFailed(false); setProgress(0);
@@ -30,12 +33,22 @@ function TrackSong({ song }) {
   if (!src) return null;
   const title = (song.title || 'Profile song').slice(0, 60);
   const q = encodeURIComponent(`${song.title || ''} ${song.artist || ''}`.trim());
+  const secs = Number.isFinite(end) ? Math.round(end - start) : 30;
 
   function toggle() {
     const a = audio.current;
     if (!a) return;
-    if (a.paused) a.play().then(() => setPlaying(true)).catch(() => setFailed(true));
-    else { a.pause(); setPlaying(false); }
+    if (a.paused) {
+      // Setting the time before the file is loaded is fine: the browser starts from there once it has it.
+      if (a.currentTime < start || a.currentTime >= end - 0.05) a.currentTime = start;
+      a.play().then(() => setPlaying(true)).catch(() => setFailed(true));
+    } else { a.pause(); setPlaying(false); }
+  }
+  function onTime(e) {
+    const a = e.currentTarget;
+    if (a.currentTime >= end) { a.pause(); a.currentTime = start; setPlaying(false); setProgress(0); return; } // the end of the picked part
+    const len = (Number.isFinite(end) ? end : a.duration) - start;
+    setProgress(len > 0 ? Math.max(0, Math.min(1, (a.currentTime - start) / len)) : 0);
   }
 
   return (
@@ -49,7 +62,7 @@ function TrackSong({ song }) {
           <span className="psong-bar" style={{ '--p': progress }}><i /></span>
         </span>
         <button type="button" className="psong-btn" onClick={toggle} disabled={failed} aria-pressed={playing}
-          aria-label={(playing ? 'Pause ' : 'Play ') + title} title={playing ? 'Pause' : 'Play a 30 second preview'}>
+          aria-label={(playing ? 'Pause ' : 'Play ') + title} title={playing ? 'Pause' : `Play a ${secs} second preview`}>
           <Icon name={playing ? 'pause' : 'play'} size={18} />
         </button>
       </div>
@@ -57,9 +70,8 @@ function TrackSong({ song }) {
         <a className="plink" href={`https://open.spotify.com/search/${q}`} target="_blank" rel="noopener noreferrer"><Icon name="link" size={14} /><span>Spotify</span></a>
         <a className="plink" href={`https://music.youtube.com/search?q=${q}`} target="_blank" rel="noopener noreferrer"><Icon name="link" size={14} /><span>YouTube Music</span></a>
       </div>
-      <audio ref={audio} src={src} preload="none"
-        onTimeUpdate={(e) => { const a = e.currentTarget; setProgress(a.duration ? Math.min(1, a.currentTime / a.duration) : 0); }}
-        onEnded={() => { setPlaying(false); setProgress(0); }} onError={() => setFailed(true)} />
+      <audio ref={audio} src={src} preload="none" onTimeUpdate={onTime}
+        onEnded={() => { setPlaying(false); setProgress(0); const a = audio.current; if (a) a.currentTime = start; }} onError={() => setFailed(true)} />
     </>
   );
 }

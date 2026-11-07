@@ -90,9 +90,25 @@ function syncCardTheme() {
     plugin.setTheme(theme);
   } catch { /* the card keeps its Parchment default */ }
 }
+// ---- Android: the app's icon on the home screen wears the person's theme (one icon per theme, built in mobile/scripts/prepare-android.mjs) ----
+// The native side switches it when the app leaves the screen. A theme with no icon of its own (Custom, System, limited-time) gets Charcoal or Parchment by brightness.
+let lastIcon = '';
+function syncAppIcon() {
+  try {
+    const plugin = cap()?.Plugins?.AdunaIcon;
+    const root = document.documentElement;
+    if (!plugin?.setIcon || root.dataset.theme === 'server') return; // always the person's own theme, never a server's
+    const msg = { theme: root.dataset.theme || '', dark: root.style.colorScheme === 'dark' };
+    const key = JSON.stringify(msg);
+    if (key === lastIcon) return;
+    lastIcon = key;
+    plugin.setIcon(msg);
+  } catch { /* older app build, or no icon change: the icon stays as it is */ }
+}
+
 if (isNativeApp() && typeof document !== 'undefined') {
   let timer = 0;
-  const later = () => { clearTimeout(timer); timer = setTimeout(syncCardTheme, 900); }; // the page fades its theme over .6 s: read it once it has settled
+  const later = () => { clearTimeout(timer); timer = setTimeout(() => { syncCardTheme(); syncAppIcon(); }, 900); }; // the page fades its theme over .6 s: read it once it has settled
   const start = () => { later(); new MutationObserver(later).observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class', 'data-theme'] }); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
 }

@@ -27,6 +27,60 @@ for (const d of readdirSync(res).filter((n) => n.startsWith('mipmap-'))) {
   for (const f of readdirSync(join(res, d))) if (/^ic_launcher(_round|_foreground)?\.webp$/.test(f)) rmSync(join(res, d, f)); // would clash with our .png
 }
 
+// 2a. launcher icons, one per Aduna theme. The page says which theme is on (AdunaIcon.setIcon) and the app switches to that theme's icon
+// with <activity-alias> entries (manifest step below). Every icon is built here from this table, so a new theme is one line:
+//   [theme id, background (1 colour, or 2 to 3 for a gradient), logo colour, gradient angle in CSS degrees]
+// The colours are the ones in client/src/themes.js (the background is the theme's page colour, the logo its accent colour).
+// The system rounds every icon to the phone's icon shape, so the backgrounds are full-bleed; phones older than Android 8 get a round version.
+const ICON_DEFAULT = 'zen'; // the icon before the page has said which theme is on (DEFAULT_THEME_ID in client/src/themes.js)
+const ICON_THEMES = [
+  ['zen',       ['#1d1a17'], '#ecd5b6'],
+  ['zen-light', ['#f6f0e4'], '#6f5233'],
+  ['parchment', ['#fffbef'], '#1c1812'],
+  ['ocean',     ['#f3f8fb'], '#1f5f8b'],
+  ['forest',    ['#f4f8f1'], '#2f6b45'],
+  ['rose',      ['#fcf4f4'], '#b4435a'],
+  ['lavender',  ['#f7f4fc'], '#6a4fb3'],
+  ['sunset',    ['#fdf5ec'], '#c2551d'],
+  ['charcoal',  ['#2a2a2d'], '#e8e4da'],
+  ['midnight',  ['#161b2a'], '#7aa2ff'],
+  ['evergreen', ['#17221d'], '#6fcf97'],
+  ['plum',      ['#241a2b'], '#d68cf0'],
+  ['ember',     ['#271c17'], '#f09a5a'],
+  ['g-peach',   ['#fff1e8', '#ffd9e4', '#e6dcff'], '#d6456f', 135],
+  ['g-skymint', ['#eaf6ff', '#dff7ee', '#f3fbdc'], '#1f7a8c', 160],
+  ['g-candy',   ['#fde8f3', '#e5ecff', '#e0f7ff'], '#7b5cd6', 120],
+  ['g-aurora',  ['#0f2027', '#203a43', '#2c5364'], '#5eead4', 135],
+  ['g-nebula',  ['#1a1033', '#2d1b69', '#5b2a86'], '#e0a8ff', 135],
+  ['g-dusk',    ['#1f1c2c', '#3a2a4d', '#6b3f5e'], '#ffb38a', 150],
+  ['g-deepsea', ['#06141f', '#0b3a53', '#0e6a7a'], '#7ee0ff', 160],
+  ['g-glow',    ['#1c0f0f', '#4a1c14', '#8a3b12'], '#ffb066', 135],
+];
+const iconKey = (id) => id.replace(/-/g, '_');
+const iconClass = (id) => 'Icon' + id.split('-').map((p) => p[0].toUpperCase() + p.slice(1)).join('');
+const iconFill = ([, stops, , angle]) => {
+  if (stops.length === 1) return `<solid android:color="${stops[0]}"/>`;
+  // CSS degrees (0 = up, clockwise) to Android's gradient angle (0 = left to right, counter-clockwise, steps of 45)
+  const a = (((450 - Math.round((angle || 135) / 45) * 45) % 360) + 360) % 360;
+  const [s, c, e] = stops.length === 2 ? [stops[0], null, stops[1]] : stops;
+  return `<gradient android:type="linear" android:angle="${a}" android:startColor="${s}"${c ? ` android:centerColor="${c}"` : ''} android:endColor="${e}"/>`;
+};
+{
+  const NS = 'xmlns:android="http://schemas.android.com/apk/res/android"';
+  const put = (dir, name, xml) => { mkdirSync(join(res, dir), { recursive: true }); writeFileSync(join(res, dir, name), `<?xml version="1.0" encoding="utf-8"?>\n${xml}\n`); };
+  for (const t of ICON_THEMES) {
+    const k = iconKey(t[0]);
+    const fill = iconFill(t);
+    put('drawable', `ic_bg_${k}.xml`, `<shape ${NS} android:shape="rectangle">\n    ${fill}\n</shape>`);
+    // the logo is the same picture as the normal icon's, painted in the theme's logo colour
+    put('drawable', `ic_fg_${k}.xml`, `<bitmap ${NS} android:src="@mipmap/ic_launcher_foreground" android:tint="${t[2]}" android:tintMode="src_in"/>`);
+    // Android 8+: the system draws the shape. <monochrome> is the Android 13+ "Themed icons" layer (the system tints it itself).
+    put('mipmap-anydpi-v26', `ic_launcher_${k}.xml`, `<adaptive-icon ${NS}>\n    <background android:drawable="@drawable/ic_bg_${k}"/>\n    <foreground android:drawable="@drawable/ic_fg_${k}"/>\n    <monochrome android:drawable="@mipmap/ic_launcher_foreground"/>\n</adaptive-icon>`);
+    // older phones have no adaptive icons: a round one
+    put('mipmap-anydpi', `ic_launcher_${k}.xml`, `<layer-list ${NS}>\n    <item>\n        <shape android:shape="oval">\n            ${fill}\n        </shape>\n    </item>\n    <item android:drawable="@drawable/ic_fg_${k}"/>\n</layer-list>`);
+  }
+}
+
 // 2b. keyboard: Capacitor's edge-to-edge margins only account for the status/navigation bars, so on Android 15+ the keyboard
 // covered the message box. This MainActivity replaces that listener with one that also leaves room for the keyboard (IME).
 {
@@ -104,6 +158,7 @@ public class MainActivity extends BridgeActivity {
     @Override
     public void onStop() {
         AdunaCards.foreground = false;
+        AdunaIcon.apply(this); // a new launcher icon is switched on only once the app is out of sight (some phones close the app when it changes)
         super.onStop();
     }
 
@@ -113,6 +168,7 @@ public class MainActivity extends BridgeActivity {
         Thread.setDefaultUncaughtExceptionHandler((th, ex) -> { logCrash(ex); if (prev != null) prev.uncaughtException(th, ex); });
         try { registerPlugin(AdunaUpdater.class); } catch (Throwable t) { logCrash(t); }
         try { registerPlugin(AdunaNotify.class); } catch (Throwable t) { logCrash(t); }
+        try { registerPlugin(AdunaIcon.class); } catch (Throwable t) { logCrash(t); }
         rememberOpen(getIntent(), false);
         super.onCreate(savedInstanceState);
         try {
@@ -448,6 +504,66 @@ public class AdunaNotify extends Plugin {
     }
 }
 `);
+
+  // The launcher icon follows the person's Aduna theme: one <activity-alias> per theme (manifest step), exactly one switched on at a time.
+  writeFileSync(join(javaDir, 'AdunaIcon.java'), `package com.aduna.app;
+
+import android.content.ComponentName;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
+import com.getcapacitor.Plugin;
+import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.CapacitorPlugin;
+
+@CapacitorPlugin(name = "AdunaIcon")
+public class AdunaIcon extends Plugin {
+    static final String PREFS = "aduna_icon";
+    static final String DEFAULT = "${ICON_DEFAULT}"; // the alias that is on in the manifest
+    static final String[] THEMES = { ${ICON_THEMES.map((t) => `"${t[0]}"`).join(', ')} };
+    static final String[] CLASSES = { ${ICON_THEMES.map((t) => `"${iconClass(t[0])}"`).join(', ')} };
+
+    static int indexOf(String id) {
+        if (id == null) return -1;
+        for (int i = 0; i < THEMES.length; i++) if (THEMES[i].equals(id)) return i;
+        return -1;
+    }
+
+    // { theme: "<theme id>", dark: boolean }. A theme without its own icon (Custom, System, a limited-time theme) gets Charcoal or Parchment by its brightness.
+    @PluginMethod
+    public void setIcon(PluginCall call) {
+        try {
+            String id = call.getString("theme", "");
+            if (indexOf(id) < 0) id = Boolean.TRUE.equals(call.getBoolean("dark", false)) ? "charcoal" : "parchment";
+            getContext().getSharedPreferences(PREFS, 0).edit().putString("pending", id).apply();
+        } catch (Throwable ignored) { }
+        call.resolve();
+    }
+
+    // Called by MainActivity when the app leaves the screen. The new icon is switched on before the old one is switched off, so there is always one.
+    static void apply(Context ctx) {
+        try {
+            SharedPreferences sp = ctx.getSharedPreferences(PREFS, 0);
+            String want = sp.getString("pending", null);
+            if (indexOf(want) < 0) return;
+            PackageManager pm = ctx.getPackageManager();
+            for (int pass = 0; pass < 2; pass++) {
+                for (int i = 0; i < THEMES.length; i++) {
+                    boolean on = THEMES[i].equals(want);
+                    if (on != (pass == 0)) continue;
+                    ComponentName c = new ComponentName(ctx.getPackageName(), "com.aduna.app." + CLASSES[i]);
+                    int state = pm.getComponentEnabledSetting(c);
+                    boolean isOn = state == PackageManager.COMPONENT_ENABLED_STATE_ENABLED || (state == PackageManager.COMPONENT_ENABLED_STATE_DEFAULT && THEMES[i].equals(DEFAULT));
+                    if (isOn == on) continue;
+                    pm.setComponentEnabledSetting(c, on ? PackageManager.COMPONENT_ENABLED_STATE_ENABLED : PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP);
+                }
+            }
+            sp.edit().remove("pending").apply();
+        } catch (Throwable ignored) { /* the icon is a nicety: never crash the app */ }
+    }
+}
+`);
 }
 
 // 3. manifest: calls need camera + microphone, notifications need the Android 13+ permission, and the Firebase defaults
@@ -498,6 +614,28 @@ if (!m.includes('<!-- aduna -->')) {
     mm = mm.replace('</application>', `${svc}    </application>`);
     writeFileSync(manifestPath, mm);
   }
+}
+
+// launcher icons: one <activity-alias> per theme, each the app's launcher entry with that theme's icon (only the one for the current theme is enabled;
+// AdunaIcon switches them). MainActivity itself stops being a launcher entry. The block is rewritten on every run so the theme table above stays the one source.
+{
+  let mm = readFileSync(manifestPath, 'utf8');
+  const aliases = ICON_THEMES.map(([id]) => `        <activity-alias android:name=".${iconClass(id)}" android:targetActivity=".MainActivity" android:enabled="${id === ICON_DEFAULT}" android:exported="true" android:icon="@mipmap/ic_launcher_${iconKey(id)}" android:roundIcon="@mipmap/ic_launcher_${iconKey(id)}" android:label="@string/app_name">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+`).join('');
+  const block = `        <!-- aduna-icons -->\n${aliases}        <!-- /aduna-icons -->\n`;
+  if (mm.includes('<!-- aduna-icons -->')) {
+    mm = mm.replace(/ *<!-- aduna-icons -->[\s\S]*?<!-- \/aduna-icons -->\n/, () => block);
+  } else {
+    const launcher = /\s*<intent-filter>\s*<action android:name="android.intent.action.MAIN"\s*\/>\s*<category android:name="android.intent.category.LAUNCHER"\s*\/>\s*<\/intent-filter>/;
+    if (!launcher.test(mm)) { console.error('Could not find MainActivity\'s launcher entry in AndroidManifest.xml; not adding the theme icons.'); process.exit(1); }
+    mm = mm.replace(launcher, '').replace('</application>', () => `${block}    </application>`);
+  }
+  writeFileSync(manifestPath, mm);
 }
 
 // 4. version + release signing, appended to the module's build.gradle (a second android {} block merges with the first)

@@ -49,6 +49,23 @@ const fakeFetch = (results, calls = []) => async (url) => { calls.push(url); ret
   assert.strictEqual(profile.songView({ song: { ...stored, preview: 'https://evil.example/a.m4a' } }), null); console.log('✓ a stored track with a bad address is not shown');
   assert.strictEqual(profile.songView({ song: { id: 'a'.repeat(32), title: 'Clip', mime: 'audio/wav' } }).id, 'a'.repeat(32)); console.log('✓ an uploaded clip still comes out as before');
 
+  // ---- the part of the preview that plays ----
+  assert.strictEqual(v.start, undefined); assert.strictEqual(v.end, undefined); console.log('✓ a track with no chosen part plays the whole preview');
+  const part = profile.songView({ song: { ...stored, start: 8.5, end: 20 } });
+  assert.deepStrictEqual([part.start, part.end], [8.5, 20]); console.log('✓ a chosen part reaches the card');
+  for (const bad of [{ start: 5, end: 6 }, { start: -3, end: 12 }, { start: 10, end: 99 }, { start: 'a', end: 20 }, { start: 20 }]) {
+    const w = profile.songView({ song: { ...stored, ...bad } });
+    assert.ok(w && w.start === undefined && w.end === undefined, JSON.stringify(bad));
+  }
+  console.log('✓ a stored part that is too short or outside the preview is ignored (the song still plays)');
+  assert.deepStrictEqual(music.cleanSection(undefined, undefined), { section: null });
+  assert.deepStrictEqual(music.cleanSection(0, 30), { section: null });
+  assert.deepStrictEqual(music.cleanSection(4.04, 19.96), { section: { start: 4, end: 20 } });
+  assert.deepStrictEqual(music.cleanSection(-5, 12), { section: { start: 0, end: 12 } });
+  assert.deepStrictEqual(music.cleanSection(10, 500), { section: { start: 10, end: 30 } });
+  for (const bad of [[5, 6], [29, 40], [20, 10], ['1', 20], [null, 20], [5, undefined], [NaN, 20]]) assert.ok(music.cleanSection(...bad).error, JSON.stringify(bad));
+  console.log('✓ a picked part is rounded to tenths and kept inside the preview; under 3 seconds or nonsense is refused');
+
   // ---- the game list ----
   assert.ok(LIST.length >= 250, 'a big list: ' + LIST.length);
   assert.ok(LIST.every((g) => g.name && Array.from(g.name).length <= profile.LIMITS.gameName && Number.isInteger(g.app) && g.app >= 0), 'names fit, ids are numbers');

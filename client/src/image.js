@@ -317,6 +317,14 @@ export async function checkSongFile(file) {
   const secs = await audioSeconds(file);
   if (Number.isFinite(secs) && secs > SONG.secs + 1) throw new Error(`That song is too long (max ${SONG.secs} seconds)`);
 }
+// A chosen file may be longer or heavier than a profile song can be: the person picks the part they want (SoundTrim.jsx), up to 25 MB of source is read.
+// Returns { secs, fits }: fits is true when the file can be used as it is. Throws a message the person can read when it cannot be used at all.
+export async function inspectSongFile(file) {
+  if (!songType(file)) throw new Error('Choose an MP3, M4A, OGG, WAV or WebM audio file');
+  if (file.size > SOUND_SOURCE_MAX) throw new Error(`That file is too big (max ${SOUND_SOURCE_MAX / 1024 / 1024} MB)`);
+  const secs = await audioSeconds(file);
+  return { secs, fits: file.size <= SONG.bytes && !(Number.isFinite(secs) && secs > SONG.secs + 1) };
+}
 export async function uploadSong(file, title) {
   const res = await fetch('/api/me/song?title=' + encodeURIComponent(title || ''), { method: 'PUT', headers: { 'Content-Type': songType(file) }, body: file });
   const data = await res.json().catch(() => ({}));

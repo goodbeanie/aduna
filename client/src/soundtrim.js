@@ -1,9 +1,7 @@
-// Soundboard trimming (browser only). A sound may be up to SOUND.secs long and SOUND.bytes big. When the chosen file is longer (or heavier),
-// the person picks the part they want (SoundTrim.jsx) and this file turns that part into a small mono WAV, which the server already accepts.
-// 24 kHz mono 16-bit: 5 seconds is 240 KB, inside the 256 KB limit.
+// Audio trimming (browser only), for soundboard sounds and profile songs. When the chosen file is longer (or heavier) than allowed, the person picks the part
+// they want (SoundTrim.jsx) and this file turns that part into a small mono WAV, which the server already accepts.
 import { SOUND } from './soundboard.js';
 
-export const TRIM_RATE = 24000;
 const MIN_SECS = 0.1;
 
 const AC = () => (typeof window !== 'undefined' ? window.AudioContext || window.webkitAudioContext : null);
@@ -44,12 +42,16 @@ export function peaksOf(buf, n = 480) {
 }
 
 // Cuts [start, end] seconds out of the sound and returns it as a WAV File (a few milliseconds of fade at each end so it does not click).
-export async function clipToWav(buf, start, end, baseName = 'sound') {
+// `maxSecs` / `maxBytes` are the limits of whatever it is for (a soundboard sound, or a profile song). A WAV is big, so the sample rate is chosen to make
+// the longest allowed part fit: 5 seconds in 256 KB is about 26 kHz; 30 seconds in 1 MB is 16 kHz. Shorter parts get a higher rate (better quality).
+export const rateFor = (secs, maxBytes) => Math.max(8000, Math.min(44100, Math.floor((maxBytes - 44 - 1024) / (2 * Math.max(MIN_SECS, secs)))));
+export async function clipToWav(buf, start, end, baseName = 'sound', { maxSecs = SOUND.secs, maxBytes = SOUND.bytes } = {}) {
   const Off = OAC();
   const from = Math.max(0, Math.min(start, buf.duration - MIN_SECS));
-  const secs = Math.min(SOUND.secs, Math.max(MIN_SECS, Math.min(end, buf.duration) - from));
-  const len = Math.max(1, Math.round(secs * TRIM_RATE));
-  const off = new Off(1, len, TRIM_RATE);
+  const secs = Math.min(maxSecs, Math.max(MIN_SECS, Math.min(end, buf.duration) - from));
+  const rate = rateFor(secs, maxBytes);
+  const len = Math.max(1, Math.round(secs * rate));
+  const off = new Off(1, len, rate);
   const src = off.createBufferSource();
   src.buffer = buf; src.connect(off.destination); src.start(0, from, secs);
   const rendered = await off.startRendering();
@@ -59,9 +61,9 @@ export async function clipToWav(buf, start, end, baseName = 'sound') {
   const text = (at, s) => { for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i)); };
   text(0, 'RIFF'); view.setUint32(4, 36 + len * 2, true); text(8, 'WAVE'); text(12, 'fmt ');
   view.setUint32(16, 16, true); view.setUint16(20, 1, true); view.setUint16(22, 1, true);
-  view.setUint32(24, TRIM_RATE, true); view.setUint32(28, TRIM_RATE * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  view.setUint32(24, rate, true); view.setUint32(28, rate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
   text(36, 'data'); view.setUint32(40, len * 2, true);
-  const fade = Math.min(Math.round(TRIM_RATE * 0.008), len >> 1);
+  const fade = Math.min(Math.round(rate * 0.008), len >> 1);
   for (let i = 0; i < len; i++) {
     let v = data[i];
     if (fade && i < fade) v *= i / fade; else if (fade && i >= len - fade) v *= (len - 1 - i) / fade;

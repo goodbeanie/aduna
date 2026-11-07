@@ -77,6 +77,19 @@ async function lookup(tid, fetchFn = fetch) {
 
 // A saved track as stored on the user (u.song) is still checked on the way out, in case the stored data is old or was edited by hand.
 const trackOk = (s) => !!s && s.kind === 'track' && Number.isInteger(s.tid) && !!s.title && isPreview(s.preview);
-const trackView = (s) => (trackOk(s) ? { kind: 'track', tid: s.tid, title: clean(s.title), artist: clean(s.artist), art: isArt(s.art) ? s.art : '', url: s.preview, link: isLink(s.link) ? s.link : '' } : null);
 
-module.exports = { mapItem, search, lookup, trackOk, trackView, isArt, isPreview };
+// The part of the 30 second preview that plays on the card (the person picks it in the profile editor).
+// Returns { section: { start, end } } (seconds, to a tenth), { section: null } for the whole preview (nothing asked, or all of it), or { error } for a part that cannot be used.
+const PREVIEW_SECS = 30, MIN_SECS = 3;
+function cleanSection(start, end) {
+  if (start === undefined && end === undefined) return { section: null };
+  if (typeof start !== 'number' || typeof end !== 'number' || !Number.isFinite(start) || !Number.isFinite(end)) return { error: 'Pick the part of the song to play' };
+  const s = Math.round(Math.max(0, start) * 10) / 10, e = Math.round(Math.min(PREVIEW_SECS, end) * 10) / 10;
+  if (e - s < MIN_SECS - 0.001) return { error: `Pick at least ${MIN_SECS} seconds of the song` };
+  if (s <= 0.05 && e >= PREVIEW_SECS - 0.05) return { section: null };
+  return { section: { start: s, end: e } };
+}
+const sectionOf = (s) => (Number.isFinite(s.start) && Number.isFinite(s.end) && s.start >= 0 && s.end <= PREVIEW_SECS + 0.05 && s.end - s.start >= MIN_SECS - 0.05 ? { start: s.start, end: s.end } : null);
+const trackView = (s) => (trackOk(s) ? { kind: 'track', tid: s.tid, title: clean(s.title), artist: clean(s.artist), art: isArt(s.art) ? s.art : '', url: s.preview, link: isLink(s.link) ? s.link : '', ...(sectionOf(s) || {}) } : null);
+
+module.exports = { mapItem, search, lookup, trackOk, trackView, cleanSection, isArt, isPreview, PREVIEW_SECS, MIN_SECS };

@@ -4,11 +4,14 @@ import { api } from './api.js';
 import { Avatar, BadgeIcons, Banner, BannerBlur, bannerBlurClass, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, lightness, CUSTOM_THEME_ID } from './profilethemes.js';
 import { nameProps, NAME_FONTS, MAX_NAME_STOPS, DEFAULT_NAME_GRADIENT, nameGradientCss } from './namestyle.js';
-import { uploadImage, uploadAnimated, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE, checkSongFile, uploadSong, songNameOf, SONG } from './image.js';
+import { uploadImage, uploadAnimated, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE, checkSongFile, inspectSongFile, uploadSong, songNameOf, SONG } from './image.js';
 import Cropper from './Cropper.jsx';
 import ProfileSong from './ProfileSong.jsx';
 import GamePicker, { GameIcon, gameName } from './GamePicker.jsx';
 import SongPicker from './SongPicker.jsx';
+import TrackSection, { PREVIEW_SECS } from './TrackSection.jsx';
+import { SoundTrim } from './SoundTrim.jsx';
+import { canTrim } from './soundtrim.js';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
 import { BotTag } from './Bots.jsx';
@@ -422,6 +425,10 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const songStageRef = useRef(songStage);
   songStageRef.current = songStage;
   const songInput = useRef(null);
+  // The part of a searched song's 30 second preview that plays ({ start, end } in seconds; the whole preview unless they pick), and the open/closed picker for it (TrackSection.jsx).
+  const [section, setSection] = useState(() => ({ start: me.song && me.song.kind === 'track' && Number.isFinite(me.song.start) ? me.song.start : 0, end: me.song && me.song.kind === 'track' && Number.isFinite(me.song.end) ? me.song.end : PREVIEW_SECS }));
+  const [sectionOpen, setSectionOpen] = useState(false);
+  const [songTrim, setSongTrim] = useState(null); // { file, fits }: an audio file they chose, while they pick the part to use (SoundTrim.jsx)
   useEffect(() => () => { if (songStageRef.current && songStageRef.current.file) URL.revokeObjectURL(songStageRef.current.url); }, []);
   const hasSong = songStage === undefined ? !!me.song : songStage !== null;
   const savedTrack = !!me.song && me.song.kind === 'track';
@@ -431,30 +438,43 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     e.target.value = '';
     if (!file) return;
     setErr('');
-    try { await checkSongFile(file); }
-    catch (ex) { setErr(ex.message); return; }
+    try {
+      if (!canTrim()) { await checkSongFile(file); stageSong(file, file, true); return; } // this browser cannot cut audio: the file has to fit as it is
+      const { fits } = await inspectSongFile(file);
+      setSongSearch(false);
+      setSongTrim({ file, fits }); // the person picks the part to use (a file that already fits can also be used whole)
+    } catch (ex) { setErr(ex.message); }
+  }
+  // `file` is what gets uploaded; `source` is the file they chose (when `file` is a part cut from it), so the part can be picked again.
+  function stageSong(file, source, fits) {
     setSongSearch(false);
-    setSongStage((s) => { if (s && s.file) URL.revokeObjectURL(s.url); return { file, url: URL.createObjectURL(file) }; });
-    setSongTitle(songNameOf(file));
+    setSongTrim(null);
+    setSongStage((s) => { if (s && s.file) URL.revokeObjectURL(s.url); return { file, url: URL.createObjectURL(file), source, fits }; });
+    setSongTitle(songNameOf(source));
   }
   function pickTrack(track) {
     setSongSearch(false);
+    setSongTrim(null);
     setSongStage((s) => { if (s && s.file) URL.revokeObjectURL(s.url); return { track }; });
     setSongTitle(track.title);
+    setSection({ start: 0, end: PREVIEW_SECS }); setSectionOpen(true); // a new song starts with its whole preview, and the picker opens so they can choose a part
   }
   function removeSong() {
     setSongStage((s) => { if (s && s.file) URL.revokeObjectURL(s.url); return me.song ? null : undefined; });
-    setSongTitle('');
+    setSongTitle(''); setSongTrim(null); setSectionOpen(false);
   }
+  const sectionWhole = section.start <= 0.05 && section.end >= PREVIEW_SECS - 0.05;
+  const sectionSaved = savedTrack ? { start: Number.isFinite(me.song.start) ? me.song.start : 0, end: Number.isFinite(me.song.end) ? me.song.end : PREVIEW_SECS } : null;
+  const sectionChanged = songStage === undefined && !!sectionSaved && (section.start !== sectionSaved.start || section.end !== sectionSaved.end); // a saved song, with another part picked
   const previewSong = songStage === null || (songStage === undefined && !me.song) ? null
-    : shownTrack ? { kind: 'track', title: shownTrack.title, artist: shownTrack.artist, art: shownTrack.art, url: shownTrack.url, link: shownTrack.link }
+    : shownTrack ? { kind: 'track', title: shownTrack.title, artist: shownTrack.artist, art: shownTrack.art, url: shownTrack.url, link: shownTrack.link, ...(sectionWhole ? {} : section) }
     : songStage ? { url: songStage.url, title: songTitle.trim() || songNameOf(songStage.file) }
     : { id: me.song.id, title: songTitle.trim() || me.song.title };
 
   // Unsaved changes: compare everything the form holds with how it looked when it opened. Save stays off until something changed.
   const snapshot = JSON.stringify([f, mode, nameFont, gradOn, gradOn ? nameG : null, theme, theme === CUSTOM_THEME_ID ? customG : null, [...hidden].sort(), frameId,
     staged.avatar === undefined ? 0 : staged.avatar === null ? 'x' : staged.avatar.url, staged.banner === undefined ? 0 : staged.banner === null ? 'x' : staged.banner.url,
-    songTitle, songStage === undefined ? 0 : songStage === null ? 'x' : songStage.track ? 't' + songStage.track.tid : songStage.url]);
+    songTitle, songStage === undefined ? 0 : songStage === null ? 'x' : songStage.track ? 't' + songStage.track.tid : songStage.url, shownTrack ? [section.start, section.end] : 0]);
   const openSnapshot = useRef(null);
   if (openSnapshot.current === null) openSnapshot.current = snapshot;
   const dirty = snapshot !== openSnapshot.current;
@@ -502,8 +522,9 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
         if (s && s.anim) ({ user } = await uploadAnimated(kind, s.anim.file, s.anim.crop)); // a GIF: the animated copy goes up after the still picture
       }
       if (songStage === null) ({ user } = await api('/me/song', { method: 'DELETE' }));
-      else if (songStage && songStage.track) ({ user } = await api('/me/track', { method: 'PUT', body: { tid: songStage.track.tid } }));
+      else if (songStage && songStage.track) ({ user } = await api('/me/track', { method: 'PUT', body: { tid: songStage.track.tid, start: section.start, end: section.end } }));
       else if (songStage) ({ user } = await uploadSong(songStage.file, songTitle.trim() || songNameOf(songStage.file)));
+      else if (sectionChanged) ({ user } = await api('/me/track', { method: 'PUT', body: { tid: me.song.tid, start: section.start, end: section.end } })); // the same saved song, another part of it
       onSaved(user);
       onClose();
     } catch (ex) { setErr(ex.message); setSaving(false); }
@@ -586,15 +607,20 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           <label>Profile song</label>
           {hasSong && (
             shownTrack ? (
-              <div className="song-edit">
-                <span className="sp-cover">{shownTrack.art ? <img src={shownTrack.art} alt="" draggable={false} /> : <Icon name="music" size={18} />}</span>
-                <span className="sp-meta"><b>{shownTrack.title}</b><span>{shownTrack.artist}</span></span>
-                <button type="button" className="btn" onClick={() => setSongSearch(true)}>Change</button>
-                <button type="button" className="btn ghost" onClick={removeSong}>Remove</button>
-              </div>
+              <>
+                <div className="song-edit">
+                  <span className="sp-cover">{shownTrack.art ? <img src={shownTrack.art} alt="" draggable={false} /> : <Icon name="music" size={18} />}</span>
+                  <span className="sp-meta"><b>{shownTrack.title}</b><span>{shownTrack.artist}{sectionWhole ? '' : ` · plays ${section.start.toFixed(1)}s to ${section.end.toFixed(1)}s`}</span></span>
+                  <button type="button" className="btn" aria-expanded={sectionOpen} onClick={() => setSectionOpen((o) => !o)}>{sectionOpen ? 'Done' : 'Pick part'}</button>
+                  <button type="button" className="btn" onClick={() => setSongSearch(true)}>Change</button>
+                  <button type="button" className="btn ghost" onClick={removeSong}>Remove</button>
+                </div>
+                {sectionOpen && <TrackSection url={shownTrack.url} start={section.start} end={section.end} onChange={setSection} />}
+              </>
             ) : (
               <div className="song-edit">
                 <input value={songTitle} maxLength={60} placeholder="Song title" aria-label="Song title" onChange={(e) => setSongTitle(e.target.value)} />
+                {songStage && songStage.source && canTrim() && <button type="button" className="btn" onClick={() => setSongTrim({ file: songStage.source, fits: !!songStage.fits })}>Pick part</button>}
                 <button type="button" className="btn" onClick={() => setSongSearch(true)}>Search</button>
                 <button type="button" className="btn" onClick={() => songInput.current.click()}>Replace</button>
                 <button type="button" className="btn ghost" onClick={removeSong}>Remove</button>
@@ -604,12 +630,15 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           {!hasSong && !songSearch && (
             <div className="upload-row">
               <button type="button" className="btn" onClick={() => setSongSearch(true)}><Icon name="search" size={14} className="inline-icon" /> Search for a song</button>
-              <button type="button" className="btn" onClick={() => songInput.current.click()}><Icon name="music" size={14} className="inline-icon" /> Upload a clip</button>
+              <button type="button" className="btn" onClick={() => songInput.current.click()}><Icon name="music" size={14} className="inline-icon" /> Upload a song</button>
             </div>
           )}
           {songSearch && <SongPicker onPick={pickTrack} onClose={() => setSongSearch(false)} />}
+          {songTrim && <SoundTrim file={songTrim.file} noun="song" maxSecs={SONG.secs} maxBytes={SONG.bytes}
+            onWhole={songTrim.fits ? () => stageSong(songTrim.file, songTrim.file, true) : undefined}
+            onUse={(cut) => stageSong(cut, songTrim.file, songTrim.fits)} onCancel={() => setSongTrim(null)} />}
           <input ref={songInput} type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav,.webm" hidden onChange={pickSong} />
-          <p className="muted small hint">Search for a song to give your card a play button with a 30 second preview, plus links to find it on Spotify and YouTube Music. Or upload a clip of up to {SONG.secs} seconds (MP3, M4A, OGG, WAV or WebM, up to {SONG.bytes / 1024} KB), which plays on your card muted until someone presses the speaker.</p>
+          <p className="muted small hint">Search for a song to give your card a play button, plus links to find it on Spotify and YouTube Music: you pick which part of its 30 second preview plays. Or upload a song (MP3, M4A, OGG, WAV or WebM, up to 25 MB) and pick the part of up to {SONG.secs} seconds to use; it plays on your card muted until someone presses the speaker.</p>
           </section>
 
           <section className="ed-sec" aria-labelledby="pe-look">

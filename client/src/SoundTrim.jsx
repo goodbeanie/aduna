@@ -9,7 +9,7 @@ import { decodeSound, peaksOf, clipToWav } from './soundtrim.js';
 const MIN = 0.1;
 const fmt = (s) => s.toFixed(1) + 's';
 
-export function SoundTrim({ file, onUse, onCancel }) {
+export function SoundTrim({ file, onUse, onCancel, onWhole, maxSecs = SOUND.secs, maxBytes = SOUND.bytes, noun = 'sound' }) {
   const [buf, setBuf] = useState(null);
   const [err, setErr] = useState('');
   const [sel, setSel] = useState({ a: 0, b: 0 });
@@ -27,7 +27,7 @@ export function SoundTrim({ file, onUse, onCancel }) {
     decodeSound(file).then((b) => {
       if (dead) return;
       peaks.current = peaksOf(b);
-      setSel({ a: 0, b: Math.min(b.duration, SOUND.secs) });
+      setSel({ a: 0, b: Math.min(b.duration, maxSecs) });
       setBuf(b);
     }).catch((e) => { if (!dead) setErr(e.message); });
     return () => { dead = true; };
@@ -97,8 +97,8 @@ export function SoundTrim({ file, onUse, onCancel }) {
     const t = secAt(e), dur = buf.duration;
     setSel((s) => {
       if (d.mode === 'move') { const len = s.b - s.a, a = Math.max(0, Math.min(dur - len, t - d.off)); return { a, b: a + len }; }
-      if (d.mode === 'a') return { a: Math.max(s.b - SOUND.secs, Math.max(0, Math.min(t, s.b - MIN))), b: s.b };
-      return { a: s.a, b: Math.min(s.a + SOUND.secs, Math.max(s.a + MIN, Math.min(t, dur))) };
+      if (d.mode === 'a') return { a: Math.max(s.b - maxSecs, Math.max(0, Math.min(t, s.b - MIN))), b: s.b };
+      return { a: s.a, b: Math.min(s.a + maxSecs, Math.max(s.a + MIN, Math.min(t, dur))) };
     });
   };
   const up = () => { drag.current = null; };
@@ -107,20 +107,22 @@ export function SoundTrim({ file, onUse, onCancel }) {
 
   async function use() {
     stop(); setBusy(true); setErr('');
-    try { onUse(await clipToWav(buf, sel.a, sel.b, file.name)); }
+    try { onUse(await clipToWav(buf, sel.a, sel.b, file.name, { maxSecs, maxBytes })); }
     catch { setErr('Could not cut that part. Try another file.'); setBusy(false); }
   }
 
-  if (err && !buf) return <div className="sb-trim"><div className="error" role="alert">{err}</div><button type="button" className="btn" onClick={onCancel}>Cancel</button></div>;
+  if (err && !buf) return <div className="sb-trim"><div className="error" role="alert">{err}</div>{onWhole && <button type="button" className="btn" onClick={onWhole}>Use all of it</button>} <button type="button" className="btn" onClick={onCancel}>Cancel</button></div>;
   if (!buf) return <div className="sb-trim"><p className="muted small">Reading the audio…</p></div>;
 
   const dur = buf.duration, len = sel.b - sel.a, pct = (s) => (s / dur) * 100 + '%';
   return (
     <div className="sb-trim">
       <p className="small">
-        {dur > SOUND.secs + 0.5
-          ? <>This sound is {fmt(dur)} long, and a sound can be up to {SOUND.secs} seconds. Choose the part to use: drag the box, or drag its edges to make it shorter.</>
-          : <>This file is too big as it is, so it will be made smaller. You can also cut it shorter: drag the edges of the box.</>}
+        {dur > maxSecs + 0.5
+          ? <>This {noun} is {fmt(dur)} long, and a {noun} can be up to {maxSecs} seconds. Choose the part to use: drag the box, or drag its edges to make it shorter.</>
+          : onWhole
+            ? <>Choose the part of this {noun} to use: drag the box, or drag its edges to make it shorter. Or keep all of it.</>
+            : <>This file is too big as it is, so it will be made smaller. You can also cut it shorter: drag the edges of the box.</>}
       </p>
       <div className="sb-trim-wave" ref={box} onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}>
         <canvas ref={canvas} className="sb-trim-canvas" aria-hidden="true" />
@@ -141,6 +143,7 @@ export function SoundTrim({ file, onUse, onCancel }) {
       <div className="sb-trim-actions">
         <button type="button" className="btn" disabled={busy} onClick={playing ? stop : start}><Icon name={playing ? 'pause' : 'play'} size={16} /> {playing ? 'Stop' : 'Listen'}</button>
         <button type="button" className="btn primary" disabled={busy} onClick={use}>{busy ? 'Cutting…' : 'Use this part'}</button>
+        {onWhole && <button type="button" className="btn" disabled={busy} onClick={() => { stop(); onWhole(); }}>Use all of it</button>}
         <button type="button" className="btn" disabled={busy} onClick={onCancel}>Cancel</button>
       </div>
       {err && <div className="error" role="alert">{err}</div>}
