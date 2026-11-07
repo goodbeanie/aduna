@@ -23,7 +23,7 @@
     "date": "2026-11-06",
     "title": "Contexto is here",
     "items": [
-      { "title": "New minigame: Contexto", "text": "Open the paperclip menu and pick Contexto. Guess the secret word of the day by meaning: every word you try gets a number, and the closer its meaning, the lower the number. 1 is the word itself." },
+      { "title": "New minigame: Contexto", "text": "Open the + menu, pick Minigames, then Contexto. Guess the secret word of the day by meaning: every word you try gets a number, and the closer its meaning, the lower the number. 1 is the word itself." },
       { "title": "Play on your own or with a server", "text": "Aduna has its own daily word, and every server gets one of its own with standings for its members. Use a hint if you are stuck, give up to see the word, and share your result into any chat." }
     ]
   }

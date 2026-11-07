@@ -16,6 +16,7 @@ import { useTypingProof } from './typing.js';
 import { BotTag } from './Bots.jsx';
 import { PollCard, PollModal } from './Polls.jsx';
 import { WordleModal, WordleShareCard, parseWordleShare } from './Wordle.jsx';
+import { ContextoModal, ContextoShareCard, parseContextoShare } from './Contexto.jsx';
 import { callSummary } from './callhistory.js';
 import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, MAX_FILE, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
 import { canCompress, compressVideo } from './compress.js';
@@ -160,6 +161,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   const mine = m.authorId === me.id;
   const author = users[m.authorId];
   const wshare = parseWordleShare(m.content); // a shared Wordle result is drawn as a card instead of its text
+  const cshare = parseContextoShare(m.content); // and so is a shared Contexto result
   const sticker = stickerIdOf(m.content); // a sticker is drawn as a big picture (the text is just its token), and cannot be edited as text
   const ref = m.replyTo ? byId[m.replyTo] : null;
   const refAuthor = ref ? users[ref.authorId] : null;
@@ -246,9 +248,10 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           )}
           {editing
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > 2000) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
-            : (m.content || m.editedAt) && !wshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+            : (m.content || m.editedAt) && !wshare && !cshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
           {wshare && !editing && <WordleShareCard share={wshare} />}
+        {cshare && !editing && <ContextoShareCard share={cshare} />}
           {m.poll && <PollCard m={m} users={users} me={me} onVote={onVote} onClose={onClosePoll} canClose={canDelete} />}
           {m.invite && <InviteCard code={m.invite} />}
           {!editing && inviteCodesIn(m.content).filter((c) => c !== m.invite).map((c) => <InviteCard key={c} code={c} />)}
@@ -305,6 +308,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const [tapped, setTapped] = useState(null); // touch screens: tap a message to show its actions
   const [pollOpen, setPollOpen] = useState(false);
   const [wordleOpen, setWordleOpen] = useState(false);
+  const [contextoOpen, setContextoOpen] = useState(false);
   const attachWrap = useRef(null), camInput = useRef(null);
   useEffect(() => { // the attach menu closes when you tap anywhere else
     if (pop !== 'attach') return undefined;
@@ -704,13 +708,20 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
         {err && <div className="composer-err" role="alert"><span>{err}</span><button className="icon-btn" aria-label="Dismiss" onClick={() => setErr('')}><Icon name="close" size={14} /></button></div>}
         <div className="composer-row" style={recording ? { display: 'none' } : undefined}>
           <div className="attach-wrap" ref={attachWrap}>
-            <button className="icon-btn" title="Attach" aria-label="Attach" aria-haspopup="menu" aria-expanded={pop === 'attach'} disabled={!files?.scope && !onPoll && !wordle} onClick={() => setPop(pop === 'attach' ? null : 'attach')}><Icon name="plus" size={20} /></button>
+            <button className="icon-btn" title="Attach" aria-label="Attach" aria-haspopup="menu" aria-expanded={pop === 'attach' || pop === 'games'} disabled={!files?.scope && !onPoll && !wordle} onClick={() => setPop(pop === 'attach' ? null : 'attach')}><Icon name="plus" size={20} /></button>
             {pop === 'attach' && (
               <div className="pop attach-pop" role="menu">
                 <button role="menuitem" disabled={!files?.scope} onClick={() => { setPop(null); camInput.current?.click(); }}><Icon name="camera" size={18} />Camera</button>
                 <button role="menuitem" disabled={!files?.scope} title={`Max 20 MB each (bigger videos can be compressed); removed after ${FILE_DAYS} days (${LARGE_FILE_DAYS} if over 10 MB)`} onClick={() => { setPop(null); fileInput.current?.click(); }}><Icon name="file" size={18} />Files</button>
                 {onPoll && <button role="menuitem" onClick={() => { setPop(null); setPollOpen(true); }}><Icon name="poll" size={18} />Poll</button>}
-                {wordle && <button role="menuitem" onClick={() => { setPop(null); setWordleOpen(true); }}><Icon name="wordle" size={18} />Wordle</button>}
+                {wordle && <button role="menuitem" aria-haspopup="menu" onClick={() => setPop('games')}><Icon name="gamepad" size={18} />Minigames<span className="menu-more" style={{ marginLeft: 'auto', opacity: 0.6 }} aria-hidden="true">›</span></button>}
+              </div>
+            )}
+            {pop === 'games' && wordle && (
+              <div className="pop attach-pop" role="menu" aria-label="Minigames">
+                <button role="menuitem" onClick={() => setPop('attach')}><Icon name="reply" size={18} />Back</button>
+                <button role="menuitem" onClick={() => { setPop(null); setWordleOpen(true); }}><Icon name="wordle" size={18} />Wordle</button>
+                <button role="menuitem" onClick={() => { setPop(null); setContextoOpen(true); }}><Icon name="contexto" size={18} />Contexto</button>
               </div>
             )}
           </div>
@@ -736,6 +747,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
       {lightbox && <Lightbox view={lightbox} onClose={() => setLightbox(null)} />}
       {pollOpen && onPoll && <PollModal onSubmit={onPoll} onClose={() => setPollOpen(false)} />}
       {wordleOpen && wordle && <WordleModal scopes={wordle.scopes} users={users} onShare={async (token) => { await onSend(token, null, []); stick.current = true; }} onClose={() => setWordleOpen(false)} />}
+      {contextoOpen && wordle && <ContextoModal scopes={wordle.scopes} users={users} onShare={async (token) => { await onSend(token, null, []); stick.current = true; }} onClose={() => setContextoOpen(false)} />}
       {bigVideos[0] && (
         <Modal title="Compress this video?" onClose={() => answerBigVideo(false)}>
           <p className="muted"><b>{bigVideos[0].name || 'This video'}</b> is {sizeLabel(bigVideos[0].size)}, over the 20 MB limit. Would you like to compress it so it can be sent?</p>
