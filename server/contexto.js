@@ -49,6 +49,7 @@ function load() {
   return data;
 }
 const ready = () => !!load();
+const warm = (answer) => { if (load() && answer) ranking(answer); }; // read the word data and rank today's global word ahead of the first guess
 
 // The rank of every word for one answer: rank[i] is the 1-based rank of words[i]; order[r - 1] is the index of the word at rank r.
 const rankings = new Map();
@@ -178,4 +179,4 @@ function standings(records, scope, day, memberIds, limit = 10) {
   return { finished: rows.length, members: memberIds.length, rows: rows.slice(0, limit).map(({ userId, status, tries, streak }) => ({ userId, status, tries, streak })) };
 }
 
-module.exports = { EPOCH, GREEN, ORANGE, dayOf, resetsAt, isScope, band, ready, normalize, isWord, answerFor, rankOf, wordAt, blank, boardOf, play, hint, giveUp, view, standings };
+module.exports = { EPOCH, GREEN, ORANGE, dayOf, resetsAt, isScope, band, ready, warm, normalize, isWord, answerFor, rankOf, wordAt, blank, boardOf, play, hint, giveUp, view, standings };

@@ -35,6 +35,7 @@ function words() {
 }
 const normalize = (raw) => (typeof raw === 'string' && /^[A-Za-z]{5}$/.test(raw.trim()) ? raw.trim().toLowerCase() : null);
 const isWord = (w) => !!w && (words().has(w) || loose);
+const warm = () => { words(); }; // build the word list ahead of the first guess (the dictionary has hundreds of thousands of words, so doing it on the first guess is slow)
 
 function answerFor(scope, day, secret) {
   const h = crypto.createHmac('sha256', String(secret)).update('wordle:' + scope + ':' + day).digest();
@@ -118,4 +119,4 @@ function standings(records, scope, day, memberIds, limit = 10) {
   return { finished: rows.length, members: memberIds.length, rows: rows.slice(0, limit).map(({ userId, status, tries, streak }) => ({ userId, status, tries, streak })) };
 }
 
-module.exports = { ANSWERS, TRIES, LEN, EPOCH, dayOf, resetsAt, isScope, normalize, isWord, answerFor, score, blank, boardOf, play, view, standings };
+module.exports = { ANSWERS, TRIES, LEN, EPOCH, dayOf, resetsAt, isScope, normalize, isWord, warm, answerFor, score, blank, boardOf, play, view, standings };

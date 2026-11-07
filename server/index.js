@@ -5673,7 +5673,11 @@ const ready = start();
 
 if (require.main === module) {
   ready
-    .then(() => httpServer.listen(PORT, () => console.log(`Aduna running on port ${PORT}`)))
+    .then(() => httpServer.listen(PORT, () => {
+      console.log(`Aduna running on port ${PORT}`);
+      // Wordle and Contexto read their word lists the first time someone guesses, which made that first guess slow. Do it now, just after the server is up.
+      setTimeout(() => { try { wordleLib.warm(); contextoLib.warm(contextoLib.answerFor('global', contextoLib.dayOf(Date.now()), SECRET)); } catch (e) { console.warn('Game warm-up skipped:', e.message); } }, 1500);
+    }))
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 

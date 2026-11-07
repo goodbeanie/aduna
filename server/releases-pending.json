@@ -26,5 +26,14 @@
       { "title": "New minigame: Contexto", "text": "Open the + menu, pick Minigames, then Contexto. Guess the secret word of the day by meaning: every word you try gets a number, and the closer its meaning, the lower the number. 1 is the word itself." },
       { "title": "Play on your own or with a server", "text": "Aduna has its own daily word, and every server gets one of its own with standings for its members. Use a hint if you are stuck, give up to see the word, and share your result into any chat." }
     ]
+  },
+  {
+    "id": "2026.11.6.4",
+    "date": "2026-11-06",
+    "title": "Minigames feel faster",
+    "items": [
+      { "title": "Faster first Wordle guess", "text": "Wordle’s word list is now ready before you play, so your first guess no longer takes a moment to check." },
+      { "title": "Contexto keeps your cursor", "text": "After you press Enter on a guess in Contexto, you can keep typing without clicking the box again." }
+    ]
   }
 ]
