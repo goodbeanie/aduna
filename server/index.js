@@ -4980,7 +4980,14 @@ if (fs.existsSync(dist)) {
     if (!fs.existsSync(f)) return res.status(404).type('text/plain').send('Not found');
     res.set('Cache-Control', 'no-cache').type('application/vnd.android.package-archive').sendFile(f);
   });
-  app.use(express.static(dist, { index: false }));
+  app.use(express.static(dist, {
+    index: false,
+    setHeaders: (res, file) => { // Vite puts a hash of the content in the name of everything under assets/, so a browser never needs to ask again; the rest is checked with its ETag as before
+      const top = path.relative(dist, file).split(path.sep)[0];
+      if (top === 'assets') res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      else if (['fonts', 'sounds', 'icons', 'deco', 'badges'].includes(top)) res.setHeader('Cache-Control', 'public, max-age=86400');
+    },
+  }));
   app.use('/updates', (_req, res) => res.status(404).type('text/plain').send('Not found')); // anything else under /updates that is not a file
   app.get(/^\/(?!api|socket\.io).*/, (_req, res) => res.sendFile(path.join(dist, 'index.html')));
 }

@@ -36,6 +36,16 @@ if (SCHEMA && !/^[a-z_][a-z0-9_]*$/i.test(SCHEMA)) throw new Error('DB_SCHEMA ma
 
 let saveTimer = null;
 
+// How the saves are paced. Every flush looks at every record, and on Render's free plan (a tenth of a CPU) that is the first thing to run out of room, so in
+// production the debounced save waits longer (DB_SAVE_DELAY_MS, default 1000; 150 elsewhere), and between "full" passes it only re-checks recent
+// messages: an older message that was edited, pinned or reacted to is written by the next full pass (DB_FULL_SCAN_MS, default 60000), and
+// store.flush() (used wherever the order matters) and the shutdown save are always full passes. Set DB_FULL_SCAN_MS=0 to check everything every time.
+const PROD = process.env.NODE_ENV === 'production';
+const SAVE_DELAY_MS = Number(process.env.DB_SAVE_DELAY_MS) || (PROD ? 1000 : 150);
+const FULL_SCAN_MS = process.env.DB_FULL_SCAN_MS !== undefined && process.env.DB_FULL_SCAN_MS !== '' ? Number(process.env.DB_FULL_SCAN_MS) || 0 : (PROD ? 60_000 : 0);
+const RECENT_MS = 10 * 60_000;                      // a message younger than this is always checked
+const QUICK_SKIP = new Set(['messages', 'dms', 'gmsgs']); // the big collections of records that rarely change after they are posted
+let lastFullScan = 0;
 // ---------- encryption ----------
 function getMasterKey() {
   const fromEnv = process.env.DB_ENCRYPTION_KEY;
@@ -183,33 +193,41 @@ async function init() {
 
 // Write every changed record in a single transaction. Flushes never overlap.
 let flushChain = Promise.resolve();
-function flush() {
+function flush(opts) {
   clearTimeout(saveTimer);
   saveTimer = null;
-  const run = flushChain.then(doFlush);
+  const quick = !!(opts && opts.quick); // only the timer asks for a quick pass; a direct store.flush() is always complete
+  const run = flushChain.then(() => doFlush(quick));
   flushChain = run.catch(() => {});
   return run;
 }
 
-async function doFlush() {
+async function doFlush(quick) {
   if (!pool) return;
   const at = Date.now();
+  const partial = !!quick && FULL_SCAN_MS > 0 && at - lastFullScan < FULL_SCAN_MS;
+  const recentAfter = at - RECENT_MS;
   const ups = {}, dels = {}; // per collection
   const pending = [];        // [collection, id, json | null], applied to `written` after commit
   for (const t of COLLECTIONS) {
     const u = { ids: [], data: [] };
-    for (const [id, rec] of Object.entries(db[t])) {
+    const skipOld = partial && QUICK_SKIP.has(t);
+    const cur = db[t], was = written[t];
+    for (const id in cur) { // null-prototype objects: no inherited keys, and no array of all the entries
+      const rec = cur[id];
+      if (skipOld && rec && Number.isFinite(rec.createdAt) && rec.createdAt < recentAfter && was.has(id)) continue; // old and already stored: the next full pass re-checks it
       const json = JSON.stringify(rec);
-      if (written[t].get(id) === json) continue;
+      if (was.get(id) === json) continue;
       u.ids.push(id); u.data.push(seal(json, `${t}:${id}`));
       pending.push([t, id, json]);
     }
-    const d = [...written[t].keys()].filter((id) => !(id in db[t]));
+    const d = [];
+    for (const id of was.keys()) if (!(id in cur)) d.push(id); // a deleted record is always noticed straight away
     for (const id of d) pending.push([t, id, null]);
     if (u.ids.length) ups[t] = u;
     if (d.length) dels[t] = d;
   }
-  if (!pending.length) return;
+  if (!pending.length) { if (!partial) lastFullScan = at; return; }
   const c = await pool.connect();
   try {
     await c.query('BEGIN');
@@ -225,16 +243,17 @@ async function doFlush() {
   } finally { c.release(); }
   // only mark records as persisted once the transaction has committed
   for (const [t, id, json] of pending) json === null ? written[t].delete(id) : written[t].set(id, json);
+  if (!partial) lastFullScan = at;
 }
 
 function save() {
   if (saveTimer) return;
   saveTimer = setTimeout(() => {
-    flush().catch((e) => {
+    flush({ quick: true }).catch((e) => {
       console.error('Failed to save database (will retry):', e.message);
       saveTimer = setTimeout(() => { saveTimer = null; save(); }, 3000); // nothing is lost: unsaved records are re-sent
     });
-  }, 150);
+  }, SAVE_DELAY_MS);
 }
 
 // ---------- blob storage: Cloudflare R2 (optional) ----------
