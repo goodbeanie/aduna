@@ -30,7 +30,7 @@ const { Pool, types } = require('pg');
 types.setTypeParser(20, (v) => Number(v)); // BIGINT (timestamps) -> number
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments', 'bots', 'calllog', 'themes', 'groups', 'gmsgs', 'badges', 'artists', 'clips', 'wordle', 'applications', 'features', 'releases'];
+const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments', 'bots', 'calllog', 'themes', 'groups', 'gmsgs', 'badges', 'artists', 'clips', 'wordle', 'contexto', 'applications', 'features', 'releases'];
 const SCHEMA = process.env.DB_SCHEMA;
 if (SCHEMA && !/^[a-z_][a-z0-9_]*$/i.test(SCHEMA)) throw new Error('DB_SCHEMA may only contain letters, digits and underscores');
 
@@ -91,7 +91,42 @@ let pool = null;
 const q = (text, params) => pool.query(text, params);
 
 // null-prototype objects: an id like "constructor" or "__proto__" from a request must not find Object.prototype members
-const empty = () => Object.fromEntries(COLLECTIONS.map((t) => [t, Object.create(null)]));
+//
+// Two collections also keep an index, so a request for one channel's messages or one person's DMs does not have to read every record in the database
+// (on the free plan that scan, on every channel open, is real CPU). The collection still looks and acts like a plain id -> record object to the
+// rest of the server; adding, replacing or deleting a record through it keeps the index right. The keys it indexes by (channelId, convo, from, to)
+// are set when a record is made and never change. Read through messagesIn / dmsOfUser / dmsInConvo below.
+const INDEXED = {
+  messages: (m) => (m && typeof m.channelId === 'string' ? [m.channelId] : []),
+  dms: (m) => (m ? [...(typeof m.convo === 'string' ? ['c:' + m.convo] : []), ...(typeof m.from === 'string' ? ['u:' + m.from] : []), ...(typeof m.to === 'string' && m.to !== m.from ? ['u:' + m.to] : [])] : []),
+};
+function withIndex(target, keysOf) {
+  const keys = new Map(); // key -> Set of record ids
+  const add = (id, rec) => { for (const k of keysOf(rec)) { let s = keys.get(k); if (!s) keys.set(k, (s = new Set())); s.add(id); } };
+  const drop = (id, rec) => { for (const k of keysOf(rec)) { const s = keys.get(k); if (s) { s.delete(id); if (!s.size) keys.delete(k); } } };
+  const proxy = new Proxy(target, {
+    set(t, id, rec) { if (typeof id === 'string') { if (id in t) drop(id, t[id]); add(id, rec); } t[id] = rec; return true; },
+    deleteProperty(t, id) { if (typeof id === 'string' && id in t) drop(id, t[id]); return delete t[id]; },
+  });
+  return { proxy, target, keys };
+}
+let indexes = {}; // collection -> { target, keys } for the current `db`
+function empty() {
+  const out = Object.fromEntries(COLLECTIONS.map((t) => [t, Object.create(null)]));
+  indexes = {};
+  for (const [t, keysOf] of Object.entries(INDEXED)) { const ix = withIndex(out[t], keysOf); indexes[t] = ix; out[t] = ix.proxy; }
+  return out;
+}
+const indexed = (t, key) => { // the records filed under `key`, as a new array (safe to delete from while looping over it)
+  const ix = indexes[t], out = [];
+  if (!ix || db[t] !== ix.proxy) return Object.values(db[t]).filter((r) => INDEXED[t](r).includes(key)); // the collection was swapped for another object: the slow way
+  const ids = ix.keys.get(key);
+  if (ids) for (const id of ids) out.push(ix.target[id]);
+  return out;
+};
+const messagesIn = (channelId) => indexed('messages', String(channelId));
+const dmsOfUser = (uid) => indexed('dms', 'u:' + uid);
+const dmsInConvo = (convo) => indexed('dms', 'c:' + convo);
 let db = empty();
 const written = Object.fromEntries(COLLECTIONS.map((t) => [t, new Map()])); // id -> JSON last persisted
 let jwtSecret = null;
@@ -212,7 +247,7 @@ async function doFlush(quick) {
   for (const t of COLLECTIONS) {
     const u = { ids: [], data: [] };
     const skipOld = partial && QUICK_SKIP.has(t);
-    const cur = db[t], was = written[t];
+    const cur = indexes[t] && db[t] === indexes[t].proxy ? indexes[t].target : db[t], was = written[t]; // the plain object under an indexed collection: walking it skips the proxy
     for (const id in cur) { // null-prototype objects: no inherited keys, and no array of all the entries
       const rec = cur[id];
       if (skipOld && rec && Number.isFinite(rec.createdAt) && rec.createdAt < recentAfter && was.has(id)) continue; // old and already stored: the next full pass re-checks it
@@ -516,7 +551,7 @@ module.exports = {
   get db() { return db; },
   get jwtSecret() { return jwtSecret; },
   get vapid() { return vapidKeys; },
-  init, close, save, flush, reload: load, id, inviteCode, query: q, getMeta, setMeta, closeHooks,
+  init, close, save, flush, reload: load, id, inviteCode, query: q, getMeta, setMeta, closeHooks, messagesIn, dmsOfUser, dmsInConvo,
   putImage, getImage, deleteImage, pruneImages, putFile, fileMeta, getFileBytes, markAttached, deleteFiles, expireFiles, pruneFiles,
   backfillFileOwners, userFileBytes, ownerBytes, userFiles, poolBytesUsed, setProtectedOwners,
   get usingR2() { return !!r2; },

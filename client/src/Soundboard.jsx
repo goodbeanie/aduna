@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon } from './ui.jsx';
 import { askConfirm } from './Dialogs.jsx';
-import { can } from './perms.js';
+import { can, isOwner as ownerOrCo } from './perms.js';
 import { checkSoundFile, inspectSoundFile, soundNameOf, uploadSound } from './image.js';
 import { SOUND, settingsOf, soundUrl, whyNotPlay, playClip } from './soundboard.js';
 import { SoundTrim } from './SoundTrim.jsx';
@@ -48,7 +48,7 @@ export function SoundBar({ server, me, play }) {
 // Server settings > Soundboard. People with Manage server add and remove sounds; only the owner turns the soundboard on or off and chooses who may play.
 // Like the Channels tab, everything here applies at once (there is no Save button).
 export function SoundboardTab({ server, me, onChange }) {
-  const isOwner = server.ownerId === me.id;
+  const isOwner = ownerOrCo(server, me.id); // the owner or a co-owner
   const cfg = settingsOf(server);
   const sounds = server.sounds || [];
   const [err, setErr] = useState('');

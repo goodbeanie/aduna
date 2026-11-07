@@ -18,7 +18,7 @@ import { BotTag } from './Bots.jsx';
 import { InviteContext, INVITE_CODE_RE, InvitePage } from './Invite.jsx';
 import * as np from './notifprefs.js';
 import { ServerNotifications } from './ServerNotifications.jsx';
-import { can, canManageAny, roleColorOf, rankOf, heldRoles, memberGroups } from './perms.js';
+import { can, canManageAny, roleColorOf, rankOf, heldRoles, memberGroups, isOwner as ownerOrCo, isCoOwner } from './perms.js';
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
@@ -683,7 +683,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     let live = true;
     api(`/servers/${server.id}/onboarding`).then((st) => {
       if (!live || st.done) return;
-      if (server.ownerId === me.id) return; // the owner wrote the questions; they can open them from the server menu
+      if (ownerOrCo(server, me.id)) return; // the owner and co-owners wrote the questions (or can open them from the server menu)
       if (st.blocking || !onbAsked.current.has(server.id)) {
         onbAsked.current.add(server.id);
         // never replace a screen the person is already using (for example Server settings while an admin edits the questions)
@@ -770,8 +770,8 @@ function Main({ me, setMe, privKey, openServerId }) {
     if (!u) return;
     const rel = relationOf(id);
     const isMe = id === me.id;
-    const canKickThem = !!server && !isMe && !u.bot && server.members.some((x) => x.id === id) && id !== server.ownerId
-      && can(server, me.id, 'kickMembers') && (server.ownerId === me.id || rankOf(server, id) > rankOf(server, me.id));
+    const canKickThem = !!server && !isMe && !u.bot && server.members.some((x) => x.id === id) && !ownerOrCo(server, id)
+      && can(server, me.id, 'kickMembers') && (ownerOrCo(server, me.id) || rankOf(server, id) > rankOf(server, me.id));
     ctxMenu.open(e, {
       header: <><Avatar user={u} size={32} /><div className="cmenu-who"><b>{u.displayName}</b>{u.username && <span className="small muted">@{u.username}</span>}</div></>,
       items: [
@@ -963,7 +963,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       <span {...nameProps(users[u.id] || u, server && roleColorOf(server, u.id))}>{(users[u.id] || u).displayName}</span>
       <BadgeIcons user={users[u.id] || u} size={16} />
       {(users[u.id] || u).bot && <BotTag />}
-      {server?.ownerId === u.id && <span className="owner" title="Server owner"><Icon name="crown" size={15} /></span>}
+      {server?.ownerId === u.id && <span className="owner" title="Server owner"><Icon name="crown" size={15} /></span>}{isCoOwner(server, u.id) && <span className="owner" title="Server co-owner"><Icon name="crown" size={15} /></span>}
     </button>
   );
 

@@ -11,7 +11,7 @@ import { t as tr } from './i18n.js';
 import { THEMES, DEFAULT_CUSTOM, setServerTheme } from './themes.js';
 import { ThemeGallery, PublishTheme } from './ThemeGallery.jsx';
 import { Swatch } from './Appearance.jsx';
-import { can } from './perms.js';
+import { can, isOwner } from './perms.js';
 import { RolesTab, MembersTab } from './Roles.jsx';
 import { OnboardingTab } from './Onboarding.jsx';
 import { BotsTab } from './Bots.jsx';
@@ -26,7 +26,7 @@ const TABS = [
   ['members', 'Members', 'users', (sv, uid) => can(sv, uid, 'manageRoles') || can(sv, uid, 'kickMembers')],
   ['bots', 'Bots', 'bot', (sv, uid) => can(sv, uid, 'manageServer')],
   ['soundboard', 'Soundboard', 'music', (sv, uid) => can(sv, uid, 'manageServer')],
-  ['publish', 'Publish', 'globe', (sv, uid) => sv.ownerId === uid],
+  ['publish', 'Publish', 'globe', (sv, uid) => isOwner(sv, uid)],
   ['ownership', 'Ownership', 'crown', (sv, uid) => sv.ownerId === uid],
   ['theme', 'Server theme', 'palette', (sv, uid) => can(sv, uid, 'manageServer')],
 ];
@@ -529,6 +529,20 @@ function OwnershipTab({ server, me, onChange, onClose }) {
   const [busy, setBusy] = useState(false);
   const others = server.members.filter((u) => u.id !== me.id);
   const picked = others.find((u) => u.id === target);
+  // co-owners: other members who share the running of the server (every permission, but no transfer, delete or co-owner changes)
+  const [coPick, setCoPick] = useState('');
+  const [coBusy, setCoBusy] = useState(false);
+  const [coErr, setCoErr] = useState('');
+  const coIds = server.coOwners || [];
+  const coOwners = server.members.filter((u) => coIds.includes(u.id));
+  const coChoices = others.filter((u) => !u.bot && !coIds.includes(u.id));
+  const coCall = async (fn) => {
+    setCoErr(''); setCoBusy(true);
+    try { const r = await fn(); onChange(r.server); setCoPick(''); } catch (e) { setCoErr(e.message); }
+    setCoBusy(false);
+  };
+  const addCoOwner = () => coPick && coCall(() => api(`/servers/${server.id}/co-owners`, { method: 'POST', body: { userId: coPick } }));
+  const removeCoOwner = (id) => coCall(() => api(`/servers/${server.id}/co-owners/${id}`, { method: 'DELETE' }));
   const close = () => { setMode(null); setTarget(''); setTyped(''); setPassword(''); setCode(''); setErr(''); };
   const ready = password && (!me.twoFactor || code) && (mode === 'transfer' ? !!picked : typed.trim() === server.name);
   const run = async () => {
@@ -546,6 +560,27 @@ function OwnershipTab({ server, me, onChange, onClose }) {
   return (
     <>
       <h1>Ownership</h1>
+      <div className="own-card">
+        <h3>Co-owners</h3>
+        <p className="muted">Co-owners share the running of {server.name}. They get every permission and cannot be kicked, but only you can transfer or delete the server, or add and remove co-owners. You can name as many as you like (up to 10).</p>
+        <div className="allow-list">
+          {coOwners.length === 0 && <p className="muted small">No co-owners yet.</p>}
+          {coOwners.map((u) => (
+            <div className="allow-row" key={u.id}>
+              <Avatar user={u} size={28} /><span className="grow"><b>{u.displayName}</b> <span className="muted small">@{u.username}</span></span>
+              <button className="icon-btn" title="Remove co-owner" aria-label={`Remove ${u.displayName} as co-owner`} disabled={coBusy} onClick={() => removeCoOwner(u.id)}><Icon name="close" size={16} /></button>
+            </div>
+          ))}
+        </div>
+        <div className="allow-add">
+          <Select value={coPick} onChange={(e) => setCoPick(e.target.value)} disabled={coBusy || !coChoices.length}>
+            <option value="">{coChoices.length ? 'Choose a member…' : 'No other members to add'}</option>
+            {coChoices.map((u) => <option key={u.id} value={u.id}>{u.displayName} (@{u.username})</option>)}
+          </Select>
+          <button className="btn" disabled={coBusy || !coPick} onClick={addCoOwner}>Add co-owner</button>
+        </div>
+        {coErr && <div className="error">{coErr}</div>}
+      </div>
       <div className="own-card">
         <h3>Transfer ownership</h3>
         <p className="muted">Make another member the owner. They get every permission and the owner-only settings; you stay in the server as an ordinary member with no roles.</p>

@@ -155,7 +155,7 @@
 .vis.on { box-shadow: inset 0 0 0 2px var(--ink); background: var(--sel); }
 .vis:disabled { opacity: .5; cursor: not-allowed; }
 .live-tag { margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--green); color: #fff; font-size: 11px; font-weight: 600; vertical-align: 1px; }
-.allow-add { display: flex; gap: 8px; margin-bottom: 8px; } .allow-add input { flex: 1; margin: 0; }
+.allow-add { display: flex; gap: 8px; margin-bottom: 8px; } .allow-add input { flex: 1; margin: 0; } .allow-add select { flex: 1; margin: 0; }
 .allow-list { display: flex; flex-direction: column; gap: 4px; }
 .allow-row { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 10px; background: var(--bg2); }
 .pub-desc { width: 100%; resize: vertical; font: inherit; }

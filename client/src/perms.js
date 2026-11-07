@@ -1,5 +1,6 @@
 // Roles and permissions, mirrored from server/index.js (the server repeats every check; this only decides what to show).
 // server.roles is ordered highest first, server.everyone is what every member can do, server.memberRoles is { userId: [roleId] }.
+// server.ownerId is the owner; server.coOwners is [userId] of members the owner named to share the running of the server.
 export const PERMS = [
   { id: 'administrator', label: 'Administrator', desc: 'Has every permission. Give this out carefully.', danger: true },
   { id: 'manageServer', label: 'Manage server', desc: 'Change the name, icon, banner, theme, tags and invite link.' },
@@ -12,9 +13,13 @@ export const PERMS = [
 ];
 const ALL = PERMS.map((p) => p.id);
 
+// the owner, or one of the owner's co-owners: both have every permission and sit above every role
+export const isCoOwner = (server, uid) => !!server && !!uid && Array.isArray(server.coOwners) && server.coOwners.includes(uid);
+export const isOwner = (server, uid) => !!server && !!uid && (uid === server.ownerId || isCoOwner(server, uid));
+
 export function permsOf(server, uid) {
   if (!server || !uid) return new Set();
-  if (uid === server.ownerId) return new Set(ALL);
+  if (isOwner(server, uid)) return new Set(ALL);
   const set = new Set(server.everyone || []);
   for (const r of heldRoles(server, uid)) for (const p of r.perms) set.add(p);
   return set.has('administrator') ? new Set(ALL) : set;
@@ -26,23 +31,23 @@ export function heldRoles(server, uid) {
   const ids = (server?.memberRoles || {})[uid] || [];
   return (server?.roles || []).filter((r) => ids.includes(r.id));
 }
-// 0 = top role, larger = lower; -1 = owner; Infinity = no role
+// 0 = top role, larger = lower; -1 = owner or co-owner; Infinity = no role
 export function rankOf(server, uid) {
-  if (uid === server.ownerId) return -1;
+  if (isOwner(server, uid)) return -1;
   const ids = (server.memberRoles || {})[uid] || [];
   const idx = (server.roles || []).map((r, i) => (ids.includes(r.id) ? i : -1)).filter((i) => i >= 0);
   return idx.length ? Math.min(...idx) : Infinity;
 }
 // may this person change this role (it sits strictly below their top role)?
-export const belowMe = (server, uid, roleId) => uid === server.ownerId || (server.roles || []).findIndex((r) => r.id === roleId) > rankOf(server, uid);
+export const belowMe = (server, uid, roleId) => isOwner(server, uid) || (server.roles || []).findIndex((r) => r.id === roleId) > rankOf(server, uid);
 
 // the name colour a member's top coloured role gives them (undefined = their own accent colour)
 export const roleColorOf = (server, uid) => heldRoles(server, uid).find((r) => r.color)?.color;
 
 // does this person have any server-management power at all (shows "Server settings")?
-export const canManageAny = (server, uid) => ['manageServer', 'manageRoles', 'manageChannels', 'kickMembers'].some((p) => can(server, uid, p)) || uid === server.ownerId;
+export const canManageAny = (server, uid) => ['manageServer', 'manageRoles', 'manageChannels', 'kickMembers'].some((p) => can(server, uid, p)) || isOwner(server, uid);
 
-// The member list, grouped like Discord: the owner and then each role (highest first) list their members who are online,
+// The member list, grouped like Discord: the owner, the co-owners and then each role (highest first) list their members who are online,
 // then everyone else who is online, then everyone offline (offline people keep their role colour on their name).
 // `textOf(member)` is what `q` is matched against (name and username).
 export function memberGroups(server, members, isOnline, textOf, q) {
@@ -56,6 +61,7 @@ export function memberGroups(server, members, isOnline, textOf, q) {
     groups.push({ key, label, color, items });
   };
   take('owner', 'Owner', null, (m) => m.id === server.ownerId);
+  take('coowners', 'Co-owners', null, (m) => isCoOwner(server, m.id));
   (server.roles || []).forEach((r, i) => take('r:' + r.id, r.name, r.color || null, (m) => rankOf(server, m.id) === i));
   take('online', 'Online', null, () => true);
   const off = list.filter((m) => !placed.has(m.id));

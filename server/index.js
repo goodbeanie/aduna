@@ -35,6 +35,7 @@ const clipsLib = require('./clips'); // clips: short vertical videos (see the "c
 const screenLib = require('./screen'); // clip screening: OpenAI moderation of frames, music recognition, re-post matching (see POST /api/clips/:id/complete)
 const polls = require('./polls');
 const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global) and one for each server (see the "wordle" block below)
+const contextoLib = require('./contexto'); // Contexto: a daily word guessed by meaning, same scopes as Wordle (see the "contexto" block below)
 const featuresLib = require('./features'); // feature releases: off / testing (creator accounts only) / live (see the "feature releases" block below)
 const releasesLib = require('./releases'); // "What's new" releases: every release is a private draft until a creator publishes it (see the "releases" block below)
 const calllog = require('./calllog');
@@ -139,8 +140,10 @@ const PERMS = ['administrator', 'manageServer', 'manageRoles', 'manageChannels',
 const MAX_ROLES = 25;
 const roleById = (s, id) => (s.roles || []).find((r) => r.id === id);
 const heldRoleIds = (s, uid) => ((s.memberRoles || {})[uid] || []).filter((id) => roleById(s, id));
+// the owner, or one of the co-owners the owner named (server.coOwners = [userId]); both have every permission and sit above every role
+const isOwner = (s, uid) => !!s && (uid === s.ownerId || (Array.isArray(s.coOwners) && s.coOwners.includes(uid)));
 function permsOf(s, uid) {
-  if (uid === s.ownerId) return new Set(PERMS);
+  if (isOwner(s, uid)) return new Set(PERMS);
   const set = new Set(s.everyone || []);
   for (const id of heldRoleIds(s, uid)) for (const p of roleById(s, id).perms) set.add(p);
   return set.has('administrator') ? new Set(PERMS) : set;
@@ -148,7 +151,7 @@ function permsOf(s, uid) {
 const can = (s, uid, perm) => !!s && s.members.includes(uid) && permsOf(s, uid).has(perm);
 // position in the hierarchy: -1 owner, 0 top role ... Infinity = no role. Lower = more powerful.
 function rankOf(s, uid) {
-  if (uid === s.ownerId) return -1;
+  if (isOwner(s, uid)) return -1;
   const idx = heldRoleIds(s, uid).map((id) => s.roles.findIndex((r) => r.id === id));
   return idx.length ? Math.min(...idx) : Infinity;
 }
@@ -346,6 +349,7 @@ function serverView(s) {
     id: s.id,
     name: s.name,
     ownerId: s.ownerId,
+    coOwners: s.coOwners || [], // members the owner named to share the running of the server
     inviteCode: s.inviteCode,
     iconImage: s.iconImage || null,
     bannerImage: s.bannerImage || null,
@@ -2146,7 +2150,7 @@ app.post('/api/servers/:id/categories', auth, (req, res) => {
 // ----- edit / delete / reorder channels and categories (Manage channels) -----
 function ownerOf(req, res) { // publishing and who may join stay with the owner
   const s = db().servers[req.params.id];
-  if (!s || s.ownerId !== req.user.id) { res.status(403).json({ error: 'Only the server owner can do that' }); return null; }
+  if (!s || !isOwner(s, req.user.id)) { res.status(403).json({ error: 'Only the server owner can do that' }); return null; }
   return s;
 }
 function permOf(perm, what) {
@@ -2182,7 +2186,7 @@ app.delete('/api/servers/:id/channels/:cid', auth, (req, res) => {
     if (missing.length) return res.status(400).json({ error: `This server is published and needs its channels. Unpublish it first, or add ${missing.join(' and ')} before deleting this one.` });
   }
   // everything in the channel goes with it, including uploaded files
-  const gone = Object.values(db().messages).filter((m) => m.channelId === c.id);
+  const gone = store.messagesIn(c.id);
   const fileIds = gone.flatMap((m) => (m.attachments || []).map((a) => a.id).filter(Boolean));
   for (const m of gone) delete db().messages[m.id];
   s.channels = s.channels.filter((x) => x.id !== c.id);
@@ -2404,7 +2408,7 @@ app.post('/api/servers/:id/publish/allowed', auth, (req, res) => {
   const name = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
   const target = Object.values(db().users).find((u) => !u.bot && u.username.toLowerCase() === name);
   if (!name || !target) return res.status(404).json({ error: "We couldn't find anyone with that username" });
-  if (target.id === s.ownerId) return res.status(400).json({ error: 'You own this server, so you can always join it' });
+  if (isOwner(s, target.id)) return res.status(400).json({ error: 'That person owns this server, so they can always join it' });
   s.allowed = s.allowed || [];
   if (s.allowed.includes(target.id)) return res.status(400).json({ error: 'That person is already on the list' });
   if (s.allowed.length >= MAX_ALLOWED) return res.status(400).json({ error: `The list is limited to ${MAX_ALLOWED} people` });
@@ -2429,13 +2433,13 @@ const permsAllowed = (s, uid, before, after) => {
   return [...new Set([...before, ...after])].filter((p) => before.includes(p) !== after.includes(p)).every((p) => mine.has(p));
 };
 // can this person change this role? it must sit strictly below their top role
-const belowMe = (s, uid, roleId) => uid === s.ownerId || roleIndex(s, roleId) > rankOf(s, uid);
+const belowMe = (s, uid, roleId) => isOwner(s, uid) || roleIndex(s, roleId) > rankOf(s, uid);
 
 app.post('/api/servers/:id/roles', auth, (req, res) => {
   const s = rolesOf(req, res); if (!s) return;
   s.roles = s.roles || [];
   if (s.roles.length >= MAX_ROLES) return res.status(400).json({ error: `Role limit reached (${MAX_ROLES})` });
-  if (req.user.id !== s.ownerId && rankOf(s, req.user.id) === Infinity) return res.status(403).json({ error: 'You need a role of your own before you can create roles below it' });
+  if (!isOwner(s, req.user.id) && rankOf(s, req.user.id) === Infinity) return res.status(403).json({ error: 'You need a role of your own before you can create roles below it' });
   const name = clip(req.body?.name, 30).trim() || 'new role';
   const color = req.body?.color === undefined ? null : cleanColor(req.body.color);
   const perms = req.body?.perms === undefined ? [] : cleanPerms(req.body.perms);
@@ -2485,7 +2489,7 @@ app.put('/api/servers/:id/roles-order', auth, (req, res) => {
   const cur = (s.roles || []).map((r) => r.id);
   if (!Array.isArray(ids) || ids.length !== cur.length || new Set(ids).size !== ids.length || !ids.every((id) => cur.includes(id))) return res.status(400).json({ error: 'Send every role once' });
   const rank = rankOf(s, req.user.id);
-  if (req.user.id !== s.ownerId && !cur.slice(0, rank + 1).every((id, i) => ids[i] === id)) return res.status(403).json({ error: 'You cannot move roles at or above your own' });
+  if (!isOwner(s, req.user.id) && !cur.slice(0, rank + 1).every((id, i) => ids[i] === id)) return res.status(403).json({ error: 'You cannot move roles at or above your own' });
   s.roles = ids.map((id) => roleById(s, id));
   pushServer(s, res);
 });
@@ -2495,7 +2499,7 @@ app.put('/api/servers/:id/everyone', auth, (req, res) => {
   const s = rolesOf(req, res); if (!s) return;
   const perms = cleanPerms(req.body?.perms);
   if (!perms) return res.status(400).json({ error: 'Unknown permission' });
-  if (perms.includes('administrator') && req.user.id !== s.ownerId) return res.status(403).json({ error: 'Only the owner can give administrator to everyone' });
+  if (perms.includes('administrator') && !isOwner(s, req.user.id)) return res.status(403).json({ error: 'Only the owner can give administrator to everyone' });
   if (!permsAllowed(s, req.user.id, s.everyone || [], perms)) return res.status(403).json({ error: 'You can only change permissions you have yourself' });
   s.everyone = perms;
   pushServer(s, res);
@@ -2506,10 +2510,10 @@ app.put('/api/servers/:id/members/:uid/roles', auth, (req, res) => {
   const s = rolesOf(req, res); if (!s) return;
   const uid = req.params.uid;
   if (!s.members.includes(uid)) return res.status(404).json({ error: 'Not a member' });
-  if (uid === s.ownerId) return res.status(400).json({ error: 'The owner already has every permission' });
+  if (isOwner(s, uid)) return res.status(400).json({ error: 'The owner already has every permission' });
   const want = req.body?.roles;
   if (!Array.isArray(want) || !want.every((id) => roleById(s, id))) return res.status(400).json({ error: 'Unknown role' });
-  if (req.user.id !== s.ownerId && uid !== req.user.id && rankOf(s, uid) <= rankOf(s, req.user.id)) return res.status(403).json({ error: 'That member is at or above your own role' });
+  if (!isOwner(s, req.user.id) && uid !== req.user.id && rankOf(s, uid) <= rankOf(s, req.user.id)) return res.status(403).json({ error: 'That member is at or above your own role' });
   const have = heldRoleIds(s, uid);
   const changed = [...new Set([...have, ...want])].filter((id) => have.includes(id) !== want.includes(id));
   if (!changed.every((id) => belowMe(s, req.user.id, id))) return res.status(403).json({ error: 'You can only give or take roles below your own' });
@@ -2526,9 +2530,9 @@ app.post('/api/servers/:id/members/:uid/kick', auth, (req, res) => {
   const uid = req.params.uid;
   if (!s.members.includes(uid)) return res.status(404).json({ error: 'Not a member' });
   if (db().users[uid]?.bot) return res.status(400).json({ error: 'That is a bot. Remove it from Server settings > Bots.' });
-  if (uid === s.ownerId) return res.status(400).json({ error: 'The owner cannot be kicked' });
+  if (isOwner(s, uid)) return res.status(400).json({ error: uid === s.ownerId ? 'The owner cannot be kicked' : 'A co-owner cannot be kicked. The owner can remove them as a co-owner first.' });
   if (uid === req.user.id) return res.status(400).json({ error: 'Use Leave server to leave' });
-  if (req.user.id !== s.ownerId && rankOf(s, uid) <= rankOf(s, req.user.id)) return res.status(403).json({ error: 'That member is at or above your own role' });
+  if (!isOwner(s, req.user.id) && rankOf(s, uid) <= rankOf(s, req.user.id)) return res.status(403).json({ error: 'That member is at or above your own role' });
   s.members = s.members.filter((m) => m !== uid);
   if (s.memberRoles) delete s.memberRoles[uid];
   if (s.onboarded) delete s.onboarded[uid];
@@ -2603,7 +2607,7 @@ function cleanOnboarding(s, uid, b) {
 const onbDone = (s, uid) => !!s.onboarded?.[uid];
 function onbBlocking(s, uid) {
   const c = s.onboarding;
-  return !!(c?.enabled && c.required && !onbDone(s, uid) && uid !== s.ownerId && (s.joinedAt?.[uid] || 0) >= (c.startedAt || 0) && s.joinedAt?.[uid]);
+  return !!(c?.enabled && c.required && !onbDone(s, uid) && !isOwner(s, uid) && (s.joinedAt?.[uid] || 0) >= (c.startedAt || 0) && s.joinedAt?.[uid]);
 }
 function onbState(s, uid) {
   const rec = s.onboarded?.[uid];
@@ -2643,6 +2647,39 @@ app.post('/api/wordle/:scope/guess', auth, (req, res) => {
   store.save();
   res.json(wordleReply(req.user.id, t));
 });
+
+// ----- contexto (rules and storage: contexto.js) -----
+// The same scopes as Wordle: 'global' (Aduna's own word) and each server's word (members only, with standings). Guesses, hints, give-ups and
+// the answer are all handled here: the browser only ever receives ranks, and the answer once the player has found it or given up.
+const contextoHits = new security.RateWindow(120, 60_000); // guesses, hints and refreshes per person per minute
+function contextoGate(req, res) {
+  const t = wordleTarget(req, res); if (!t) return null;
+  if (!contextoLib.ready()) { res.status(503).json({ error: 'Contexto is not set up on this server yet' }); return null; }
+  if (!contextoHits.allow(req.user.id)) { res.status(429).json({ error: 'Slow down' }); return null; }
+  return t;
+}
+function contextoReply(uid, t, extra) {
+  const day = contextoLib.dayOf(now());
+  const out = contextoLib.view(db().contexto[uid] || contextoLib.blank(), t.scope, day, contextoLib.answerFor(t.scope, day, SECRET));
+  if (t.server) out.server = { id: t.server.id, name: t.server.name, standings: contextoLib.standings(db().contexto, t.scope, day, humansOf(t.server)) };
+  return extra ? Object.assign(out, extra) : out;
+}
+const contextoAct = (run) => (req, res) => {
+  const t = contextoGate(req, res); if (!t) return;
+  const day = contextoLib.dayOf(now());
+  const rec = db().contexto[req.user.id] || (db().contexto[req.user.id] = contextoLib.blank());
+  const r = run(rec, t.scope, day, contextoLib.answerFor(t.scope, day, SECRET), req.body || {}, now());
+  if (r.error) return res.status(400).json({ error: r.error });
+  store.save();
+  res.json(contextoReply(req.user.id, t, r.word ? { last: { word: r.word, repeat: !!r.repeat } } : null));
+};
+app.get('/api/contexto/:scope', auth, (req, res) => {
+  const t = contextoGate(req, res); if (!t) return;
+  res.json(contextoReply(req.user.id, t));
+});
+app.post('/api/contexto/:scope/guess', auth, contextoAct((rec, scope, day, answer, body, at) => contextoLib.play(rec, scope, day, answer, body.word, at)));
+app.post('/api/contexto/:scope/hint', auth, contextoAct((rec, scope, day, answer, body, at) => contextoLib.hint(rec, scope, day, answer, at)));
+app.post('/api/contexto/:scope/giveup', auth, contextoAct((rec, scope, day, answer, body, at) => contextoLib.giveUp(rec, scope, day, answer, at)));
 
 app.get('/api/servers/:id/onboarding', auth, (req, res) => {
   const s = db().servers[req.params.id];
@@ -2700,12 +2737,12 @@ app.post('/api/servers/:id/onboarding/answers', auth, (req, res) => {
   for (const id of prev) held.delete(id);
   for (const id of wanted) held.add(id);
   const granted = [...wanted].filter((id) => prev.has(id) || !heldBefore.has(id));
-  if (uid !== s.ownerId) { // the owner already has everything and holds no roles
+  if (!isOwner(s, uid)) { // the owner and co-owners already have everything and hold no roles
     s.memberRoles = s.memberRoles || {};
     const next = s.roles.map((r) => r.id).filter((id) => held.has(id));
     if (next.length) s.memberRoles[uid] = next; else delete s.memberRoles[uid];
   }
-  s.onboarded[uid] = { at: Date.now(), skipped: false, answers, granted: uid === s.ownerId ? [] : granted };
+  s.onboarded[uid] = { at: Date.now(), skipped: false, answers, granted: isOwner(s, uid) ? [] : granted };
   store.save();
   io.to('server:' + s.id).emit('server:update', serverView(s));
   res.json({ ...onbState(s, uid), server: serverView(s) });
@@ -2715,7 +2752,7 @@ app.post('/api/servers/:id/onboarding/answers', auth, (req, res) => {
 // read positions. Members' open connections are told (`server:removed` with reason 'deleted') and leave the rooms.
 function destroyServer(s) {
   const chanIds = new Set(s.channels.map((c) => c.id));
-  const gone = Object.values(db().messages).filter((m) => chanIds.has(m.channelId));
+  const gone = [...chanIds].flatMap((cid) => store.messagesIn(cid));
   const fileIds = gone.flatMap((m) => (m.attachments || []).map((a) => a.id).filter(Boolean));
   for (const m of gone) delete db().messages[m.id];
   for (const cid of chanIds) {
@@ -2751,6 +2788,7 @@ app.post('/api/servers/:id/leave', auth, (req, res) => {
     return res.json({ ok: true, deleted: true });
   }
   s.members = s.members.filter((m) => m !== req.user.id);
+  if (s.coOwners) s.coOwners = s.coOwners.filter((m) => m !== req.user.id); // a co-owner can simply leave
   if (s.memberRoles) delete s.memberRoles[req.user.id];
   if (s.onboarded) delete s.onboarded[req.user.id];
   if (s.joinedAt) delete s.joinedAt[req.user.id];
@@ -2786,6 +2824,7 @@ app.post('/api/servers/:id/transfer', auth, ah(async (req, res) => {
   if (!s.members.includes(target) || target === s.ownerId || db().users[target]?.bot) return res.status(400).json({ error: 'Pick a current member of the server' }); // re-checked after the awaits
   const old = s.ownerId;
   s.ownerId = target;
+  if (s.coOwners) s.coOwners = s.coOwners.filter((id) => id !== target); // the new owner no longer needs to be a co-owner
   // the owner holds no roles (they have every permission), and the previous owner becomes an ordinary member
   if (s.memberRoles) delete s.memberRoles[target];
   if (s.visibility === 'private') { // on a private server the old owner must stay allowed, or they could never rejoin
@@ -2796,6 +2835,35 @@ app.post('/api/servers/:id/transfer', auth, ah(async (req, res) => {
   io.to('server:' + s.id).emit('server:update', serverView(s));
   res.json({ server: serverView(s) });
 }));
+
+// Co-owners: the owner can name other members who share the running of the server (POST/DELETE .../co-owners).
+// A co-owner has every permission and cannot be kicked or ranked below anyone, exactly like the owner, but only the owner can
+// transfer or delete the server, or add and remove co-owners. A co-owner who leaves simply stops being one.
+const MAX_CO_OWNERS = 10;
+app.post('/api/servers/:id/co-owners', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  if (s.ownerId !== req.user.id) return res.status(403).json({ error: 'Only the server owner can add co-owners' });
+  const target = typeof req.body?.userId === 'string' ? req.body.userId : '';
+  if (target === s.ownerId) return res.status(400).json({ error: 'You already own this server' });
+  if (!s.members.includes(target) || db().users[target]?.bot) return res.status(400).json({ error: 'Pick a current member of the server' });
+  s.coOwners = s.coOwners || [];
+  if (s.coOwners.includes(target)) return res.status(400).json({ error: 'That person is already a co-owner' });
+  if (s.coOwners.length >= MAX_CO_OWNERS) return res.status(400).json({ error: `A server can have up to ${MAX_CO_OWNERS} co-owners` });
+  s.coOwners.push(target);
+  if (s.memberRoles) delete s.memberRoles[target]; // like the owner, a co-owner holds no roles: they have every permission
+  store.save();
+  res.json({ server: broadcastServer(s) });
+});
+app.delete('/api/servers/:id/co-owners/:uid', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  if (s.ownerId !== req.user.id) return res.status(403).json({ error: 'Only the server owner can remove co-owners' });
+  if (!(s.coOwners || []).includes(req.params.uid)) return res.status(404).json({ error: 'That person is not a co-owner' });
+  s.coOwners = s.coOwners.filter((id) => id !== req.params.uid);
+  store.save();
+  res.json({ server: broadcastServer(s) });
+});
 
 app.delete('/api/servers/:id', auth, ah(async (req, res) => {
   const peek = db().servers[req.params.id];
@@ -4115,6 +4183,7 @@ async function deleteAccount(u, { purge }) {
     out.servers++;
     if (s.ownerId === id) { destroyServer(s); out.serversDeleted++; continue; }
     s.members = s.members.filter((m) => m !== id);
+    if (s.coOwners) s.coOwners = s.coOwners.filter((m) => m !== id);
     if (s.memberRoles) delete s.memberRoles[id];
     if (s.onboarded) delete s.onboarded[id];
     if (s.joinedAt) delete s.joinedAt[id];
@@ -4710,7 +4779,7 @@ app.post('/api/servers/:id/read', auth, (req, res) => { // "Mark all as read"
 app.get('/api/channels/:id/messages', auth, (req, res) => {
   const f = findChannel(req.params.id);
   if (!f || !f.server.members.includes(req.user.id)) return res.status(403).json({ error: 'Forbidden' });
-  const list = Object.values(db().messages).filter((m) => m.channelId === f.channel.id).sort((a, b) => a.createdAt - b.createdAt).slice(-100);
+  const list = store.messagesIn(f.channel.id).sort((a, b) => a.createdAt - b.createdAt).slice(-100);
   res.json({ messages: list });
 });
 
@@ -4718,14 +4787,14 @@ app.get('/api/channels/:id/messages', auth, (req, res) => {
 app.get('/api/channels/:id/pins', auth, (req, res) => {
   const f = findChannel(req.params.id);
   if (!f || !f.server.members.includes(req.user.id)) return res.status(403).json({ error: 'Forbidden' });
-  const pins = Object.values(db().messages).filter((m) => m.channelId === f.channel.id && m.pinnedAt).sort((a, b) => b.pinnedAt - a.pinnedAt);
+  const pins = store.messagesIn(f.channel.id).filter((m) => m.pinnedAt).sort((a, b) => b.pinnedAt - a.pinnedAt);
   res.json({ messages: pins });
 });
 
 app.get('/api/dms', auth, (req, res) => {
   const me = req.user.id;
   const latest = new Map();
-  for (const m of Object.values(db().dms)) {
+  for (const m of store.dmsOfUser(me)) {
     if (m.from !== me && m.to !== me) continue;
     const other = m.from === me ? m.to : m.from;
     if (!latest.has(other) || latest.get(other).createdAt < m.createdAt) latest.set(other, m);
@@ -4771,7 +4840,7 @@ app.post('/api/dms/:userId/unhide', auth, (req, res) => {
 app.get('/api/dms/:userId/messages', auth, (req, res) => {
   if (!db().users[req.params.userId]) return res.status(404).json({ error: 'Not found' });
   const key = convoKey(req.user.id, req.params.userId);
-  const list = Object.values(db().dms).filter((m) => m.convo === key).sort((a, b) => a.createdAt - b.createdAt).slice(-100);
+  const list = store.dmsInConvo(key).sort((a, b) => a.createdAt - b.createdAt).slice(-100);
   res.json({ messages: list });
 });
 
@@ -5392,7 +5461,7 @@ io.on('connection', (socket) => {
     if (!f || !f.server.members.includes(uid) || !can(f.server, uid, 'manageMessages')) return reply({ error: 'Forbidden' });
     if (p.pinned === true) {
       if (msg.pinnedAt) return reply({ ok: true });
-      const count = Object.values(db().messages).filter((m) => m.channelId === msg.channelId && m.pinnedAt).length;
+      const count = store.messagesIn(msg.channelId).filter((m) => m.pinnedAt).length;
       if (count >= MAX_PINS) return reply({ error: `A channel can have up to ${MAX_PINS} pinned messages. Unpin one first.` });
       msg.pinnedAt = now(); msg.pinnedBy = uid;
     } else {
@@ -5536,7 +5605,7 @@ io.on('connection', (socket) => {
     if (!f || !f.server.members.includes(uid)) return reply({ error: 'Join the voice channel first' });
     const sound = soundboardLib.find(f.server, p.soundId);
     if (!sound) return reply({ error: 'That sound is gone' });
-    const why = soundboardLib.whyNot(f.server, { owner: uid === f.server.ownerId, admin: permsOf(f.server, uid).has('administrator'), roleIds: heldRoleIds(f.server, uid) });
+    const why = soundboardLib.whyNot(f.server, { owner: isOwner(f.server, uid), admin: permsOf(f.server, uid).has('administrator'), roleIds: heldRoleIds(f.server, uid) });
     if (why) return reply({ error: why });
     if (!soundboardLib.allow(soundPlays, uid, now())) return reply({ error: 'That is a lot of sounds at once. Ease off for a moment.', code: 'cooldown' });
     for (const sid of room.values()) io.to(sid).emit('soundboard:play', { channelId: cid, soundId: sound.id, userId: uid });

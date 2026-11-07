@@ -22,6 +22,7 @@ import './plain.css';
 import './studio.css';
 import './clips.css';
 import './wordle.css';
+import './contexto.css';
 import './events.css';
 import AdminPage from './AdminPage.jsx';
 import { CLIPS_ENABLED } from './features.js';

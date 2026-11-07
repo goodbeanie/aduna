@@ -4,7 +4,7 @@ import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
 import { nameProps } from './namestyle.js';
 import { BotTag } from './Bots.jsx';
-import { PERMS, can, permsOf, rankOf, belowMe, heldRoles } from './perms.js';
+import { PERMS, can, permsOf, rankOf, belowMe, heldRoles, isOwner as ownerOrCo, isCoOwner } from './perms.js';
 
 const COLORS = ['#e74c3c', '#e67e22', '#f1c40f', '#2ecc71', '#1abc9c', '#3498db', '#9b59b6', '#e91e63', '#95a5a6'];
 const sameList = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
@@ -18,7 +18,7 @@ export function RolesTab({ server, me, onChange }) {
   const [busy, setBusy] = useState(false);
   const [confirm, setConfirm] = useState(false);
   const roles = server.roles || [];
-  const isOwner = server.ownerId === me.id;
+  const isOwner = ownerOrCo(server, me.id); // the owner or a co-owner
   const mine = permsOf(server, me.id);
   const base = `/servers/${server.id}`;
 
@@ -145,12 +145,12 @@ export function MembersTab({ server, me, onChange }) {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const base = `/servers/${server.id}`;
-  const isOwner = server.ownerId === me.id;
+  const isOwner = ownerOrCo(server, me.id); // the owner or a co-owner
   const myRank = rankOf(server, me.id);
   const canRoles = can(server, me.id, 'manageRoles');
   const canKick = can(server, me.id, 'kickMembers');
   const list = server.members.filter((u) => (u.username + ' ' + u.displayName).toLowerCase().includes(q.trim().toLowerCase()));
-  const below = (u) => u.id !== server.ownerId && (isOwner || u.id === me.id || rankOf(server, u.id) > myRank);
+  const below = (u) => !ownerOrCo(server, u.id) && (isOwner || u.id === me.id || rankOf(server, u.id) > myRank);
 
   const run = async (fn) => {
     setErr(''); setBusy(true);
@@ -180,11 +180,11 @@ export function MembersTab({ server, me, onChange }) {
                 <div className="ma-who">
                   <b {...nameProps(u, held.find((r) => r.color)?.color)}>{u.displayName}</b>
                   <span className="muted small"> @{u.username}</span>
-                  {u.bot && <BotTag />}{u.id === server.ownerId && <span className="owner" title="Server owner"><Icon name="crown" size={14} /></span>}
+                  {u.bot && <BotTag />}{u.id === server.ownerId && <span className="owner" title="Server owner"><Icon name="crown" size={14} /></span>}{isCoOwner(server, u.id) && <span className="owner" title="Server co-owner"><Icon name="crown" size={14} /></span>}
                   <div className="ma-roles">{held.map((r) => <span key={r.id} className="role-chip"><span className="role-dot" style={{ background: r.color || 'var(--muted)' }} />{r.name}</span>)}</div>
                 </div>
                 {canRoles && !u.bot && <button className="btn small-btn" disabled={!editable || busy} title={editable ? '' : 'Their role is at or above yours'} onClick={() => setOpen(open === u.id ? null : u.id)}>Roles</button>}
-                {canKick && !u.bot && <button className="btn small-btn danger" disabled={busy || u.id === me.id || u.id === server.ownerId || (!isOwner && rankOf(server, u.id) <= myRank)} onClick={() => setKick(u)}>Kick</button>}
+                {canKick && !u.bot && <button className="btn small-btn danger" disabled={busy || u.id === me.id || ownerOrCo(server, u.id) || (!isOwner && rankOf(server, u.id) <= myRank)} onClick={() => setKick(u)}>Kick</button>}
               </div>
               {open === u.id && editable && (
                 <div className="ma-pick">
