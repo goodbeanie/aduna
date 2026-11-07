@@ -9,7 +9,7 @@ import Cropper from './Cropper.jsx';
 import ProfileSong from './ProfileSong.jsx';
 import GamePicker, { GameIcon, gameName } from './GamePicker.jsx';
 import SongPicker from './SongPicker.jsx';
-import TrackSection, { PREVIEW_SECS } from './TrackSection.jsx';
+import { PREVIEW_SECS } from './TrackSection.jsx';
 import { SoundTrim } from './SoundTrim.jsx';
 import { canTrim } from './soundtrim.js';
 import { safetyNumber } from './crypto.js';
@@ -457,7 +457,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     setSongTrim(null);
     setSongStage((s) => { if (s && s.file) URL.revokeObjectURL(s.url); return { track }; });
     setSongTitle(track.title);
-    setSection({ start: 0, end: PREVIEW_SECS }); setSectionOpen(true); // a new song starts with its whole preview, and the picker opens so they can choose a part
+    setSection({ start: 0, end: PREVIEW_SECS }); // a searched song plays its whole 30 second preview (the search only gives that clip, never the full song)
   }
   function removeSong() {
     setSongStage((s) => { if (s && s.file) URL.revokeObjectURL(s.url); return me.song ? null : undefined; });
@@ -611,11 +611,9 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
                 <div className="song-edit">
                   <span className="sp-cover">{shownTrack.art ? <img src={shownTrack.art} alt="" draggable={false} /> : <Icon name="music" size={18} />}</span>
                   <span className="sp-meta"><b>{shownTrack.title}</b><span>{shownTrack.artist}{sectionWhole ? '' : ` · plays ${section.start.toFixed(1)}s to ${section.end.toFixed(1)}s`}</span></span>
-                  <button type="button" className="btn" aria-expanded={sectionOpen} onClick={() => setSectionOpen((o) => !o)}>{sectionOpen ? 'Done' : 'Pick part'}</button>
                   <button type="button" className="btn" onClick={() => setSongSearch(true)}>Change</button>
                   <button type="button" className="btn ghost" onClick={removeSong}>Remove</button>
                 </div>
-                {sectionOpen && <TrackSection url={shownTrack.url} start={section.start} end={section.end} onChange={setSection} />}
               </>
             ) : (
               <div className="song-edit">
@@ -629,8 +627,8 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
           )}
           {!hasSong && !songSearch && (
             <div className="upload-row">
+              <button type="button" className="btn primary" onClick={() => songInput.current.click()}><Icon name="music" size={14} className="inline-icon" /> Upload a song</button>
               <button type="button" className="btn" onClick={() => setSongSearch(true)}><Icon name="search" size={14} className="inline-icon" /> Search for a song</button>
-              <button type="button" className="btn" onClick={() => songInput.current.click()}><Icon name="music" size={14} className="inline-icon" /> Upload a song</button>
             </div>
           )}
           {songSearch && <SongPicker onPick={pickTrack} onClose={() => setSongSearch(false)} />}
@@ -638,7 +636,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
             onWhole={songTrim.fits ? () => stageSong(songTrim.file, songTrim.file, true) : undefined}
             onUse={(cut) => stageSong(cut, songTrim.file, songTrim.fits)} onCancel={() => setSongTrim(null)} />}
           <input ref={songInput} type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav,.webm" hidden onChange={pickSong} />
-          <p className="muted small hint">Search for a song to give your card a play button, plus links to find it on Spotify and YouTube Music: you pick which part of its 30 second preview plays. Or upload a song (MP3, M4A, OGG, WAV or WebM, up to 25 MB) and pick the part of up to {SONG.secs} seconds to use; it plays on your card muted until someone presses the speaker.</p>
+          <p className="muted small hint">Upload a song (MP3, M4A, OGG, WAV or WebM, up to 25 MB) and pick any {SONG.secs} seconds of the full song to use; it plays on your card muted until someone presses the speaker. Or search for a song to give your card a play button with a 30 second preview (the search can only give that preview, not the full song), plus links to find it on Spotify and YouTube Music.</p>
           </section>
 
           <section className="ed-sec" aria-labelledby="pe-look">
