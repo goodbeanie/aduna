@@ -126,9 +126,12 @@ function sendPresence() { if (alive(page)) page.webContents.send('presence', isA
 ipcMain.on('presence-get', (e) => { if (fromPage(e)) sendPresence(); });
 
 function showWindow() {
-  if (!win) { createWindow(); return; }
+  if (!win || win.isDestroyed()) { createWindow(); return; }
   if (win.isMinimized()) win.restore();
-  win.show(); win.focus();
+  win.show();
+  // Windows can refuse to raise a window that was hidden in the tray; flicking always-on-top reliably brings it to the front.
+  try { win.setAlwaysOnTop(true); win.focus(); win.setAlwaysOnTop(false); } catch { win.focus(); }
+  if (alive(page)) page.webContents.focus();
 }
 
 // The tray item, the title bar button and the menu all lead to the same place: Settings > Developer, where the AI panel is.
@@ -157,7 +160,8 @@ function ensureToastWin() {
   toastReady = false;
   toastWin = new BrowserWindow({
     width: TOAST_W, height: 10, show: false, frame: false, transparent: true, hasShadow: false, resizable: false, movable: false,
-    focusable: false, skipTaskbar: true, alwaysOnTop: true, minimizable: false, maximizable: false, fullscreenable: false, backgroundColor: '#00000000',
+    skipTaskbar: true, alwaysOnTop: true, // NOT focusable:false: on Windows a transparent non-focusable window swallows clicks (the X and the card did nothing) and can't hand the app foreground rights. It still appears via showInactive() so it never steals focus when a card pops up.
+ minimizable: false, maximizable: false, fullscreenable: false, backgroundColor: '#00000000',
     webPreferences: { preload: path.join(__dirname, 'toast-preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, backgroundThrottling: false },
   });
   toastWin.setAlwaysOnTop(true, 'screen-saver'); // above full-screen windows too
@@ -188,8 +192,10 @@ ipcMain.on('toast-size', (e, w, h) => {
 ipcMain.on('toast-open', (e, id) => {
   if (!alive(toastWin) || e.sender !== toastWin.webContents) return;
   const target = toastTargets.get(clean(id, 80)) || '';
+  const fresh = !win || win.isDestroyed();           // window was closed to nothing: let the page load before telling it where to go
   showWindow();
-  if (alive(page)) page.webContents.send('notif-click', target);
+  const go = () => { if (alive(page)) page.webContents.send('notif-click', target); };
+  if (fresh) setTimeout(go, 4000); else go();
 });
 ipcMain.on('toast-gone', (e, id) => { if (alive(toastWin) && e.sender === toastWin.webContents) toastTargets.delete(clean(id, 80)); });
 
