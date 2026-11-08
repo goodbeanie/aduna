@@ -243,7 +243,7 @@ export function BadgeIcons({ user, size = 16 }) {
     <span className="ubadges">
       {list.map((b) => {
         if (b.glyph === 'artist') return <span key={b.id} className="ubadge glyph" role="img" aria-label={b.name} title={b.name} style={{ width: size, height: size, '--glyph': 'url(/badges/artist.png)' }} />;
-        const src = b.builtin ? '/badges/creator.png' : imageUrl(b.image);
+        const src = typeof b.src === 'string' && b.src.startsWith('/badges/') ? b.src : b.builtin ? '/badges/creator.png' : imageUrl(b.image); // `src`: a badge with its own fixed picture in /badges (Founding Member)
         return (
           <span key={b.id} className="ubadge" title={b.name} style={{ width: size, height: size, fontSize: size * 0.7, background: src ? 'transparent' : b.color }}>
             {src ? <img src={src} alt={b.name} draggable={false} /> : b.emoji || Array.from(b.name)[0]}

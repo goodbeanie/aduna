@@ -1,0 +1,10 @@
+/* The Founding Member bar (FoundingBar.jsx), shown on the sign-up page. Uses only the app's palette variables, so it follows the chosen theme. */
+.su-founding { display: flex; align-items: center; gap: 16px; margin: 16px 0 0; padding: 14px 16px; border: 1px solid var(--line2); border-radius: var(--r-lg, 12px); }
+.su-founding img { flex: none; width: 40px; height: 40px; }
+.su-founding-body { flex: 1; min-width: 0; }
+.su-founding-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; color: var(--head); font-size: 14px; }
+.su-founding-top span { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.su-founding-track { height: 8px; border-radius: 99px; background: var(--line2); overflow: hidden; }
+.su-founding-track i { display: block; height: 100%; border-radius: 99px; background: var(--ink); transition: width .8s cubic-bezier(0.2, 0, 0, 1); }
+.su-founding p { margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+@media (prefers-reduced-motion: reduce) { .su-founding-track i { transition: none; } }

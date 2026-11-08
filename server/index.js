@@ -13,6 +13,7 @@ const credits = require('./credits');
 const storagePlan = require('./storage');
 const storageBudgetLib = require('./storage-budget'); // how much a free person may keep (see the file's header); on unless FREE_STORAGE_CAP=0
 const artistsLib = require('./artists'); // artists: apply, get reviewed, sell badges in the shop (see the "artists" block below)
+const foundingLib = require('./founding'); // the first 1,000 people to join get the Founding Member badge (see founding.js)
 const stickersLib = require('./stickers'); // sticker packs: big pictures sent on their own, sold in the shop (see the "stickers" block below)
 const profileLib = require('./profile'); // pronouns, the games shelf and the profile song (rules only; the routes sit next to the profile image routes)
 const musicLib = require('./music'); // song search for the profile song (iTunes Search API, see the file's header)
@@ -199,6 +200,7 @@ function allBadgeViews(u) {
   const out = [];
   if (isCreator(u)) out.push(CREATOR_BADGE);
   if (!u.bot && artistsLib.isArtist(db().artists && db().artists[u.id])) out.push(ARTIST_BADGE); // an approved artist wears the Artist badge
+  out.push(...foundingLib.badgeViews(u)); // Founding Member: one of the first 1,000 people to join (u.founding, set when the account is made)
   for (const id of Array.isArray(u.badges) ? u.badges : []) {
     const b = db().badges && db().badges[id];
     if (b && b.kind !== 'frame' && b.kind !== 'stickers') out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' }); // frames are worn around the avatar, not next to the name (see wornFrame); sticker packs are never worn
@@ -602,6 +604,7 @@ function newUserFromSignup(f) {
     // The app's sign-up sends setup:true: the person then picks a language and whether to join the Aduna server on the setup screen
     // (POST /api/me/setup). Other callers keep the old behaviour of joining it straight away.
     ...(f.setup === true ? { setupPending: true, joinAduna: false } : {}),
+    ...foundingLib.claimFor(db().users), // one of the first 1,000 people: gets a number (u.founding) and the Founding Member badge
     createdAt: now(),
   };
 }
@@ -669,6 +672,14 @@ app.post('/api/register', authLimiter, async (req, res) => {
     try { await issueCode(user); } catch (e) { console.error('verification email failed:', e.message); } // they can press "resend"
   }
   res.json({ token: startSession(req, res, user), user: ownUser(user) });
+});
+
+// The sign-up bar: how many people have joined and the goal for the Founding Member badge. Public (it is only a head count), cached for a few seconds.
+let foundingCache = { at: 0, body: null };
+app.get('/api/founding', (req, res) => {
+  const t = Date.now();
+  if (!foundingCache.body || t - foundingCache.at > 5000) foundingCache = { at: t, body: foundingLib.progress(db().users) };
+  res.set('Cache-Control', 'public, max-age=5').json(foundingCache.body);
 });
 
 // Everyone starts in the official Aduna server. It is found by invite code (DEFAULT_SERVER_INVITE, default "aduna"),
@@ -5725,6 +5736,7 @@ async function start() {
   await store.backfillFileOwners();                                               // files from before owners were kept in the open
   try { await syncReleases(); } catch (e) { console.error('Releases sync failed:', e.message); } // new releases arrive as private drafts
   SECRET = store.jwtSecret;
+  if (foundingLib.backfill(db().users)) store.save(); // people who joined before the Founding Member badge existed: the earliest 1,000 get it (safe to repeat)
   await loadLimits();
   store.closeHooks.add(saveLimits);
   await store.pruneImages(referencedImages());   // drop images no profile or emoji points at (left over from a crash mid-upload)

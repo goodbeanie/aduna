@@ -6,6 +6,7 @@ import { Avatar } from './ui.jsx';
 import { Swatch } from './Appearance.jsx';
 import { THEMES, GRADIENT_THEMES, applyTheme, loadTheme, previewColors } from './themes.js';
 import { themeCardStyle, themeGradient } from './profilethemes.js';
+import FoundingBar from './FoundingBar.jsx';
 
 // Sign-up in three steps, so the person builds something before they are asked for anything:
 //   1  design your profile: username, picture, profile theme and the app theme, with a live card that follows every choice
@@ -215,6 +216,7 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin, google, g
           {LANGS.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
         </select>
       </div>
+      <FoundingBar />
       <ol className="su-steps" aria-label={t('suStep', { n: step })}>
         {STEPS.map((k, i) => {
           const n = i + 1;
