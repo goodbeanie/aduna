@@ -1971,6 +1971,8 @@ app.post('/api/friends/request', auth, (req, res) => {
   const target = Object.values(db().users).find((u) => !u.bot && u.username.toLowerCase() === name);
   if (!target) return res.status(404).json({ error: "We couldn't find anyone with that username" });
   if (target.id === me.id) return res.status(400).json({ error: "You can't add yourself" });
+  if (hasBlocked(me, target.id)) return res.status(400).json({ error: `You blocked ${target.displayName}. Unblock them first.` });
+  if (hasBlocked(target, me.id)) return res.status(400).json({ error: 'We could not send that request.' }); // does not say why
 
   const f = friendship(me.id, target.id);
   if (f?.status === 'friends') return res.status(400).json({ error: `You're already friends with ${target.displayName}` });
@@ -2010,6 +2012,81 @@ app.delete('/api/friends/:id', auth, (req, res) => {
   store.save();
   notifyFriends(f.from, f.to);
   res.json({ ok: true });
+});
+
+// ----- blocking and muting people -----
+// user.blocked = ids of people this person blocked. A blocked person cannot send them messages, friend requests or calls, the friendship ends,
+// and what they write in a server both of them are in is not shown to the blocker (not in the history, no unread count, no notification).
+// user.mutedDms = ids of people whose direct messages stay quiet for this person: no phone push, no desktop card, no unread badge. The messages still arrive.
+const SOCIAL_MAX = 1000;
+const SOCIAL_ID = /^[0-9a-f]{16}$/;
+const socialIds = (u, key) => (Array.isArray(u?.[key]) ? u[key] : []);
+const hasBlocked = (u, id) => socialIds(u, 'blocked').includes(id); // did u block id?
+const blockedEither = (a, b) => hasBlocked(db().users[a], b) || hasBlocked(db().users[b], a);
+const isDmMuted = (u, id) => socialIds(u, 'mutedDms').includes(id);
+const socialView = (u) => {
+  const list = (key) => socialIds(u, key).map((id) => db().users[id]).filter(Boolean).map(publicUser);
+  return { blocked: list('blocked'), muted: list('mutedDms') };
+};
+const socialChanged = (uid) => io.to('user:' + uid).emit('social:changed'); // the person's other devices reload both lists
+function socialTarget(req, res) {
+  const id = req.params.id;
+  if (typeof id !== 'string' || !SOCIAL_ID.test(id) || id === req.user.id || !db().users[id]) { res.status(404).json({ error: 'Not found' }); return null; }
+  return db().users[id];
+}
+const socialAdd = (u, key, id) => {
+  if (!Array.isArray(u[key])) u[key] = [];
+  if (u[key].includes(id)) return true;
+  if (u[key].length >= SOCIAL_MAX) return false;
+  u[key].push(id);
+  return true;
+};
+const socialRemove = (u, key, id) => { u[key] = socialIds(u, key).filter((x) => x !== id); };
+
+app.get('/api/blocks', auth, (req, res) => res.json(socialView(req.user)));
+
+app.post('/api/blocks/:id', auth, (req, res) => {
+  const target = socialTarget(req, res);
+  if (!target) return;
+  const me = req.user;
+  if (!socialAdd(me, 'blocked', target.id)) return res.status(400).json({ error: 'You have blocked too many people' });
+  // blocking ends the friendship (or a request either way), closes the conversation and hangs up a call between the two
+  const key = convoKey(me.id, target.id);
+  const f = db().friendships[key];
+  if (f) { delete db().friendships[key]; notifyFriends(f.from, f.to); }
+  const at = now();
+  (me.hiddenDms || (me.hiddenDms = {}))[target.id] = at;
+  const c = [...calls.values()].find((x) => (x.a === me.id && x.b === target.id) || (x.a === target.id && x.b === me.id));
+  if (c) endCall(c, c.state === 'ringing' ? (c.a === me.id ? 'cancelled' : 'declined') : 'hangup');
+  store.save();
+  io.to('user:' + me.id).emit('dm:hidden', { userId: target.id, at });
+  socialChanged(me.id);
+  res.json(socialView(me));
+});
+app.delete('/api/blocks/:id', auth, (req, res) => {
+  const target = socialTarget(req, res);
+  if (!target) return;
+  socialRemove(req.user, 'blocked', target.id);
+  store.save();
+  socialChanged(req.user.id);
+  res.json(socialView(req.user));
+});
+
+app.post('/api/dm-mutes/:id', auth, (req, res) => {
+  const target = socialTarget(req, res);
+  if (!target) return;
+  if (!socialAdd(req.user, 'mutedDms', target.id)) return res.status(400).json({ error: 'You have muted too many people' });
+  store.save();
+  socialChanged(req.user.id);
+  res.json(socialView(req.user));
+});
+app.delete('/api/dm-mutes/:id', auth, (req, res) => {
+  const target = socialTarget(req, res);
+  if (!target) return;
+  socialRemove(req.user, 'mutedDms', target.id);
+  store.save();
+  socialChanged(req.user.id);
+  res.json(socialView(req.user));
 });
 
 // ----- servers & channels -----
@@ -4662,9 +4739,10 @@ function noteCounts(u, servers) {
     const sp = serverPrefsOf(u, s.id);
     for (const c of s.channels) info.set(c.id, { sp, pos: np.readPosition(u, c.id, s.joinedAt?.[u.id]), msgs: [] });
   }
+  const blocked = new Set(socialIds(u, 'blocked')); // messages from people you blocked are hidden, so they never count as unread or as a mention
   for (const m of Object.values(db().messages)) {
     const i = info.get(m.channelId);
-    if (i && m.createdAt > i.pos) i.msgs.push(m);
+    if (i && m.createdAt > i.pos && !blocked.has(m.authorId)) i.msgs.push(m);
   }
   const out = {};
   for (const [cid, i] of info) {
@@ -4779,7 +4857,8 @@ app.post('/api/servers/:id/read', auth, (req, res) => { // "Mark all as read"
 app.get('/api/channels/:id/messages', auth, (req, res) => {
   const f = findChannel(req.params.id);
   if (!f || !f.server.members.includes(req.user.id)) return res.status(403).json({ error: 'Forbidden' });
-  const list = store.messagesIn(f.channel.id).sort((a, b) => a.createdAt - b.createdAt).slice(-100);
+  const blocked = new Set(socialIds(req.user, 'blocked')); // what people you blocked wrote in this server is not sent to you
+  const list = store.messagesIn(f.channel.id).filter((m) => !blocked.has(m.authorId)).sort((a, b) => a.createdAt - b.createdAt).slice(-100);
   res.json({ messages: list });
 });
 
@@ -4787,7 +4866,8 @@ app.get('/api/channels/:id/messages', auth, (req, res) => {
 app.get('/api/channels/:id/pins', auth, (req, res) => {
   const f = findChannel(req.params.id);
   if (!f || !f.server.members.includes(req.user.id)) return res.status(403).json({ error: 'Forbidden' });
-  const pins = store.messagesIn(f.channel.id).filter((m) => m.pinnedAt).sort((a, b) => b.pinnedAt - a.pinnedAt);
+  const blocked = new Set(socialIds(req.user, 'blocked'));
+  const pins = store.messagesIn(f.channel.id).filter((m) => m.pinnedAt && !blocked.has(m.authorId)).sort((a, b) => b.pinnedAt - a.pinnedAt);
   res.json({ messages: pins });
 });
 
@@ -5187,6 +5267,7 @@ function pushChannelMessage(f, msg, kind, uid) {
   // Each person's own settings for this server decide whether it may alert them (mute, mentions only, @everyone off, ...).
   const to = (id, k, how, what) => {
     if (sent.has(id) || !f.server.members.includes(id)) return;
+    if (hasBlocked(db().users[id], uid)) return; // they blocked the author: no alert for anything this person writes
     if (!np.decide(uidPrefs(id, f.server.id), f.channel.id, how, now()).alert) return;
     sent.add(id); pushSafe(id, k, { title: who, body: `${where}${what}\n${preview}`, url, tag: 'm:' + msg.id, ...look });
   };
@@ -5306,6 +5387,7 @@ io.on('connection', (socket) => {
     if (!allowed()) return reply({ error: 'Slow down' });
     const to = db().users[p?.to];
     if (!to || to.id === uid) return reply({ error: 'Cannot send' });
+    if (blockedEither(uid, to.id)) return reply({ error: 'You cannot message this person' });
     if (!areFriends(uid, to.id)) return reply({ error: 'You can only message friends' });
     if (!to.publicKey) return reply({ error: 'They have not set up encryption yet' });
     if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > MAX_CIPHER || p.iv.length > 64)
@@ -5342,8 +5424,9 @@ io.on('connection', (socket) => {
       if (pv) pushBody = pv;
       else if (files.length) pushBody = 'Sent an attachment';
     }
-    pushSafe(to.id, 'dm', { title: db().users[uid]?.displayName || 'Someone', body: pushBody, url: `/app?n=d:${uid}`, tag: 'm:' + msg.id,
-      sender: db().users[uid]?.displayName, icon: imgPath(db().users[uid]?.avatarImage), peerId: uid, msgId: msg.id, reply: 'open', read: true });
+    if (!isDmMuted(to, uid)) // the recipient muted this person: the message arrives quietly, with no phone notification
+      pushSafe(to.id, 'dm', { title: db().users[uid]?.displayName || 'Someone', body: pushBody, url: `/app?n=d:${uid}`, tag: 'm:' + msg.id,
+        sender: db().users[uid]?.displayName, icon: imgPath(db().users[uid]?.avatarImage), peerId: uid, msgId: msg.id, reply: 'open', read: true });
     reply({ ok: true });
   });
 
@@ -5516,6 +5599,7 @@ io.on('connection', (socket) => {
     if (!allowed()) return reply({ error: 'Slow down' });
     const to = db().users[p?.to];
     if (!to || to.id === uid || !areFriends(uid, to.id)) return reply({ error: 'You can only call friends' });
+    if (blockedEither(uid, to.id)) return reply({ error: 'You cannot call this person' });
     if (callOf(uid) || groups.callOfUser(uid)) return reply({ error: 'You are already on a call' });
     // someone with the app closed can still be rung through a push notification (the ring is shown when they open it)
     if (!isOnline(to.id) && !(push.enabled && to.pushSubs?.length && push.prefsOf(to).calls && to.status !== 'dnd')) return reply({ error: `${to.displayName} is offline` });

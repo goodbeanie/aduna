@@ -6,13 +6,13 @@ import { EmptyState, PopMenu } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import WhosOn from './WhosOn.jsx';
 
-const TABS = [['whoson', 'whoOn'], ['all', 'fAll'], ['online', 'fOnline'], ['pending', 'fPending'], ['add', 'fAdd']];
+const TABS = [['whoson', 'whoOn'], ['all', 'fAll'], ['online', 'fOnline'], ['pending', 'fPending'], ['blocked', null], ['add', 'fAdd']]; // 'blocked' has a plain label
 
 // Friends list order: Online, then Idle, then Offline, then Do Not Disturb.
 const STATUS_ORDER = { online: 0, idle: 1, offline: 2, dnd: 3 };
 const rankOf = (st) => (st in STATUS_ORDER ? STATUS_ORDER[st] : STATUS_ORDER.offline);
 
-export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, onRequest, onAccept, onRemove, onBack, servers = [], me, onExplore, users = {}, voiceMembers = {}, onJoinVoice, onSettings }) {
+export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, onRequest, onAccept, onRemove, blocked = [], onUnblock, onBack, servers = [], me, onExplore, users = {}, voiceMembers = {}, onJoinVoice, onSettings }) {
   const { t } = useLang();
   const [tab, setTab] = useState('whoson'); // opening the app lands on Who's On
   const [sugErr, setSugErr] = useState('');
@@ -92,7 +92,7 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
         <div className="ftabs">
           {TABS.map(([k, label]) => (
             <button key={k} className={'ftab' + (tab === k ? ' on' : '') + (k === 'add' ? ' add' : '')} onClick={() => { setTab(k); setMsg(null); }}>
-              {t(label)}{k === 'pending' && fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
+              {k === 'blocked' ? 'Blocked' : t(label)}{k === 'pending' && fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
             </button>
           ))}
         </div>
@@ -157,6 +157,15 @@ export default function Friends({ fr, statusOf, onMessage, onUser, onUserMenu, o
                 </div>
               </div>
             )}
+          </>
+        )}
+
+        {tab === 'blocked' && (
+          <>
+            {blocked.length > 0 && <div className="side-label">Blocked — {blocked.length}</div>}
+            {blocked.map((u) => row(u, 'Blocked',
+              <button className="btn fsug-add" onClick={() => onUnblock(u)}>Unblock</button>))}
+            {blocked.length === 0 && <EmptyState icon="users" title="You haven’t blocked anyone" />}
           </>
         )}
 

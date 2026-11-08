@@ -182,6 +182,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [plain, setPlain] = useState({});
   const [convos, setConvos] = useState([]);
   const [fr, setFr] = useState({ friends: [], incoming: [], outgoing: [] });
+  const [social, setSocial] = useState({ blocked: [], muted: [] }); // people you blocked / muted (full profiles; the ids are what the chat checks)
   const [unread, setUnread] = useState({});
   useDrafts(); // re-render when a draft is saved or cleared, so the DM list can show its "Draft" tag
   const [mentions, setMentions] = useState({}); // 'c:<channelId>' -> unread messages that mention you (kept in memory like unread)
@@ -239,7 +240,12 @@ function Main({ me, setMe, privKey, openServerId }) {
   serversRef.current = servers;
   usersRef.current = users;
   plainRef.current = plain;
-
+  const blockedIds = useMemo(() => new Set(social.blocked.map((u) => u.id)), [social.blocked]);
+  const mutedIds = useMemo(() => new Set(social.muted.map((u) => u.id)), [social.muted]);
+  const blockedRef = useRef(blockedIds);
+  const mutedRef = useRef(mutedIds);
+  blockedRef.current = blockedIds;
+  mutedRef.current = mutedIds;
   const addUsers = useCallback((list) => {
     setUsers((prev) => {
       const next = { ...prev };
@@ -292,6 +298,12 @@ function Main({ me, setMe, privKey, openServerId }) {
     frIncoming.current = ids;
     addUsers([...r.friends, ...r.incoming.map((x) => x.user), ...r.outgoing.map((x) => x.user)]);
   }, [addUsers]);
+  const loadSocial = useCallback(async () => { // the people you blocked and muted (the server keeps both lists; other devices send 'social:changed')
+    const r = await api('/blocks');
+    setSocial({ blocked: r.blocked || [], muted: r.muted || [] });
+    addUsers([...(r.blocked || []), ...(r.muted || [])]);
+  }, [addUsers]);
+  useEffect(() => { loadSocial().catch(() => {}); }, [loadSocial]);
   const bump = (key) => setUnread((p) => ({ ...p, [key]: (p[key] || 0) + 1 }));
   const clearUnread = (key) => {
     setUnread((p) => { if (!p[key]) return p; const n = { ...p }; delete n[key]; return n; });
@@ -412,6 +424,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('session:revoked', () => logout()); // "log out everywhere" was used on another device
 
     s.on('message:new', (m) => {
+      if (blockedRef.current.has(m.authorId)) return; // you blocked them: nothing they write shows, counts or alerts
       setChan((p) => ({ ...p, [m.channelId]: mergeById(p[m.channelId] || [], [m]) }));
       const v = viewRef.current;
       const watching = v?.kind === 'server' && !v.lounge && !v.events && v.channelId === m.channelId && !document.hidden;
@@ -438,6 +451,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
     // closing a conversation on one device closes it on all of them (the messages stay; see POST /api/dms/:id/hide)
     s.on('dm:hidden', ({ userId }) => setConvos((c) => c.filter((x) => x !== userId)));
+    s.on('social:changed', () => loadSocial().catch(() => {})); // blocked or muted someone on another device
     s.on('dm:unhidden', ({ userId }) => setConvos((c) => (c.includes(userId) ? c : [userId, ...c])));
 
     s.on('dm:new', (m) => {
@@ -446,8 +460,9 @@ function Main({ me, setMe, privKey, openServerId }) {
       setConvos((c) => [partner, ...c.filter((x) => x !== partner)]);
       const v = viewRef.current;
       const watching = v?.kind === 'dm' && v.userId === partner && !document.hidden;
-      if (!watching && m.from !== me.id) bump('d:' + partner);
-      if (m.from !== me.id && notify.away() && prefsOf().dm !== false) {
+      const muted = m.from !== me.id && mutedRef.current.has(partner); // you muted them: the message arrives quietly (no badge, no card)
+      if (!watching && m.from !== me.id && !muted) bump('d:' + partner);
+      if (m.from !== me.id && !muted && notify.away() && prefsOf().dm !== false) {
         // DMs are encrypted: this device decrypts the text for the notification, the server never sees it
         (async () => {
           const [t, who] = await Promise.all([decryptMsg(m), usersRef.current[partner] || api('/users/' + partner).then((r) => r.user).catch(() => null)]);
@@ -509,7 +524,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('disconnect', () => { callHandleRef.current('disconnect'); gcallHandleRef.current('disconnect'); });
     // An announcement notifies every member, whichever channel they are looking at.
     s.on('announcement:new', async ({ serverId, channelId, messageId, authorId }) => {
-      if (authorId === me.id) return;
+      if (authorId === me.id || blockedRef.current.has(authorId)) return;
       const sv = serversRef.current.find((x) => x.id === serverId), ch = sv?.channels.find((c) => c.id === channelId);
       if (!sv || !ch) return;
       if (!np.decide(notePrefsRef.current[serverId], channelId, 'announcement', Date.now()).alert) return; // muted, "nothing", or announcements switched off for this server
@@ -571,7 +586,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
     const iv = setInterval(() => tick((n) => n + 1), 1000);
     return () => { clearInterval(iv); unwatch(); s.disconnect(); };
-  }, [me.id, setMe, addUsers, logout, loadFriends, loadNotes]);
+  }, [me.id, setMe, addUsers, logout, loadFriends, loadNotes, loadSocial]);
 
   const voice = useVoice({ socketRef, ready: me.id });
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
@@ -724,14 +739,14 @@ function Main({ me, setMe, privKey, openServerId }) {
   }, [serverThemeKey, editingServer]);
 
   const messages = useMemo(() => {
-    if (view?.kind === 'server') return chan[view.channelId] || [];
+    if (view?.kind === 'server') return (chan[view.channelId] || []).filter((m) => !blockedIds.has(m.authorId)); // messages from people you blocked are not shown
     if (group) return groups.messagesFor(group.id);
     if (dmUser) {
       const texts = (dmRaw[dmUser.id] || []).map((m) => ({ id: m.id, authorId: m.from, content: plain[m.id]?.text ?? '…', attachments: plain[m.id]?.attachments, invite: plain[m.id]?.invite, replyTo: m.replyTo, reactions: m.reactions, createdAt: m.createdAt, editedAt: m.editedAt }));
       return withCalls(texts, callsRaw[dmUser.id]); // finished calls sit between the messages, by the time they ended
     }
     return [];
-  }, [view, chan, dmRaw, callsRaw, plain, dmUser, group, groups.messagesFor]);
+  }, [view, chan, dmRaw, callsRaw, plain, dmUser, group, groups.messagesFor, blockedIds]);
 
   const typingKey = view?.kind === 'server' ? view.channelId : group ? 'g:' + group.id : dmUser ? 'dm:' + dmUser.id : null;
   const typingNames = Object.entries(typing[typingKey] || {}).filter(([uid, t]) => uid !== me.id && t > Date.now()).map(([uid]) => users[uid]?.displayName || 'Someone');
@@ -781,6 +796,11 @@ function Main({ me, setMe, privKey, openServerId }) {
         rel === 'incoming' && { label: 'Accept friend request', icon: 'check', onClick: () => acceptFriend(id) },
         rel === 'friend' && { label: 'Remove friend', icon: 'close', onClick: async () => { if (await askConfirm({ title: 'Remove friend', body: `Remove ${u.displayName} from your friends?`, confirmLabel: 'Remove', danger: true })) removeFriend(id); } },
         u.username && { label: 'Copy username', icon: 'copy', onClick: () => ctxMenu.copy('@' + u.username) },
+        !isMe && !u.bot && 'sep',
+        !isMe && !u.bot && { label: mutedIds.has(id) ? 'Unmute messages' : 'Mute messages', icon: mutedIds.has(id) ? 'bell' : 'belloff', onClick: () => toggleMute(u) },
+        !isMe && (blockedIds.has(id)
+          ? { label: 'Unblock', icon: 'check', onClick: () => unblockUser(u) }
+          : { label: 'Block', icon: 'close', danger: true, onClick: () => blockUser(u) }),
         canKickThem && 'sep',
         canKickThem && { label: 'Kick from server', icon: 'close', danger: true, onClick: () => setModal({ type: 'kick', id }) },
       ],
@@ -834,6 +854,20 @@ function Main({ me, setMe, privKey, openServerId }) {
   const requestFriend = async (username) => { const r = await api('/friends/request', { method: 'POST', body: { username } }); await loadFriends(); return r; };
   const acceptFriend = (id) => api(`/friends/${id}/accept`, { method: 'POST' }).then(loadFriends).catch((e) => showToast(e.message, 'error'));
   const removeFriend = (id) => api(`/friends/${id}`, { method: 'DELETE' }).then(loadFriends).catch((e) => showToast(e.message, 'error'));
+  // block / mute: the server answers with both lists. Blocking also ends the friendship, so the friends list is reloaded.
+  const applySocial = (r) => { setSocial({ blocked: r.blocked || [], muted: r.muted || [] }); addUsers([...(r.blocked || []), ...(r.muted || [])]); };
+  const blockUser = async (u) => {
+    if (!(await askConfirm({ title: `Block ${u.displayName}`, body: `They won’t be able to message or call you, you won’t see what they write in servers, and you’ll stop being friends. You can unblock them any time from Friends > Blocked.`, confirmLabel: 'Block', danger: true }))) return;
+    try {
+      applySocial(await api(`/blocks/${u.id}`, { method: 'POST' }));
+      setConvos((c) => c.filter((x) => x !== u.id));
+      clearUnread('d:' + u.id);
+      await loadFriends();
+      showToast(`Blocked ${u.displayName}`);
+    } catch (e) { showToast(e.message, 'error'); }
+  };
+  const unblockUser = (u) => api(`/blocks/${u.id}`, { method: 'DELETE' }).then((r) => { applySocial(r); showToast(`Unblocked ${u.displayName}`); }).catch((e) => showToast(e.message, 'error'));
+  const toggleMute = (u) => api(`/dm-mutes/${u.id}`, { method: mutedIds.has(u.id) ? 'DELETE' : 'POST' }).then((r) => { applySocial(r); clearUnread('d:' + u.id); }).catch((e) => showToast(e.message, 'error'));
   const relationOf = (id) => id === me.id ? 'self' : fr.friends.some((u) => u.id === id) ? 'friend'
     : fr.incoming.some((x) => x.user.id === id) ? 'incoming' : fr.outgoing.some((x) => x.user.id === id) ? 'outgoing' : 'none';
 
@@ -1205,6 +1239,8 @@ function Main({ me, setMe, privKey, openServerId }) {
           wordle={{ scopes: [{ id: 'global', label: 'Aduna daily' }] }}
           files={{ scope: relationOf(dmUser.id) === 'friend' ? { kind: 'dm', target: dmUser.id, privKey, theirPublic: dmUser.publicKey } : null, dm: { privKey, theirPublic: dmUser.publicKey } }} gifEnabled={gifEnabled}
           placeholder={`Message @${dmUser.displayName}`} mentionables={[me, dmUser]}
+          bell={{ muted: mutedIds.has(dmUser.id), title: 'Mute messages from this person', mutedTitle: 'Unmute messages (muted)', onClick: () => toggleMute(dmUser) }}
+          readOnly={blockedIds.has(dmUser.id) ? <>You blocked {dmUser.displayName}. <button className="link-btn" onClick={() => unblockUser(dmUser)}>Unblock</button> to message them again.</> : null}
           stage={stageHere ? <CallStage call={call.call} actions={call.actions} users={users} me={me} /> : null}
           headerExtra={<>
             <button className="icon-btn" title="Voice call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle' || inGroupCall(gcall.gcall)} onClick={() => call.actions.startCall(dmUser.id, false)}><Icon name="phone" size={18} /></button>
@@ -1236,7 +1272,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} artistId={view.shop ? view.shopArtist || null : null} onAllItems={() => setView({ kind: 'dm', userId: null, shop: true })} />}
       {CLIPS_ENABLED && view.kind === 'dm' && !dmUser && view.clips && <React.Suspense fallback={null}><Clips onBack={() => setShowList(true)} /></React.Suspense>}
       {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && !view.clips && (
-        <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} servers={servers} me={me} users={users} voiceMembers={voice.members} onJoinVoice={(sid, cid) => { const sv = servers.find((x) => x.id === sid); const ch = sv?.channels.find((c) => c.id === cid); if (sv && ch) joinEventVoice(sv, ch); }} onSettings={() => setModal({ type: 'edit', tab: 'activity' })} onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }} />
+        <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} blocked={social.blocked} onUnblock={unblockUser} servers={servers} me={me} users={users} voiceMembers={voice.members} onJoinVoice={(sid, cid) => { const sv = servers.find((x) => x.id === sid); const ch = sv?.channels.find((c) => c.id === cid); if (sv && ch) joinEventVoice(sv, ch); }} onSettings={() => setModal({ type: 'edit', tab: 'activity' })} onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }} />
       )}
 
       {/* members */}

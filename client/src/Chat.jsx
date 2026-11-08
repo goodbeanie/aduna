@@ -610,7 +610,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
         <div className="spacer" /><div className="head-tools">
         <button className={'icon-btn' + (searching ? ' on' : '')} title="Search messages" data-kbd={kbd('F')} aria-label="Search messages" aria-pressed={searching} onClick={() => (searching ? closeSearch() : openSearch())}><Icon name="search" size={18} /></button>
         {pinsFor && <button className={'icon-btn pins-btn' + (pinsOpen ? ' on' : '')} title="Pinned messages" aria-label="Pinned messages" aria-haspopup="dialog" aria-expanded={pinsOpen} onClick={() => { setPinsOpen((o) => !o); closeSearch(); }}><Icon name="pushpin" size={18} /></button>}
-        {bell && <button className={'icon-btn hide-sm' + (bell.muted ? ' bell-muted' : '')} title={bell.muted ? 'Notification settings (muted)' : 'Notification settings'} aria-label="Notification settings" onClick={bell.onClick}><Icon name={bell.muted ? 'belloff' : 'bell'} size={18} /></button>}</div>
+        {bell && <button className={'icon-btn hide-sm' + (bell.muted ? ' bell-muted' : '')} title={bell.muted ? (bell.mutedTitle || 'Notification settings (muted)') : (bell.title || 'Notification settings')} aria-label={bell.title || 'Notification settings'} onClick={bell.onClick}><Icon name={bell.muted ? 'belloff' : 'bell'} size={18} /></button>}</div>
         {headerExtra && <div className="head-tools">{headerExtra}</div>}
         {pinsOpen && pinsFor && (
           <div className="pins-pop" role="dialog" aria-label="Pinned messages" ref={pinsRef}>
