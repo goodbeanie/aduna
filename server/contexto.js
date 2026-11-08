@@ -18,7 +18,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
-
+const { hidden, rejected } = require('./contexto-blocklist'); // swears, slurs and touchy names: see that file
 const DIR = path.join(__dirname, 'contexto-data');
 const DAY_MS = 86400_000;
 const EPOCH = Date.UTC(2026, 10, 6); // No. 1 was 6 November 2026 (days change at midnight UTC)
@@ -42,7 +42,7 @@ function load() {
     const n = buf.readUInt32LE(0), dim = buf.readUInt32LE(4);
     if (n !== words.length || n > 65535 || buf.length !== 8 + n * dim) throw new Error('contexto-data does not match');
     const index = new Map(words.map((w, i) => [w, i]));
-    const answers = fs.readFileSync(path.join(DIR, 'answers.txt'), 'utf8').split(/\s+/).filter((w) => index.has(w)); // one per line or separated by spaces
+    const answers = fs.readFileSync(path.join(DIR, 'answers.txt'), 'utf8').split(/\s+/).filter((w) => index.has(w) && !hidden(w)); // one per line or separated by spaces; nothing offensive is ever the answer
     if (!answers.length) throw new Error('no answers');
     data = { words, index, vecs: new Int8Array(buf.buffer, buf.byteOffset + 8, n * dim), dim, answers };
   } catch (e) { console.warn('Contexto data is not available (' + e.message + '): run "node server/contexto-build.js"'); data = false; }
@@ -70,6 +70,12 @@ function ranking(answer) {
 }
 const rankOf = (answer, word) => { const i = load().index.get(word); return i === undefined ? 0 : ranking(answer).rank[i]; };
 const wordAt = (answer, rank) => load().words[ranking(answer).order[rank - 1]];
+// the n words closest to the answer (the answer first), leaving out anything on the blocklist
+function closestWords(answer, n) {
+  const out = [], total = load().words.length;
+  for (let r = 1; r <= total && out.length < n; r++) { const w = wordAt(answer, r); if (r === 1 || !hidden(w)) out.push(w); }
+  return out;
+}
 
 function answerFor(scope, day, secret) {
   const d = load(); if (!d) return null;
@@ -78,7 +84,7 @@ function answerFor(scope, day, secret) {
 }
 
 const normalize = (raw) => (typeof raw === 'string' && /^[A-Za-z]{2,14}$/.test(raw.trim()) ? raw.trim().toLowerCase() : null);
-const isWord = (w) => !!w && load().index.has(w);
+const isWord = (w) => !!w && load().index.has(w) && !rejected(w);
 
 const blank = () => ({ boards: Object.create(null), stats: Object.create(null) });
 const blankStats = () => ({ played: 0, won: 0, streak: 0, best: 0, lastWonDay: 0, lastDay: 0, fewest: 0 });
@@ -134,10 +140,10 @@ function hint(rec, scope, day, answer, now = Date.now()) {
   if (b.guesses.length >= MAX_GUESSES) return { error: 'That is a lot of guesses. Give up to see the word' };
   const best = b.guesses.reduce((m, g) => Math.min(m, rankOf(answer, g)), ORANGE + 500); // with no guess yet, a word in the orange
   if (best <= 2) return { error: 'You are right next to it. No hint can be closer' };
-  const have = new Set(b.guesses), start = Math.max(2, Math.floor(best / 2));
+  const have = new Set(b.guesses), start = Math.max(2, Math.floor(best / 2)), ok = (w) => !have.has(w) && !hidden(w);
   let pick = null;
-  for (let r = start; r < best && !pick; r++) { const w = wordAt(answer, r); if (!have.has(w)) pick = w; }
-  for (let r = start - 1; r >= 2 && !pick; r--) { const w = wordAt(answer, r); if (!have.has(w)) pick = w; }
+  for (let r = start; r < best && !pick; r++) { const w = wordAt(answer, r); if (ok(w)) pick = w; }
+  for (let r = start - 1; r >= 2 && !pick; r--) { const w = wordAt(answer, r); if (ok(w)) pick = w; }
   if (!pick) return { error: 'No hint is available' };
   b.guesses.push(pick); b.hinted.push(pick);
   return { ok: true, word: pick, hint: true };
@@ -160,7 +166,7 @@ function view(rec, scope, day, answer) {
   const done = finished(b);
   return {
     scope, day, resetsAt: resetsAt(day), status: b.status, tries: b.guesses.length, hints: b.hinted.length, rows,
-    ...(done ? { answer, closest: Array.from({ length: 30 }, (_, i) => wordAt(answer, i + 1)) } : {}),
+    ...(done ? { answer, closest: closestWords(answer, 30) } : {}),
     stats: { played: s.played, won: s.won, streak: live ? s.streak : 0, best: s.best, fewest: s.fewest },
   };
 }

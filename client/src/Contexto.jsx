@@ -32,12 +32,12 @@ export function ContextoShareCard({ share }) {
   const total = share.g + share.o + share.r || 1;
   const solved = share.tries !== 'X';
   return (
-    <div className="wd-card cx-card" role="img" aria-label={`${name} number ${share.day}, ${solved ? 'found in ' + share.tries + ' guesses' : 'gave up'}, ${share.g} close, ${share.o} near, ${share.r} far guesses${share.hints ? ', ' + share.hints + ' hints' : ''}`}>
+    <div className="wd-card ctx-card" role="img" aria-label={`${name} number ${share.day}, ${solved ? 'found in ' + share.tries + ' guesses' : 'gave up'}, ${share.g} close, ${share.o} near, ${share.r} far guesses${share.hints ? ', ' + share.hints + ' hints' : ''}`}>
       <div className="wd-card-head"><Icon name="contexto" size={18} /><span>{name} No. {share.day}</span><b>{solved ? share.tries : 'Gave up'}</b></div>
-      <div className="cx-split" aria-hidden="true">
+      <div className="ctx-split" aria-hidden="true">
         {['g', 'o', 'r'].map((k) => share[k] > 0 && <i key={k} className={k} style={{ flexGrow: share[k] / total }} />)}
       </div>
-      <div className="cx-legend small" aria-hidden="true">
+      <div className="ctx-legend small" aria-hidden="true">
         <span><u className="g" />{share.g}</span><span><u className="o" />{share.o}</span><span><u className="r" />{share.r}</span>
         {share.hints > 0 && <span className="muted">{share.hints} {share.hints === 1 ? 'hint' : 'hints'}</span>}
       </div>
@@ -53,10 +53,10 @@ function timeLeft(ms) {
 function GuessRow({ r, last }) {
   const b = bandOf(r.rank);
   return (
-    <div className={'cx-row ' + b + (last ? ' last' : '')} role="listitem" aria-label={`${r.word}, number ${r.rank}, ${NAME[b]}`}>
-      <i className="cx-fill" style={{ width: barWidth(r.rank) + '%' }} aria-hidden="true" />
-      <span className="cx-word">{r.word}{r.hint && <small>hint</small>}</span>
-      <b className="cx-rank">{r.rank}</b>
+    <div className={'ctx-row ' + b + (last ? ' last' : '')} role="listitem" aria-label={`${r.word}, number ${r.rank}, ${NAME[b]}`}>
+      <i className="ctx-fill" style={{ width: barWidth(r.rank) + '%' }} aria-hidden="true" />
+      <span className="ctx-word">{r.word}{r.hint && <small>hint</small>}</span>
+      <b className="ctx-rank">{r.rank}</b>
     </div>
   );
 }
@@ -130,7 +130,7 @@ export function ContextoModal({ scopes, users = {}, onShare, onClose }) {
 
   return (
     <Modal title="Contexto" wide onClose={onClose}>
-      <div className="wd cx">
+      <div className="wd ctx">
         <div className={'wd-main' + (done ? ' done' : '')}>
           {scopes.length > 1 && (
             <div className="wd-tabs" role="tablist">
@@ -142,36 +142,36 @@ export function ContextoModal({ scopes, users = {}, onShare, onClose }) {
           {err && <div className="error">{err} <button className="link-btn" onClick={() => load(scope)}>Try again</button></div>}
 
           {done ? (
-            <div className="cx-done" aria-live="polite">
-              <div className="cx-answer-line">
+            <div className="ctx-done" aria-live="polite">
+              <div className="ctx-answer-line">
                 {data.status === 'won' ? <><b>Found it in {data.tries} {data.tries === 1 ? 'guess' : 'guesses'}</b>{data.hints > 0 && <span className="muted small"> · {data.hints} {data.hints === 1 ? 'hint' : 'hints'}</span>}</> : <b>You gave up</b>}
               </div>
-              <div className="cx-answer">{data.answer}</div>
-              <div className="muted small cx-near-title">Closest words</div>
-              <div className="cx-chips">
-                {data.closest.slice(1, 21).map((w, i) => <span key={w} className={'cx-chip' + (rows.some((r) => r.word === w) ? ' mine' : '')}><b>{i + 2}</b> {w}</span>)}
+              <div className="ctx-answer">{data.answer}</div>
+              <div className="muted small ctx-near-title">Closest words</div>
+              <div className="ctx-chips">
+                {data.closest.slice(1, 21).map((w, i) => <span key={w} className={'ctx-chip' + (rows.some((r) => r.word === w) ? ' mine' : '')}><b>{i + 2}</b> {w}</span>)}
               </div>
               {onShare && <div className="wd-actions"><button className="btn" disabled={shared} onClick={share}><Icon name={shared ? 'check' : 'send'} size={15} className="inline-icon" /> {shared ? 'Shared' : 'Share to chat'}</button></div>}
             </div>
           ) : (
-            <div className="cx-play">
-              <div className="cx-input-row">
-                <input ref={inputRef} className="cx-input" value={word} placeholder={data ? 'Type a word' : 'Loading…'} disabled={!data} readOnly={busy} maxLength={14} autoFocus
+            <div className="ctx-play">
+              <div className="ctx-input-row">
+                <input ref={inputRef} className="ctx-input" value={word} placeholder={data ? 'Type a word' : 'Loading…'} disabled={!data} readOnly={busy} maxLength={14} autoFocus
                   autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="go" aria-label="Your guess"
                   onChange={(e) => { setWord(e.target.value.replace(/[^a-zA-Z]/g, '')); setMsg(''); }}
                   onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }} />
                 <button className="btn primary" disabled={!data || busy || !word.trim()} onClick={submit}>Guess</button>
               </div>
               <div className="wd-msg" aria-live="polite">{msg || (data ? (rows.length ? `Best so far: ${best.word} (${best.rank})` : 'The closer its meaning, the lower the number') : '')}</div>
-              <div className="cx-tools">
+              <div className="ctx-tools">
                 <button className="btn" disabled={!data || busy} onClick={hint} title="Reveals a word closer than your best guess. It counts as a guess.">Hint</button>
                 <button className={'btn' + (sure ? ' danger' : '')} disabled={!data || busy} onClick={giveUp} onBlur={() => setSure(false)}>{sure ? 'Reveal the word?' : 'Give up'}</button>
               </div>
             </div>
           )}
 
-          <div className="cx-key small muted" aria-hidden="true"><span><u className="g" />Close, 1 to {GREEN}</span><span><u className="o" />Near, to {ORANGE}</span><span><u className="r" />Far</span></div>
-          <div className="cx-list" role="list" aria-label="Your guesses, closest first">
+          <div className="ctx-key small muted" aria-hidden="true"><span><u className="g" />Close, 1 to {GREEN}</span><span><u className="o" />Near, to {ORANGE}</span><span><u className="r" />Far</span></div>
+          <div className="ctx-list" role="list" aria-label="Your guesses, closest first">
             {lastRow && <GuessRow r={lastRow} last />}
             {sorted.filter((r) => !lastRow || r.word !== lastRow.word).map((r) => <GuessRow key={r.word} r={r} />)}
           </div>
