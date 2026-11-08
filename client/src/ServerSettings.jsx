@@ -30,7 +30,7 @@ const TABS = [
   ['ownership', 'Ownership', 'crown', (sv, uid) => sv.ownerId === uid],
   ['theme', 'Server theme', 'palette', (sv, uid) => can(sv, uid, 'manageServer')],
 ];
-const CH_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone' };
+const CH_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone', todo: 'todo', goals: 'goal' };
 const seedOf = (t) => ({ dark: t.dark, bg: t.bg, accent: t.accent });
 const sameSeed = (a, b) => a.dark === b.dark && a.bg.toLowerCase() === b.bg.toLowerCase() && a.accent.toLowerCase() === b.accent.toLowerCase();
 

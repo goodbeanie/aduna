@@ -44,6 +44,9 @@ const groupsLib = require('./groups');
 const gallery = require('./themegallery');
 const nameStyle = require('./namestyle'); // the font and gradient a display name is drawn in (see namestyle.js)
 const loungeLib = require('./lounge'); // a server's info page: template, look and widgets, validated here (see lounge.js)
+const templatesLib = require('./templates'); // what a new server starts with: standard, business, community, chill (see templates.js)
+const todoLib = require('./todo'); // the to-do channel: tasks that roles can add, assign and tick off (see todo.js)
+const goalsLib = require('./goals'); // the goals channel: goals the owner writes and updates by hand (see goals.js)
 const botsLib = require('./bots');
 const botrun = require('./botrun');
 const botstate = require('./botstate');
@@ -2110,6 +2113,14 @@ app.post('/api/servers', auth, (req, res) => {
   if (!name) return res.status(400).json({ error: 'Name required' });
   const s = { id: store.id(), name, ownerId: req.user.id, inviteCode: store.inviteCode(), members: [req.user.id],
     channels: [{ id: store.id(), name: 'general', type: 'text' }] };
+  // A template (standard, business, community, chill) gives the server its channels, categories and roles. Without one it starts with just #general, as before.
+  if (req.body?.template !== undefined) {
+    if (!templatesLib.IDS.includes(req.body.template)) return res.status(400).json({ error: 'Unknown template' });
+    const built = templatesLib.build(req.body.template, store.id);
+    s.channels = built.channels;
+    if (built.categories.length) s.categories = built.categories;
+    if (built.roles.length) s.roles = built.roles;
+  }
   db().servers[s.id] = s;
   store.save();
   joinRooms(req.user.id);
@@ -2127,7 +2138,7 @@ const MAX_ALLOWED = 100, MAX_DESC = 200;
 const canJoin = (s, uid) => s.visibility !== 'private' || (s.allowed || []).includes(uid);
 function publishCounts(s) {
   const n = { text: 0, voice: 0, rules: 0, announcements: 0 };
-  for (const c of s.channels) n[typeOf(c)]++;
+  for (const c of s.channels) if (typeOf(c) in n) n[typeOf(c)]++; // to-do and goals channels do not count towards publishing
   return n;
 }
 const KIND_WORD = { text: 'text channel', voice: 'voice channel', rules: 'rules channel', announcements: 'announcements channel' };
@@ -2156,7 +2167,7 @@ app.post('/api/servers/join', auth, (req, res) => {
 });
 
 // Channel presets. Channels saved before presets existed have no type and count as text.
-const CHANNEL_TYPES = ['text', 'voice', 'rules', 'announcements'];
+const CHANNEL_TYPES = ['text', 'voice', 'rules', 'announcements', 'todo', 'goals'];
 const typeOf = (c) => c.type || 'text';
 const MAX_RULES = 25, MAX_RULE = 300;
 
@@ -2168,8 +2179,11 @@ app.post('/api/servers/:id/channels', auth, (req, res) => {
   if (s.channels.length >= 30) return res.status(400).json({ error: 'Channel limit reached' });
   const type = req.body?.type === undefined ? 'text' : req.body.type;
   if (!CHANNEL_TYPES.includes(type)) return res.status(400).json({ error: 'Unknown channel type' });
+  if (type === 'goals' && s.channels.some((c) => typeOf(c) === 'goals')) return res.status(400).json({ error: 'This server already has a goals channel' });
   const channel = { id: store.id(), name, type };
   if (type === 'rules') channel.rules = [];
+  if (type === 'todo') { channel.addRoles = []; channel.todos = []; }
+  if (type === 'goals') channel.goals = [];
   const categoryId = req.body?.categoryId;
   if (categoryId) {
     if (!(s.categories || []).some((c) => c.id === categoryId)) return res.status(400).json({ error: 'That category does not exist' });
@@ -2218,6 +2232,93 @@ app.delete('/api/servers/:id/channels/:cid/rules/:rid', auth, (req, res) => {
   if (!f.c.rules.some((x) => x.id === req.params.rid)) return res.status(404).json({ error: 'Rule not found' });
   f.c.rules = f.c.rules.filter((x) => x.id !== req.params.rid);
   rulesDone(f.s, res);
+});
+
+// ----- to-do channel (see todo.js) -----
+// Tasks live on the channel. Roles listed in channel.addRoles (plus the owner and anyone with Manage channels) add, assign, edit and delete tasks;
+// a task can be assigned to a role, and whoever holds that role can tick it off. Everyone in the server can read the list.
+const MAX_TODO_ID = 40;
+const whoOf = (s, uid) => ({ owner: isOwner(s, uid), manage: permsOf(s, uid).has('manageChannels'), roleIds: heldRoleIds(s, uid) });
+function listChannel(req, res, type, label) { // a member's view of a channel of this type, or a 404
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
+  const c = s.channels.find((x) => x.id === req.params.cid);
+  if (!c || typeOf(c) !== type) { res.status(404).json({ error: `${label} not found` }); return null; }
+  return { s, c };
+}
+const todoChannel = (req, res) => { const f = listChannel(req, res, 'todo', 'To-do channel'); if (f) { f.c.todos = f.c.todos || []; f.c.addRoles = f.c.addRoles || []; } return f; };
+const roleIdsOf = (s) => (s.roles || []).map((r) => r.id);
+
+app.put('/api/servers/:id/channels/:cid/todo-settings', auth, (req, res) => { // which roles may add tasks (Manage channels)
+  const f = todoChannel(req, res); if (!f) return;
+  if (!can(f.s, req.user.id, 'manageChannels')) return res.status(403).json({ error: 'You need the Manage channels permission to choose who can add tasks' });
+  const r = todoLib.cleanAddRoles(req.body?.addRoles, roleIdsOf(f.s));
+  if (r.error) return res.status(400).json({ error: r.error });
+  f.c.addRoles = r.value;
+  pushServer(f.s, res);
+});
+app.post('/api/servers/:id/channels/:cid/todos', auth, (req, res) => {
+  const f = todoChannel(req, res); if (!f) return;
+  if (!todoLib.canAdd(whoOf(f.s, req.user.id), f.c)) return res.status(403).json({ error: 'You do not have a role that can add tasks here' });
+  if (f.c.todos.length >= todoLib.LIMITS.items) return res.status(400).json({ error: `Task limit reached (${todoLib.LIMITS.items}). Delete finished tasks first` });
+  const r = todoLib.cleanNew(req.body || {}, roleIdsOf(f.s));
+  if (r.error) return res.status(400).json({ error: r.error });
+  f.c.todos.push({ id: store.id(), text: r.value.text, roleId: r.value.roleId, done: false, by: req.user.id, at: Date.now(), doneBy: null, doneAt: null });
+  pushServer(f.s, res);
+});
+app.patch('/api/servers/:id/channels/:cid/todos/:tid', auth, (req, res) => {
+  const f = todoChannel(req, res); if (!f) return;
+  const t = f.c.todos.find((x) => x.id === String(req.params.tid).slice(0, MAX_TODO_ID));
+  if (!t) return res.status(404).json({ error: 'Task not found' });
+  const r = todoLib.cleanChange(req.body || {}, roleIdsOf(f.s), whoOf(f.s, req.user.id), f.c, t);
+  if (r.error) return res.status(r.error.startsWith('Only') ? 403 : 400).json({ error: r.error });
+  if (r.value.text !== undefined) t.text = r.value.text;
+  if (r.value.roleId !== undefined) t.roleId = r.value.roleId;
+  if (r.value.done !== undefined && r.value.done !== t.done) {
+    t.done = r.value.done;
+    t.doneBy = t.done ? req.user.id : null;
+    t.doneAt = t.done ? Date.now() : null;
+  }
+  pushServer(f.s, res);
+});
+app.delete('/api/servers/:id/channels/:cid/todos/:tid', auth, (req, res) => {
+  const f = todoChannel(req, res); if (!f) return;
+  if (!todoLib.canAdd(whoOf(f.s, req.user.id), f.c)) return res.status(403).json({ error: 'You do not have a role that can delete tasks here' });
+  if (!f.c.todos.some((x) => x.id === req.params.tid)) return res.status(404).json({ error: 'Task not found' });
+  f.c.todos = f.c.todos.filter((x) => x.id !== req.params.tid);
+  pushServer(f.s, res);
+});
+
+// ----- goals channel (see goals.js) -----
+// The owner and anyone with Manage server write the goals and move the progress by hand; everyone in the server sees them. One goals channel per server.
+const goalsChannel = (req, res) => {
+  const f = listChannel(req, res, 'goals', 'Goals channel'); if (!f) return null;
+  if (!can(f.s, req.user.id, 'manageServer')) { res.status(403).json({ error: 'You need the Manage server permission to change goals' }); return null; }
+  f.c.goals = f.c.goals || [];
+  return f;
+};
+app.post('/api/servers/:id/channels/:cid/goals', auth, (req, res) => {
+  const f = goalsChannel(req, res); if (!f) return;
+  if (f.c.goals.length >= goalsLib.LIMITS.goals) return res.status(400).json({ error: `Goal limit reached (${goalsLib.LIMITS.goals})` });
+  const r = goalsLib.cleanNew(req.body || {}, Date.now());
+  if (r.error) return res.status(400).json({ error: r.error });
+  f.c.goals.push({ id: store.id(), ...r.value });
+  pushServer(f.s, res);
+});
+app.patch('/api/servers/:id/channels/:cid/goals/:gid', auth, (req, res) => {
+  const f = goalsChannel(req, res); if (!f) return;
+  const i = f.c.goals.findIndex((x) => x.id === req.params.gid);
+  if (i < 0) return res.status(404).json({ error: 'Goal not found' });
+  const r = goalsLib.applyChange(f.c.goals[i], req.body);
+  if (r.error) return res.status(400).json({ error: r.error });
+  f.c.goals[i] = r.value;
+  pushServer(f.s, res);
+});
+app.delete('/api/servers/:id/channels/:cid/goals/:gid', auth, (req, res) => {
+  const f = goalsChannel(req, res); if (!f) return;
+  if (!f.c.goals.some((x) => x.id === req.params.gid)) return res.status(404).json({ error: 'Goal not found' });
+  f.c.goals = f.c.goals.filter((x) => x.id !== req.params.gid);
+  pushServer(f.s, res);
 });
 
 // Categories split the channel list into groups. Channels without a categoryId stay in the ungrouped list at the top.
@@ -2563,6 +2664,7 @@ app.delete('/api/servers/:id/roles/:rid', auth, (req, res) => {
   s.roles = s.roles.filter((x) => x.id !== r.id);
   if (s.soundboard && Array.isArray(s.soundboard.roles)) s.soundboard.roles = s.soundboard.roles.filter((id) => id !== r.id); // a deleted role cannot stay on the soundboard's list
   for (const q of s.onboarding?.questions || []) for (const o of q.options) o.roles = o.roles.filter((id) => id !== r.id);
+  for (const c of s.channels) if (typeOf(c) === 'todo') todoLib.dropRole(c, r.id); // a deleted role cannot stay an adder, and its tasks become unassigned
   for (const uid of Object.keys(s.memberRoles || {})) {
     s.memberRoles[uid] = s.memberRoles[uid].filter((id) => id !== r.id);
     if (!s.memberRoles[uid].length) delete s.memberRoles[uid];
@@ -5355,7 +5457,7 @@ io.on('connection', (socket) => {
     const f = findChannel(p?.channelId);
     if (!f || !f.server.members.includes(uid)) return reply({ error: 'Cannot send' });
     const kind = typeOf(f.channel);
-    if (kind === 'voice' || kind === 'rules') return reply({ error: 'You cannot send messages in this channel' });
+    if (kind === 'voice' || kind === 'rules' || kind === 'todo' || kind === 'goals') return reply({ error: 'You cannot send messages in this channel' });
     if (kind === 'announcements' && !can(f.server, uid, 'postAnnouncements')) return reply({ error: 'You do not have permission to post announcements' });
     let atts;
     try { atts = await buildAttachments(p.attachments, uid, 'channel:' + f.channel.id); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }

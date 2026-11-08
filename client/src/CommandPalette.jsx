@@ -15,7 +15,7 @@ const SETTINGS = [
   ['developer', 'Developer', 'code', 'bots api ai'],
   ['artist', 'Artist', 'palette', 'badges frames shop'],
 ];
-const CH_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone' };
+const CH_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone', todo: 'todo', goals: 'goal' };
 
 // 3 = starts with the query, 2 = a word starts with it, 1.5 = contains it, 1 = letters appear in order (3+ letters, names only), 0 = no match
 function score(q, text, fuzzy) {

@@ -11,7 +11,7 @@ import { clipIdsIn, isOnlyClipLink } from './clipLinks.js';
 import { CLIPS_ENABLED } from './features.js';
 // the clip card (and the whole Clips player behind it) is only loaded when Clips are switched on; otherwise a clip link is just a link
 const ClipEmbed = CLIPS_ENABLED ? React.lazy(() => import('./ClipEmbed.jsx').then((m) => ({ default: m.ClipEmbed }))) : null;
-import { MentionMenu, fromMentionTokens, mentionPreview, toMentionTokens, useMentionComplete } from './Mentions.jsx';
+import { MentionMenu, fromChannelTokens, fromMentionTokens, mentionPreview, toChannelTokens, toMentionTokens, useMentionComplete } from './Mentions.jsx';
 import { useTypingProof } from './typing.js';
 import { BotTag } from './Bots.jsx';
 import { PollCard, PollModal } from './Polls.jsx';
@@ -106,12 +106,12 @@ function Picker({ onPick, onClose, at }) {
   );
 }
 
-function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone }) {
+function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone, channels }) {
   const [v, setV] = useState(initial);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
-  const mc = useMentionComplete({ text: v, setText: setV, inputRef: ref, people, everyone });
+  const mc = useMentionComplete({ text: v, setText: setV, inputRef: ref, people, everyone, channels });
   useEffect(() => { const el = ref.current; el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, []);
   async function save() {
     const t = v.trim();
@@ -151,7 +151,7 @@ function CallEntry({ m, users, me }) {
   );
 }
 
-function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onUserMenu, onEdit, onDelete, editing, setEditing, grouped, canDelete, canPin, onPin, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone, convoKey, convoTitle }) {
+function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onUserMenu, onEdit, onDelete, editing, setEditing, grouped, canDelete, canPin, onPin, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone, channels, channelMap, onChannel, convoKey, convoTitle }) {
   const [picker, setPicker] = useState(false);
   const [ctxPicker, setCtxPicker] = useState(null); // { x, y }: the emoji picker opened from the right-click menu, placed where you clicked
   const [who, setWho] = useState(null); // the reaction chip that was clicked: opens the "who reacted" list on that emoji
@@ -167,7 +167,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   const refAuthor = ref ? users[ref.authorId] : null;
   // channel messages carry the server's verdict; DMs are encrypted, so the client reads its own token
   const pinged = !!m.everyone || !!m.mentions?.includes(me.id) || (!!dm && !!m.content?.includes('<@' + me.id + '>'));
-  const mention = { users, meId: me.id, onUser, everyone: !!m.everyone };
+  const mention = { users, meId: me.id, onUser, channels: channelMap, onChannel, everyone: !!m.everyone };
 
   // A tap or click on the message itself: one shows its actions on a touch screen, two in a row add a quick reaction
   // (only ever adds: if you already reacted with it, the second tap does nothing rather than take it back).
@@ -247,7 +247,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
             </div>
           )}
           {editing
-            ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > 2000) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
+            ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > 2000) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
             : (m.content || m.editedAt) && !wshare && !cshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
           {wshare && !editing && <WordleShareCard share={wshare} />}
@@ -285,7 +285,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, draftKey, unreadCount, unreadExact }) {
+export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, channels, onChannel, draftKey, unreadCount, unreadExact }) {
   const convoKey = draftKey || title; // which conversation this composer belongs to (titles can repeat, so App passes a real key)
   const [text, setText] = useState(() => getDraft(convoKey));
   const [replyTo, setReplyTo] = useState(null);
@@ -319,8 +319,10 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const fileInput = useRef(null);
   const { lib, toTokens, fromTokens } = useEmoji();
   const people = mentionables || [];
-  const encode = (t) => toMentionTokens(toTokens(t), people); // :emoji: and @username -> tokens, as stored
-  const decode = (t) => fromMentionTokens(fromTokens(t), users); // and back, for editing
+  // channels only exist inside a server channel; in DMs and group chats "#name" stays plain text
+  const channelMap = channels ? Object.fromEntries(channels.map((c) => [c.id, c])) : undefined;
+  const encode = (t) => toChannelTokens(toMentionTokens(toTokens(t), people), channels); // :emoji:, @username and #channel -> tokens, as stored
+  const decode = (t) => fromChannelTokens(fromMentionTokens(fromTokens(t), users), channels); // and back, for editing
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   useEffect(() => () => { Object.values(aborts.current).forEach((c) => c.abort()); }, []); // leaving the chat stops any compressing
@@ -334,7 +336,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const newest = useRef(null); // { key, ts } of the newest message in the list, remembered when you leave
   const lastTyping = useRef(0);
   const inputRef = useRef(null);
-  const mc = useMentionComplete({ text, setText, inputRef, people, everyone: canEveryone });
+  const mc = useMentionComplete({ text, setText, inputRef, people, everyone: canEveryone, channels });
   const typed = useTypingProof(inputRef, !!readOnly); // how this message was written, sent along so the server can decide if it earns credits
 
   const byId = Object.fromEntries(messages.map((m) => [m.id, m]));
@@ -659,7 +661,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           const grouped = prev && !prev.system && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60000 && !m.replyTo;
           return <React.Fragment key={m.id}>{day}{m.id === divider && <div className="new-divider" role="separator"><span>New messages</span></div>}<Message m={m} grouped={grouped && m.id !== divider && !day} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence} onVote={onVote} onClosePoll={onClosePoll}
             onReact={onReact} onReply={(x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }} onUser={onUser} onUserMenu={onUserMenu}
-            onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone} convoKey={convoKey} convoTitle={title}
+            onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone} channels={channels} channelMap={channelMap} onChannel={onChannel} convoKey={convoKey} convoTitle={title}
             canDelete={m.authorId === me.id || !!canModerate} canPin={!!canPin && !m.system} onPin={onPin} dm={files?.dm} onOpen={setLightbox}
             tapped={tapped === m.id} onTap={() => setTapped((t) => (t === m.id ? null : m.id))} /></React.Fragment>;
         })}

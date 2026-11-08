@@ -17,7 +17,7 @@ import {
 export const LOUNGE_ICON = 'star';
 const BANNER_H = { tall: 230, normal: 160, short: 96 };
 const fontAttr = (look) => (look.font && look.font !== 'default' ? { 'data-nf': look.font } : {}); // the bundled name fonts (namestyle.css)
-const chanIcon = (c) => ({ voice: 'speaker', rules: 'rules', announcements: 'megaphone' }[c.type] || 'hash');
+const chanIcon = (c) => ({ voice: 'speaker', rules: 'rules', announcements: 'megaphone', todo: 'todo', goals: 'goal' }[c.type] || 'hash');
 // a link from the draft that is safe to draw as a real link (the server only stores https)
 const safe = (u) => { const f = fixUrl(u); return /^https:\/\/[^\s<>"']+$/i.test(f) ? f : null; };
 

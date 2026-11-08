@@ -50,7 +50,7 @@ export function ServerNotifications({ server, prefs, focusChannel, onSave, onMar
     if (Object.keys(c).length) channels[cid] = c; else delete channels[cid];
     change({ channels: Object.keys(channels).length ? channels : undefined });
   };
-  const listed = server.channels.filter((c) => c.type !== 'voice' && c.type !== 'rules'); // nothing is posted in those
+  const listed = server.channels.filter((c) => !['voice', 'rules', 'todo', 'goals'].includes(c.type)); // nothing is posted in those
   const focusRef = React.useRef(null);
   React.useEffect(() => { focusRef.current?.scrollIntoView?.({ block: 'center' }); }, []);
 

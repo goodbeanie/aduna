@@ -17,11 +17,13 @@ import { inviteLink, codeFromInput } from './Invite.jsx';
 import { BotTag } from './Bots.jsx';
 import { useLang } from './i18n.js';
 import { PlayingLine } from './Activity.jsx';
+import { TEMPLATES, DEFAULT_TEMPLATE } from './templates.js';
 
 export function ServerModal({ onClose, onDone }) {
   const [tab, setTab] = useState('create');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
+  const [template, setTemplate] = useState(DEFAULT_TEMPLATE);
   const [err, setErr] = useState('');
   const fieldRef = useRef(null);
 
@@ -30,7 +32,7 @@ export function ServerModal({ onClose, onDone }) {
     setErr('');
     try {
       const { server } = tab === 'create'
-        ? await api('/servers', { method: 'POST', body: { name } })
+        ? await api('/servers', { method: 'POST', body: { name, template } })
         : await api('/servers/join', { method: 'POST', body: { code: codeFromInput(code) } });
       onDone(server);
     } catch (e2) { setErr(e2.message); setTimeout(() => fieldRef.current?.focus(), 0); }
@@ -44,6 +46,17 @@ export function ServerModal({ onClose, onDone }) {
         <button type="button" className={tab === 'join' ? 'on' : ''} onClick={() => switchTab('join')}>Join with invite</button>
       </div>
       <form onSubmit={go}>
+        {tab === 'create' && (<>
+          <label>START FROM A TEMPLATE</label>
+          <div className="presets" role="radiogroup" aria-label="Server template">
+            {TEMPLATES.map((t) => (
+              <button type="button" key={t.id} role="radio" aria-checked={template === t.id} className={'preset' + (template === t.id ? ' on' : '')} onClick={() => setTemplate(t.id)}>
+                <span className="preset-icon"><Icon name={t.icon} size={22} /></span>
+                <span className="preset-text"><b>{t.title}</b><span className="muted small">{t.desc}</span></span>
+              </button>
+            ))}
+          </div>
+        </>)}
         {tab === 'create' ? (<><label htmlFor="srv-name">SERVER NAME</label><input id="srv-name" ref={fieldRef} autoFocus value={name} onChange={(e) => { setName(e.target.value); setErr(''); }} maxLength={40} required placeholder="My awesome server" aria-invalid={err ? 'true' : undefined} aria-describedby={err ? 'srv-err' : undefined} /></>)
           : (<><label htmlFor="srv-code">INVITE LINK OR CODE</label><input id="srv-code" ref={fieldRef} autoFocus value={code} onChange={(e) => { setCode(e.target.value); setErr(''); }} required placeholder="aduna.onrender.com/invite/aduna" aria-invalid={err ? 'true' : undefined} aria-describedby={err ? 'srv-err' : undefined} /></>)}
         {err && <p className="error-text field-error" id="srv-err" role="alert">{err}</p>}
@@ -80,6 +93,8 @@ const PRESETS = [
   { type: 'voice', icon: 'speaker', title: 'Voice', desc: 'Hang out and talk, up to 8 people', name: 'voice' },
   { type: 'rules', icon: 'rules', title: 'Rules', desc: 'A list of server rules you build with +', name: 'rules' },
   { type: 'announcements', icon: 'megaphone', title: 'Announcements', desc: 'Notifies everyone; only the owner can post', name: 'announcements' },
+  { type: 'todo', icon: 'todo', title: 'To-do list', desc: 'Tasks that roles can add, assign and tick off', name: 'tasks' },
+  { type: 'goals', icon: 'goal', title: 'Goals', desc: 'Server goals with progress bars; one per server', name: 'goals' },
 ];
 export function ChannelModal({ server, category, onClose, onDone }) {
   const [type, setType] = useState('text');

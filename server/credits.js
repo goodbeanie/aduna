@@ -110,7 +110,7 @@ function claw(u, amount, reason, { note, now = Date.now() } = {}) {
 }
 
 // ---------- earning by messaging ----------
-const STRIP = /<:[a-z0-9_]{2,32}:[0-9a-f]{16}>|<@[0-9a-f]{16}>|<stk:[0-9a-f]{32}>|https?:\/\/\S+|@everyone/gi;
+const STRIP = /<:[a-z0-9_]{2,32}:[0-9a-f]{16}>|<@[0-9a-f]{16}>|<#[0-9a-f]{16}>|<stk:[0-9a-f]{32}>|https?:\/\/\S+|@everyone/gi;
 // what a message "says": no emoji, mentions or links, only lowercase letters and digits
 const normalize = (content) => String(content ?? '').replace(STRIP, ' ').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 

@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Icon, Modal } from './ui.jsx';
 import { api } from './api.js';
 import { askConfirm, toast } from './Dialogs.jsx';
-import { EveryoneMention, Mention } from './Mentions.jsx';
+import { ChannelMention, EveryoneMention, Mention } from './Mentions.jsx';
 import { renderMarkdown } from './Markdown.jsx';
 
 // ---------- links + custom emoji inside message text ----------
@@ -16,10 +16,11 @@ export function Linkified({ text }) {
 const TOKEN = /<:([a-z0-9_]{2,32}):([0-9a-f]{16})>/g;
 const ONLY_EMOJI = /^(\s*<:[a-z0-9_]{2,32}:[0-9a-f]{16}>\s*){1,5}$/;
 
-// emoji token | <@userId> mention | a plain @everyone
-const RICH = /<:([a-z0-9_]{2,32}):([0-9a-f]{16})>|<@([0-9a-f]{16})>|(?<![\w<@])@everyone(?![\w])/g;
+// emoji token | <@userId> mention | <#channelId> channel tag | a plain @everyone
+const RICH = /<:([a-z0-9_]{2,32}):([0-9a-f]{16})>|<@([0-9a-f]{16})>|<#([0-9a-f]{16})>|(?<![\w<@])@everyone(?![\w])/g;
 
-// mention: { users, meId, onUser, everyone } - everyone is true only when the server accepted this message's @everyone
+// mention: { users, meId, onUser, channels, onChannel, everyone } - everyone is true only when the server accepted this message's @everyone;
+// channels ({ id: channel }) and onChannel are only given inside a server channel, where a channel tag can be shown and opened
 // Message text is Discord-style Markdown (see Markdown.jsx); emoji, mentions and @everyone are drawn here and handed in as atoms.
 export function Rich({ text: raw, mention }) {
   const text = String(raw ?? '');
@@ -29,6 +30,7 @@ export function Rich({ text: raw, mention }) {
     atom: (m) => {
       if (m[2]) return <CustomEmoji id={m[2]} name={m[1]} big={big} />;
       if (m[3]) return <Mention id={m[3]} ctx={mention} />;
+      if (m[4]) return <ChannelMention id={m[4]} ctx={mention} />;
       return mention?.everyone ? <EveryoneMention /> : m[0];
     },
   });

@@ -23,10 +23,12 @@ import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
 import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
 import RulesView from './Rules.jsx';
+import TodoView from './Todo.jsx';
+import GoalsView from './Goals.jsx';
 import LoungePage, { LOUNGE_ICON } from './LoungePage.jsx';
 import EventsPage from './EventsPage.jsx';
 import { upcomingCount, liveNow } from './gatherings.js';
-import { mentionPreview } from './Mentions.jsx';
+import { mentionPreview, setChannelDirectory } from './Mentions.jsx';
 import { plainText } from './stickers.js';
 import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
@@ -73,7 +75,7 @@ const mergeById = (a, b) => {
   return [...map.values()].sort((x, y) => x.createdAt - y.createdAt);
 };
 
-const CHANNEL_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone' };
+const CHANNEL_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone', todo: 'todo', goals: 'goal' };
 
 const INVITE_PATH = /^\/invite\/([a-z0-9_-]{3,32})\/?$/i;
 
@@ -173,6 +175,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   }, [me.seasonTest]);
   useEffect(() => () => { forceSeason(null); applyTheme(loadTheme()); }, []);
   const [servers, setServers] = useState([]);
+  useEffect(() => { setChannelDirectory(servers); }, [servers]); // so previews of a #channel tag (replies, pins, notifications) show its name
   const [users, setUsers] = useState({ [me.id]: me });
   const [presence, setPresence] = useState({});
   const [view, setView] = useState(null);
@@ -317,7 +320,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const readTimers = useRef({});
   const markRead = (channelId) => { // told to the server a moment later; it uses its own clock, so no message you have seen is left unread
     const type = serversRef.current.flatMap((x) => x.channels).find((c) => c.id === channelId)?.type;
-    if (type === 'voice' || type === 'rules') return; // nothing to read there (the server refuses it)
+    if (type === 'voice' || type === 'rules' || type === 'todo' || type === 'goals') return; // nothing to read there (the server refuses it)
     clearTimeout(readTimers.current[channelId]);
     readTimers.current[channelId] = setTimeout(() => { api(`/channels/${channelId}/read`, { method: 'POST', body: {} }).catch(() => {}); }, 600);
   };
@@ -1219,7 +1222,15 @@ function Main({ me, setMe, privKey, openServerId }) {
         <RulesView server={server} channel={channel} isOwner={can(server, me.id, 'manageChannels')} onBack={() => setShowList(true)} headerExtra={membersToggle}
           onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
       )}
-      {server && !loungeOpen && !eventsOpen && channel && channel.type !== 'voice' && channel.type !== 'rules' && (
+      {server && !loungeOpen && !eventsOpen && channel?.type === 'todo' && (
+        <TodoView server={server} channel={channel} me={me} users={users} onBack={() => setShowList(true)} headerExtra={membersToggle}
+          onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
+      )}
+      {server && !loungeOpen && !eventsOpen && channel?.type === 'goals' && (
+        <GoalsView server={server} channel={channel} canEdit={can(server, me.id, 'manageServer')} onBack={() => setShowList(true)} headerExtra={membersToggle}
+          onChange={(sv) => setServers((p) => p.map((x) => (x.id === sv.id ? sv : x)))} />
+      )}
+      {server && !loungeOpen && !eventsOpen && channel && !['voice', 'rules', 'todo', 'goals'].includes(channel.type) && (
         <Chat title={channel.name} draftKey={'c:' + channel.id} loading={!loadedKeys['c:' + channel.id]} unreadCount={unread['c:' + channel.id] || 0} unreadExact={unreadCountsAll(server, channel)} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onPoll={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
           wordle={{ scopes: [{ id: 'global', label: 'Aduna daily' }, { id: server.id, label: server.name }] }}
@@ -1227,6 +1238,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           bell={{ muted: np.effective(notePrefs[server.id], channel.id, Date.now()).muted, onClick: () => setModal({ type: 'notes', channelId: channel.id }) }} roleColors={roleColors} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
           mentionables={server.members} canEveryone={can(server, me.id, 'mentionEveryone') && channel.type !== 'announcements'}
+          channels={server.channels} onChannel={(id) => { const c = server.channels.find((x) => x.id === id); if (c) openChannel(c); }}
           placeholder={channel.type === 'announcements' ? `Announce to everyone in ${server.name}` : `Message #${channel.name}`}
           notice={channel.type === 'announcements' ? <><Icon name="megaphone" size={14} className="inline-icon" /> Everyone in this server is notified when the owner posts here.</> : null}
           readOnly={channel.type === 'announcements' && !can(server, me.id, 'postAnnouncements') ? 'You do not have permission to post in this channel.' : null}

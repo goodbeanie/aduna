@@ -38,6 +38,7 @@ const fresh = () => { C._reset(); };
   assert.strictEqual(C.quality(C.normalize('aaaaaaaaaaaaaaaaaaaa bbbbbbbbbbbbbbb cccc dddd')), 'repetitive');
   assert.strictEqual(C.quality(C.normalize('asdkjhfgs qwrtpzxcv bnmkhgfd lkjhgfdsa')), 'gibberish', 'keyboard mashing');
   assert.strictEqual(C.quality(C.normalize('<:party:0123456789abcdef> <@0123456789abcdef> https://example.com/aaaaaaaaaaaaaaaa')), 'short', 'emoji, mentions and links do not count as words');
+assert.strictEqual(C.quality(C.normalize('<#0123456789abcdef> <#fedcba9876543210> <#0123456789abcdef> <#fedcba9876543210> <#0123456789abcdef>')), 'short', 'channel tags do not count as words either');
   assert.strictEqual(C.quality(C.normalize('😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀')), 'short', 'emoji only');
   assert.strictEqual(C.quality(C.normalize('今日は友達と一緒に新しいカフェに行きました')), null, 'Japanese works without spaces');
   assert.strictEqual(C.quality(C.normalize('Das Wetter war gestern wirklich wunderschön hier')), null);

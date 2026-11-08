@@ -27,6 +27,9 @@ button.tag:hover { background: var(--sel); }
 span.mention { cursor: default; }
 .mention.me { color: var(--head); background: color-mix(in srgb, var(--gold) 38%, transparent); }
 .mention.me:hover { background: color-mix(in srgb, var(--gold) 55%, transparent); }
+/* #channel tags: same chip, clickable when the channel can be opened */
+.mention.channel.gone { opacity: .6; font-weight: 500; }
+.mention-menu .mm-hash { font-weight: 700; font-size: 15px; color: var(--link); }
 .msg.pinged { background: color-mix(in srgb, var(--gold) 13%, transparent); box-shadow: inset 3px 0 0 var(--gold); }
 .msg.pinged:hover { background: color-mix(in srgb, var(--gold) 20%, var(--msg-hover)); }
 .msg.pinged.editing { background: var(--msg-hover); }

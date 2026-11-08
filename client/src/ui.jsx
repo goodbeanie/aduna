@@ -109,6 +109,8 @@ const PATHS = {
   speakeroff: <><path d="M4.5 9.5h3L12 5.5v13l-4.5-4h-3z" /><path d="M16 9.5l5 5M21 9.5l-5 5" /></>,
   music: <><path d="M9 17.5V6l10-2v11.5" /><circle cx="6.8" cy="17.5" r="2.2" /><circle cx="16.8" cy="15.5" r="2.2" /></>,
   rules: <><path d="M5.5 4.5h11a2 2 0 012 2v13h-11a2 2 0 01-2-2v-11a2 2 0 012-2z" /><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" /></>,
+  todo: <><path d="M4.5 7l1.8 1.8L9.5 5.5M4.5 14.5l1.8 1.8 3.2-3.3" /><path d="M13 7.5h6.5M13 15h6.5" /></>,
+  goal: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="4.5" /><circle cx="12" cy="12" r=".9" /></>,
   bell: <><path d="M6 16.5V11a6 6 0 1112 0v5.5l1.5 1.5h-15z" /><path d="M10 20.5a2 2 0 004 0" /></>,
   belloff: <><path d="M6 16.5V11a6 6 0 1112 0v5.5l1.5 1.5h-15z" /><path d="M10 20.5a2 2 0 004 0" /><path d="M4 4l16 16" /></>,
   pushpin: <><path d="M9.5 4h5M10 4v5.3L7.5 13h9L14 9.3V4" /><path d="M12 13v7" /></>,
