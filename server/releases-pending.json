@@ -35,5 +35,18 @@
       { "title": "Faster first Wordle guess", "text": "Wordle’s word list is now ready before you play, so your first guess no longer takes a moment to check." },
       { "title": "Contexto keeps your cursor", "text": "After you press Enter on a guess in Contexto, you can keep typing without clicking the box again." }
     ]
+  },
+  {
+    "id": "2026.11.8",
+    "date": "2026-11-08",
+    "title": "Tag channels, to-do lists and goals",
+    "desktop": "1.4.104",
+    "android": "2026.11.8.2251",
+    "items": [
+      { "title": "Tag a channel with #", "text": "Type # in a server chat and pick a channel. It shows as a chip in the message, and clicking it takes you straight to that channel. It keeps working if the channel is renamed." },
+      { "title": "To-do channels", "text": "A new channel type for a shared task list. Owners choose which roles can add tasks, tasks can be given to a role, and the people holding that role can tick them off." },
+      { "title": "Goals channels", "text": "A new channel type where the owner sets goals with progress bars or checkboxes, and everyone in the server can follow how they are going." },
+      { "title": "Server templates", "text": "Start a new server from a ready-made template with channels and roles already set up, for example a business or a community." }
+    ]
   }
 ]
