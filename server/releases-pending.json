@@ -62,5 +62,18 @@
       { "title": "Name checker", "text": "Usernames, display names, bios and server names are checked. If one is not appropriate you get a warning in the app and 3 days from the moment you see it to change it." },
       { "title": "Themes tab in Explorer", "text": "Explorer has a new Themes tab for browsing themes." }
     ]
+  },
+  {
+    "id": "2026.11.9.2",
+    "date": "2026-11-09",
+    "title": "Bot pages and longer messages",
+    "desktop": "1.4.106",
+    "android": "2026.11.9.2302",
+    "items": [
+      { "title": "Pictures and banners for bots", "text": "Bot developers can now give a bot a picture and a wide banner in Settings > Developer. The banner shows on the bot’s page and on its profile." },
+      { "title": "Long description for bots", "text": "A bot can have a longer description of up to 1,500 characters, with line breaks, to explain what it does and how to use it." },
+      { "title": "Bot pages in Explorer", "text": "On the Bots tab, bots now show their banner and picture. Press Read more, or a bot’s name, to open its page and add it to a server." },
+      { "title": "Longer messages with Aduna Plus", "text": "Aduna Plus members can write messages up to 4,000 characters instead of 2,000. A counter appears in the message box as you get close to the limit." }
+    ]
   }
 ]
