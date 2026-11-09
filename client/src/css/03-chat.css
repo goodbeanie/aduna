@@ -36,4 +36,6 @@
 .replying { margin-bottom: -4px; padding: 8px 12px 12px; display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
 .replying .reply-text { flex: 1; }
 .typing { height: 22px; padding: 2px 4px; }
+.char-count { float: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.char-count.full { color: var(--danger); }
 

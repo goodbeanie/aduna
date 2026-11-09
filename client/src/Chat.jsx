@@ -9,6 +9,7 @@ import { EmojiImg, Rich, useEmoji } from './Emoji.jsx';
 import { InviteCard, inviteCodesIn } from './Invite.jsx';
 import { clipIdsIn, isOnlyClipLink } from './clipLinks.js';
 import { CLIPS_ENABLED } from './features.js';
+import { PLUS_CHARS, charLimit } from './msgLimit.js';
 // the clip card (and the whole Clips player behind it) is only loaded when Clips are switched on; otherwise a clip link is just a link
 const ClipEmbed = CLIPS_ENABLED ? React.lazy(() => import('./ClipEmbed.jsx').then((m) => ({ default: m.ClipEmbed }))) : null;
 import { MentionMenu, fromChannelTokens, fromMentionTokens, mentionPreview, toChannelTokens, toMentionTokens, useMentionComplete } from './Mentions.jsx';
@@ -110,7 +111,7 @@ function Picker({ onPick, onClose, at }) {
   );
 }
 
-function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone, channels }) {
+function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone, channels, limit }) {
   const [v, setV] = useState(initial);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
@@ -127,7 +128,7 @@ function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone, chan
   return (
     <div className="edit-box">
       <MentionMenu mc={mc} />
-      <textarea ref={ref} className="composer" rows={Math.min(8, v.split('\n').length + 1)} value={v} maxLength={2000} {...mc.bind}
+      <textarea ref={ref} className="composer" rows={Math.min(8, v.split('\n').length + 1)} value={v} maxLength={limit} {...mc.bind}
         onChange={(e) => { setV(e.target.value); mc.track(e); }}
         onKeyDown={(e) => {
           if (mc.onKeyDown(e)) return;
@@ -252,7 +253,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
             </div>
           )}
           {editing
-            ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > 2000) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
+            ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} limit={charLimit(me)} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > charLimit(me)) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
             : (m.content || m.editedAt) && !wshare && !cshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
           {wshare && !editing && <WordleShareCard share={wshare} />}
@@ -292,6 +293,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
 
 export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, channels, onChannel, draftKey, unreadCount, unreadExact }) {
   const convoKey = draftKey || title; // which conversation this composer belongs to (titles can repeat, so App passes a real key)
+  const limit = charLimit(me); // 2,000 characters, 4,000 with Aduna Plus
   const [text, setText] = useState(() => getDraft(convoKey));
   const [replyTo, setReplyTo] = useState(null);
   const [searching, setSearching] = useState(false); // the search bar under the header: finds text in the messages loaded here
@@ -553,7 +555,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     const t = encode(text.trim());
     const atts = pending.filter((p) => p.att).map((p) => p.att);
     if ((!t && !atts.length) || uploading || sending.current) return;
-    if (t.length > 2000) return setErr('That message is too long once emoji and mentions are expanded');
+    if (t.length > limit) return setErr('That message is too long once emoji and mentions are expanded');
     setErr('');
     sending.current = true;
     try {
@@ -734,7 +736,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           </div>
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
           <input ref={camInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
-          <textarea ref={inputRef} className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={2000} {...mc.bind}
+          <textarea ref={inputRef} className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={limit} {...mc.bind}
             onFocus={() => { if (!window.matchMedia('(max-width: 720px)').matches) return; stick.current = true; [120, 320, 600].forEach((ms) => setTimeout(() => { const el = scroller.current; if (el && document.activeElement === inputRef.current) el.scrollTop = el.scrollHeight; }, ms)); }}
             onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }} />
           <div className="comp-tools">
@@ -748,7 +750,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           {pop === 'gif' && <GifPop enabled={gifEnabled} onClose={() => setPop(null)} onPick={sendGif} />}
           {pop === 'sticker' && <StickerPop onClose={() => setPop(null)} onPick={sendSticker} />}
         </div>
-        <div className="typing" aria-live="polite">{typingNames.length ? `${typingNames.join(', ')} ${typingNames.length > 1 ? 'are' : 'is'} typing…` : ' '}</div>
+        <div className="typing" aria-live="polite">{text.length >= limit * 0.8 && <span className={'char-count' + (text.length >= limit ? ' full' : '')} aria-hidden="true" title={limit < PLUS_CHARS ? `Aduna Plus lets you write up to ${PLUS_CHARS.toLocaleString()} characters` : undefined}>{text.length.toLocaleString()} / {limit.toLocaleString()}</span>}{typingNames.length ? `${typingNames.join(', ')} ${typingNames.length > 1 ? 'are' : 'is'} typing…` : ' '}</div>
       </div>}
       {dragging && <div className="drop-hint"><Icon name="clip" size={28} />Drop files to send</div>}
       {lightbox && <Lightbox view={lightbox} onClose={() => setLightbox(null)} />}

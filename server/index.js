@@ -59,9 +59,13 @@ const { createIce } = require('./turn');
 const sandbox = require('./sandbox'); // starts its worker threads on first use, not at boot (each holds a WebAssembly runtime)
 
 const PORT = process.env.PORT || 3000;
-const MAX_MSG = 2000;
+const MAX_MSG = 2000; // what bots and webhooks may post; people get msgLimits.chars() depending on their plan
 const MAX_PINS = 50; // pinned messages per channel
 const MAX_CIPHER = 12000;
+const msgLimits = require('./msglimits');
+// the longest message / ciphertext this person may send (Aduna Plus gets more, see msglimits.js)
+const maxChars = (u) => msgLimits.chars(!!u && storagePlan.isSubscriber(u, now()));
+const maxCipher = (u) => msgLimits.cipher(!!u && storagePlan.isSubscriber(u, now()));
 
 // ---------- secret ----------
 // JWT_SECRET from the environment, otherwise a random secret kept (encrypted) in the database.
@@ -77,7 +81,7 @@ const referencedImages = () => new Set([
   ...Object.values(store.db.users).flatMap((u) => (u.clipCreator && u.clipCreator.profile ? [u.clipCreator.profile.avatarImage, u.clipCreator.profile.bannerImage] : [])), // a Clips creator's own icon and banner
   ...Object.values(store.db.servers).flatMap((sv) => [sv.iconImage, sv.bannerImage, sv.iconAnim, sv.bannerAnim]), // server icon + banner, and their animated copies
   ...Object.values(store.db.servers).flatMap((sv) => soundboardLib.audioIds(sv)), // the soundboard's clips live in the same table
-  ...Object.values(store.db.bots || {}).map((b) => b.avatarImage), // bot pictures (the bot's account points at the same image)
+  ...Object.values(store.db.bots || {}).flatMap((b) => [b.avatarImage, b.bannerImage]), // bot pictures and banners (the bot's account points at the same images)
   ...Object.values(store.db.emojis).map((e) => e.imageId), // custom emoji pictures live in the same table
   ...Object.values(store.db.badges || {}).map((b) => b.image), // badge pictures (creator badges and artists' items); without this the startup cleanup deleted them
   ...Object.values(store.db.badges || {}).flatMap((b) => stickersLib.stickersOf(b).map((s) => s.id)), // the pictures inside sticker packs (a sticker's id is its image id)
@@ -3649,7 +3653,7 @@ app.get('/api/bots/:id', auth, (req, res) => {
 app.patch('/api/bots/:id', auth, developerOnly, (req, res) => {
   const b = db().bots[req.params.id];
   if (!b || b.ownerId !== req.user.id) return res.status(404).json({ error: 'Bot not found' });
-  if (b.listingHold && (req.body?.visibility === 'public' || (b.visibility === 'public' && ['name', 'description', 'tags'].some((k) => req.body?.[k] !== undefined)))) {
+  if (b.listingHold && (req.body?.visibility === 'public' || (b.visibility === 'public' && ['name', 'description', 'about', 'tags'].some((k) => req.body?.[k] !== undefined)))) {
     return res.status(400).json({ error: b.listingHold.state === 'removed' ? 'This bot was removed from the public listing after reports.' : 'This bot\'s public listing is under review after reports. It cannot be changed until the review is done.' });
   }
   if (!botSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving bots too fast. Try again later.' });
@@ -3704,6 +3708,33 @@ app.put('/api/bots/:id/avatar', auth, developerOnly, uploadLimiter, rawImage, ah
 app.delete('/api/bots/:id/avatar', auth, developerOnly, ah(async (req, res) => {
   const b = ownBotForImage(req, res); if (!b) return;
   await setBotAvatar(b, null);
+  res.json({ bot: ownBotView(b, req.user.id) });
+}));
+
+// Bot banner: the wide picture on the bot's page in the explorer and on its account's profile. PNG, JPEG or WebP, up to 1600 x 600 px.
+// Same rules as the picture: checked on upload, replaced images are deleted, locked while a listing is under review.
+async function setBotBanner(b, buf) {
+  const old = b.bannerImage || null;
+  b.bannerImage = buf ? await store.putImage(buf) : null;
+  const u = b.userId && db().users[b.userId];
+  if (u) { u.bannerImage = b.bannerImage; emitUserUpdate(u); }
+  await store.flush(); // everything points at the new image before the old one is deleted
+  if (old && old !== b.bannerImage) await store.deleteImage(old);
+  tellDeveloper(b);
+}
+app.put('/api/bots/:id/banner', auth, developerOnly, uploadLimiter, rawImage, ah(async (req, res) => {
+  const b = ownBotForImage(req, res); if (!b) return;
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a PNG, JPEG or WebP image' });
+  const info = sniffImage(buf);
+  if (!info) return res.status(400).json({ error: 'That file is not a valid PNG, JPEG or WebP image' });
+  if (info.width > botsLib.LIMITS.bannerW || info.height > botsLib.LIMITS.bannerH) return res.status(400).json({ error: `Banner is too large (max ${botsLib.LIMITS.bannerW} x ${botsLib.LIMITS.bannerH} px)` });
+  await setBotBanner(b, buf);
+  res.json({ bot: ownBotView(b, req.user.id) });
+}));
+app.delete('/api/bots/:id/banner', auth, developerOnly, ah(async (req, res) => {
+  const b = ownBotForImage(req, res); if (!b) return;
+  await setBotBanner(b, null);
   res.json({ bot: ownBotView(b, req.user.id) });
 }));
 
@@ -4698,7 +4729,7 @@ function ensureBotUser(b) {
   const hues = ['#8c6b4f', '#b4553d', '#5f7a55', '#a67c1f', '#4b6a88', '#7a5a7d', '#2a251e'];
   const u = {
     id, username: 'bot-' + id.slice(0, 12), displayName: b.name, bio: clip(b.description, 200), avatarColor: hues[parseInt(id.slice(0, 2), 16) % hues.length],
-    avatarEmoji: '', avatarImage: b.avatarImage || null, bannerColor: '#e3dccb', accentColor: '#2a251e', status: 'online', publicKey: null, links: [], bot: true, botId: b.id, createdAt: now(),
+    avatarEmoji: '', avatarImage: b.avatarImage || null, bannerImage: b.bannerImage || null, bannerColor: '#e3dccb', accentColor: '#2a251e', status: 'online', publicKey: null, links: [], bot: true, botId: b.id, createdAt: now(),
   };
   db().users[id] = u; b.userId = id;
   return u;
@@ -4706,8 +4737,8 @@ function ensureBotUser(b) {
 // The bot's name and description show on its account; keep them in step with the bot record.
 function syncBotUser(b) {
   const u = b.userId && db().users[b.userId];
-  if (!u || (u.displayName === b.name && u.bio === clip(b.description, 200) && (u.avatarImage || null) === (b.avatarImage || null))) return;
-  u.displayName = b.name; u.bio = clip(b.description, 200); u.avatarImage = b.avatarImage || null;
+  if (!u || (u.displayName === b.name && u.bio === clip(b.description, 200) && (u.avatarImage || null) === (b.avatarImage || null) && (u.bannerImage || null) === (b.bannerImage || null))) return;
+  u.displayName = b.name; u.bio = clip(b.description, 200); u.avatarImage = b.avatarImage || null; u.bannerImage = b.bannerImage || null;
   emitUserUpdate(u);
 }
 // Takes the bot out of one server (the account stays on record so its old messages keep their name).
@@ -5166,7 +5197,7 @@ app.post('/api/channels/:id/quick-reply', auth, (req, res) => {
   const f = findChannel(req.params.id);
   if (!f || !f.server.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
   if (typeOf(f.channel) !== 'text') return res.status(400).json({ error: 'You can only reply in a text channel' });
-  const content = clip(req.body?.content, MAX_MSG).trim();
+  const content = clip(req.body?.content, maxChars(req.user)).trim();
   if (!content) return res.status(400).json({ error: 'Nothing to send' });
   if (stickersLib.idOf(content) || stickersLib.mixed(content)) return res.status(400).json({ error: 'Stickers can only be sent from the app' });
   if (!quickReplies.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
@@ -5417,6 +5448,7 @@ app.put('/api/me/activity', auth, (req, res) => {
 // Encrypted group chats and group calls (server/groups.js). Must be registered before the /api 404 handler below.
 const groups = groupsLib.create({
   get io() { return io; }, store, db, now, ah, auth, publicUser, areFriends, pushSafe, isOnline,
+  maxCipher: (uid) => maxCipher(db().users[uid]), // Aduna Plus may send longer messages (server/msglimits.js)
   imgPath: (id) => imgPath(id),
 });
 groups.register(app);
@@ -5684,7 +5716,7 @@ io.on('connection', (socket) => {
   socket.on('message:send', async (p, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!allowed()) return reply({ error: 'Slow down' });
-    const content = clip(p?.content, MAX_MSG).trim();
+    const content = clip(p?.content, maxChars(db().users[uid])).trim();
     const f = findChannel(p?.channelId);
     if (!f || !f.server.members.includes(uid)) return reply({ error: 'Cannot send' });
     const kind = typeOf(f.channel);
@@ -5734,7 +5766,7 @@ io.on('connection', (socket) => {
     if (blockedEither(uid, to.id)) return reply({ error: 'You cannot message this person' });
     if (!areFriends(uid, to.id)) return reply({ error: 'You can only message friends' });
     if (!to.publicKey) return reply({ error: 'They have not set up encryption yet' });
-    if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > MAX_CIPHER || p.iv.length > 64)
+    if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > maxCipher(db().users[uid]) || p.iv.length > 64)
       return reply({ error: 'Bad payload' });
     const key = convoKey(uid, to.id);
     let files = [];
@@ -5823,7 +5855,7 @@ io.on('connection', (socket) => {
       const msg = db().messages[p.messageId];
       const f = msg && findChannel(msg.channelId);
       if (!f || !f.server.members.includes(uid) || msg.authorId !== uid) return reply({ error: 'Forbidden' });
-      const content = clip(p.content, MAX_MSG).trim();
+      const content = clip(p.content, maxChars(db().users[uid])).trim();
       if (!content && !msg.attachments?.length && !msg.poll) return reply({ error: 'Message cannot be empty' });
       if (content !== msg.content) { const stkErr = stickerProblem(uid, content, { hasAtts: !!msg.attachments?.length, hasPoll: !!msg.poll }); if (stkErr) return reply({ error: stkErr }); }
       msg.content = content;
@@ -5839,7 +5871,7 @@ io.on('connection', (socket) => {
     if (p?.kind === 'dm') {
       const msg = db().dms[p.messageId];
       if (!msg || msg.from !== uid) return reply({ error: 'Forbidden' });
-      if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > MAX_CIPHER || p.iv.length > 64)
+      if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > maxCipher(db().users[uid]) || p.iv.length > 64)
         return reply({ error: 'Bad payload' });
       msg.ciphertext = p.ciphertext;
       msg.iv = p.iv;

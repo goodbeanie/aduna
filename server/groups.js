@@ -131,6 +131,7 @@ function createRoster({ now = Date.now, id }) {
 // ---------- wiring ----------
 function create(deps) {
   const { store, db, now, ah, auth, publicUser, areFriends, pushSafe, imgPath, isOnline } = deps;
+  const cipherMax = (uid) => (typeof deps.maxCipher === 'function' ? deps.maxCipher(uid) : MAX_CIPHER); // per person (Plus gets more); tests may omit it
   const io = { to: (...a) => deps.io.to(...a) }; // io is created after this module is; look it up when used
   const roster = createRoster({ now, id: () => store.id() });
   const groupOf = (id) => (typeof id === 'string' ? db().groups[id] : undefined);
@@ -345,7 +346,7 @@ function create(deps) {
       if (!allowed()) return done({ error: 'Slow down' });
       const g = memberOf(p?.groupId, uid);
       if (!g) return done({ error: 'Cannot send' });
-      if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > MAX_CIPHER || p.iv.length > 64) return done({ error: 'Bad payload' });
+      if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > cipherMax(uid) || p.iv.length > 64) return done({ error: 'Bad payload' });
       if (Number(p.epoch) !== g.epoch) return done({ error: 'This group just changed. Try again.', epoch: g.epoch });
       let files = [];
       if (p.files !== undefined) {
@@ -425,7 +426,7 @@ function create(deps) {
       const msg = typeof p?.messageId === 'string' ? db().gmsgs[p.messageId] : null;
       const g = msg && memberOf(msg.group, uid);
       if (!g || msg.from !== uid) return { error: 'Forbidden' };
-      if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > MAX_CIPHER || p.iv.length > 64) return { error: 'Bad payload' };
+      if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > cipherMax(uid) || p.iv.length > 64) return { error: 'Bad payload' };
       if (Number(p.epoch) !== msg.epoch) return { error: 'Bad payload' }; // an edit stays under the key the message was written with
       msg.ciphertext = p.ciphertext; msg.iv = p.iv; msg.editedAt = now();
       store.save();
