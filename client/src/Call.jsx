@@ -433,11 +433,11 @@ export function StageBtn({ icon, title, onClick, off, on, disabled, hangup, size
   );
 }
 
-export function Tile({ user, label, size, speaking, waiting, muted, deaf, stream, mirror, contain, showVideo, silent = true, small, onPick, pinned, live }) {
+export function Tile({ user, label, size, speaking, waiting, muted, deaf, stream, mirror, contain, showVideo, silent = true, small, onPick, pinned, live, onMenu, sound, heard, sharing }) {
   const off = deaf || muted;
   return (
-    <div className={'call-tile' + (speaking ? ' speaking' : '') + (waiting ? ' waiting' : '') + (small ? ' small' : '') + (pinned ? ' pinned' : '')}
-      onClick={onPick} role={onPick ? 'button' : undefined} tabIndex={onPick ? 0 : undefined}
+    <div className={'call-tile' + (speaking ? ' speaking' : '') + (waiting ? ' waiting' : '') + (small ? ' small' : '') + (pinned ? ' pinned' : '') + (sound ? ' sb-flash' : '')}
+      onClick={onPick} role={onPick ? 'button' : undefined} tabIndex={onPick ? 0 : undefined} onContextMenu={onMenu}
       onKeyDown={onPick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(); } } : undefined}
       title={onPick ? (pinned ? 'Click to unfocus' : 'Click to focus') : undefined}>
       {/* the video element always exists for the other person, so a camera that turns on appears at once */}
@@ -448,10 +448,17 @@ export function Tile({ user, label, size, speaking, waiting, muted, deaf, stream
           <Avatar user={user} size={size} />
         </div>
       )}
+      {sharing && <span className="tile-live" title="Sharing their screen">LIVE</span>}
+      {sound && <span className="tile-sound" role="status">{sound.emoji || '\u{1F50A}'} {sound.name}</span>}
       <span className="tile-name">
         {speaking && <span className="tile-wave" aria-hidden="true"><i /><i /><i /></span>}
         {label}
       </span>
+      {heard && (
+        <span className="tile-badge tile-heard" title={heard.title}>
+          <Icon name={heard.icon} size={14} />
+        </span>
+      )}
       {live && off && (
         <span className="tile-badge" title={deaf ? 'Deafened' : 'Muted'}>
           <Icon name={deaf ? 'headphonesoff' : 'micoff'} size={14} />

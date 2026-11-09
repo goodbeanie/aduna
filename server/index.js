@@ -195,11 +195,11 @@ const CREATOR_KEYS = new Set(String(process.env.CREATOR_EMAILS || 'adunachatapp@
 const isCreatorEmail = (email) => !!email && CREATOR_KEYS.has(security.emailKey(email));
 const isCreator = (u) => !!u && !u.bot && u.emailVerified === true && isCreatorEmail(u.email);
 storagePlan.setLifetime(isCreator); // the Aduna creator accounts have Aduna Plus for good, with no payment and no end date
-// Feature releases (server/features.js): a feature in testing is on for creator accounts only, a live one for everybody. Gate new work with
-// featureOn('id', req.user) or app.get(path, auth, needFeature('id'), handler): for anyone it is not on for, the route answers a plain 404.
-const featureOn = (id, u) => featuresLib.enabled(db().features, id, isCreator(u));
+// Feature gating (server/features.js): a registered feature is on for creator accounts only until a PUBLISHED release (/admin > Releases) lists it, then for everybody.
+// Gate new work with featureOn('id', req.user) or app.get(path, auth, needFeature('id'), handler): for anyone it is not on for, the route answers a plain 404.
+const featureOn = (id, u) => featuresLib.enabled(db().releases, id, isCreator(u));
 const needFeature = (id) => (req, res, next) => (featureOn(id, req.user) ? next() : res.status(404).json({ error: 'Not found' }));
-const featuresFor = (u) => featuresLib.forUser(db().features, isCreator(u));
+const featuresFor = (u) => featuresLib.forUser(db().releases, isCreator(u));
 const CREATOR_BADGE = { id: 'creator', name: 'Founder', builtin: true, image: null, emoji: '', color: '' };
 // The Artist badge: automatic once an artist's first item has been approved (db().artists[id].badge, see the artists block). The client draws it
 // from /badges/artist.png as a mask in the surrounding text colour (`glyph`), so it is white on dark themes and dark on light ones.
@@ -4617,9 +4617,9 @@ app.delete('/api/admin/admins/:id', auth, adminOnly, needCreator, (req, res) => 
   res.json({ ok: true });
 });
 
-// ----- feature releases (the Features tab) -----
-// Creator accounts only. Each feature in server/features.js is off, testing (creator accounts see it, nobody else) or live (everyone).
-// A feature goes live only from testing; one or several can be released in one go (all or nothing). A change reaches every open app at once.
+// ----- feature gating (no tab of its own: a feature goes public with the release that lists it) -----
+// Each feature in server/features.js is creator-only until a published release lists it. Publishing, unpublishing or changing the features of a
+// published release tells every open app at once.
 function pushFeatures() {
   const seen = new Set();
   for (const s of io.sockets.sockets.values()) {
@@ -4629,29 +4629,22 @@ function pushFeatures() {
     io.to('user:' + uid).emit('features:update', featuresFor(db().users[uid]));
   }
 }
-app.get('/api/admin/features', auth, adminOnly, needCreator, (_req, res) => res.json({ features: featuresLib.list(db().features) }));
-app.post('/api/admin/features', auth, adminOnly, needCreator, (req, res) => {
-  const state = req.body?.state;
-  const r = featuresLib.apply(db().features, req.body?.ids, state, req.user.id, now());
-  if (!r.ok) return res.status(r.status).json({ error: r.error });
-  if (r.changed.length) {
-    store.save();
-    adminLogAdd(req.user, state === 'live' ? 'release feature' : state === 'testing' ? 'test feature' : 'switch off feature',
-      r.changed.map((m) => m.id).join(', '), r.changed.map((m) => `${m.from} to ${m.to}`).join(', '));
-    pushFeatures();
-  }
-  res.json({ ok: true, changed: r.changed, features: featuresLib.list(db().features) });
-});
 
 // ----- releases (the Releases tab; Settings > What's new) -----
 // Every release is added automatically as a DRAFT (server/releases.js, run on every start). A draft is private: only a creator account sees it,
 // here in /admin. It shows up in What's new for everybody only after a creator account publishes it. Publishing reaches every open app at once.
+// A release also lists the features it contains (release.features): those are creator-only while it is a draft and public once it is published.
 const UPDATES_DIR = path.join(__dirname, '..', 'client', 'dist', 'updates');
 const RELEASES_PENDING = path.join(__dirname, 'releases-pending.json');
 async function syncReleases() {
   const map = db().releases;
   let changed = false;
   if (!(await store.getMeta('releases-seeded'))) { releasesLib.seedLegacy(map, now()); await store.setMeta('releases-seeded', '1'); changed = true; }
+  // the old Features tab is gone: what was live there stays live by joining the newest published release, and its records are removed
+  const hadLegacy = Object.keys(db().features || {}).length > 0;
+  const legacy = featuresLib.migrateLegacy(db().features, map);
+  if (legacy.moved.length) console.log(`Features: moved ${legacy.moved.join(', ')} onto release ${legacy.to}`);
+  if (hadLegacy) changed = true;
   const added = releasesLib.sync(map, { dir: UPDATES_DIR, pending: RELEASES_PENDING, now: now() });
   // Every deploy gets a draft too, so nothing depends on someone adding it by hand. If notes or a new app version already made a draft in this
   // same start, that one is the release for this deploy and no second draft is added. The very first run only remembers the current build.
@@ -4665,7 +4658,7 @@ async function syncReleases() {
 }
 const pushReleases = () => io.emit('releases:update');
 app.get('/api/releases', auth, (_req, res) => res.json({ releases: releasesLib.publicList(db().releases) })); // public releases only
-app.get('/api/admin/releases', auth, adminOnly, needCreator, (_req, res) => res.json({ releases: releasesLib.adminList(db().releases) }));
+app.get('/api/admin/releases', auth, adminOnly, needCreator, (_req, res) => res.json({ releases: releasesLib.adminList(db().releases), features: featuresLib.list(db().releases) }));
 app.patch('/api/admin/releases/:id', auth, adminOnly, needCreator, (req, res) => {
   const r = db().releases[req.params.id];
   if (!r) return res.status(404).json({ error: 'Release not found' });
@@ -4675,8 +4668,8 @@ app.patch('/api/admin/releases/:id', auth, adminOnly, needCreator, (req, res) =>
   r.updatedAt = now();
   store.save();
   adminLogAdd(req.user, 'edit release', r.id, r.title);
-  if (r.status === 'public') pushReleases();
-  res.json({ ok: true, releases: releasesLib.adminList(db().releases) });
+  if (r.status === 'public') { pushReleases(); if (edit.features !== undefined) pushFeatures(); } // a published release's feature list decides who has what
+  res.json({ ok: true, releases: releasesLib.adminList(db().releases), features: featuresLib.list(db().releases) });
 });
 app.post('/api/admin/releases/:id/:action(publish|unpublish)', auth, adminOnly, needCreator, (req, res) => {
   const r = db().releases[req.params.id];
@@ -4690,9 +4683,10 @@ app.post('/api/admin/releases/:id/:action(publish|unpublish)', auth, adminOnly, 
     r.status = 'draft'; delete r.publishedAt; delete r.publishedBy;
   }
   store.save();
-  adminLogAdd(req.user, publish ? 'publish release' : 'unpublish release', r.id, r.title);
+  adminLogAdd(req.user, publish ? 'publish release' : 'unpublish release', r.id, r.title + ((r.features || []).length ? ' · features: ' + r.features.join(', ') : ''));
   pushReleases();
-  res.json({ ok: true, releases: releasesLib.adminList(db().releases) });
+  if ((r.features || []).length) pushFeatures(); // its features go public with it, or back to creators only
+  res.json({ ok: true, releases: releasesLib.adminList(db().releases), features: featuresLib.list(db().releases) });
 });
 
 app.get('/api/admin/log', auth, adminOnly, ah(async (_req, res) => {

@@ -1,70 +1,78 @@
-// Feature releases: ship a feature switched off, test it on a creator account, then release it to everyone.
-// Pure logic (no database, no express): index.js keeps the records in db().features and calls these.
+// Feature gating: a new feature is built behind a check, deployed, and stays creator-only until the RELEASE that contains it is published.
+// Pure logic (no database, no express): index.js passes in db().releases and calls these.
 //
-// A feature has one of three states:
-//   off      nobody sees it (the default for anything never touched)
-//   testing  only creator accounts see it, so it can be tried on the real site before anyone else can
-//   live     everyone sees it
-// A feature only goes live from testing (test it first), and can be pulled back to testing or off at any time.
-// Features are declared in REGISTRY below, in code, because a switch only means something where the code that checks it exists:
-//   server: featureOn('my-feature', req.user)  or the needFeature('my-feature') route guard (a plain 404 when it is not on for that person)
-//   client: hasFeature(me, 'my-feature')        (client/src/features.js)
-// To add a feature: add a line here, build it behind the check, deploy, then test and release it from the Features tab on /admin.
-const STATES = ['off', 'testing', 'live'];
-
+// There is no separate switch. For one feature:
+//   - it is declared in REGISTRY below, in code, because a switch only means something where the code that checks it exists:
+//       server: featureOn('my-feature', req.user)  or the needFeature('my-feature') route guard (a plain 404 when it is not on for that person)
+//       client: hasFeature(me, 'my-feature')        (client/src/features.js)
+//   - in /admin > Releases a creator ticks which features a release contains (the release's `features` list)
+//   - while no PUBLISHED release lists it, only creator accounts can use it ('testing'); the moment a release that lists it is published, everybody can ('live')
+//   - taking that release back to a draft takes the feature away from everyone but creators again
+// A release can also name its features in server/releases-pending.json (`features: ['my-feature']`), so they are ticked from the start.
+// To add a feature: add a line here, build it behind the check, deploy, test it on a creator account, then publish the release.
 const REGISTRY = [
   { id: 'promoted-items', name: 'Promoted marketplace items', desc: 'Creators pay credits to feature their sticker packs and emoji in the Shop. (Planned: not built yet.)' },
   { id: 'sponsored-card', name: 'Sponsored card', desc: 'One clearly labelled, static “Sponsored” card at the bottom of the Shop. Needs ADS_JSON set on the server.' },
   { id: 'rewarded-ads', name: 'Watch an ad for credits', desc: 'An opt-in “Watch a sponsor, earn credits” button on the Quests tab, with a daily cap. Needs ADS_JSON set on the server.' },
+  { id: 'vc-screenshare', name: 'Voice channel screen share', desc: 'Share your screen in a voice channel, and watch other people’s shares.' },
 ];
 
 const has = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
 const known = (id) => typeof id === 'string' && REGISTRY.some((f) => f.id === id);
 
-// the state of one feature; anything missing, unknown or damaged is off
-function stateOf(records, id) {
-  const r = has(records, id) ? records[id] : null;
-  return r && STATES.includes(r.state) ? r.state : 'off';
+// Only known ids, once each, in the order given. Anything else (unknown, wrong type, prototype names) is dropped.
+function cleanIds(ids) {
+  const out = [];
+  for (const id of Array.isArray(ids) ? ids : []) if (known(id) && !out.includes(id)) out.push(id);
+  return out;
 }
 
-// can this person use the feature right now? `creator` says whether the person is a creator account.
-function enabled(records, id, creator) {
+// ids that every account can use right now: the ones a PUBLISHED release lists
+function liveIds(releases) {
+  const live = new Set();
+  for (const r of Object.values(releases || {})) {
+    if (r && r.status === 'public' && Array.isArray(r.features)) for (const id of r.features) if (known(id)) live.add(id);
+  }
+  return live;
+}
+
+// can this person use the feature right now? `creator` says whether the person is a creator account (only an explicit true counts).
+function enabled(releases, id, creator) {
   if (!known(id)) return false;
-  const s = stateOf(records, id);
-  return s === 'live' || (s === 'testing' && creator === true);
+  return creator === true || liveIds(releases).has(id);
 }
 
-// what one person is told: { id: 'live' | 'testing' } for the features they can use ('testing' only ever appears for creators)
-function forUser(records, creator) {
-  const out = {};
+// what one person is told: { id: 'live' | 'testing' } ('testing' only ever appears for creators: a registered feature no published release has yet)
+function forUser(releases, creator) {
+  const live = liveIds(releases), out = {};
   for (const f of REGISTRY) {
-    const s = stateOf(records, f.id);
-    if (s === 'live' || (s === 'testing' && creator === true)) out[f.id] = s;
+    if (live.has(f.id)) out[f.id] = 'live';
+    else if (creator === true) out[f.id] = 'testing';
   }
   return out;
 }
 
-// every feature with its state, for the admin page
-function list(records) {
-  return REGISTRY.map((f) => {
-    const r = has(records, f.id) ? records[f.id] : null;
-    return { id: f.id, name: f.name, desc: f.desc, state: stateOf(records, f.id), at: (r && r.at) || null, by: (r && r.by) || null };
-  });
+// every feature with where it stands, for the release editor in /admin
+function list(releases) {
+  const live = liveIds(releases);
+  return REGISTRY.map((f) => ({ id: f.id, name: f.name, desc: f.desc, state: live.has(f.id) ? 'live' : 'testing' }));
 }
 
-// Move one or more features to a state, all or nothing. Returns { ok: true, changed: [{ id, name, from, to }] } or { ok: false, status, error }.
-// `changed` leaves out features already in that state. Nothing is written when anything is refused.
-function apply(records, ids, state, by, at) {
-  if (!STATES.includes(state)) return { ok: false, status: 400, error: 'state must be off, testing or live' };
-  if (!Array.isArray(ids) || !ids.length) return { ok: false, status: 400, error: 'Pick at least one feature' };
-  const uniq = [...new Set(ids)];
-  if (uniq.length > REGISTRY.length || !uniq.every(known)) return { ok: false, status: 404, error: 'That feature does not exist' };
-  const moves = uniq.map((id) => ({ id, name: REGISTRY.find((f) => f.id === id).name, from: stateOf(records, id), to: state }));
-  const early = moves.filter((m) => state === 'live' && m.from === 'off');
-  if (early.length) return { ok: false, status: 400, error: `Test ${early.map((m) => m.name).join(', ')} before releasing: put ${early.length === 1 ? 'it' : 'them'} in testing first` };
-  const changed = moves.filter((m) => m.from !== m.to);
-  for (const m of changed) records[m.id] = { id: m.id, state: m.to, at, by };
-  return { ok: true, changed };
+// One-time move from the old Features tab (records { id, state }): a feature that was 'live' there stays live by being listed on the newest
+// published release, then the old records are removed. Returns { moved: [ids], to: releaseId | null }. Safe to run on every start.
+function migrateLegacy(records, releases) {
+  if (!records || typeof records !== 'object') return { moved: [], to: null };
+  const keys = Object.keys(records);
+  if (!keys.length) return { moved: [], to: null };
+  const ids = cleanIds(keys.filter((k) => records[k] && records[k].state === 'live'));
+  let to = null;
+  if (ids.length) {
+    const newest = Object.values(releases || {}).filter((r) => r && r.status === 'public')
+      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (b.createdAt || 0) - (a.createdAt || 0)))[0];
+    if (newest) { newest.features = cleanIds([...(newest.features || []), ...ids]); to = newest.id; }
+  }
+  for (const k of keys) delete records[k];
+  return { moved: to ? ids : [], to };
 }
 
-module.exports = { STATES, REGISTRY, known, stateOf, enabled, forUser, list, apply };
+module.exports = { REGISTRY, known, cleanIds, liveIds, enabled, forUser, list, migrateLegacy };

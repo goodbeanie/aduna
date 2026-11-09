@@ -21,7 +21,7 @@ import { ServerNotifications } from './ServerNotifications.jsx';
 import { can, canManageAny, roleColorOf, rankOf, heldRoles, memberGroups, isOwner as ownerOrCo, isCoOwner } from './perms.js';
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
-import { useVoice, VoiceAudio, VoicePanel } from './Voice.jsx';
+import { useVoice, VoiceUI, VoicePanel, SHARE_FEATURE } from './Voice.jsx';
 import RulesView from './Rules.jsx';
 import TodoView from './Todo.jsx';
 import GoalsView from './Goals.jsx';
@@ -33,7 +33,7 @@ import { plainText } from './stickers.js';
 import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
 import { StorageDock } from './Storage.jsx';
-import { CLIPS_ENABLED } from './features.js';
+import { CLIPS_ENABLED, hasFeature } from './features.js';
 // the Clips screen is only loaded when Clips are switched on (features.js); while they are off none of its code is fetched
 const Clips = CLIPS_ENABLED ? React.lazy(() => import('./Clips.jsx')) : null;
 import { OnboardingFlow } from './Onboarding.jsx';
@@ -602,7 +602,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     return () => { clearInterval(iv); unwatch(); s.disconnect(); };
   }, [me.id, setMe, addUsers, logout, loadFriends, loadNotes, loadSocial]);
 
-  const voice = useVoice({ socketRef, ready: me.id });
+  const voice = useVoice({ socketRef, ready: me.id, isPlus: () => !!meRef.current?.plus, canShare: () => hasFeature(meRef.current, SHARE_FEATURE) });
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
   useEffect(() => { if (!evToast) return undefined; const t = setTimeout(() => setEvToast(null), 60000); return () => clearTimeout(t); }, [evToast]);
 
@@ -1318,7 +1318,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         </aside>
         </>
       )}
-      <VoiceAudio voice={voice} />
+      <VoiceUI voice={voice} />
       {voice.state.channelId && (!(channel?.id === voice.state.channelId) || eventsOpen) && (() => {
         const sv = servers.find((x) => x.channels.some((c) => c.id === voice.state.channelId)); const ch = sv?.channels.find((c) => c.id === voice.state.channelId);
         return ch && <div className="voice-dock"><Icon name="speaker" size={16} /><button className="link-btn" onClick={() => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }}>Voice connected · {ch.name}</button><button className="icon-btn" title={voice.state.muted ? 'Unmute' : 'Mute'} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={16} /></button><button className="icon-btn" title="Leave voice" onClick={voice.actions.leave}><Icon name="phone" size={16} /></button></div>;

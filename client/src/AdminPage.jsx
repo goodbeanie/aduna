@@ -7,7 +7,7 @@ import './admin.css';
 // non-admins with a 404; if /api/admin/me fails here anyway, the page sends the visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['features', 'Features'], ['releases', 'Releases'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin' };
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
@@ -544,106 +544,44 @@ function ArtistReview() {
   );
 }
 
-// ---------- features ----------
-// Creator accounts only. A feature is off, in testing (only creator accounts see it, so you can try it on the real site) or live (everyone).
-// A feature can only go live from testing; one or several can be released together. The list of features lives in the code (server/features.js).
-const FSTATE = { off: 'Off', testing: 'Testing · creators only', live: 'Live · everyone' };
-function Features() {
-  const { me, say, run, ask } = useAdm();
-  const [rows, setRows] = useState(null);
-  const [sel, setSel] = useState(() => new Set());
-  const load = useCallback(() => api('/admin/features').then((r) => setRows(r.features)).catch((e) => { setRows([]); say(e.message, 'error'); }), [say]);
-  useEffect(() => { if (me.canManageFeatures) load(); }, [load, me.canManageFeatures]);
-  if (!me.canManageFeatures) return <Empty text="Only a creator account can test and release features." />;
-  if (!rows) return <p className="adm-muted">Loading…</p>;
-
-  const chosen = (state) => rows.filter((f) => sel.has(f.id) && f.state === state);
-  const toggle = (id) => setSel((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
-  const names = (list) => list.map((f) => f.name);
-
-  // list: the features to move, state: where to. Releasing and pulling back are asked about first, because everyone sees the result.
-  const move = async (list, state) => {
-    if (!list.length) return;
-    let ok = true;
-    if (state === 'live') {
-      ok = await ask({ title: list.length === 1 ? `Release “${list[0].name}” to everyone?` : `Release ${list.length} features to everyone?`, body: 'Everyone sees it right away, in every open app. You can pull it back to testing at any time.', lines: names(list), confirmLabel: list.length === 1 ? 'Release' : 'Release all' });
-    } else if (list.some((f) => f.state === 'live')) {
-      ok = await ask({ title: state === 'off' ? 'Switch off a live feature?' : 'Pull back to testing?', body: 'It disappears for everyone else right away' + (state === 'testing' ? ', and stays on for creator accounts.' : '.'), lines: names(list), confirmLabel: state === 'off' ? 'Switch off' : 'Pull back', danger: true });
-    }
-    if (!ok) return;
-    const verb = state === 'live' ? 'released' : state === 'testing' ? 'in testing' : 'switched off';
-    const worked = await run(() => api('/admin/features', { method: 'POST', body: { ids: list.map((f) => f.id), state } }).then((x) => { setRows(x.features); return x; }),
-      (x) => (x.changed.length ? `${x.changed.length === 1 ? x.changed[0].name : x.changed.length + ' features'} ${verb}` : 'Nothing to change'));
-    if (worked) setSel(new Set());
-  };
-
-  const readyToRelease = chosen('testing'), readyToTest = chosen('off');
-  return (
-    <>
-      <div className="adm-card">
-        <h3>How releasing works</h3>
-        <ul className="adm-lines">
-          <li><b>Off</b>: nobody sees it. <b>Testing</b>: only creator accounts see it, so you can try it on the real site first. <b>Live</b>: everyone sees it.</li>
-          <li>A feature goes live only from testing. Tick several and release them together, or release one at a time.</li>
-          <li>Changes reach every open app straight away, and you can pull a live feature back to testing or off. Everything is written to the Log.</li>
-        </ul>
-      </div>
-      <div className="adm-card">
-        <div className="adm-row">
-          <h3>Features</h3>
-          <div className="adm-actions">
-            <button className="adm-btn small" disabled={!readyToTest.length} onClick={() => move(readyToTest, 'testing')}>Start testing{readyToTest.length ? ` (${readyToTest.length})` : ''}</button>
-            <button className="adm-btn small primary" disabled={!readyToRelease.length} onClick={() => move(readyToRelease, 'live')}>Release selected{readyToRelease.length ? ` (${readyToRelease.length})` : ''}</button>
-          </div>
-        </div>
-        {rows.map((f) => (
-          <div className="adm-row adm-line" key={f.id}>
-            <div>
-              <label className="adm-check">
-                <input type="checkbox" checked={sel.has(f.id)} onChange={() => toggle(f.id)} aria-label={`Select ${f.name}`} />
-                <span><b>{f.name}</b> <span className={'adm-tag' + (f.state === 'testing' ? ' warn' : '')}>{FSTATE[f.state]}</span>
-                  <span className="adm-muted"> {f.desc}{f.at ? ` · changed ${when(f.at)}` : ''}</span></span>
-              </label>
-            </div>
-            <div className="adm-actions">
-              {f.state === 'off' && <button className="adm-btn small" onClick={() => move([f], 'testing')}>Start testing</button>}
-              {f.state === 'testing' && <button className="adm-btn small primary" onClick={() => move([f], 'live')}>Release</button>}
-              {f.state === 'testing' && <button className="adm-btn small" onClick={() => move([f], 'off')}>Switch off</button>}
-              {f.state === 'live' && <button className="adm-btn small" onClick={() => move([f], 'testing')}>Pull back to testing</button>}
-              {f.state === 'live' && <button className="adm-btn small danger" onClick={() => move([f], 'off')}>Switch off</button>}
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
 // ---------- releases ----------
 // Creator accounts only. Every release is added here by itself as a private DRAFT (the server does it on every deploy). Nobody else sees a draft:
 // it shows up in What's new for everybody only once a creator account presses Publish. The notes can be edited before and after.
+// A release also says which new features it contains (the list of features lives in the code, server/features.js). Those features are for creator accounts
+// only while the release is a draft, and for everyone once it is published.
 function Releases() {
   const { me, say, run, ask } = useAdm();
   const [rows, setRows] = useState(null);
-  const [edit, setEdit] = useState(null); // { id, title, items: [{ title, text }] } while a release is being edited
-  const load = useCallback(() => api('/admin/releases').then((r) => setRows(r.releases)).catch((e) => { setRows([]); say(e.message, 'error'); }), [say]);
+  const [catalog, setCatalog] = useState([]); // the features the code knows about: [{ id, name, desc, state }]
+  const [edit, setEdit] = useState(null); // { id, title, items: [{ title, text }], features: [id] } while a release is being edited
+  const load = useCallback(() => api('/admin/releases').then((r) => { setRows(r.releases); setCatalog(r.features || []); }).catch((e) => { setRows([]); say(e.message, 'error'); }), [say]);
   useEffect(() => { if (me.canManageFeatures) load(); }, [load, me.canManageFeatures]);
   if (!me.canManageFeatures) return <Empty text="Only a creator account can publish releases." />;
   if (!rows) return <p className="adm-muted">Loading…</p>;
 
-  const startEdit = (r) => setEdit({ id: r.id, title: r.title, items: r.items.length ? r.items.map((i) => ({ ...i })) : [{ title: '', text: '' }] });
+  const apply = (x) => { setRows(x.releases); if (x.features) setCatalog(x.features); return x; };
+  const nameOf = (id) => catalog.find((f) => f.id === id)?.name || id;
+  const names = (r) => r.features.map(nameOf);
+  const startEdit = (r) => setEdit({ id: r.id, title: r.title, features: [...r.features], items: r.items.length ? r.items.map((i) => ({ ...i })) : [{ title: '', text: '' }] });
   const setItem = (i, k, v) => setEdit((e) => ({ ...e, items: e.items.map((it, j) => (j === i ? { ...it, [k]: v } : it)) }));
+  const tickFeature = (id) => setEdit((e) => ({ ...e, features: e.features.includes(id) ? e.features.filter((x) => x !== id) : [...e.features, id] }));
   const save = async () => {
-    const ok = await run(() => api('/admin/releases/' + encodeURIComponent(edit.id), { method: 'PATCH', body: { title: edit.title, items: edit.items.filter((i) => i.title.trim() || i.text.trim()) } }).then((x) => { setRows(x.releases); return x; }), () => 'Release saved');
-    if (ok) setEdit(null);
+    const was = rows.find((r) => r.id === edit.id);
+    // changing the features of a PUBLISHED release changes what everyone can use straight away, so ask first
+    if (was?.status === 'public' && [...was.features].sort().join() !== [...edit.features].sort().join()) {
+      const ok = await ask({ title: 'Change what everyone can use?', body: 'This release is published, so the features you tick are on for everyone right away, and the ones you untick are back to creator accounts only.', confirmLabel: 'Save', danger: true });
+      if (!ok) return;
+    }
+    const done = await run(() => api('/admin/releases/' + encodeURIComponent(edit.id), { method: 'PATCH', body: { title: edit.title, features: edit.features, items: edit.items.filter((i) => i.title.trim() || i.text.trim()) } }).then(apply), () => 'Release saved');
+    if (done) setEdit(null);
   };
   const publish = async (r) => {
-    const ok = await ask({ title: `Publish “${r.title}”?`, body: 'Everyone sees it in What’s new, and people who have the popup on are told about it the next time they open Aduna. You can pull it back to a draft at any time.', confirmLabel: 'Publish' });
-    if (ok) await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/publish`, { method: 'POST' }).then((x) => { setRows(x.releases); return x; }), () => 'Release published');
+    const ok = await ask({ title: `Publish “${r.title}”?`, body: 'Everyone sees it in What’s new, and people who have the popup on are told about it the next time they open Aduna.' + (r.features.length ? ' The features below also become available to everyone, right away, in every open app.' : '') + ' You can pull it back to a draft at any time.', lines: names(r), confirmLabel: 'Publish' });
+    if (ok) await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/publish`, { method: 'POST' }).then(apply), () => 'Release published');
   };
   const unpublish = async (r) => {
-    const ok = await ask({ title: `Make “${r.title}” a draft again?`, body: 'It disappears from What’s new for everyone except creator accounts.', confirmLabel: 'Back to draft', danger: true });
-    if (ok) await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/unpublish`, { method: 'POST' }).then((x) => { setRows(x.releases); return x; }), () => 'Release is a draft again');
+    const ok = await ask({ title: `Make “${r.title}” a draft again?`, body: 'It disappears from What’s new for everyone except creator accounts.' + (r.features.length ? ' The features below go back to creator accounts only.' : ''), lines: names(r), confirmLabel: 'Back to draft', danger: true });
+    if (ok) await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/unpublish`, { method: 'POST' }).then(apply), () => 'Release is a draft again');
   };
 
   return (
@@ -652,8 +590,9 @@ function Releases() {
         <h3>How releases work</h3>
         <ul className="adm-lines">
           <li>Every release is added here by itself, as a <b>draft</b>. A draft is private: only creator accounts can see it.</li>
-          <li>Check the notes (edit them if you want), then <b>Publish</b>. Only then does it appear in What’s new for everyone.</li>
-          <li>You can pull a published release back to a draft. Everything is written to the Log.</li>
+          <li>Edit the release and tick the <b>features</b> it contains. While it is a draft, those features work for creator accounts only, so you can test them on the real site. Anyone else cannot use them.</li>
+          <li>Check the notes, then <b>Publish</b>. Only then does the release appear in What’s new, and its features switch on for everyone.</li>
+          <li>You can pull a published release back to a draft, and its features go back to creator accounts only. Everything is written to the Log.</li>
         </ul>
       </div>
       {!rows.length && <Empty text="No releases yet. The next release will show up here as a draft." />}
@@ -673,6 +612,17 @@ function Releases() {
           {edit?.id === r.id ? (
             <>
               <label className="adm-field"><span><b>Title</b></span><input value={edit.title} maxLength={80} onChange={(e) => setEdit({ ...edit, title: e.target.value })} /></label>
+              {catalog.length > 0 && (
+                <div className="adm-field">
+                  <span><b>Features in this release</b> <span className="adm-muted">(creator accounts only until it is published)</span></span>
+                  {catalog.map((f) => (
+                    <label className="adm-check" key={f.id}>
+                      <input type="checkbox" checked={edit.features.includes(f.id)} onChange={() => tickFeature(f.id)} aria-label={`Include ${f.name}`} />
+                      <span><b>{f.name}</b> <span className="adm-muted">{f.desc}</span></span>
+                    </label>
+                  ))}
+                </div>
+              )}
               {edit.items.map((it, i) => (
                 <div className="adm-field" key={i}>
                   <input value={it.title} maxLength={60} placeholder="Short title" aria-label={`Note ${i + 1} title`} onChange={(e) => setItem(i, 'title', e.target.value)} />
@@ -690,6 +640,11 @@ function Releases() {
             <ul className="adm-lines">{r.items.map((it, i) => <li key={i}><b>{it.title}</b>{it.text ? ` — ${it.text}` : ''}</li>)}</ul>
           ) : (
             <p className="adm-muted">No notes yet. Use Edit notes to say what changed before publishing.</p>
+          )}
+          {edit?.id !== r.id && r.features.length > 0 && (
+            <p className="adm-muted">
+              Features: {names(r).join(', ')} · {r.status === 'public' ? 'on for everyone' : 'creator accounts only until this is published'}
+            </p>
           )}
         </div>
       ))}
@@ -792,7 +747,7 @@ export default function AdminPage() {
         <header className="adm-top">
           <a className="adm-logo" href="/admin" onClick={(e) => { e.preventDefault(); go('overview'); }}>Aduna <small>Admin</small></a>
           <nav className="adm-nav" aria-label="Admin pages">
-            {TABS.filter(([id]) => (id !== 'features' && id !== 'releases') || me.canManageFeatures).map(([id, name]) => (
+            {TABS.filter(([id]) => id !== 'releases' || me.canManageFeatures).map(([id, name]) => (
               <button key={id} className={'adm-tab' + (tab === id ? ' on' : '')} aria-current={tab === id ? 'page' : undefined} onClick={() => go(id)}>
                 {name}{id === 'reports' && reportCount > 0 && <b>{reportCount}</b>}{id === 'applications' && summary && summary.applications > 0 && <b>{summary.applications}</b>}
               </button>
@@ -808,7 +763,6 @@ export default function AdminPage() {
           {tab === 'artists' && <ArtistReview />}
           {tab === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
           {tab === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
-          {tab === 'features' && <Features />}
           {tab === 'releases' && <Releases />}
           {tab === 'admins' && <Admins openUser={openUser} />}
           {tab === 'log' && <Log />}

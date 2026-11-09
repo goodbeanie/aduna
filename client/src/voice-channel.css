@@ -1,76 +1,50 @@
-/* Voice channel page (VoicePanel in Voice.jsx): the participant tiles, the soundboard card and the control bar.
+/* Voice channel page (VoicePanel in Voice.jsx). It reuses the call stage from DM and group calls (css/07-calls.css, css/17-groups.css), so only
+   what is specific to a channel lives here: the header count, the focus strip under a screen share, the Join button, the soundboard card, and the
+   small tile extras (LIVE chip, soundboard sound, "you muted them" badge) that Tile in Call.jsx can show.
    Loaded after buttons.css so it wins over the older layers. Remove its import in main.jsx to undo. */
 
-.voice-panel .voice-body {
-  justify-content: center;
-  gap: 22px;
-  padding: 28px 20px 32px;
-  width: 100%;
-  max-width: 760px;
-  margin: 0 auto;
-  box-sizing: border-box;
-}
-
-/* header: a quiet participant count next to the channel name */
+.voice-panel { min-height: 0; }
 .voice-panel .voice-count { padding: 2px 10px; border-radius: 999px; background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line2); font-size: 12px; font-variant-numeric: tabular-nums; }
+.voice-panel > .voice-error { flex: none; margin: 10px 12px 0; max-width: none; }
 
-/* tiles */
-.voice-panel .voice-grid { gap: 14px; max-width: 100%; }
-.voice-panel .voice-tile {
-  width: 164px;
-  padding: 22px 12px 16px;
-  gap: 10px;
-  border-radius: var(--r-lg);
-  background: var(--bg2);
-  box-shadow: inset 0 0 0 1px var(--line);
-  transition: box-shadow .15s ease, background .15s ease;
-}
-.voice-panel .voice-tile:hover { background: var(--bg3, var(--bg2)); box-shadow: inset 0 0 0 1px var(--line2); }
-.voice-panel .voice-tile.sb-flash { border-radius: var(--r-lg); box-shadow: inset 0 0 0 2px var(--green); }
-.voice-panel .voice-name { font-size: 15px; font-weight: 600; max-width: 100%; text-align: center; }
-.voice-panel .voice-muted {
-  position: absolute; top: 10px; right: 10px;
-  box-sizing: content-box; width: 16px; height: 16px; padding: 4px;
-  border-radius: 50%; background: var(--danger); color: #fff;
-}
-.voice-panel .voice-muted.voice-sbmuted { background: var(--muted, #6b6b6b); }
-.voice-panel .sb-said {
-  max-width: 100%; margin-top: 0; padding: 3px 10px;
-  border-radius: 999px; background: var(--green); color: #fff; font-weight: 600;
-}
+/* the stage fills the page under the header */
+.call-stage.vc-stage { flex: 1 1 0; min-height: 0; border-bottom: 0; }
+.vc-stage .stage-tiles { overflow: hidden; }
+.vc-empty { grid-column: 1 / -1; display: grid; place-items: center; text-align: center; padding: 24px; color: #f3ecdcb3; }
 
-/* soundboard card: as wide as the tiles above it, pill buttons */
-.voice-panel .sb-bar { max-width: 100%; margin: 0; padding: 14px 16px 16px; border-radius: var(--r-lg); background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); box-sizing: border-box; }
-.voice-panel .sb-head { margin-bottom: 10px; }
-.voice-panel .sb-grid { gap: 8px; }
-.voice-panel .sb-btn { min-height: 38px; padding: 0 16px; border-radius: 999px; font-weight: 500; transition: background .12s ease, box-shadow .12s ease; }
-.voice-panel .sb-btn:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--head, var(--line2)); }
+/* focus (a screen share, or a clicked tile): the big tile, and everyone else as a row of small tiles under it */
+.call-stage.vc-stage .stage-tiles.spot { display: flex; flex-direction: column; gap: 10px; }
+.call-stage.vc-stage .stage-tiles.spot > .call-tile { flex: 1 1 0; min-height: 0; }
+.vc-strip { flex: none; display: flex; gap: 8px; height: clamp(84px, 17vh, 124px); overflow-x: auto; overflow-y: hidden; }
+.call-stage.vc-stage .stage-tiles.spot .vc-strip .call-tile.small { position: relative; right: auto; bottom: auto; flex: 0 0 auto; height: 100%; width: auto; max-height: none; aspect-ratio: 16 / 10; }
+.vc-strip:empty { display: none; }
 
-/* controls: one pill bar, the Leave button is clearly red, an active Mute/Deafen is tinted red */
-.voice-panel .voice-controls {
-  gap: 8px; padding: 8px; border-radius: 999px;
-  background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line);
-}
-.voice-panel .voice-controls .btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  height: 42px; padding: 0 20px; border-radius: 999px; font-weight: 600;
-  background: transparent; color: inherit; box-shadow: none;
-}
-.voice-panel .voice-controls .btn:hover:not(:disabled) { background: var(--hover); }
-.voice-panel .voice-controls .btn.on { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); box-shadow: none; }
-.voice-panel .voice-controls .btn.primary { background: var(--ink); color: var(--on-ink); }
-.voice-panel .voice-controls .btn.primary:hover:not(:disabled) { background: var(--ink-h, var(--ink)); }
-.voice-panel .voice-controls .btn.primary:disabled { opacity: .55; }
-.voice-panel .voice-controls .btn.primary.danger-fill,
-.voice-panel .voice-controls .btn.primary.danger-fill .inline-icon { background: var(--danger); color: #fff; }
-.voice-panel .voice-controls .btn.primary.danger-fill .inline-icon { background: none; }
-.voice-panel .voice-controls .btn.primary.danger-fill:hover:not(:disabled) { background: var(--danger-h, var(--danger)); }
-.voice-panel .voice-controls .btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
-.voice-panel .voice-controls .inline-icon { margin: 0; }
+/* controls */
+.vc-join { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 46px; padding: 0 28px; border-radius: var(--r-md); font-weight: 600; }
+.vc-join .inline-icon { margin: 0; }
+.vc-join:disabled { opacity: .55; }
+.vc-join:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+/* soundboard card: under the stage, as wide as the tiles above it, pill buttons */
+.vc-sound { flex: none; max-height: 30vh; overflow-y: auto; padding: 0 12px 12px; box-sizing: border-box; }
+.vc-sound .sb-bar { max-width: none; margin: 0; padding: 14px 16px 16px; border-radius: var(--r-lg); background: var(--bg2); box-shadow: inset 0 0 0 1px var(--line); box-sizing: border-box; }
+.vc-sound .sb-head { margin-bottom: 10px; }
+.vc-sound .sb-grid { gap: 8px; }
+.vc-sound .sb-btn { min-height: 38px; padding: 0 16px; border-radius: 999px; font-weight: 500; transition: background .12s ease, box-shadow .12s ease; }
+.vc-sound .sb-btn:hover:not(:disabled) { box-shadow: inset 0 0 0 1px var(--head, var(--line2)); }
+
+/* tile extras (see Tile in Call.jsx) */
+.call-tile.sb-flash::after { opacity: 1; }                       /* the green ring of whoever just played a sound */
+.tile-live { position: absolute; top: 8px; left: 8px; z-index: 3; padding: 2px 8px; border-radius: var(--r-sm); background: var(--danger); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .06em; }
+.tile-sound { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 4; max-width: calc(100% - 24px); padding: 3px 10px; border-radius: 999px; background: var(--green); color: #fff; font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-badge.tile-heard { color: #f3ecdc; }
+.tile-heard:has(~ .tile-badge) { right: 40px; }                  /* next to the muted badge, not on top of it */
+.stage-tiles.spot .call-tile.small .tile-live { top: 6px; left: 6px; padding: 1px 6px; font-size: 10px; }
+.stage-tiles.spot .call-tile.small .tile-sound { top: 6px; font-size: 11px; padding: 1px 8px; }
+.vc-strip .call-tile.small .tile-heard:has(~ .tile-badge) { right: 32px; }
 
 @media (max-width: 720px) {
-  .voice-panel .voice-body { padding: 20px 12px 24px; gap: 18px; }
-  .voice-panel .voice-tile { width: calc(50% - 7px); min-width: 130px; }
-  .voice-panel .voice-controls { width: 100%; justify-content: center; box-sizing: border-box; }
-  .voice-panel .voice-controls .btn { flex: 1 1 0; padding: 0 12px; height: 44px; }
+  .vc-join { flex: 1; max-width: 420px; }
+  .vc-sound { padding: 0 8px 8px; }
+  .vc-strip { height: clamp(72px, 14vh, 100px); }
 }

@@ -36,6 +36,18 @@ export async function restartPath(pc) {
   } catch { return false; }
 }
 
+// The bitrate cap and the "keep smooth or keep sharp" preference for what a video sender sends (a screen share). Without a cap the browser stays far
+// below what 1080p at 60 fps needs. kbps 0 removes the cap again (used when the share ends). content: 'motion' | 'detail' | anything else = balanced.
+export async function tuneSender(sender, kbps, content) {
+  try {
+    const p = sender.getParameters();
+    if (!p.encodings || !p.encodings.length) p.encodings = [{}];
+    if (kbps) p.encodings[0].maxBitrate = kbps * 1000; else delete p.encodings[0].maxBitrate;
+    p.degradationPreference = content === 'motion' ? 'maintain-framerate' : content === 'detail' ? 'maintain-resolution' : 'balanced';
+    await sender.setParameters(p);
+  } catch { /* not supported here: the browser's own limits apply */ }
+}
+
 export const failureText = (relay) => relay
   ? 'The call could not connect. A firewall or network on one side may be blocking it.'
   : 'The call could not connect. Aduna has no relay server set up yet, so some networks cannot reach each other.';

@@ -9,6 +9,7 @@
 //      draft with a plain title and no notes, so a release can never go missing; the creator writes the notes in /admin before publishing.
 // Pure logic (no express, no database): index.js keeps the records in db().releases and calls these.
 const fs = require('fs');
+const featuresLib = require('./features'); // a release lists the feature ids it contains (see features.js): they go public when the release does
 
 const LIMITS = { id: 40, title: 80, version: 40, itemTitle: 60, itemText: 300, items: 12 };
 const ID = /^[\w.\-]{1,40}$/;
@@ -42,11 +43,12 @@ function cleanItems(list) {
   return out;
 }
 
-// What a creator may change: the title and the notes.
+// What a creator may change: the title, the notes and which features the release contains.
 function cleanEdit(b) {
   const out = {};
   if (b && b.title !== undefined) { out.title = clip(b.title, LIMITS.title); if (!out.title) return { error: 'A release needs a title' }; }
   if (b && b.items !== undefined) out.items = cleanItems(b.items);
+  if (b && b.features !== undefined) out.features = featuresLib.cleanIds(b.features);
   return out;
 }
 
@@ -59,7 +61,7 @@ function publicList(map) {
 // creators in /admin: everything, drafts included
 function adminList(map) {
   return Object.values(map).sort(byNewest).map((r) => ({
-    id: r.id, date: r.date, title: r.title, items: r.items || [], status: r.status === 'public' ? 'public' : 'draft',
+    id: r.id, date: r.date, title: r.title, items: r.items || [], features: featuresLib.cleanIds(r.features), status: r.status === 'public' ? 'public' : 'draft',
     desktop: r.desktop || null, android: r.android || null, createdAt: r.createdAt || null, publishedAt: r.publishedAt || null, publishedBy: r.publishedBy || null,
   }));
 }
@@ -96,7 +98,7 @@ function sync(map, d) {
   // 1. notes written for a release
   for (const p of readPending(d.pending)) {
     if (!p || typeof p !== 'object' || !ID.test(String(p.id || '')) || map[p.id]) continue;
-    add({ id: p.id, date: isDate(p.date) ? p.date : today(now), title: clip(p.title, LIMITS.title) || 'Update ' + p.id, items: cleanItems(p.items),
+    add({ id: p.id, date: isDate(p.date) ? p.date : today(now), title: clip(p.title, LIMITS.title) || 'Update ' + p.id, items: cleanItems(p.items), features: featuresLib.cleanIds(p.features),
       desktop: clip(p.desktop, LIMITS.version) || null, android: clip(p.android, LIMITS.version) || null });
   }
 
