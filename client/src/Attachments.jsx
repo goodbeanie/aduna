@@ -319,18 +319,25 @@ function FileAtt({ att, dm }) {
 
 export function Attachments({ atts, dm, onOpen }) {
   if (!atts?.length) return null;
+  // Every image and GIF in this message, in order. Opening one gives the lightbox the whole list, so the person can step through them.
+  const gallery = [];
+  atts.forEach((a, i) => {
+    if (a.gif) { if (safeGif(a.url)) gallery.push({ key: 'gif' + i, url: a.url, name: a.title || 'GIF' }); }
+    else if (!a.expired && kindOf(a.type) === 'image') gallery.push({ key: a.id, att: a, name: a.name });
+  });
+  const open = (key) => (v) => onOpen({ ...v, items: gallery, index: Math.max(0, gallery.findIndex((g) => g.key === key)) });
   return (
     <div className="atts">
       {atts.map((a, i) => {
         if (a.gif) {
           if (!safeGif(a.url)) return null;
-          return <button key={i} className="att-img" style={fit(a.w, a.h, 320, 260)} onClick={() => onOpen({ url: a.url, name: a.title || 'GIF' })} title={a.title}>
+          return <button key={i} className="att-img" style={fit(a.w, a.h, 320, 260)} onClick={() => open('gif' + i)({ url: a.url, name: a.title || 'GIF' })} title={a.title}>
             <img src={a.url} alt={a.title || 'GIF'} loading="lazy" referrerPolicy="no-referrer" draggable={false} />
           </button>;
         }
         if (a.expired) return <Expired key={a.id} att={a} />;
         const kind = kindOf(a.type);
-        if (kind === 'image') return <ImageAtt key={a.id} att={a} dm={dm} onOpen={onOpen} />;
+        if (kind === 'image') return <ImageAtt key={a.id} att={a} dm={dm} onOpen={open(a.id)} />;
         if (kind === 'video' || kind === 'audio') return <MediaAtt key={a.id} att={a} dm={dm} kind={kind} />;
         return <FileAtt key={a.id} att={a} dm={dm} />;
       })}
@@ -338,18 +345,57 @@ export function Attachments({ atts, dm, onOpen }) {
   );
 }
 
+// One slide of the lightbox. A picture sent as a file is fetched (and decrypted) here; a GIF already has its address.
+function BlobSlide({ item, dm }) {
+  const { url, err, expired } = useBlobUrl(item.att, dm, true);
+  if (url) return <img src={url} alt={item.name} draggable={false} />;
+  return <span className="lb-wait">{expired ? 'This image has expired' : err ? 'Could not load image' : 'Loading…'}</span>;
+}
+
+// Opens one image full size. When the message has several, the arrow buttons, the left/right keys and a swipe step through them
+// (view.items is the list, view.index the one that was clicked; see Attachments).
 export function Lightbox({ view, onClose }) {
+  const items = view.items?.length ? view.items : [{ key: 'one', url: view.url, name: view.name, att: view.att }];
+  const [i, setI] = useState(Math.min(Math.max(view.index || 0, 0), items.length - 1));
+  const touch = useRef(null);
+  const many = items.length > 1;
+  const item = items[i];
+  const step = useCallback((d) => setI((n) => Math.min(items.length - 1, Math.max(0, n + d))), [items.length]);
+
   useEffect(() => {
-    const h = (e) => e.key === 'Escape' && onClose();
+    const h = (e) => {
+      if (e.key === 'Escape') onClose();
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
+    };
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
+  }, [onClose, step]);
+
+  // fetch the next and previous picture ahead of time (loadBlob keeps them), so stepping is instant
+  useEffect(() => {
+    for (const n of [i - 1, i + 1]) { const it = items[n]; if (it?.att) loadBlob(it.att, view.dm).catch(() => {}); }
+  }, [i]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const onTouchStart = (e) => { touch.current = many && e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null; };
+  const onTouchEnd = (e) => {
+    const t = touch.current; touch.current = null;
+    if (!t || !e.changedTouches.length) return;
+    const dx = e.changedTouches[0].clientX - t.x, dy = e.changedTouches[0].clientY - t.y;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) step(dx < 0 ? 1 : -1); // swipe left = next, swipe right = previous
+  };
+
   return (
-    <div className="lightbox" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <img src={view.url} alt={view.name} referrerPolicy="no-referrer" />
+    <div className="lightbox" onMouseDown={(e) => e.target === e.currentTarget && onClose()} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+      {item.att
+        ? <BlobSlide key={item.key} item={item} dm={view.dm} />
+        : <img key={item.key} src={item.url} alt={item.name} referrerPolicy="no-referrer" draggable={false} />}
+      {many && <button className="lb-nav prev" title="Previous image" aria-label="Previous image" disabled={i === 0} onClick={() => step(-1)}><Icon name="chevron" size={26} /></button>}
+      {many && <button className="lb-nav next" title="Next image" aria-label="Next image" disabled={i === items.length - 1} onClick={() => step(1)}><Icon name="chevron" size={26} /></button>}
       <div className="lightbox-bar">
-        <span>{view.name}</span>
-        {view.att && <button className="icon-btn" title="Download" onClick={() => saveAttachment(view.att, view.dm)}><Icon name="download" size={18} /></button>}
+        <span>{item.name}</span>
+        {many && <span className="lb-count" aria-live="polite">{i + 1} / {items.length}</span>}
+        {item.att && <button className="icon-btn" title="Download" onClick={() => saveAttachment(item.att, view.dm)}><Icon name="download" size={18} /></button>}
         <button className="icon-btn" title="Close" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>
     </div>
