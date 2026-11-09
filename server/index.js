@@ -31,6 +31,7 @@ const { createPush, cleanPrefs } = require('./push');
 const { createFcm } = require('./fcm');
 const np = require('./notifprefs');
 const listing = require('./listing');
+const appropriate = require('./appropriate'); // the checker for usernames, display names, bios and server names (and the 3-day warning)
 const activityLib = require('./activity');
 const clipsLib = require('./clips'); // clips: short vertical videos (see the "clips" block below)
 const screenLib = require('./screen'); // clip screening: OpenAI moderation of frames, music recognition, re-post matching (see POST /api/clips/:id/complete)
@@ -51,6 +52,7 @@ const botsLib = require('./bots');
 const botrun = require('./botrun');
 const botstate = require('./botstate');
 const botfetch = require('./botfetch');
+const webhooksLib = require('./webhooks'); // incoming webhooks and the GitHub integration (rules only; the routes sit next to the bot routes, see "webhooks" below)
 const linkpreview = require('./linkpreview');
 const { createBotHost } = require('./bothost');
 const { createIce } = require('./turn');
@@ -288,7 +290,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]) });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -473,7 +475,9 @@ app.get('/api/username-available', (req, res) => {
   res.json({ ok: !usernameTaken(name) });
 });
 // Stripe and PayPal sign the exact bytes they send, so the credits webhooks keep the raw body next to the parsed one.
-app.use(express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/credits/webhook')) req.rawBody = buf; } }));
+// Incoming webhooks (/api/hooks/...) read their own body, with its own size limit (see "webhooks" below): GitHub's events can be bigger than 64 KB.
+const jsonBody = express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/credits/webhook')) req.rawBody = buf; } });
+app.use((req, res, next) => (req.originalUrl.startsWith('/api/hooks/') ? next() : jsonBody(req, res, next)));
 
 // API answers can hold private data (balances, email): browsers and proxies must not keep them.
 // Images and files set their own caching below, which overrides this.
@@ -619,6 +623,8 @@ app.post('/api/register', authLimiter, async (req, res) => {
   const g = gid ? googleLogins.get(gid) : null;
   if (gid && !(g && g.status === 'ready' && g.profile)) return res.status(410).json({ error: 'That Google sign-in expired. Start again with Google.', code: 'google_expired' });
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username || '')) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
+  const badName = appropriate.problem(username, 'username') || appropriate.problem(req.body?.design?.displayName, 'displayName');
+  if (badName) return res.status(400).json({ error: badName });
   const email = g ? g.profile.email : security.cleanEmail(req.body?.email);
   if (!email) return res.status(400).json({ error: 'Enter a valid email address' });
   if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
@@ -1406,11 +1412,17 @@ app.patch('/api/me', authAny, async (req, res) => {
     newTheme = b.profileTheme || null;
     if (newTheme === credits.pthemes.CUSTOM_ID) newGradient = copy.profileGradient; // the cleaned colours and angle
   }
+  const badText = (b.displayName !== undefined && appropriate.problem(clip(b.displayName, 32), 'displayName')) || (b.bio !== undefined && appropriate.problem(clip(b.bio, 190), 'bio'));
+  if (badText) return res.status(400).json({ error: badText });
   let newUsername;
   if (b.username !== undefined && String(b.username).trim() !== u.username) {
     newUsername = String(b.username).trim().replace(/^@/, '');
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(newUsername)) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
-    const wait = (u.usernameChangedAt || 0) + USERNAME_COOLDOWN_MS - now();
+    const badUser = appropriate.problem(newUsername, 'username');
+    if (badUser) return res.status(400).json({ error: badUser });
+    // someone told to change a flagged username must be able to do it now, not after the one-week wait
+    const mustChange = appropriate.scan(u).some((i) => i.field === 'username');
+    const wait = mustChange ? 0 : (u.usernameChangedAt || 0) + USERNAME_COOLDOWN_MS - now();
     if (wait > 0) {
       const when = new Date(u.usernameChangedAt + USERNAME_COOLDOWN_MS).toISOString();
       return res.status(429).json({ error: 'You can only change your username once every 7 days', availableAt: when });
@@ -1453,6 +1465,7 @@ app.patch('/api/me', authAny, async (req, res) => {
     if (b.showActivity === false) { u.showActivity = false; activityLib.clear(activities, u.id); } else delete u.showActivity;
   }
   if (b.bannerBlur !== undefined) { if (b.bannerBlur === true) u.bannerBlur = true; else delete u.bannerBlur; } // "Blur my banner behind my profile": off until they tick it
+  settleNameWarning(u); // they fixed what was flagged: the warning is over
   store.save();
   emitUserUpdate(u);
   broadcastPresence(u.id);
@@ -1657,9 +1670,9 @@ app.get('/api/images/:id', ah(async (req, res) => {
 const EMOJI = { maxBytes: 256 * 1024, minDim: 16, maxDim: 512, maxRatio: 2, maxOwned: 50, maxLib: 100, reportsToDisable: 3, maxStrikes: 2 };
 const EMOJI_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
 // Names are checked against this list after removing look-alike characters. Short words only match a
-// whole word (so "cucumber" is fine); longer ones match anywhere. Extend it with EMOJI_BLOCKED_WORDS=a,b,c
-const BLOCKED_WORDS = ['nazi', 'hitler', 'heil', 'swastika', 'kkk', 'porn', 'nsfw', 'hentai', 'rape', 'rapist', 'nude', 'nudes', 'cum', 'dick', 'cock', 'pussy', 'whore', 'slut', 'fag', 'faggot', 'nigger', 'nigga', 'retard', 'kys', 'killyourself', 'suicide',
-  ...String(process.env.EMOJI_BLOCKED_WORDS || '').toLowerCase().split(',').map((w) => w.trim()).filter(Boolean)];
+// whole word (so "cucumber" is fine); longer ones match anywhere. The list lives in appropriate.js and is shared with usernames,
+// display names, bios and server names. Extend it with EMOJI_BLOCKED_WORDS=a,b,c or NAME_BLOCKED_WORDS=a,b,c
+const BLOCKED_WORDS = appropriate.WORDS;
 function checkEmojiName(name) {
   if (!/^[a-z0-9_]{2,32}$/.test(name)) return 'Names are 2-32 characters: lowercase letters, numbers and underscores';
   const fold = (s) => s.replace(/0/g, 'o').replace(/[1!|]/g, 'i').replace(/3/g, 'e').replace(/[4@]/g, 'a').replace(/[5$]/g, 's').replace(/7/g, 't');
@@ -2111,6 +2124,8 @@ app.get('/api/servers', auth, (req, res) => res.json({ servers: myServers(req.us
 app.post('/api/servers', auth, (req, res) => {
   const name = clip(req.body?.name, 40).trim();
   if (!name) return res.status(400).json({ error: 'Name required' });
+  const badServer = appropriate.problem(name, 'server');
+  if (badServer) return res.status(400).json({ error: badServer });
   const s = { id: store.id(), name, ownerId: req.user.id, inviteCode: store.inviteCode(), members: [req.user.id],
     channels: [{ id: store.id(), name: 'general', type: 'text' }] };
   // A template (standard, business, community, chill) gives the server its channels, categories and roles. Without one it starts with just #general, as before.
@@ -2176,6 +2191,8 @@ app.post('/api/servers/:id/channels', auth, (req, res) => {
   if (!s || !can(s, req.user.id, 'manageChannels')) return res.status(403).json({ error: 'You need the Manage channels permission to add channels' });
   const name = clip(req.body?.name, 30).toLowerCase().replace(/[^a-z0-9-_]+/g, '-').replace(/^-+|-+$/g, '');
   if (!name) return res.status(400).json({ error: 'Invalid channel name' });
+  const badChannel = appropriate.problem(name, 'channel');
+  if (badChannel) return res.status(400).json({ error: badChannel });
   if (s.channels.length >= 30) return res.status(400).json({ error: 'Channel limit reached' });
   const type = req.body?.type === undefined ? 'text' : req.body.type;
   if (!CHANNEL_TYPES.includes(type)) return res.status(400).json({ error: 'Unknown channel type' });
@@ -2327,6 +2344,8 @@ app.post('/api/servers/:id/categories', auth, (req, res) => {
   if (!s || !can(s, req.user.id, 'manageChannels')) return res.status(403).json({ error: 'You need the Manage channels permission to add categories' });
   const name = clip(req.body?.name, 30).trim();
   if (!name) return res.status(400).json({ error: 'Category name required' });
+  const badCat = appropriate.problem(name, 'category');
+  if (badCat) return res.status(400).json({ error: badCat });
   s.categories = s.categories || [];
   if (s.categories.length >= 20) return res.status(400).json({ error: 'Category limit reached' });
   if (s.categories.some((c) => c.name.toLowerCase() === name.toLowerCase())) return res.status(400).json({ error: 'You already have a category with that name' });
@@ -2360,6 +2379,8 @@ app.patch('/api/servers/:id/channels/:cid', auth, (req, res) => {
   if (!c) return res.status(404).json({ error: 'Channel not found' });
   const name = cleanChannelName(req.body?.name);
   if (!name) return res.status(400).json({ error: 'Invalid channel name' });
+  const badChannel = appropriate.problem(name, 'channel');
+  if (badChannel) return res.status(400).json({ error: badChannel });
   c.name = name;
   pushServer(s, res);
 });
@@ -2392,6 +2413,8 @@ app.patch('/api/servers/:id/categories/:catid', auth, (req, res) => {
   if (!cat) return res.status(404).json({ error: 'Category not found' });
   const name = clip(req.body?.name, 30).trim();
   if (!name) return res.status(400).json({ error: 'Category name required' });
+  const badCat = appropriate.problem(name, 'category');
+  if (badCat) return res.status(400).json({ error: badCat });
   if (s.categories.some((x) => x.id !== cat.id && x.name.toLowerCase() === name.toLowerCase())) return res.status(400).json({ error: 'You already have a category with that name' });
   cat.name = name;
   pushServer(s, res);
@@ -2630,6 +2653,8 @@ app.post('/api/servers/:id/roles', auth, (req, res) => {
   if (s.roles.length >= MAX_ROLES) return res.status(400).json({ error: `Role limit reached (${MAX_ROLES})` });
   if (!isOwner(s, req.user.id) && rankOf(s, req.user.id) === Infinity) return res.status(403).json({ error: 'You need a role of your own before you can create roles below it' });
   const name = clip(req.body?.name, 30).trim() || 'new role';
+  const badRole = appropriate.problem(name, 'role');
+  if (badRole) return res.status(400).json({ error: badRole });
   const color = req.body?.color === undefined ? null : cleanColor(req.body.color);
   const perms = req.body?.perms === undefined ? [] : cleanPerms(req.body.perms);
   if (color === undefined) return res.status(400).json({ error: 'Invalid colour' });
@@ -2645,7 +2670,7 @@ app.patch('/api/servers/:id/roles/:rid', auth, (req, res) => {
   if (!r) return res.status(404).json({ error: 'Role not found' });
   if (!belowMe(s, req.user.id, r.id)) return res.status(403).json({ error: 'That role is above your own' });
   const b = req.body || {};
-  if (b.name !== undefined) { const name = clip(b.name, 30).trim(); if (!name) return res.status(400).json({ error: 'Name required' }); r.name = name; }
+  if (b.name !== undefined) { const name = clip(b.name, 30).trim(); if (!name) return res.status(400).json({ error: 'Name required' }); const badRole = appropriate.problem(name, 'role'); if (badRole) return res.status(400).json({ error: badRole }); r.name = name; }
   if (b.color !== undefined) { const color = cleanColor(b.color); if (color === undefined) return res.status(400).json({ error: 'Invalid colour' }); r.color = color; }
   if (b.perms !== undefined) {
     const perms = cleanPerms(b.perms);
@@ -4059,7 +4084,7 @@ app.post('/api/developer/test', auth, developerOnly, ah(async (req, res) => {
   if (!botTests.allow(req.user.id)) return res.status(429).json({ error: 'Too many test runs. Wait a moment.' });
   const text = clip(b.text, 2000);
   const u = req.user;
-  const TEST_EVENTS = ['message', 'messageEdit', 'memberJoin', 'memberLeave', 'install', 'timer', 'fetch'];
+  const TEST_EVENTS = ['message', 'messageEdit', 'memberJoin', 'memberLeave', 'install', 'timer', 'fetch', 'reactionAdd', 'webhook'];
   const event = TEST_EVENTS.includes(b.event) ? b.event : 'message';
   // The chat simulator (client/src/BotSim.jsx) acts as one of two made-up people or as the developer, and hands the saved data and timers of
   // the run before back in `state`, so a conversation builds up like it would in a real server. Without those it is a single fresh run.
@@ -4072,7 +4097,19 @@ app.post('/api/developer/test', auth, developerOnly, ah(async (req, res) => {
   const fakeMsg = { id: msgId, channelId: 'test-channel', serverId: 'test-server', content: text, mentions: b.mentionBot === true ? [SIM_BOT] : [], createdAt: now(), editedAt: event === 'messageEdit' ? now() : null };
   const timerKind = ['after', 'every', 'daily'].includes(b.kind) ? b.kind : 'after';
   const timerData = typeof b.data === 'string' && b.data.length <= botstate.LIMITS.timerDataBytes ? b.data : null;
+  // webhook test: what a GitHub push or a generic JSON webhook would hand over (made up; nothing is received from anywhere)
+  const hookData = () => {
+    if (b.source === 'github') {
+      const g = webhooksLib.githubEvent('push', { ref: 'refs/heads/main', compare: 'https://github.com/acme/web/compare/a1b2c3d...e4f5a6b', repository: { full_name: 'acme/web' }, sender: { login: 'octocat' }, commits: [{ id: 'e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3', message: text || 'Fix the login button', author: { username: 'octocat' } }] });
+      return { source: 'github', ...g.summary };
+    }
+    let j = null;
+    try { j = JSON.parse(text); } catch { /* plain text */ }
+    return webhooksLib.genericData(j && typeof j === 'object' && !Array.isArray(j) ? j : { content: text });
+  };
   const payload = event === 'memberJoin' ? botrun.joinPayload({ server: fake, user: who, install: {} })
+    : event === 'reactionAdd' ? botrun.reactionPayload({ msg: { ...fakeMsg, authorId: b.mine === true ? SIM_BOT : SIM_PEOPLE.sam.id }, user: who, emoji: clip(b.emoji, 8) || '\u{1F44D}', install: { userId: SIM_BOT } })
+    : event === 'webhook' ? botrun.webhookPayload({ server: fake, install: {}, hook: { id: '0'.repeat(16), name: clip(b.name, 32) || (b.source === 'github' ? 'GitHub' : 'Test webhook'), kind: b.source === 'github' ? 'github' : 'generic' }, data: hookData() })
     : event === 'memberLeave' ? botrun.leavePayload({ server: fake, user: who, install: {}, reason: 'left' })
     : event === 'install' ? botrun.installPayload({ server: fake, install: {}, by: who })
     : event === 'timer' ? botrun.timerPayload({ server: fake, install: {}, timer: { name: clip(b.name, 32) || 'test', kind: timerKind, data: timerData }, firedAt: now() })
@@ -4403,6 +4440,83 @@ async function deleteAccount(u, { purge }) {
   if (bannerAnim) store.deleteImage(bannerAnim).catch(() => {});
   return out;
 }
+// ----- the appropriateness checker (server/appropriate.js) -----
+// Anyone whose username, display name, bio or server name is flagged gets a warning (u.nameWarning = { at, seenAt? }). Their app shows it and
+// tells us (POST /api/me/name-warning/seen); the 3 days start then. Changing the name ends the warning. If a flagged name is still there when the
+// 3 days are over, the account is deleted (deleteAccount, messages purged). NAME_CHECK=off turns all of it off; NAME_CHECK_DELETE=off keeps the
+// warnings but never deletes. Admins, bots and the owner of the official server are never touched.
+const envOn = (name, dflt = true) => { const v = String(process.env[name] ?? '').trim().toLowerCase(); return v ? !['off', '0', 'false', 'no'].includes(v) : dflt; };
+const nameCheckOn = () => envOn('NAME_CHECK');
+const nameDeleteOn = () => envOn('NAME_CHECK_DELETE');
+const ownedServersOf = (uid) => Object.values(db().servers).filter((s) => s.ownerId === uid);
+const nameExempt = (u) => !!u.bot || !!u.deleted || isAdmin(u) || (!!defaultServer() && defaultServer().ownerId === u.id);
+function nameWarningView(u) {
+  if (!u || !u.nameWarning || !nameCheckOn()) return null;
+  return appropriate.view(u, ownedServersOf(u.id), now());
+}
+// After a change: drop the warning when nothing is flagged any more. Returns true when it changed.
+function settleNameWarning(u) {
+  if (!u || !u.nameWarning) return false;
+  if (appropriate.scan(u, ownedServersOf(u.id)).length && !nameExempt(u)) return false;
+  delete u.nameWarning;
+  store.save();
+  emitUserUpdate(u);
+  return true;
+}
+// Existing channel, category and role names that are not allowed are renamed to something neutral (they have no single owner to warn).
+function cleanServerParts() {
+  let changed = 0;
+  for (const s of Object.values(db().servers)) {
+    let hit = false;
+    for (const c of s.channels || []) if (appropriate.problem(c.name, 'channel')) { c.name = 'channel-' + String(c.id).slice(-4).toLowerCase().replace(/[^a-z0-9]/g, 'x'); hit = true; }
+    for (const c of s.categories || []) if (appropriate.problem(c.name, 'category')) { c.name = 'Category ' + String(c.id).slice(-4); hit = true; }
+    for (const r of s.roles || []) if (appropriate.problem(r.name, 'role')) { r.name = 'role-' + String(r.id).slice(-4); hit = true; }
+    if (hit) { changed++; io.to('server:' + s.id).emit('server:update', serverView(s)); }
+  }
+  if (changed) store.save();
+  return changed;
+}
+let nameSweeping = false;
+async function nameSweep() {
+  const out = { warned: 0, cleared: 0, deleted: 0, renamed: 0 };
+  if (!nameCheckOn() || nameSweeping) return out;
+  nameSweeping = true;
+  try {
+    out.renamed = cleanServerParts();
+    const p = appropriate.plan(db().users, ownedServersOf, now(), nameExempt);
+    for (const id of p.warn) { const u = db().users[id]; if (u) { u.nameWarning = { at: now() }; out.warned++; emitUserUpdate(u); } }
+    for (const id of p.clear) { const u = db().users[id]; if (u && u.nameWarning) { delete u.nameWarning; out.cleared++; emitUserUpdate(u); } }
+    if (p.warn.length || p.clear.length) store.save();
+    if (nameDeleteOn()) {
+      for (const id of p.remove) {
+        const u = db().users[id];
+        if (!u || u.deleted || !u.nameWarning || !appropriate.due(u.nameWarning, now())) continue;
+        const items = appropriate.scan(u, ownedServersOf(id)).map((i) => i.field).join(', ');
+        const name = u.username;
+        try { await deleteAccount(u, { purge: true }); out.deleted++; adminLogAdd({ username: 'name checker' }, 'delete account', name, 'name still flagged after the warning (' + items + ')'); }
+        catch (e) { console.error('Name checker could not delete an account:', e.message); }
+      }
+    }
+  } finally { nameSweeping = false; }
+  return out;
+}
+// The person's app calls this when it shows the warning: that is when their 3 days start. Calling it again changes nothing.
+app.post('/api/me/name-warning/seen', auth, (req, res) => {
+  const u = req.user;
+  if (u.nameWarning && !u.nameWarning.seenAt && nameWarningView(u)) { u.nameWarning.seenAt = now(); store.save(); emitUserUpdate(u); }
+  res.json({ user: ownUser(u) });
+});
+// An admin looked at the flagged values and they are fine (a real surname, say): they are not flagged again until the value changes.
+app.post('/api/admin/users/:id/name-ok', auth, adminOnly, (req, res) => {
+  const u = modTarget(req, res); if (!u) return;
+  const items = appropriate.scan(u, ownedServersOf(u.id));
+  u.nameOk = [...new Set([...(u.nameOk || []), ...items.map((i) => i.field + ':' + i.value)])].slice(-20);
+  delete u.nameWarning;
+  store.save();
+  emitUserUpdate(u);
+  adminLogAdd(req.user, 'name ok', u.username, items.map((i) => i.field).join(', '));
+  res.json({ ok: true, user: adminUserRow(u) });
+});
 app.post('/api/admin/users/:id/delete', auth, adminOnly, ah(async (req, res) => {
   const u = modTarget(req, res); if (!u) return;
   if (String(req.body?.confirm || '').trim().toLowerCase() !== u.username.toLowerCase()) return res.status(400).json({ error: 'Type the username exactly to confirm' });
@@ -4671,6 +4785,120 @@ app.delete('/api/servers/:id/bots/:botId', auth, (req, res) => {
   res.json({ server: serverView(s) });
 });
 
+// ---------- webhooks ----------
+// A webhook is a secret web address a server manager pastes into another service (rules: webhooks.js). It posts a message in a text channel, or
+// hands the data to one of the server's bots as a 'webhook' event (a bot wins when the webhook has both; the channel is the fallback if that bot
+// has been taken out of the server). The address, and for GitHub the signing secret, are shown once: only a hash of the address is kept.
+//   GET    /api/servers/:id/webhooks                 the list (never the address or secret)
+//   POST   /api/servers/:id/webhooks                 { name, kind: 'generic' | 'github', channelId | botId } -> { webhook, url, secret? }
+//   PATCH  /api/servers/:id/webhooks/:hookId         { name?, channelId?, botId? }
+//   POST   /api/servers/:id/webhooks/:hookId/renew   a new address (and secret); the old one stops working at once
+//   DELETE /api/servers/:id/webhooks/:hookId
+//   POST   /api/hooks/:serverId/:hookId/:token       the address itself, called by the other service (no login; no cookie, so the CSRF guard does not apply)
+const hookWrites = new security.RateWindow(30, 3600_000);                       // changes per person per hour
+const hookMisses = new security.RateWindow(30, 60_000);                         // wrong addresses per visitor per minute: nobody can guess their way in
+const hookRate = new security.RateWindow(webhooksLib.LIMITS.perMin, 60_000);    // deliveries per webhook per minute
+const hookSeen = new webhooksLib.RecentIds();
+const hookOf = (s, id) => (s.webhooks || []).find((h) => h.id === String(id));
+const hookBotIds = (s) => (s.installedBots || []).map((i) => i.botId);
+const hookUrl = (req, s, h, token) => `${security.siteOrigin({ protocol: req.protocol, host: req.get('host') })}/api/hooks/${s.id}/${h.id}/${token}`;
+function viewHook(h, s) {
+  const v = webhooksLib.hookView(h, s);
+  if (h.botId) {
+    const b = db().bots[h.botId];
+    v.botName = b ? b.name : null;
+    v.botMissing = !installOf(s, h.botId); // the bot is not (or no longer) in this server: the channel, if there is one, is used instead
+    if (v.botMissing && !v.channelName) v.broken = true;
+  }
+  return v;
+}
+const hookSecrets = (req, s, h, token) => ({ webhook: viewHook(h, s), url: hookUrl(req, s, h, token), ...(h.secret ? { secret: h.secret } : {}) });
+
+app.get('/api/servers/:id/webhooks', auth, (req, res) => {
+  const s = manageServerOf(req, res); if (!s) return;
+  res.json({ webhooks: (s.webhooks || []).map((h) => viewHook(h, s)), limits: { perServer: webhooksLib.LIMITS.perServer, perMin: webhooksLib.LIMITS.perMin, name: webhooksLib.LIMITS.name } });
+});
+app.post('/api/servers/:id/webhooks', auth, (req, res) => {
+  const s = manageServerOf(req, res); if (!s) return;
+  if ((s.webhooks || []).length >= webhooksLib.LIMITS.perServer) return res.status(400).json({ error: `A server can have up to ${webhooksLib.LIMITS.perServer} webhooks` });
+  const c = webhooksLib.checkHook(req.body, { server: s, botIds: hookBotIds(s) });
+  if (c.error) return res.status(400).json({ error: c.error });
+  if (!hookWrites.allow(req.user.id)) return res.status(429).json({ error: 'You are changing webhooks too fast. Try again later.' });
+  const token = webhooksLib.newToken();
+  const h = { id: store.id(), ...c.value, tokenHash: webhooksLib.tokenHash(token), userId: req.user.id, by: clip(req.user.displayName || req.user.username, 40), createdAt: now(), lastUsedAt: null, uses: 0 };
+  if (h.kind === 'github') h.secret = webhooksLib.newSecret();
+  (s.webhooks = s.webhooks || []).push(h);
+  store.save();
+  res.json(hookSecrets(req, s, h, token));
+});
+app.patch('/api/servers/:id/webhooks/:hookId', auth, (req, res) => {
+  const s = manageServerOf(req, res); if (!s) return;
+  const h = hookOf(s, req.params.hookId);
+  if (!h) return res.status(404).json({ error: 'Webhook not found' });
+  const c = webhooksLib.checkHook(req.body, { server: s, current: h, botIds: hookBotIds(s) });
+  if (c.error) return res.status(400).json({ error: c.error });
+  if (!hookWrites.allow(req.user.id)) return res.status(429).json({ error: 'You are changing webhooks too fast. Try again later.' });
+  Object.assign(h, c.value);
+  store.save();
+  res.json({ webhook: viewHook(h, s) });
+});
+app.post('/api/servers/:id/webhooks/:hookId/renew', auth, (req, res) => {
+  const s = manageServerOf(req, res); if (!s) return;
+  const h = hookOf(s, req.params.hookId);
+  if (!h) return res.status(404).json({ error: 'Webhook not found' });
+  if (!hookWrites.allow(req.user.id)) return res.status(429).json({ error: 'You are changing webhooks too fast. Try again later.' });
+  const token = webhooksLib.newToken();
+  h.tokenHash = webhooksLib.tokenHash(token);
+  if (h.kind === 'github') h.secret = webhooksLib.newSecret();
+  store.save();
+  res.json(hookSecrets(req, s, h, token));
+});
+app.delete('/api/servers/:id/webhooks/:hookId', auth, (req, res) => {
+  const s = manageServerOf(req, res); if (!s) return;
+  const h = hookOf(s, req.params.hookId);
+  if (!h) return res.status(404).json({ error: 'Webhook not found' });
+  s.webhooks = s.webhooks.filter((x) => x !== h);
+  store.save();
+  res.json({ ok: true });
+});
+
+// A message a webhook posts. It has no account behind it: authorId is 'hook:<id>' (no person, so no profile, no edit, and nobody earns quests by
+// reacting to it) and `hook` carries the name the chat shows with the BOT tag. Managers can delete it like any message.
+function postHookMessage(s, channel, hook, text) {
+  const msg = {
+    id: store.id(), channelId: channel.id, serverId: s.id, authorId: 'hook:' + hook.id, bot: true, hook: { id: hook.id, name: hook.name, kind: hook.kind },
+    content: text, attachments: [], mentions: [], everyone: false, replyTo: null, reactions: {}, createdAt: now(),
+  };
+  db().messages[msg.id] = msg;
+  store.save();
+  io.to('channel:' + channel.id).emit('message:new', msg);
+  return msg;
+}
+const hookBody = express.json({ limit: '512kb', verify: (req, _res, buf) => { req.rawBody = buf; } }); // GitHub signs the raw bytes
+app.post('/api/hooks/:sid/:hid/:token',
+  (req, res, next) => hookBody(req, res, (err) => (err ? res.status(err.status === 413 ? 413 : 400).json({ error: err.status === 413 ? 'That is too big (512 KB at most)' : 'Send JSON' }) : next())),
+  ah(async (req, res) => {
+    const miss = () => (hookMisses.allow(req.ip) ? res.status(404).json({ error: 'Not found' }) : res.status(429).json({ error: 'Too many wrong addresses. Wait a minute.' }));
+    const { sid, hid, token } = req.params;
+    if (!/^[0-9a-f]{16}$/.test(sid) || !webhooksLib.ID_RE.test(hid) || !webhooksLib.validToken(token)) return miss();
+    const s = Object.prototype.hasOwnProperty.call(db().servers, sid) ? db().servers[sid] : null;
+    const h = s && hookOf(s, hid);
+    if (!h || !webhooksLib.tokenMatches(h, token)) return miss(); // the same answer for an unknown server, webhook or address
+    if (!hookRate.allow(h.id)) return res.status(429).json({ error: `Too many deliveries (${webhooksLib.LIMITS.perMin} a minute at most). Try again in a moment.` });
+    const inst = h.botId ? installOf(s, h.botId) : null;
+    const channel = h.channelId ? s.channels.find((c) => c.id === h.channelId && typeOf(c) === 'text') : null;
+    if (!inst && !channel) return res.status(409).json({ error: 'This webhook has nowhere to send to. Open Server settings > Webhooks and pick a text channel or a bot.' });
+    if (inst && !sandbox.available() && !channel) return res.status(503).json({ error: 'Bots are not running on this server right now' });
+    const r = webhooksLib.receive(h, { headers: req.headers, rawBody: req.rawBody, body: req.body, seen: hookSeen, toBot: !!(inst && sandbox.available()) });
+    if (r.error) return res.status(r.status).json({ error: r.error });
+    if (r.ignored) return res.json({ ok: true, ignored: r.ignored });
+    if (inst && sandbox.available()) botHost.dispatchTo(s, inst, 'webhook', { hook: h, data: r.data }); // the bot decides what to post; it never blocks the answer
+    else postHookMessage(s, channel, h, r.text);
+    h.lastUsedAt = now(); h.uses = (h.uses || 0) + 1;
+    store.save();
+    res.json({ ok: true });
+  }));
+
 // ---- running ----
 function postBotMessage(s, channel, botUser, { text, replyTo, mentions }) {
   text = String(text).replace(/<stk:/g, '<stk\u200b:'); // a bot owns no sticker packs: break the token so it shows as plain text
@@ -4753,6 +4981,8 @@ app.patch('/api/servers/:id', auth, (req, res) => {
   if (b.name !== undefined) {
     const name = clip(b.name, 40).trim();
     if (!name) return res.status(400).json({ error: 'Name required' });
+    const badServer = appropriate.problem(name, 'server');
+    if (badServer) return res.status(400).json({ error: badServer });
     if (s.visibility === 'public') { const problem = listing.textProblem('name', name, BLOCKED_WORDS) || (listing.hasLink(name) ? 'A public server name cannot contain a link.' : null); if (problem) return res.status(400).json({ error: problem }); }
     s.name = name;
   }
@@ -4769,6 +4999,7 @@ app.patch('/api/servers/:id', auth, (req, res) => {
     s.tags = tags;
   }
   if (newCode) s.inviteCode = newCode;
+  if (db().users[s.ownerId]) settleNameWarning(db().users[s.ownerId]); // renaming a flagged server can end its owner's warning
   store.save();
   res.json({ server: broadcastServer(s) });
 });
@@ -5297,7 +5528,7 @@ function broadcastPresence(uid) {
 // The audience sees the public profile (Invisible shows as offline); the person's own devices get the real status.
 function emitUserUpdate(u) {
   toAudience(u.id).except('user:' + u.id).emit('user:update', publicUser(u));
-  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), showActivity: u.showActivity !== false }); // their own devices also learn which badges they own and wear, and whether their game is shown
+  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), showActivity: u.showActivity !== false, nameWarning: nameWarningView(u) }); // their own devices also learn which badges they own and wear, whether their game is shown, and whether a name warning is open
 }
 // Two people just became able to see each other (friend request, joining a server): each learns the other's current presence.
 function introduce(a, b) {
@@ -5571,13 +5802,17 @@ io.on('connection', (socket) => {
     const added = i < 0;
     if (!list.length) delete msg.reactions[emoji];
     if (Object.keys(msg.reactions).length > 20) { list.splice(list.indexOf(uid), 1); if (!list.length) delete msg.reactions[emoji]; return reply({ error: 'Too many reactions' }); }
-    if (added && !db().users[msg.authorId]?.bot) credits.noteReaction(db().users[uid], msg.id, msg.authorId || msg.from); // counts towards the daily react quest
-    if (added && !db().users[msg.authorId]?.bot) { const me = db().users[uid]; credits.events.noteReaction(me, emoji, msg.id, msg.authorId || msg.from, { dev: !!me.developer || isCreator(me), minAgeMs: credits.EARN.minAccountAgeMs }); } // Pumpkin patch / Holiday cheer
+    if (added && !db().users[msg.authorId]?.bot && !msg.hook) credits.noteReaction(db().users[uid], msg.id, msg.authorId || msg.from); // counts towards the daily react quest (not for bots or webhook messages)
+    if (added && !db().users[msg.authorId]?.bot && !msg.hook) { const me = db().users[uid]; credits.events.noteReaction(me, emoji, msg.id, msg.authorId || msg.from, { dev: !!me.developer || isCreator(me), minAgeMs: credits.EARN.minAccountAgeMs }); } // Pumpkin patch / Holiday cheer
     store.save();
     let target = io;
     rooms.forEach((r) => { target = target.to(r); });
     target.emit('reaction:update', { kind: p.kind, messageId: msg.id, reactions: msg.reactions });
     reply({ ok: true });
+    if (added && p.kind === 'channel') { // a person reacted in a channel: bots that may read it hear about it (never for bots' own reactions, see botHost)
+      const f = findChannel(msg.channelId);
+      if (f && typeOf(f.channel) === 'text') dispatchBots(f.server, 'reactionAdd', { channel: f.channel, msg, user: db().users[uid], emoji });
+    }
   });
 
   // ----- edit / delete (author only; server owners may also delete channel messages) -----
@@ -5845,6 +6080,9 @@ async function start() {
   await store.pruneFiles(referencedFiles());
   await runCleanup(); // also clear out anything that expired while the server was off
   setInterval(runCleanup, 3600_000).unref();
+  const nameRun = async () => { try { const r = await nameSweep(); if (r.warned || r.deleted || r.renamed) console.log('Name checker:', JSON.stringify(r)); } catch (e) { console.error('Name sweep failed:', e.message); } };
+  await nameRun(); // flagged names that appeared while the server was off, and warnings that ran out
+  if (process.env.NODE_ENV !== 'test') setInterval(nameRun, 3600_000).unref(); // tests call nameSweep() themselves
   // free storage limit: load the last one, work out the new one now and then every 6 hours; people who just went over it get the warning pushed to them,
   // and every free person gets the new limit (and the warning that older files could be removed) pushed when the cap is first on and whenever the limit changes
   await storageBudget.load();
@@ -5879,7 +6117,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, nameSweep, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep: for the tests
 
 
 /* HANDOFF: see HANDOFF.md in the project root for what this server does, what is done, and what is left. */

@@ -15,6 +15,7 @@ import { can, isOwner } from './perms.js';
 import { RolesTab, MembersTab } from './Roles.jsx';
 import { OnboardingTab } from './Onboarding.jsx';
 import { BotsTab } from './Bots.jsx';
+import { WebhooksTab } from './Webhooks.jsx';
 import { SoundboardTab } from './Soundboard.jsx';
 
 // [id, label, icon, who may open it]
@@ -25,6 +26,7 @@ const TABS = [
   ['onboarding', 'Onboarding', 'hand', (sv, uid) => can(sv, uid, 'manageServer')],
   ['members', 'Members', 'users', (sv, uid) => can(sv, uid, 'manageRoles') || can(sv, uid, 'kickMembers')],
   ['bots', 'Bots', 'bot', (sv, uid) => can(sv, uid, 'manageServer')],
+  ['webhooks', 'Webhooks', 'link', (sv, uid) => can(sv, uid, 'manageServer')],
   ['soundboard', 'Soundboard', 'music', (sv, uid) => can(sv, uid, 'manageServer')],
   ['publish', 'Publish', 'globe', (sv, uid) => isOwner(sv, uid)],
   ['ownership', 'Ownership', 'crown', (sv, uid) => sv.ownerId === uid],
@@ -254,6 +256,7 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
           {tab === 'roles' && <RolesTab server={server} me={me} onChange={onSaved} />}
           {tab === 'onboarding' && <OnboardingTab key={server.id} server={server} onChange={onSaved} />}
           {tab === 'bots' && <BotsTab key={server.id} server={server} me={me} onChange={onSaved} />}
+          {tab === 'webhooks' && <WebhooksTab key={server.id} server={server} />}
           {tab === 'soundboard' && <SoundboardTab key={server.id} server={server} me={me} onChange={onSaved} />}
           {tab === 'members' && <MembersTab server={server} me={me} onChange={onSaved} />}
           {tab === 'ownership' && <OwnershipTab server={server} me={me} onChange={onSaved} onClose={onClose} />}

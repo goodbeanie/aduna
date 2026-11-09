@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ColorInput } from './Controls.jsx';
 import { Modal } from './ui.jsx';
 import { THEMES, GRADIENT_THEMES, DEFAULT_CUSTOM, MAX_STOPS, customStops, applyTheme, loadTheme, previewColors } from './themes.js';
-import { ThemeGallery, PublishTheme } from './ThemeGallery.jsx';
+import { PublishTheme } from './ThemeGallery.jsx';
 import { useLang } from './i18n.js';
 import { seasonalNow } from './seasonal.js';
 
@@ -119,8 +119,8 @@ export function AppearancePicker() {
       </div>
 
       <label>{tr('communityThemes')}</label>
-      <p className="muted small hint">{tr('communityHint')}</p>
-      <ThemeGallery current={s.id === 'custom' ? c : null} onPick={(seed) => choose({ ...s, id: 'custom', custom: { dark: seed.dark, bg: seed.bg, accent: seed.accent } })} />
+      <p className="muted small hint">Community themes now live in the Explorer.</p>
+      <button type="button" className="btn small-btn" onClick={() => window.dispatchEvent(new CustomEvent('aduna:explore', { detail: { tab: 'themes' } }))}>Browse themes in the Explorer</button>
       {publishing && <PublishTheme seed={{ dark: !!c.dark, bg: c.bg, accent: c.accent }} onClose={() => setPublishing(false)} />}
 
       <label>{tr('serverThemes')}</label>

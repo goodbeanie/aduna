@@ -72,6 +72,22 @@ function fetchPayload({ server, install, request, result }) {
 }
 const writableChannels = (server, install) => (server.channels || []).filter((c) => channelAllowed(install, c)).slice(0, LIMITS.channelsInPayload).map((c) => ({ id: c.id, name: c.name }));
 
+// webhook: something a webhook of this server received (see webhooks.js) and handed to this bot. data is already cleaned there:
+//   github: { source: 'github', event, action, repo, sender, number, title, url, branch, commits: [{ id, message, author }], text }
+//   generic: { source: 'webhook', json (the JSON as sent, or null when big), text }
+// The names of the webhook's own fields come last so a sender's data can never replace serverId, hook or channels.
+function webhookPayload({ server, install, hook, data }) {
+  return { ...(data && typeof data === 'object' ? data : {}), serverId: server.id, hook: { id: hook.id, name: hook.name, kind: hook.kind }, channels: writableChannels(server, install) };
+}
+// reactionAdd: a person added an emoji to a message in a channel this bot may read. mine = the message is one this bot wrote.
+function reactionPayload({ msg, user, emoji, install }) {
+  return {
+    messageId: msg.id, channelId: msg.channelId, serverId: msg.serverId, emoji: String(emoji), user: person(user),
+    messageAuthorId: msg.authorId || null, mine: !!install && !!msg.authorId && msg.authorId === install.userId,
+    text: String(msg.content || '').slice(0, 500), createdAt: msg.createdAt,
+  };
+}
+
 // ---------- what a bot's actions may do ----------
 // actions: what the sandbox collected. replyOk(channelId, messageId) -> messageId | null.
 // Returns { send: [{ channel, text, replyTo, mentions }], dropped: [reason] }.
@@ -193,4 +209,4 @@ class Guard {
   }
 }
 
-module.exports = { LIMITS, Guard, channelAllowed, messagePayload, editPayload, joinPayload, leavePayload, installPayload, timerPayload, fetchPayload, planActions, planReactions, planFetches, MENTION_TOKEN };
+module.exports = { LIMITS, Guard, channelAllowed, messagePayload, editPayload, joinPayload, leavePayload, installPayload, timerPayload, fetchPayload, webhookPayload, reactionPayload, planActions, planReactions, planFetches, MENTION_TOKEN };

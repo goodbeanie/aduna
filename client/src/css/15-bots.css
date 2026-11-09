@@ -42,6 +42,8 @@
 .sim-reply { display: flex; align-items: center; gap: 4px; }
 .sim-reacts { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
 .sim-react { background: var(--field); border: 1px solid var(--line); border-radius: 10px; padding: 0 6px; font-size: 13px; }
+.sim-react-add { display: flex; gap: 2px; margin-top: 2px; }
+.sim-react-add .sim-edit { margin-left: 0; font-size: 13px; }
 .sim-events { display: flex; gap: 6px; flex-wrap: wrap; }
 .sim-block { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--line); padding-top: 8px; }
 .sim-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -166,6 +168,18 @@ html.kb-open .app { height: var(--app-h); } /* browsers that only shrink the vis
 .gallery-act:hover:not(:disabled) { color: var(--danger); }
 @media (pointer: coarse) { .gallery-act { opacity: 1; width: 32px; height: 32px; } }
 .gallery-more { align-self: flex-start; }
+.explore-themes .hint { margin: 0 0 12px; }
+
+/* ---- Server settings > Webhooks ---- */
+.hooks-tab select { width: 100%; margin: 0 0 4px; }
+.hook-row .bot-inst-row { flex-wrap: wrap; }
+.hook-new { margin-top: 10px; }
+.hook-add { align-self: flex-start; margin-top: 10px; }
+.hook-reveal { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; padding: 12px; border-radius: 12px; border: 1px solid var(--line2); background: var(--field); }
+.hook-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hook-copy-row { display: flex; gap: 6px; align-items: center; min-width: 0; }
+.hook-copy-row input { flex: 1 1 auto; min-width: 0; margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.hook-reveal .primary { align-self: flex-start; }
 .linkish { text-decoration: underline; color: inherit; padding: 0; }
 @media (prefers-reduced-motion: reduce) { .gallery-act { transition: none; } }
 

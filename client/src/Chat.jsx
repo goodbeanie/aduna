@@ -33,6 +33,10 @@ import { EmptyState, ListSkeleton, kbd } from './ShellBits.jsx';
 
 const QUICK_REACTION = '\u2764\uFE0F'; // what a double-tap / double-click on a message reacts with
 
+// A webhook message has no account behind it (authorId 'hook:<id>', `hook` holds the name), so it gets a stand-in author: its name, the BOT tag,
+// no picture, no profile. Everything that looks an author up goes through this, so "Unknown" never shows for a webhook.
+const authorOf = (users, m) => (m?.hook ? { id: m.authorId, username: m.hook.name, displayName: m.hook.name, bot: true, avatarImage: null } : m ? users[m.authorId] : undefined);
+
 // "Today", "Yesterday", or the date: the line between messages from different days.
 const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
 function dayLabel(ts) {
@@ -159,12 +163,12 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   const { lib, openMenu } = useEmoji();
   const ctx = useContextMenu();
   const mine = m.authorId === me.id;
-  const author = users[m.authorId];
+  const author = authorOf(users, m);
   const wshare = parseWordleShare(m.content); // a shared Wordle result is drawn as a card instead of its text
   const cshare = parseContextoShare(m.content); // and so is a shared Contexto result
   const sticker = stickerIdOf(m.content); // a sticker is drawn as a big picture (the text is just its token), and cannot be edited as text
   const ref = m.replyTo ? byId[m.replyTo] : null;
-  const refAuthor = ref ? users[ref.authorId] : null;
+  const refAuthor = ref ? authorOf(users, ref) : null;
   // channel messages carry the server's verdict; DMs are encrypted, so the client reads its own token
   const pinged = !!m.everyone || !!m.mentions?.includes(me.id) || (!!dm && !!m.content?.includes('<@' + me.id + '>'));
   const mention = { users, meId: me.id, onUser, channels: channelMap, onChannel, everyone: !!m.everyone };
@@ -210,14 +214,15 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
         { label: reminder ? 'Cancel reminder' : 'Remind me in 1 hour', icon: 'clock', onClick: toggleReminder },
         'sep',
         text && !sticker && text !== '\u2026' && { label: 'Copy text', icon: 'copy', onClick: () => ctx.copy(text) },
-        { label: 'View profile', icon: 'user', onClick: () => onUser(m.authorId) },
+        !m.hook && { label: 'View profile', icon: 'user', onClick: () => onUser(m.authorId) },
         canDelete && 'sep',
         canDelete && { label: 'Delete message', icon: 'trash', danger: true, onClick: () => onDelete(m) },
       ],
     });
   }
   // Right-click on the author's name or picture opens the person's menu instead (App supplies it); without one the message menu shows.
-  const authorMenu = (e) => { if (onUserMenu) onUserMenu(e, m.authorId); };
+  const authorMenu = (e) => { if (onUserMenu && !m.hook) onUserMenu(e, m.authorId); };
+  const openAuthor = () => { if (!m.hook) onUser(m.authorId); }; // a webhook has no profile to open
 
   return (
     <div className={'msg' + (grouped ? ' grouped' : '') + (mine ? ' mine' : '') + (editing ? ' editing' : '') + (tapped ? ' tapped' : '') + (pinged ? ' pinged' : '')} id={'m-' + m.id}
@@ -236,12 +241,12 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
       )}
       <div className="msg-row">
         {grouped ? <div className="gutter"><span className="hover-time">{new Date(m.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
-          : <button className="avatar-btn" onClick={() => onUser(m.authorId)} onContextMenu={authorMenu}><Avatar user={author} size={40} presence={presence[m.authorId] && presence[m.authorId] !== 'offline' ? presence[m.authorId] : undefined} /></button>}
+          : <button className="avatar-btn" onClick={openAuthor} onContextMenu={authorMenu}><Avatar user={author} size={40} presence={presence[m.authorId] && presence[m.authorId] !== 'offline' ? presence[m.authorId] : undefined} /></button>}
         <div className="msg-body">
           {m.pinnedAt && <div className="pin-flag"><Icon name="pushpin" size={12} /> Pinned</div>}
           {!grouped && (
             <div className="msg-head">
-              <button className="name" {...nameProps(author, roleColors?.[m.authorId])} onClick={() => onUser(m.authorId)} onContextMenu={authorMenu}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
+              <button className="name" {...nameProps(author, roleColors?.[m.authorId])} onClick={openAuthor} onContextMenu={authorMenu}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
               {(author?.bot || m.bot) && <BotTag />}
               <span className="time">{timeLabel(m.createdAt)}</span>
             </div>
@@ -625,9 +630,9 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
               )}
               {pinList.map((m) => (
                 <div className="pin-item" key={m.id}>
-                  <Avatar user={users[m.authorId]} size={28} />
+                  <Avatar user={authorOf(users, m)} size={28} />
                   <div className="pin-main">
-                    <div className="pin-meta"><b {...nameProps(users[m.authorId], roleColors?.[m.authorId])}>{users[m.authorId]?.displayName || 'Unknown'}</b><span className="muted small">{timeLabel(m.createdAt)}</span></div>
+                    <div className="pin-meta"><b {...nameProps(authorOf(users, m), roleColors?.[m.authorId])}>{authorOf(users, m)?.displayName || 'Unknown'}</b><span className="muted small">{timeLabel(m.createdAt)}</span></div>
                     <div className="pin-text">{mentionPreview(previewText(m), users) || 'Sent an attachment'}</div>
                   </div>
                   <div className="pin-actions">
@@ -678,7 +683,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
       {readOnly ? <div className="composer-wrap readonly"><div className="readonly-note"><Icon name="lock" size={15} className="inline-icon" /> {readOnly}</div></div> : <div className="composer-wrap">
         {replyTo && (
           <div className="replying">
-            Replying to <b>{users[replyTo.authorId]?.displayName || 'Unknown'}</b>
+            Replying to <b>{authorOf(users, replyTo)?.displayName || 'Unknown'}</b>
             <span className="reply-text">{mentionPreview(previewText(replyTo), users)}</span>
             <button className="icon-btn" title="Cancel reply" data-kbd="Esc" onClick={() => setReplyTo(null)}><Icon name="close" size={15} /></button>
           </div>
@@ -763,7 +768,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
       {confirmDel && (
         <Modal title="Delete message" onClose={() => setConfirmDel(null)}>
           <p className="muted">This permanently removes the message for everyone in this conversation.</p>
-          <div className="del-preview"><b {...nameProps(users[confirmDel.authorId])}>{users[confirmDel.authorId]?.displayName}</b><div className="reply-text">{mentionPreview(previewText(confirmDel), users)}</div></div>
+          <div className="del-preview"><b {...nameProps(authorOf(users, confirmDel))}>{authorOf(users, confirmDel)?.displayName}</b><div className="reply-text">{mentionPreview(previewText(confirmDel), users)}</div></div>
           <div className="modal-foot">
             <button className="btn" onClick={() => setConfirmDel(null)}>Cancel</button>
             <button className="btn primary danger-fill" autoFocus onClick={doDelete}>Delete</button>

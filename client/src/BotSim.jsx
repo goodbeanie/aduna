@@ -12,6 +12,7 @@ const PEOPLE = [['me', 'You'], ['alex', 'Alex'], ['sam', 'Sam']];
 const NAME = { me: 'You', alex: 'Alex', sam: 'Sam' };
 const EMPTY = { kv: {}, timers: [] };
 const KEEP = 200; // messages kept on screen
+const HOOK_SAMPLE = '{"event": "deploy", "status": "ok"}'; // what the webhook box starts with (and goes back to on "Start over")
 
 const timerLabel = (t) => (t.kind === 'after' ? 'once' : t.kind === 'every' ? `every ${t.everySec} s` : `daily at ${t.time}${t.tz ? ' ' + t.tz : ''}`);
 const countEmoji = (list) => { const m = new Map(); for (const e of list) m.set(e, (m.get(e) || 0) + 1); return [...m]; };
@@ -27,6 +28,9 @@ export default function BotSim({ code, fetchHosts }) {
   const [mention, setMention] = useState(false);
   const [editing, setEditing] = useState(null); // id of the message being edited
   const [busy, setBusy] = useState(false);
+  const [hookSource, setHookSource] = useState('generic'); // webhook test: 'generic' (the text is JSON or plain text) or 'github' (a made-up push)
+  const [hookName, setHookName] = useState('');
+  const [hookText, setHookText] = useState(HOOK_SAMPLE);
   const [err, setErr] = useState('');
   const seq = useRef(0);
   const box = useRef(null);
@@ -87,9 +91,21 @@ export default function BotSim({ code, fetchHosts }) {
     run({ event: 'timer', name: t.name, kind: t.kind, data: t.data || undefined }, `timer ${t.name}`, { st, before: [note(`Timer “${t.name}” went off`)] });
   }
   const answer = (p) => run({ event: 'fetch', name: p.name, url: p.url, text: answers[p.name] || '' }, `web answer ${p.name}`, { before: [note(`Pretend answer for “${p.name}” arrived`)] });
+  // a person reacts to a message: the bot gets a reactionAdd (mine = the message is one the bot wrote). Reactions by bots never reach a real bot.
+  const react = (m, emoji) => {
+    if (busy || blank) return;
+    setLog((l) => l.map((x) => (x.id === m.id ? { ...x, reactions: [...(x.reactions || []), emoji] } : x)));
+    run({ event: 'reactionAdd', as, text: m.text, messageId: m.id, emoji, mine: m.who === 'bot' }, `reaction ${emoji}`, { before: [note(`${NAME[as]} reacted ${emoji}`)] });
+  };
+  // a webhook delivers: made-up data, nothing is received from anywhere
+  const sendHook = () => {
+    if (busy || blank) return;
+    run({ event: 'webhook', source: hookSource, name: hookName.trim() || undefined, text: hookText }, 'webhook', { before: [note(hookSource === 'github' ? 'A GitHub push webhook arrived' : 'A webhook arrived')] });
+  };
 
   function reset() {
     setLog([]); setState(EMPTY); setPending([]); setAnswers({}); setLast(null); setErr(''); setEditing(null); setMention(false); setText('!ping'); setAs('me');
+    setHookSource('generic'); setHookName(''); setHookText(HOOK_SAMPLE);
   }
 
   const byId = new Map(log.map((m) => [m.id, m]));
@@ -121,6 +137,9 @@ export default function BotSim({ code, fetchHosts }) {
               </div>
               <div className="sim-text">{m.mention && <span className="sim-mention">@Bot </span>}{m.text}{m.edited && <span className="muted small"> (edited)</span>}</div>
               {m.reactions?.length > 0 && <div className="sim-reacts">{countEmoji(m.reactions).map(([e, n]) => <span key={e} className="sim-react">{e}{n > 1 ? ` ${n}` : ''}</span>)}</div>}
+              <div className="sim-react-add" role="group" aria-label="React as the person chosen below">
+                {['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F389}'].map((e) => <button key={e} type="button" className="icon-btn sim-edit" title={`React with ${e}`} aria-label={`React with ${e}`} disabled={busy || blank} onClick={() => react(m, e)}>{e}</button>)}
+              </div>
             </div>
           );
         })}
@@ -144,6 +163,22 @@ export default function BotSim({ code, fetchHosts }) {
         <button className="btn small-btn" disabled={busy || blank} onClick={() => join('sam')}>Sam joins</button>
         <button className="btn small-btn" disabled={busy || blank} onClick={() => leave('alex')}>Alex leaves</button>
         <button className="btn small-btn" disabled={busy || blank} onClick={install}>Bot is added</button>
+      </div>
+
+      <div className="sim-block sim-hook">
+        <div className="muted small"><Icon name="link" size={13} className="inline-icon" /> A webhook delivers data to your bot (<code>webhook</code> event). Made up here: nothing is received from anywhere.</div>
+        <div className="bot-test-row">
+          <Select value={hookSource} onChange={(e) => setHookSource(e.target.value)} aria-label="Kind of webhook">
+            <option value="generic">Generic JSON</option>
+            <option value="github">GitHub push</option>
+          </Select>
+          <input value={hookName} maxLength={32} onChange={(e) => setHookName(e.target.value)} aria-label="Webhook name" placeholder={hookSource === 'github' ? 'GitHub' : 'Test webhook'} />
+        </div>
+        <div className="bot-test-row">
+          <input value={hookText} maxLength={2000} onChange={(e) => setHookText(e.target.value)} aria-label={hookSource === 'github' ? 'Commit message' : 'Webhook body'}
+            placeholder={hookSource === 'github' ? 'Commit message' : 'JSON or plain text'} onKeyDown={(e) => e.key === 'Enter' && sendHook()} />
+          <button className="btn small-btn" disabled={busy || blank} onClick={sendHook}>Send webhook</button>
+        </div>
       </div>
 
       {state.timers?.length > 0 && (

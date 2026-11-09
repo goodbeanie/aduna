@@ -235,7 +235,7 @@ function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack
   );
 }
 
-const SHORT_EVENT = { message: 'message', messageEdit: 'message edited', memberJoin: 'member joined', memberLeave: 'member left', install: 'added', timer: 'timer', fetch: 'web answer' };
+const SHORT_EVENT = { message: 'message', messageEdit: 'message edited', memberJoin: 'member joined', memberLeave: 'member left', install: 'added', timer: 'timer', fetch: 'web answer', reactionAdd: 'reaction', webhook: 'webhook' };
 const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // The last runs in real servers: what the bot sent, what was refused, errors, and bot.log() output. Kept in memory on the server.
@@ -277,6 +277,18 @@ function ApiHelp({ limits, fetchHosts }) {
   m.author = { id, username, displayName, bot }
 
 bot.on('messageEdit', (m) => { ... })  // same as message, plus m.editedAt
+bot.on('reactionAdd', (e) => { ... })  // a person added an emoji in a text channel the bot may read
+  e.emoji  e.messageId  e.channelId  e.serverId  e.createdAt
+  e.user = { id, username, displayName, bot }      // who reacted (people only, never bots)
+  e.text (the first 500 characters of the message)  e.messageAuthorId
+  e.mine                               // true when the message is one this bot wrote
+bot.on('webhook', (e) => { ... })      // a webhook of this server was set to hand its data to this bot
+  e.hook = { id, name, kind }          // kind: 'generic' or 'github'
+  e.source                             // 'webhook' or 'github'
+  e.json   e.text                      // generic: the JSON as sent (null when big) and any text found in it
+  e.event  e.action  e.repo  e.sender  e.number  e.title  e.url  e.branch
+  e.commits = [{ id, message, author }]   // github: the cleaned-up event; e.text is a ready summary
+  e.channels = [{ id, name }]          // text channels the bot may write in
 bot.on('memberJoin', (e) => { ... })   // someone joined
   e.user = { id, username, displayName, bot }
   e.channels = [{ id, name }]          // text channels the bot may write in
@@ -312,6 +324,7 @@ Mention the person you answer with '<@' + m.author.id + '>'.`}</pre>
         {st.timersPerInstall && <li>Timers: up to {st.timersPerInstall} per server, at least {st.minAfterSec} seconds for after and {st.minEverySec} for every, at most 30 days. Daily needs a time zone name such as Europe/London (blank means UTC).</li>}
         <li>Web requests: GET only, https only, answers must be JSON or text (about {fe.maxBytes ? Math.round(fe.maxBytes / 1024) : 200} KB read, {fe.textChars ? (fe.textChars / 1000) + ',000' : '16,000'} characters of text). Private addresses are always refused.{fetchHosts?.length ? <> Allowed sites on this server: <b>{fetchHosts.join(', ')}</b>.</> : null}</li>
         <li>Bots never receive messages from other bots.</li>
+        <li>A webhook event posts nothing by itself: your code decides what to send. Set up the webhook in Server settings &rsaquo; Webhooks and choose this bot. The &ldquo;Try it&rdquo; test run can send a sample reactionAdd or webhook.</li>
       </ul>
     </details>
   );

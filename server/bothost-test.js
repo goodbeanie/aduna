@@ -250,6 +250,51 @@ function world() {
     assert.strictEqual(w.posted.length, 3, 'nothing for bot-caused events, unreadable channels or voice channels');
     step('messageEdit, memberLeave, memberJoin; never for bots; channel scope honoured');
   }
+  // ----- webhook (data from a webhook of the server) and reactionAdd -----
+  {
+    const w = world();
+    w.set(`bot.on('webhook', (e) => bot.send(e.channels[0].id, e.source + '|' + e.hook.name + '|' + e.serverId + '|' + (e.json ? e.json.n : e.event + ':' + e.repo)));`);
+    const s = w.data.servers.s1, hook = { id: '0'.repeat(16), name: 'CI', kind: 'generic' };
+    w.host.dispatchTo(s, w.inst(), 'webhook', { hook, data: { source: 'webhook', json: { n: 7 }, text: '' } });
+    w.host.dispatchTo(s, w.inst(), 'webhook', { hook: { ...hook, kind: 'github', name: 'Repo' }, data: { source: 'github', event: 'push', repo: 'acme/web' } });
+    await until(() => w.posted.length === 2, 'two webhook events');
+    assert.deepStrictEqual(w.posted.map((p) => p.text).sort(), ['github|Repo|s1|push:acme/web', 'webhook|CI|s1|7']);
+    assert.ok(w.posted.every((p) => p.mentions.length === 0), 'a webhook never makes the bot ping anyone');
+    // the sender's data cannot replace what the host fills in
+    w.host.dispatchTo(s, w.inst(), 'webhook', { hook, data: { source: 'webhook', json: { n: 8 }, serverId: 'evil', hook: { name: 'evil' }, channels: [{ id: 'side', name: 'x' }] } });
+    await until(() => w.posted.length === 3, 'third webhook event');
+    assert.strictEqual(w.posted[2].text, 'webhook|CI|s1|8', 'serverId, hook and channels come from the host');
+    assert.strictEqual(w.posted[2].channel, 'gen');
+    // nothing to deliver, nothing delivered
+    w.host.dispatchTo(s, w.inst(), 'webhook', { hook });
+    w.host.dispatchTo(s, w.inst(), 'webhook', { data: { source: 'webhook' } });
+    // the channels a bot may write in are the ones it is scoped to
+    w.inst().channels = ['side'];
+    w.host.dispatchTo(s, w.inst(), 'webhook', { hook, data: { source: 'webhook', json: { n: 9 } } });
+    await until(() => w.posted.length === 4, 'scoped webhook event');
+    assert.strictEqual(w.posted[3].channel, 'side');
+    await sleep(80);
+    assert.strictEqual(w.posted.length, 4, 'a webhook event needs both the hook and its data');
+    step('webhook events: reach the bot with the host\u2019s own serverId, hook and channels; never ping; honour channel scope');
+  }
+  {
+    const w = world();
+    w.set(`bot.on('reactionAdd', (e) => bot.send(e.channelId, 'r:' + e.emoji + ':' + e.user.username + ':' + e.mine + ':' + e.text));`);
+    const s = w.data.servers.s1;
+    const msg = (authorId) => ({ id: 'm1', channelId: 'gen', serverId: 's1', authorId, content: 'hello', createdAt: 1 });
+    w.host.dispatch(s, 'reactionAdd', { channel: s.channels[0], msg: msg(BU), user: w.data.users[A], emoji: '\u{1F44D}' });
+    w.host.dispatch(s, 'reactionAdd', { channel: s.channels[0], msg: msg(A), user: w.data.users[A], emoji: '\u{1F389}' });
+    await until(() => w.posted.length === 2, 'two reactions');
+    assert.deepStrictEqual(w.posted.map((p) => p.text).sort(), ['r:\u{1F389}:ann:false:hello', 'r:\u{1F44D}:ann:true:hello'].sort(), 'mine says whether the message is one the bot wrote');
+    w.host.dispatch(s, 'reactionAdd', { channel: s.channels[0], msg: msg(A), user: w.data.users[BU2], emoji: '\u{1F44D}' });                         // a bot reacted: never
+    w.host.dispatch(s, 'reactionAdd', { channel: s.channels[2], msg: { ...msg(A), channelId: 'vc' }, user: w.data.users[A], emoji: '\u{1F44D}' });   // voice channel
+    w.host.dispatch(s, 'reactionAdd', { channel: s.channels[0], msg: msg(A), user: w.data.users[A] });                                              // no emoji
+    w.inst().channels = ['side'];
+    w.host.dispatch(s, 'reactionAdd', { channel: s.channels[0], msg: msg(A), user: w.data.users[A], emoji: '\u{1F44D}' });                         // a channel it may not read
+    await sleep(120);
+    assert.strictEqual(w.posted.length, 2, 'only people, only readable text channels');
+    step('reactionAdd: people only, text channels the bot may read, mine flag');
+  }
   {
     // two bots in one server do not see each other's work, and a failing bot only fills its own log
     const w = world();

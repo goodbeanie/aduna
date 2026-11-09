@@ -38,6 +38,7 @@ import { CLIPS_ENABLED } from './features.js';
 const Clips = CLIPS_ENABLED ? React.lazy(() => import('./Clips.jsx')) : null;
 import { OnboardingFlow } from './Onboarding.jsx';
 import Setup from './Setup.jsx';
+import NameWarning from './NameWarning.jsx';
 import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
@@ -110,6 +111,7 @@ export default function App() {
   // opened from an invite link (/invite/<code>): show the join box page first
   const [invite, setInvite] = useState(() => (INVITE_PATH.exec(location.pathname)?.[1] || '').toLowerCase() || null);
   const [signingIn, setSigningIn] = useState(false); // a signed-out visitor pressed Join
+  const [nameSkip, setNameSkip] = useState(false); // pressed Continue on the name warning screen (it comes back the next time the app opens)
   const [openId, setOpenId] = useState(null); // server to open once the app loads
   // opened from an emailed reset link (/reset#<token>): that page stands alone, it never looks up or changes the current session until the reset is done
   const [resetToken] = useState(() => resetTokenFromLocation());
@@ -160,6 +162,9 @@ export default function App() {
   if (me?.emailVerified === false) {
     return <VerifyEmail me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
   }
+  if (me?.nameWarning && !nameSkip) {
+    return <NameWarning me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onContinue={() => setNameSkip(true)} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
+  }
   if (invite) return <InvitePage code={invite} signedIn onJoined={(sv) => { setOpenId(sv.id); leaveInvite(); }} onClose={leaveInvite} />;
   return <EmojiProvider><ContextMenuProvider><Main me={me} setMe={setMe} privKey={privKey} openServerId={openId} /></ContextMenuProvider></EmojiProvider>;
 }
@@ -195,6 +200,12 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [menu, setMenu] = useState(false);
   const [collapsed, setCollapsed] = useState({}); // category id -> true while folded
   const [showList, setShowList] = useState(true); // phones: the channel / DM list is a screen of its own
+  // Settings > Appearance points people at the Explorer's Themes tab: close settings and open the Explorer there.
+  useEffect(() => {
+    const open = (e) => { setModal(null); setView({ kind: 'dm', userId: null, explore: true, exploreTab: e.detail?.tab || 'themes' }); setShowList(false); };
+    window.addEventListener('aduna:explore', open);
+    return () => window.removeEventListener('aduna:explore', open);
+  }, []);
   const [membersOpen, setMembersOpen] = useState(false); // narrow screens: the member list is a slide-over
   const [membersHidden, setMembersHidden] = useState(() => { try { return localStorage.getItem('aduna.members') === 'off'; } catch { return false; } }); // wide screens: hide the member list to give chat more room
   const [, tick] = useState(0);
@@ -449,7 +460,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           serverId: m.serverId, channelId: m.channelId, msgId: m.id, read: true, reply: ch?.type === 'announcements' ? undefined : 'inline',
         });
       }
-      if (!usersRef.current[m.authorId]) api('/users/' + m.authorId).then((r) => addUsers([r.user])).catch(() => {});
+      if (!m.hook && !usersRef.current[m.authorId]) api('/users/' + m.authorId).then((r) => addUsers([r.user])).catch(() => {}); // a webhook is not a user: nothing to fetch
     });
 
     // closing a conversation on one device closes it on all of them (the messages stay; see POST /api/dms/:id/hide)
@@ -1280,7 +1291,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             ? <><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only the {group.members.length} people in this group can read them.</>
             : <><Icon name="alert" size={14} className="inline-icon" /> You cannot read new messages in this group on this device yet. Another member’s Aduna will refresh its keys when they are online. <button className="link-btn" onClick={() => refreshKeys(group.id)}>Refresh keys now</button></>} />
       )}
-      {view.kind === 'dm' && !dmUser && view.explore && <Explorer onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
+      {view.kind === 'dm' && !dmUser && view.explore && <Explorer key={view.exploreTab || 'servers'} startTab={view.exploreTab} onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
       {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} artistId={view.shop ? view.shopArtist || null : null} onAllItems={() => setView({ kind: 'dm', userId: null, shop: true })} />}
       {CLIPS_ENABLED && view.kind === 'dm' && !dmUser && view.clips && <React.Suspense fallback={null}><Clips onBack={() => setShowList(true)} /></React.Suspense>}
       {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && !view.clips && (

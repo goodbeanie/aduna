@@ -4,6 +4,8 @@ import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { InviteBox } from './Invite.jsx';
 import { AddToServerModal } from './Bots.jsx';
+import { ThemeGallery } from './ThemeGallery.jsx';
+import { loadTheme, applyTheme } from './themes.js';
 
 const REASONS = [
   ['inappropriate', 'Inappropriate or offensive', 'Name, description, tags or pictures'],
@@ -206,9 +208,24 @@ function BotList({ servers, me, onServerUpdate }) {
   );
 }
 
-// Server explorer: Servers tab and Bots tab.
-export default function Explorer({ onBack, servers, me, onServerUpdate }) {
-  const [tab, setTab] = useState('servers');
+// Themes tab: themes other people published. Picking one makes it your own custom theme on this device (same as it did in Settings > Appearance).
+function ThemeList() {
+  const [s, setS] = useState(loadTheme);
+  const pick = (seed) => {
+    const next = { ...s, id: 'custom', custom: { ...s.custom, dark: seed.dark, bg: seed.bg, accent: seed.accent, grad: null, stops: null } };
+    setS(next); applyTheme(next, { save: true });
+  };
+  return (
+    <div className="explore-body explore-themes">
+      <p className="muted small hint">Themes other people published. Picking one makes it your custom theme on this device (your current custom colours are replaced). Publish your own from Settings &rsaquo; Appearance.</p>
+      <ThemeGallery current={s.id === 'custom' ? s.custom : null} onPick={pick} />
+    </div>
+  );
+}
+
+// Server explorer: Servers, Bots and Themes tabs.
+export default function Explorer({ onBack, servers, me, onServerUpdate, startTab }) {
+  const [tab, setTab] = useState(['servers', 'bots', 'themes'].includes(startTab) ? startTab : 'servers');
   return (
     <section className="chat explorer">
       <header className="chat-head">
@@ -216,10 +233,10 @@ export default function Explorer({ onBack, servers, me, onServerUpdate }) {
         <span className="hash"><Icon name="globe" size={20} /></span>
         <h3>Explorer</h3>
         <div className="explore-tabs" role="tablist">
-          {[['servers', 'Servers'], ['bots', 'Bots']].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={'explore-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>{label}</button>)}
+          {[['servers', 'Servers'], ['bots', 'Bots'], ['themes', 'Themes']].map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={'explore-tab' + (tab === id ? ' on' : '')} onClick={() => setTab(id)}>{label}</button>)}
         </div>
       </header>
-      {tab === 'servers' ? <ServerList /> : <BotList servers={servers} me={me} onServerUpdate={onServerUpdate} />}
+      {tab === 'servers' ? <ServerList /> : tab === 'bots' ? <BotList servers={servers} me={me} onServerUpdate={onServerUpdate} /> : <ThemeList />}
     </section>
   );
 }

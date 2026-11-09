@@ -48,6 +48,7 @@ Run the automated checks with `TEST_DATABASE_URL=postgres://... npm test` (use a
 - Profile customization: display name, bio, emoji avatar, avatar/banner/name colors, status (online, idle, do not disturb, invisible)
 - Credits: a currency you buy with real money (PayPal or Stripe) or earn by chatting and finishing quests. See "Credits" below
 - Bots: small JavaScript programs written in Settings > Developer, added to servers by someone with Manage server, and listed in the Explorer. See "Bots" below
+- Webhooks: a secret address another service (GitHub, a build server, a script) posts to; it shows up in a channel or goes to one of the server's bots. Set up in Server settings > Webhooks. See "Webhooks" below
 
 After signing up, a short setup screen asks for a language (English, Français or Español) and has a checkbox (ticked by default) to join the official Aduna server (see `DEFAULT_SERVER_INVITE`); if that server doesn't exist the checkbox is hidden and they start in their DMs and can create a server or join one with an invite code. The language can be changed any time in Settings > Language and is saved on the account. Text that is looked up by key (sign-in, setup, Settings, Friends, the sidebar, profile, Appearance, Notifications) lives in `client/src/i18n.js`. Everything else is translated by `client/src/phrases.js`, a phrasebook that swaps exact English phrases on screen for French or Spanish (people's own messages are never touched); add a line `[English, Français, Español]` there to translate more. Anything in neither file stays English. Accounts and API callers that sign up without the setup step (bots, older apps) still join Aduna straight away.
 
@@ -186,7 +187,7 @@ Set `PUBLIC_URL` (for example `https://aduna.example.com`, no trailing slash) so
 
 ### Theme gallery
 
-Anyone can publish a theme and anyone can use one. A theme is only light or dark plus two colours (background and accent): the app builds every other colour from them, so a published theme cannot carry CSS, pictures or links. In **Settings > Appearance > Community themes** you browse (search, light/dark filter, most used or newest) and pick one to make it your own custom theme on this device. Server owners find the same gallery in **Server settings > Server theme**; picking one previews it live and applies it when the server is saved. **Publish this theme** sits under the colour pickers in both places.
+Anyone can publish a theme and anyone can use one. A theme is only light or dark plus two colours (background and accent): the app builds every other colour from them, so a published theme cannot carry CSS, pictures or links. In the **Explorer > Themes** tab you browse (search, light/dark filter, most used or newest) and pick one to make it your own custom theme on this device; **Settings > Appearance > Community themes** has a button that opens it. Server owners find the same gallery in **Server settings > Server theme**; picking one previews it live and applies it when the server is saved. **Publish this theme** sits under the colour pickers in both places.
 
 Rules (`server/themegallery.js`): text must stay readable on the background (checked with the same formulas the app uses), names and descriptions are filtered for blocked words and links, up to 20 themes per person and 6 per hour, and a theme is hidden once 3 accounts older than a day report it. The author can delete a theme any time; people already using its colours keep them.
 
@@ -234,15 +235,27 @@ Anyone can turn on a developer account in Settings > Developer (up to 5 bots eac
 
 | Call | What it does |
 | --- | --- |
-| `bot.on(event, fn)` | Events: `message`, `messageEdit`, `memberJoin`, `memberLeave`, `install`, `timer`, `fetch`. Bots never get messages from other bots. |
+| `bot.on(event, fn)` | Events: `message`, `messageEdit`, `reactionAdd` (a person reacted in a channel the bot reads; `e.mine` is true for the bot's own messages), `memberJoin`, `memberLeave`, `install`, `timer`, `fetch`, `webhook` (a server webhook handed its data to this bot; see Webhooks). Bots never get messages from other bots. |
 | `bot.reply(m, text)`, `bot.send(channelId, text)`, `bot.react(m, emoji)`, `bot.log(...)` | Up to 5 messages, 5 reactions and 20 log lines per event. |
 | `bot.store.get / set / incr / delete / keys` | Saved data for this bot in this server only: 64 keys, 4 KB a value, 32 KB in total. Stored on the server, so no secrets. |
 | `bot.timer.after / every / daily / cancel / list` | 10 timers per bot per server; `after` from 5 s, `every` from 60 s, up to 30 days; `daily` takes `'HH:MM'` and a time zone name. Due timers are checked every 5 seconds. |
 | `bot.fetch(url, name)` | GET only, https only, JSON or text only, hosts from `BOT_FETCH_HOSTS`, private addresses refused, 5 s timeout, 200 KB read. The answer arrives later as a `fetch` event. The server as a whole makes at most 40 real calls a minute and caches an address for 60 seconds. |
 
-The Developer page has a chat simulator ("Try it"): a pretend channel where you write as yourself, Alex or Sam, edit messages, make people join or leave, let timers go off and answer web requests, and see the bot's replies and reactions, its saved data, and anything a real server would refuse. Every step is one run in the real sandbox (`POST /api/developer/test`, 30 a minute) and the saved data and timers of one step carry into the next. Nothing is posted or requested for real. "Recent runs" shows the last 100 real runs per bot; it is kept in memory and a restart clears it.
+The Developer page has a chat simulator ("Try it"): a pretend channel where you write as yourself, Alex or Sam, edit messages, react to messages, make people join or leave, send a made-up webhook, let timers go off and answer web requests, and see the bot's replies and reactions, its saved data, and anything a real server would refuse. Every step is one run in the real sandbox (`POST /api/developer/test`, 30 a minute) and the saved data and timers of one step carry into the next. Nothing is posted or requested for real. "Recent runs" shows the last 100 real runs per bot; it is kept in memory and a restart clears it.
 
 Code: `server/bots.js` (records and checks), `server/sandbox-core.js` and `server/sandbox.js` (the sandbox and its worker pool), `server/botrun.js` (event shapes, what an action may do, rate limits), `server/botstate.js` (saved data and timers), `server/botfetch.js` (web requests), `server/bothost.js` (runs events and applies the results), `client/src/Bots.jsx` (all the screens), `client/src/BotSim.jsx` (the chat simulator). Each has a matching `*-test.js` in `npm test`; the database-free ones (`bots-logic`, `botstate`, `botfetch`, `botrun`, `sandbox`, `bothost`) run without Postgres.
+
+## Webhooks
+
+A webhook is a secret web address that another service (GitHub, a build server, a script) posts to. Someone with Manage server makes one in Server settings > Webhooks, names it and picks where its data goes: a text channel (it appears as a message with a BOT tag and no profile), one of the server's bots (the bot gets a `webhook` event and decides what to post), or both. When both are set the bot wins, and the channel is used if the bot is removed from the server. A server can have 10 webhooks.
+
+- **Address.** `/api/hooks/<server id>/<webhook id>/<token>`. The token is 256 random bits, shown once when the webhook is made or renewed; only its hash is stored. Renewing gives a new address and the old one stops working at once. Every wrong address (unknown server, unknown webhook, wrong or malformed token) gets the same `404`, and a visitor who sends 30 wrong ones in a minute gets `429`.
+- **Generic.** POST JSON like `{"content": "Deploy finished"}` (`text` and `message` work too). The sender's own Markdown is kept; `@everyone`, mentions and sticker tokens are defused. A webhook that goes to a bot accepts any JSON object, and the bot receives it as `e.json` (up to 30 KB).
+- **GitHub.** Choose the GitHub kind, then in the repository's Settings > Webhooks paste the payload URL and the secret Aduna shows (once), with content type `application/json`. Aduna checks `X-Hub-Signature-256` (HMAC-SHA256 of the raw body) and turns push, pull request, review, issue, comment, release, star, fork and workflow run events into short messages. Other events are accepted and ignored so GitHub does not mark the webhook as failing, and a repeated delivery id is posted once.
+- **Limits.** 30 deliveries a minute per webhook, 512 KB a body (GitHub's events can be bigger than the 64 KB of other routes), 30 changes an hour per person.
+- **Safety.** Everything a stranger controls (titles, commit messages, branch names) loses control and text-direction characters, has Markdown and mention tokens escaped and its length capped, and links are shown only for https addresses.
+
+Code: `server/webhooks.js` (the rules, no Express or database), the "webhooks" block in `server/index.js` (routes), `client/src/Webhooks.jsx` (the settings tab). Both tests are in `npm test`: `webhooks-test.js` (rules, runs without Postgres) and `webhooks-flow-test.js` (routes: identical 404s, the rate limits, bot over channel, the 512 KB cap; needs Postgres and the bot sandbox). The "Try it" simulator on the Developer page can send a made-up webhook to your bot.
 
 ## Layout
 

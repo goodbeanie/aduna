@@ -66,6 +66,26 @@ const server = {
   assert.deepStrictEqual(b.joinPayload({ server, user: { id: U2 }, install: {} }).channels.map((c) => c.id), ['gen', 'txt']);
   step('payloads carry only public fields');
 }
+{
+  const hook = { id: 'h'.repeat(16), name: 'CI', kind: 'github', secret: 'SECRET', tokenHash: 'HASH' };
+  const p = b.webhookPayload({ server, install: { channels: ['txt'] }, hook, data: { source: 'github', event: 'push', repo: 'acme/web', serverId: 'evil', hook: { name: 'evil' }, channels: 'evil' } });
+  assert.deepStrictEqual(p.hook, { id: 'h'.repeat(16), name: 'CI', kind: 'github' }, 'a bot sees the name and kind of the webhook, never its secret or token hash');
+  assert.ok(!JSON.stringify(p).includes('SECRET') && !JSON.stringify(p).includes('HASH'));
+  assert.strictEqual(p.serverId, 's1', 'what the sender put in the data cannot replace the host\u2019s own fields');
+  assert.deepStrictEqual(p.channels, [{ id: 'txt', name: 'chat' }], 'and the channels are the ones this bot may write in');
+  assert.deepStrictEqual([p.source, p.event, p.repo], ['github', 'push', 'acme/web']);
+  assert.deepStrictEqual(b.webhookPayload({ server, install: {}, hook, data: null }).hook.id, 'h'.repeat(16), 'no data is fine');
+
+  const msg = { id: 'm1', channelId: 'gen', serverId: 's1', authorId: BOT, content: 'x'.repeat(900), createdAt: 5 };
+  const r = b.reactionPayload({ msg, user: { id: U1, username: 'ann', displayName: 'Ann', passHash: 'SECRET' }, emoji: '\u{1F44D}', install: { userId: BOT } });
+  assert.deepStrictEqual([r.messageId, r.channelId, r.serverId, r.emoji, r.mine, r.messageAuthorId], ['m1', 'gen', 's1', '\u{1F44D}', true, BOT]);
+  assert.strictEqual(r.text.length, 500, 'the message text is cut');
+  assert.deepStrictEqual(r.user, { id: U1, username: 'ann', displayName: 'Ann', bot: false });
+  assert.ok(!JSON.stringify(r).includes('SECRET'));
+  assert.strictEqual(b.reactionPayload({ msg: { ...msg, authorId: U2 }, user: { id: U1 }, emoji: 'x', install: { userId: BOT } }).mine, false, 'a message somebody else wrote');
+  assert.strictEqual(b.reactionPayload({ msg: { ...msg, authorId: undefined }, user: { id: U1 }, emoji: 'x', install: {} }).mine, false, 'no author, never mine');
+  step('webhook and reaction payloads: host fields win, no secrets, text cut, mine flag');
+}
 
 // ----- Guard -----
 {

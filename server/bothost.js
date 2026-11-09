@@ -115,12 +115,17 @@ function createBotHost({ db, store, io, sandbox, fetcher, postMessage, emojiOk, 
   // The payload a bot gets for an event, or null when this bot must not see it. Bots never receive events caused by bots (no loops), and
   // channels the install does not allow stay unseen.
   function payloadFor(s, inst, event, a) {
-    const { channel, msg, author, user, reason, by } = a;
+    const { channel, msg, author, user, reason, by, hook, data, emoji } = a;
     if (event === 'message' || event === 'messageEdit') {
       if (!author || author.bot || !botrun.channelAllowed(inst, channel)) return null;
       const args = { msg, author, botUserId: inst.userId };
       return { payload: event === 'message' ? botrun.messagePayload(args) : botrun.editPayload(args), trigger: author.id };
     }
+    if (event === 'reactionAdd') { // people only, in a channel this install may read
+      if (!user || user.bot || !msg || !emoji || !botrun.channelAllowed(inst, channel)) return null;
+      return { payload: botrun.reactionPayload({ msg, user, emoji, install: inst }), trigger: user.id };
+    }
+    if (event === 'webhook') return hook && data ? { payload: botrun.webhookPayload({ server: s, install: inst, hook, data }), trigger: null } : null; // a webhook never pings anyone through the bot
     if (event === 'memberJoin') return !user || user.bot ? null : { payload: botrun.joinPayload({ server: s, user, install: inst }), trigger: user.id };
     if (event === 'memberLeave') return !user || user.bot ? null : { payload: botrun.leavePayload({ server: s, user, install: inst, reason }), trigger: null };
     if (event === 'install') return { payload: botrun.installPayload({ server: s, install: inst, by }), trigger: by && !by.bot ? by.id : null };
