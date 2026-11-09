@@ -52,6 +52,20 @@ assert.strictEqual(B.botView(bot, 'u2', users).developer.username, 'dev');
 assert.ok(!JSON.stringify(B.botView(bot, 'u2', users)).includes('bot.on'), 'code never leaks to others');
 step('views: code only for the developer');
 
+// long description (about) and banner
+r = B.checkBot({ about: 'Rolls dice.\r\n\r\n\r\n\r\nType !roll.   \nThat is all.' }, { current: cur, words: WORDS });
+assert.strictEqual(r.value.about, 'Rolls dice.\n\nType !roll.\nThat is all.', 'line breaks are kept, blank runs squeezed, trailing spaces dropped');
+assert.strictEqual(B.checkBot({ about: 'x'.repeat(B.LIMITS.about + 50) }, { current: cur, words: WORDS }).value.about.length, B.LIMITS.about, 'the long description is cut to its limit');
+assert.ok(!('about' in B.checkBot({ description: 'Rolls dice' }, { current: cur, words: WORDS }).value), 'an edit that does not send it leaves it alone');
+assert.ok(B.checkBot({ about: 'visit https://example.com' }, { current: { ...cur, visibility: 'public' }, words: WORDS }).error, 'links refused in the long description of a public bot');
+assert.ok(B.checkBot({ about: 'a porn bot' }, { current: { ...cur, visibility: 'public' }, words: WORDS }).error, 'blocked words refused in the long description of a public bot');
+assert.ok(!B.checkBot({ about: 'visit https://example.com' }, { current: cur, words: WORDS }).error, 'a private bot is not text-checked');
+const pretty = { ...bot, about: 'More about it', bannerImage: 'img1', avatarImage: 'img2' };
+assert.deepStrictEqual([B.botView(pretty, 'u2', users).about, B.botView(pretty, 'u2', users).bannerImage], ['More about it', 'img1']);
+assert.deepStrictEqual([B.botView(bot, 'u2', users).about, B.botView(bot, 'u2', users).bannerImage], ['', null], 'bots without them show empty values');
+assert.deepStrictEqual(B.exploreBots([mk('b6', 'Zeta', { about: 'see https://example.com' }), mk('b7', 'Eta', { about: 'fine' })], { words: WORDS }).page.map((b) => b.id), ['b7'], 'a listed bot whose long description breaks the rules is left out');
+step('long description and banner: cleaned, limited, checked on public bots, shown in views');
+
 // explore: public only, not held, search + sort
 const mk = (id, name, extra = {}) => ({ id, name, description: 'does things', tags: [], visibility: 'public', installs: [], createdAt: Number(id.slice(1)), ...extra });
 const all = [mk('b1', 'Alpha', { installs: ['x'] }), mk('b2', 'Beta', { installs: ['x', 'y', 'z'], tags: ['music'] }), mk('b3', 'Gamma', { visibility: 'private' }), mk('b4', 'Delta', { listingHold: { state: 'hidden' } }), mk('b5', 'Porn bot')];

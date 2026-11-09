@@ -6,6 +6,7 @@ import { PanelSkeleton, EmptyState } from './ShellBits.jsx';
 import { can } from './perms.js';
 import BotSim from './BotSim.jsx';
 import AiBuilder, { hasAiBuilder } from './AiBuilder.jsx';
+import { BotPictures } from './BotPages.jsx';
 
 // Bots on the client: Settings > Developer (write, test and publish bots), Server settings > Bots (add, scope and remove them),
 // and the "Add to server" picker the explorer uses. The sandbox and every rule live on the server; this file only asks.
@@ -148,6 +149,7 @@ function SeasonTest({ me, onSaved }) {
 function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack }) {
   const [name, setName] = useState(bot?.name || '');
   const [description, setDescription] = useState(bot?.description || '');
+  const [about, setAbout] = useState(bot?.about || '');
   const [tags, setTags] = useState((bot?.tags || []).join(', '));
   const [visibility, setVisibility] = useState(bot?.visibility || 'private');
   const [code, setCode] = useState(bot?.code ?? STARTER);
@@ -157,12 +159,12 @@ function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack
   const [confirmDel, setConfirmDel] = useState(false);
   const held = !!bot?.review; // a listing under review or removed cannot be edited by its developer
   const removed = bot?.review === 'removed';
-  const dirty = !bot || name !== bot.name || description !== bot.description || tags !== (bot.tags || []).join(', ') || visibility !== bot.visibility || code !== bot.code;
+  const dirty = !bot || name !== bot.name || description !== bot.description || about !== (bot.about || '') || tags !== (bot.tags || []).join(', ') || visibility !== bot.visibility || code !== bot.code;
 
   async function save() {
     setErr(''); setNote(''); setBusy(true);
     try {
-      const body = { name, description, tags: tagsOf(tags), visibility, code };
+      const body = { name, description, about, tags: tagsOf(tags), visibility, code };
       const r = bot ? await api(`/bots/${bot.id}`, { method: 'PATCH', body }) : await api('/bots', { method: 'POST', body });
       onSaved(r.bot);
       setNote('Saved.');
@@ -202,6 +204,10 @@ function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack
       <input value={name} maxLength={limits.name} onChange={(e) => setName(e.target.value)} aria-label="Bot name" disabled={held} />
       <label>DESCRIPTION</label>
       <textarea rows={2} value={description} maxLength={limits.description} onChange={(e) => setDescription(e.target.value)} aria-label="Bot description" placeholder="What does your bot do? Public bots need this." disabled={held} />
+      <label>LONG DESCRIPTION</label>
+      <textarea rows={6} value={about} maxLength={limits.about || 1500} onChange={(e) => setAbout(e.target.value)} aria-label="Bot long description" placeholder="Tell people more: what the bot does, its commands, how to use it. Shown on the bot's page in the Explorer." disabled={held} />
+      <p className="muted small hint">{about.length.toLocaleString()} of {(limits.about || 1500).toLocaleString()} characters. Line breaks are kept. A public bot&rsquo;s long description follows the same rules as the short one.</p>
+      {bot ? <BotPictures bot={bot} held={held} onSaved={onSaved} /> : <p className="muted small hint">Save the bot first, then you can add a picture and a banner.</p>}
       <label>TAGS</label>
       <input value={tags} maxLength={120} onChange={(e) => setTags(e.target.value)} aria-label="Bot tags" placeholder="fun, moderation, music (up to 5)" disabled={held} />
       <label>WHO CAN ADD IT</label>

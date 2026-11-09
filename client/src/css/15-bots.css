@@ -4,6 +4,19 @@
 .bot-card { display: flex; flex-direction: column; gap: 6px; }
 .bot-card-foot { display: flex; align-items: center; gap: 12px; margin-top: auto; padding-top: 6px; }
 .bot-card-foot .report-link { margin: 0; }
+/* a bot's picture, banner and long description (BotPages.jsx) */
+.bot-card-banner { margin: -14px -14px 4px; height: 76px; border-radius: 12px 12px 0 0; background-size: cover; background-position: center; background-color: var(--line); }
+.bot-name-link { background: none; border: 0; padding: 0; margin: 0; font: inherit; font-weight: 700; color: inherit; text-align: left; cursor: pointer; }
+.bot-name-link:hover, .bot-name-link:focus-visible { text-decoration: underline; }
+.bot-pics { display: flex; flex-direction: column; gap: 8px; margin: 4px 0; }
+.bot-banner-pic, .bot-page-banner { width: 100%; aspect-ratio: 3 / 1; border-radius: 10px; background-size: cover; background-position: center; background-color: var(--line); display: flex; align-items: center; justify-content: center; }
+.bot-pics-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.bot-pics-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.bot-page { display: flex; flex-direction: column; gap: 10px; }
+.bot-page-banner.empty { aspect-ratio: auto; height: 24px; }
+.bot-page-head { display: flex; align-items: center; gap: 12px; }
+.bot-page-short { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.bot-page-about { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; max-height: 40vh; overflow-y: auto; }
 .bchip { font-size: 11px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); white-space: nowrap; }
 .bchip-pub { color: var(--ink); border-color: var(--ink); }
 .bchip-warn { color: #8a5a00; border-color: #c8921c; background: rgba(200, 146, 28, .12); }

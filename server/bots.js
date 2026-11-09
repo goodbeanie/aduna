@@ -1,14 +1,14 @@
 // Bot records: validation, code checks, views and search (no Express, no database: tested by bots-logic-test.js).
 //
 // A bot is a small JavaScript program a developer writes and Aduna runs in a sandbox (the runtime is NOT in this file; see HANDOFF.md).
-// bots[id] = { id, ownerId, name, description, tags, avatarImage (image id or null), visibility: 'private'|'public', code, createdAt, updatedAt, installs: [serverId],
+// bots[id] = { id, ownerId, name, description, about (long description), tags, avatarImage (image id or null), bannerImage (image id or null), visibility: 'private'|'public', code, createdAt, updatedAt, installs: [serverId],
 //              reports: [...], listingHold }
 // "private" = only its developer can install it; "public" = listed on the Bots tab in the explorer and anyone can add it to a server
 // they manage.
 const vm = require('vm');
 const listing = require('./listing');
 
-const LIMITS = { perDeveloper: 5, name: 32, description: 200, code: 32 * 1024, tags: 5, page: 24 };
+const LIMITS = { perDeveloper: 5, name: 32, description: 200, about: 1500, code: 32 * 1024, tags: 5, page: 24, bannerW: 1600, bannerH: 600 };
 const VISIBILITY = ['private', 'public'];
 const TAG = /^[a-z0-9][a-z0-9-]{0,18}[a-z0-9]$/;
 
@@ -40,6 +40,8 @@ function checkBot(input, { current = null, words = [] } = {}) {
   const b = input || {}, full = !current, v = {};
   if (full || b.name !== undefined) { v.name = cleanName(b.name); if (!v.name) return { error: 'Give your bot a name' }; }
   if (full || b.description !== undefined) { v.description = String(b.description ?? '').trim().slice(0, LIMITS.description); }
+  // The long description (the bot's own page in the explorer): several short paragraphs. Line breaks stay, runs of blank lines are squeezed.
+  if (b.about !== undefined) { v.about = String(b.about ?? '').replace(/\r\n?/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, LIMITS.about); }
   if (b.tags !== undefined) { const t = cleanTagList(b.tags); if (typeof t === 'string') return { error: t }; v.tags = t; }
   if (full || b.visibility !== undefined) {
     v.visibility = b.visibility === undefined ? 'private' : b.visibility;
@@ -57,6 +59,8 @@ function checkBot(input, { current = null, words = [] } = {}) {
     if (!String(after.description || '').trim()) return { error: 'Write a short description so people know what your public bot does' };
     const problem = listing.listingProblem({ name: after.name, description: after.description, tags: after.tags || [] }, words);
     if (problem) return { error: problem.replace('server name', 'bot name').replace('public listing', 'public bot listing') };
+    const aboutProblem = after.about ? listing.listingProblem({ description: after.about }, words) : null;
+    if (aboutProblem) return { error: aboutProblem.replace('The description', 'The long description').replace('Descriptions', 'Long descriptions').replace('public listing', 'public bot listing') };
   }
   return { value: v };
 }
@@ -65,9 +69,9 @@ function checkBot(input, { current = null, words = [] } = {}) {
 function botView(b, viewerId, users = {}) {
   const o = users[b.ownerId];
   const view = {
-    id: b.id, name: b.name, description: b.description || '', tags: b.tags || [], visibility: b.visibility,
+    id: b.id, name: b.name, description: b.description || '', about: b.about || '', tags: b.tags || [], visibility: b.visibility,
     developer: o ? { id: o.id, username: o.username, displayName: o.displayName } : null,
-    avatarImage: b.avatarImage || null, installs: (b.installs || []).length, createdAt: b.createdAt, mine: b.ownerId === viewerId,
+    avatarImage: b.avatarImage || null, bannerImage: b.bannerImage || null, installs: (b.installs || []).length, createdAt: b.createdAt, mine: b.ownerId === viewerId,
   };
   if (b.ownerId === viewerId) { view.code = b.code; view.review = b.listingHold ? b.listingHold.state : null; }
   return view;
@@ -90,7 +94,7 @@ function score(b, tokens) {
 function exploreBots(bots, { q = '', sort = 'popular', offset = 0, words = [] } = {}) {
   const tokens = String(q).toLowerCase().replace(/^#/, '').trim().split(/\s+/).filter(Boolean).slice(0, 6).map((t) => t.replace(/^#/, ''));
   const byName = (a, b) => a.b.name.localeCompare(b.b.name, undefined, { sensitivity: 'base' });
-  let list = bots.filter((b) => b.visibility === 'public' && !b.listingHold && !listing.listingProblem({ name: b.name, description: b.description, tags: b.tags }, words))
+  let list = bots.filter((b) => b.visibility === 'public' && !b.listingHold && !listing.listingProblem({ name: b.name, description: b.description, tags: b.tags }, words) && !(b.about && listing.listingProblem({ description: b.about }, words)))
     .map((b) => ({ b, score: tokens.length ? score(b, tokens) : 1 })).filter((x) => x.score > 0);
   if (sort === 'az') list.sort(byName); else if (sort === 'za') list.sort((a, b) => byName(b, a));
   else if (sort === 'new') list.sort((a, b) => b.b.createdAt - a.b.createdAt);

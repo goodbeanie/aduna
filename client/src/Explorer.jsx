@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Select } from './Controls.jsx';
 import { api } from './api.js';
-import { Icon, Modal } from './ui.jsx';
+import { Avatar, Icon, Modal } from './ui.jsx';
+import { BotDetails } from './BotPages.jsx';
+import { imageUrl } from './image.js';
 import { InviteBox } from './Invite.jsx';
 import { AddToServerModal } from './Bots.jsx';
 import { ThemeGallery } from './ThemeGallery.jsx';
@@ -148,6 +150,7 @@ function BotList({ servers, me, onServerUpdate }) {
   const [err, setErr] = useState('');
   const [reporting, setReporting] = useState(null);
   const [adding, setAdding] = useState(null);
+  const [details, setDetails] = useState(null); // the bot whose page is open
   const seq = useRef(0);
   const fetchPage = (offset) => api(`/explore/bots?q=${encodeURIComponent(q.trim())}&sort=${sort}&offset=${offset}`);
   useEffect(() => {
@@ -188,12 +191,13 @@ function BotList({ servers, me, onServerUpdate }) {
         {state === 'ready' && total > 0 && <p className="muted small explore-count">{total} bot{total === 1 ? '' : 's'}</p>}
         <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>
           {items.map((b) => (
-            <div key={b.id} className="bot-card">
-              <div className="bot-head"><b className="bot-name">{b.name}</b><span className="bot-tag">BOT</span></div>
+            <div key={b.id} className="bot-card">{b.bannerImage && <div className="bot-card-banner" style={{ backgroundImage: `url(${imageUrl(b.bannerImage)})` }} />}
+              <div className="bot-head"><Avatar user={{ id: b.id, username: b.name, displayName: b.name, avatarImage: b.avatarImage, avatarColor: '#8c6b4f' }} size={32} /><button type="button" className="bot-name bot-name-link" onClick={() => setDetails(b)} title="Open this bot's page">{b.name}</button><span className="bot-tag">BOT</span></div>
               <div className="muted small">by {b.developer ? (b.developer.displayName || b.developer.username) : 'a developer'} · {b.installs} server{b.installs === 1 ? '' : 's'}</div>
               {b.description && <p className="ex-desc">{b.description}</p>}
               {b.tags.length > 0 && <div className="tag-row">{b.tags.map((t) => <button key={t} className="tag" onClick={() => setQ(t)} title={`Search #${t}`}>#{t}</button>)}</div>}
               <div className="bot-card-foot">
+                <button className="btn small-btn" onClick={() => setDetails(b)}>{b.about ? 'Read more' : 'Details'}</button>
                 <button className="btn small-btn primary" onClick={() => setAdding(b)}><Icon name="plus" size={14} className="inline-icon" /> Add to server</button>
                 {!b.mine && <button className="link-btn report-link" onClick={() => setReporting(b)}><Icon name="flag" size={13} /> Report</button>}
               </div>
@@ -202,6 +206,7 @@ function BotList({ servers, me, onServerUpdate }) {
         </div>
         {state === 'ready' && next !== null && <div className="explore-more"><button className="btn" disabled={more} onClick={loadMore}>{more ? 'Loading…' : 'Show more'}</button></div>}
       </div>
+      {details && <BotDetails bot={details} onAdd={() => { setAdding(details); setDetails(null); }} onClose={() => setDetails(null)} />}
       {adding && <AddToServerModal bot={adding} servers={servers || []} me={me} onAdded={onServerUpdate} onClose={() => setAdding(null)} />}
       {reporting && <ReportModal info={{ ...reporting, serverId: reporting.id }} path={`/bots/${reporting.id}/report`} onClose={() => setReporting(null)} />}
     </>
