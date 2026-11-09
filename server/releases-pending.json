@@ -48,5 +48,19 @@
       { "title": "Goals channels", "text": "A new channel type where the owner sets goals with progress bars or checkboxes, and everyone in the server can follow how they are going." },
       { "title": "Server templates", "text": "Start a new server from a ready-made template with channels and roles already set up, for example a business or a community." }
     ]
+  },
+  {
+    "id": "2026.11.9",
+    "date": "2026-11-09",
+    "title": "Webhooks, smarter bots and a name checker",
+    "desktop": "1.4.105",
+    "android": "2026.11.9.528",
+    "items": [
+      { "title": "Server webhooks", "text": "Server managers can create a secret web address that other services post to. A webhook can drop a message in a text channel or hand its data to one of the server's bots. There is a generic JSON kind and a GitHub kind for push events." },
+      { "title": "Bots hear webhooks", "text": "Bots can now react to data that arrives through a webhook of their server, so a bot can post build results or alerts in its own words." },
+      { "title": "Bots see reactions", "text": "Bots can now react when someone adds a reaction to a message, in addition to messages, joins, leaves and timers." },
+      { "title": "Name checker", "text": "Usernames, display names, bios and server names are checked. If one is not appropriate you get a warning in the app and 3 days from the moment you see it to change it." },
+      { "title": "Themes tab in Explorer", "text": "Explorer has a new Themes tab for browsing themes." }
+    ]
   }
 ]
