@@ -8,6 +8,8 @@
 //   - in /admin > Releases a creator ticks which features a release contains (the release's `features` list)
 //   - while no PUBLISHED release lists it, only creator accounts can use it ('testing'); the moment a release that lists it is published, everybody can ('live')
 //   - taking that release back to a draft takes the feature away from everyone but creators again
+//   - a creator can also press Test on a release in /admin: while testing, that creator has exactly what everybody will have once the release is
+//     published (the live features plus the ones that release lists) and none of the other unreleased ones. Stop testing goes back to all of them.
 // A release can also name its features in server/releases-pending.json (`features: ['my-feature']`), so they are ticked from the start.
 // To add a feature: add a line here, build it behind the check, deploy, test it on a creator account, then publish the release.
 const REGISTRY = [
@@ -38,17 +40,27 @@ function liveIds(releases) {
 }
 
 // can this person use the feature right now? `creator` says whether the person is a creator account (only an explicit true counts).
-function enabled(releases, id, creator) {
+// `only` is a creator's TEST MODE (see testSet): a Set of the feature ids of the one release they are testing. In test mode a creator has what everybody
+// has once that release is published (the live features plus that release's), and none of the other unreleased ones.
+function enabled(releases, id, creator, only) {
   if (!known(id)) return false;
-  return creator === true || liveIds(releases).has(id);
+  if (liveIds(releases).has(id)) return true;
+  if (creator !== true) return false;
+  return only instanceof Set ? only.has(id) : true;
+}
+
+// the feature ids of release `releaseId` as a Set, for a creator who is testing it; null when there is no such release (no test mode)
+function testSet(releases, releaseId) {
+  const r = releases && typeof releaseId === 'string' && has(releases, releaseId) ? releases[releaseId] : null;
+  return r ? new Set(cleanIds(r.features)) : null;
 }
 
 // what one person is told: { id: 'live' | 'testing' } ('testing' only ever appears for creators: a registered feature no published release has yet)
-function forUser(releases, creator) {
+function forUser(releases, creator, only) {
   const live = liveIds(releases), out = {};
   for (const f of REGISTRY) {
     if (live.has(f.id)) out[f.id] = 'live';
-    else if (creator === true) out[f.id] = 'testing';
+    else if (creator === true && (!(only instanceof Set) || only.has(f.id))) out[f.id] = 'testing';
   }
   return out;
 }
@@ -76,4 +88,4 @@ function migrateLegacy(records, releases) {
   return { moved: to ? ids : [], to };
 }
 
-module.exports = { REGISTRY, known, cleanIds, liveIds, enabled, forUser, list, migrateLegacy };
+module.exports = { REGISTRY, known, cleanIds, liveIds, enabled, testSet, forUser, list, migrateLegacy };

@@ -554,12 +554,13 @@ function Releases() {
   const [rows, setRows] = useState(null);
   const [catalog, setCatalog] = useState([]); // the features the code knows about: [{ id, name, desc, state }]
   const [edit, setEdit] = useState(null); // { id, title, items: [{ title, text }], features: [id] } while a release is being edited
-  const load = useCallback(() => api('/admin/releases').then((r) => { setRows(r.releases); setCatalog(r.features || []); }).catch((e) => { setRows([]); say(e.message, 'error'); }), [say]);
+  const [testing, setTesting] = useState(null); // the id of the release THIS creator is testing right now (their own account only), or null
+  const load = useCallback(() => api('/admin/releases').then((r) => { setRows(r.releases); setCatalog(r.features || []); setTesting(r.testing || null); }).catch((e) => { setRows([]); say(e.message, 'error'); }), [say]);
   useEffect(() => { if (me.canManageFeatures) load(); }, [load, me.canManageFeatures]);
   if (!me.canManageFeatures) return <Empty text="Only a creator account can publish releases." />;
   if (!rows) return <p className="adm-muted">Loading…</p>;
 
-  const apply = (x) => { setRows(x.releases); if (x.features) setCatalog(x.features); return x; };
+  const apply = (x) => { setRows(x.releases); if (x.features) setCatalog(x.features); if ('testing' in x) setTesting(x.testing || null); return x; };
   const nameOf = (id) => catalog.find((f) => f.id === id)?.name || id;
   const names = (r) => r.features.map(nameOf);
   const startEdit = (r) => setEdit({ id: r.id, title: r.title, features: [...r.features], items: r.items.length ? r.items.map((i) => ({ ...i })) : [{ title: '', text: '' }] });
@@ -583,6 +584,11 @@ function Releases() {
     const ok = await ask({ title: `Make “${r.title}” a draft again?`, body: 'It disappears from What’s new for everyone except creator accounts.' + (r.features.length ? ' The features below go back to creator accounts only.' : ''), lines: names(r), confirmLabel: 'Back to draft', danger: true });
     if (ok) await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/unpublish`, { method: 'POST' }).then(apply), () => 'Release is a draft again');
   };
+  // Test: this creator's account gets what everybody will have once the release is published, and none of the other unreleased features.
+  const test = async (r, on) => {
+    if (on && !r.features.length) { say('Tick the features this release contains first (Edit notes), so there is something to test.', 'error'); return; }
+    await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/${on ? 'test' : 'untest'}`, { method: 'POST' }).then(apply), () => (on ? 'Testing this release on your account' : 'Stopped testing'));
+  };
 
   return (
     <>
@@ -591,6 +597,7 @@ function Releases() {
         <ul className="adm-lines">
           <li>Every release is added here by itself, as a <b>draft</b>. A draft is private: only creator accounts can see it.</li>
           <li>Edit the release and tick the <b>features</b> it contains. While it is a draft, those features work for creator accounts only, so you can test them on the real site. Anyone else cannot use them.</li>
+          <li>Press <b>Test</b> on a draft to try it the way everybody will get it: your account then has the features this release lists, and none of the other unreleased ones. Press <b>Stop testing</b> to get all of them back. It only changes your own account.</li>
           <li>Check the notes, then <b>Publish</b>. Only then does the release appear in What’s new, and its features switch on for everyone.</li>
           <li>You can pull a published release back to a draft, and its features go back to creator accounts only. Everything is written to the Log.</li>
         </ul>
@@ -600,11 +607,14 @@ function Releases() {
         <div className="adm-card" key={r.id}>
           <div className="adm-row">
             <div>
-              <h3>{r.title} <span className={'adm-tag' + (r.status === 'draft' ? ' warn' : '')}>{r.status === 'draft' ? 'Draft · private' : 'Public · everyone'}</span></h3>
+              <h3>{r.title} <span className={'adm-tag' + (r.status === 'draft' ? ' warn' : '')}>{r.status === 'draft' ? 'Draft · private' : 'Public · everyone'}</span>{testing === r.id && <> <span className="adm-tag">Testing on your account</span></>}</h3>
               <span className="adm-muted">{r.date}{r.desktop ? ` · desktop ${r.desktop}` : ''}{r.android ? ` · Android ${r.android}` : ''}{r.publishedAt ? ` · published ${when(r.publishedAt)}` : ''}</span>
             </div>
             <div className="adm-actions">
               {edit?.id !== r.id && <button className="adm-btn small" onClick={() => startEdit(r)}>Edit notes</button>}
+              {r.status === 'draft' && (testing === r.id
+                ? <button className="adm-btn small" onClick={() => test(r, false)}>Stop testing</button>
+                : <button className="adm-btn small" onClick={() => test(r, true)}>Test</button>)}
               {r.status === 'draft' && <button className="adm-btn small primary" onClick={() => publish(r)}>Publish</button>}
               {r.status === 'public' && <button className="adm-btn small danger" onClick={() => unpublish(r)}>Back to draft</button>}
             </div>

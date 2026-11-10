@@ -197,9 +197,10 @@ const isCreator = (u) => !!u && !u.bot && u.emailVerified === true && isCreatorE
 storagePlan.setLifetime(isCreator); // the Aduna creator accounts have Aduna Plus for good, with no payment and no end date
 // Feature gating (server/features.js): a registered feature is on for creator accounts only until a PUBLISHED release (/admin > Releases) lists it, then for everybody.
 // Gate new work with featureOn('id', req.user) or app.get(path, auth, needFeature('id'), handler): for anyone it is not on for, the route answers a plain 404.
-const featureOn = (id, u) => featuresLib.enabled(db().releases, id, isCreator(u));
+const testOnly = (u) => (isCreator(u) ? featuresLib.testSet(db().releases, u.testRelease) : null); // a creator's test mode (/admin > Releases > Test): only that release's features
+const featureOn = (id, u) => featuresLib.enabled(db().releases, id, isCreator(u), testOnly(u));
 const needFeature = (id) => (req, res, next) => (featureOn(id, req.user) ? next() : res.status(404).json({ error: 'Not found' }));
-const featuresFor = (u) => featuresLib.forUser(db().releases, isCreator(u));
+const featuresFor = (u) => featuresLib.forUser(db().releases, isCreator(u), testOnly(u));
 const CREATOR_BADGE = { id: 'creator', name: 'Founder', builtin: true, image: null, emoji: '', color: '' };
 // The Artist badge: automatic once an artist's first item has been approved (db().artists[id].badge, see the artists block). The client draws it
 // from /badges/artist.png as a mask in the surrounding text colour (`glyph`), so it is white on dark themes and dark on light ones.
@@ -4657,8 +4658,10 @@ async function syncReleases() {
   if (changed || added.length) store.save();
 }
 const pushReleases = () => io.emit('releases:update');
+// what /admin > Releases gets: the releases, the feature list, and the release this creator is testing right now (or null)
+const releasesView = (u) => ({ releases: releasesLib.adminList(db().releases), features: featuresLib.list(db().releases), testing: featuresLib.testSet(db().releases, u && u.testRelease) ? u.testRelease : null });
 app.get('/api/releases', auth, (_req, res) => res.json({ releases: releasesLib.publicList(db().releases) })); // public releases only
-app.get('/api/admin/releases', auth, adminOnly, needCreator, (_req, res) => res.json({ releases: releasesLib.adminList(db().releases), features: featuresLib.list(db().releases) }));
+app.get('/api/admin/releases', auth, adminOnly, needCreator, (req, res) => res.json(releasesView(req.user)));
 app.patch('/api/admin/releases/:id', auth, adminOnly, needCreator, (req, res) => {
   const r = db().releases[req.params.id];
   if (!r) return res.status(404).json({ error: 'Release not found' });
@@ -4669,7 +4672,19 @@ app.patch('/api/admin/releases/:id', auth, adminOnly, needCreator, (req, res) =>
   store.save();
   adminLogAdd(req.user, 'edit release', r.id, r.title);
   if (r.status === 'public') { pushReleases(); if (edit.features !== undefined) pushFeatures(); } // a published release's feature list decides who has what
-  res.json({ ok: true, releases: releasesLib.adminList(db().releases), features: featuresLib.list(db().releases) });
+  else if (edit.features !== undefined) pushFeatures(); // a creator testing this draft gets its new feature list
+  res.json({ ok: true, ...releasesView(req.user) });
+});
+// Test / stop testing: a creator tries a release the way everybody will get it (see testSet in features.js). Only that creator's account changes.
+app.post('/api/admin/releases/:id/:action(test|untest)', auth, adminOnly, needCreator, (req, res) => {
+  const r = db().releases[req.params.id];
+  if (!r) return res.status(404).json({ error: 'Release not found' });
+  const u = db().users[req.user.id];
+  if (!u) return res.status(404).json({ error: 'Account not found' });
+  if (req.params.action === 'test') u.testRelease = r.id; else if (u.testRelease === r.id) delete u.testRelease;
+  store.save();
+  io.to('user:' + req.user.id).emit('features:update', featuresFor(u)); // every open app of this creator switches at once
+  res.json({ ok: true, ...releasesView(u) });
 });
 app.post('/api/admin/releases/:id/:action(publish|unpublish)', auth, adminOnly, needCreator, (req, res) => {
   const r = db().releases[req.params.id];
@@ -4686,7 +4701,7 @@ app.post('/api/admin/releases/:id/:action(publish|unpublish)', auth, adminOnly, 
   adminLogAdd(req.user, publish ? 'publish release' : 'unpublish release', r.id, r.title + ((r.features || []).length ? ' · features: ' + r.features.join(', ') : ''));
   pushReleases();
   if ((r.features || []).length) pushFeatures(); // its features go public with it, or back to creators only
-  res.json({ ok: true, releases: releasesLib.adminList(db().releases), features: featuresLib.list(db().releases) });
+  res.json({ ok: true, ...releasesView(req.user) });
 });
 
 app.get('/api/admin/log', auth, adminOnly, ah(async (_req, res) => {
