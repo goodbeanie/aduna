@@ -1,8 +1,8 @@
-version: 1.4.108
+version: 1.4.109
 files:
   - url: Aduna-Setup.exe
-    sha512: Xwo3++atVc5firSH0zHF2LkGcnxtjMJ5++sw3XWyg/IXq/jcHUSfw2XaHd/+UYcJ71NL9NSfCh7mzCxTWg4cOw==
-    size: 84923628
+    sha512: PecxCHN9He2hgQbXX0OZuvEBKCJT6je/amA1izXVugOYbba8X1l17T4jNu4e+eSGMXEf7jNnwkOdoavDdTIVZw==
+    size: 84923485
 path: Aduna-Setup.exe
-sha512: Xwo3++atVc5firSH0zHF2LkGcnxtjMJ5++sw3XWyg/IXq/jcHUSfw2XaHd/+UYcJ71NL9NSfCh7mzCxTWg4cOw==
-releaseDate: '2026-11-10T02:44:34.817Z'
+sha512: PecxCHN9He2hgQbXX0OZuvEBKCJT6je/amA1izXVugOYbba8X1l17T4jNu4e+eSGMXEf7jNnwkOdoavDdTIVZw==
+releaseDate: '2026-11-10T04:50:10.388Z'

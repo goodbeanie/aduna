@@ -97,5 +97,17 @@
     "items": [
       { "title": "Clearer checkout", "text": "The checkout now says plainly that payments are handled securely by PayPal and that your card details go straight to PayPal, never to Aduna. Where sales tax applies, you can type your postal or ZIP code to find your tax region; the code itself stays in your browser." }
     ]
+  },
+  {
+    "id": "2026.11.10.3",
+    "date": "2026-11-10",
+    "title": "A clearer Storage window",
+    "desktop": "1.4.109",
+    "android": "2026.11.10.450",
+    "items": [
+      { "title": "Storage window tidy-up", "text": "The upload-limit choices for Aduna Plus now look right: normal capital letters, even spacing and proper radio buttons. The number box sits inside the “Set an upload limit” choice, and Save only turns on once you change something." },
+      { "title": "A bar you can read", "text": "The storage bar no longer looks empty on dark themes, and a small amount of use still shows a sliver. Under it you now see how much you have used and how much is free, or your upload limit if you set one." },
+      { "title": "Member goal on the home page", "text": "The Aduna home page now shows how many people have joined and how close we are to our goal of 1,000 members." }
+    ]
   }
 ]
