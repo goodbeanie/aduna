@@ -154,11 +154,13 @@ function StreakCard({ s }) {
   );
 }
 
-// The one notice shown before paying. Shown on the Credits page and again inside the checkout.
-function BuyNotices() {
+// The notices shown before paying. Shown on the Credits page and again inside the checkout, where `paypal` and `tax` add the two notes below.
+function BuyNotices({ paypal = false, tax = false }) {
   return (
     <div className="buy-notices">
       <div className="buy-note"><Icon name="shield" size={16} /><span>Aduna does not save your payment information, your security is our priority.</span></div>
+      {paypal && <div className="buy-note"><Icon name="shield" size={16} /><span>Secure checkout is provided by PayPal. Your card details are entered directly with PayPal and are never seen or stored by Aduna.</span></div>}
+      {tax && <div className="buy-note"><Icon name="pin" size={16} /><span>We ask for your billing location only to calculate the sales tax that applies to your order. Your postal code stays in your browser; only your country and province or state are sent with the order.</span></div>}
     </div>
   );
 }
@@ -280,6 +282,34 @@ function locate(tax) {
   });
 }
 
+// Works out the country and state/province from a postal or ZIP code, right here in the browser: nothing is sent anywhere and Aduna never
+// receives the code. Canada: the first letter names the province. US: the first three digits name the state. It only fills in the pickers.
+const CA_FIRST = { A: 'NL', B: 'NS', C: 'PE', E: 'NB', G: 'QC', H: 'QC', J: 'QC', K: 'ON', L: 'ON', M: 'ON', N: 'ON', P: 'ON', R: 'MB', S: 'SK', T: 'AB', V: 'BC', Y: 'YT' };
+const US_ZIP3 = [
+  [5, 5, 'NY'], [10, 27, 'MA'], [28, 29, 'RI'], [30, 38, 'NH'], [39, 49, 'ME'], [50, 59, 'VT'], [60, 69, 'CT'], [70, 89, 'NJ'],
+  [100, 149, 'NY'], [150, 196, 'PA'], [197, 199, 'DE'], [200, 200, 'DC'], [201, 201, 'VA'], [202, 205, 'DC'], [206, 219, 'MD'],
+  [220, 246, 'VA'], [247, 268, 'WV'], [270, 289, 'NC'], [290, 299, 'SC'], [300, 319, 'GA'], [320, 349, 'FL'], [350, 369, 'AL'],
+  [370, 385, 'TN'], [386, 397, 'MS'], [398, 399, 'GA'], [400, 427, 'KY'], [430, 459, 'OH'], [460, 479, 'IN'], [480, 499, 'MI'],
+  [500, 528, 'IA'], [530, 549, 'WI'], [550, 567, 'MN'], [569, 569, 'DC'], [570, 577, 'SD'], [580, 588, 'ND'], [590, 599, 'MT'],
+  [600, 629, 'IL'], [630, 658, 'MO'], [660, 679, 'KS'], [680, 693, 'NE'], [700, 715, 'LA'], [716, 729, 'AR'], [730, 749, 'OK'],
+  [750, 799, 'TX'], [800, 816, 'CO'], [820, 831, 'WY'], [832, 838, 'ID'], [840, 847, 'UT'], [850, 865, 'AZ'], [870, 884, 'NM'],
+  [885, 885, 'TX'], [889, 898, 'NV'], [900, 961, 'CA'], [967, 968, 'HI'], [970, 979, 'OR'], [980, 994, 'WA'], [995, 999, 'AK'],
+];
+function fromPostal(raw, tax) {
+  const s = String(raw || '').toUpperCase().replace(/[\s-]/g, '');
+  let country = '', region = '';
+  if (/^[ABCEGHJKLMNPRSTVXY]\d[A-Z]/.test(s)) {                    // Canada: A1A 1A1
+    country = 'CA';
+    region = s[0] === 'X' ? (/^X0[ABC]/.test(s) ? 'NU' : 'NT') : CA_FIRST[s[0]] || '';
+  } else if (/^\d{5}(\d{4})?$/.test(s)) {                           // US: 12345 or 12345-6789
+    country = 'US';
+    const n = Number(s.slice(0, 3));
+    region = (US_ZIP3.find(([lo, hi]) => n >= lo && n <= hi) || [])[2] || '';
+  } else return null;
+  if (!tax.countries.includes(country)) return { country: 'ZZ', region: '' }; // somewhere the shop does not collect tax
+  return { country, region };
+}
+
 // `pack` is a credit pack, or (Storage.jsx) a plan: { cents, currency, recurring: true, title, subtitle, icon }, which PayPal bills every month.
 // PayPal's card boxes only take one-off payments, so a recurring plan always goes to PayPal's own page to be approved.
 export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, onError, onClose }) {
@@ -287,6 +317,7 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
   const [region, setRegion] = useState('');
   const [locBusy, setLocBusy] = useState(false);
   const [locMsg, setLocMsg] = useState('');
+  const [postal, setPostal] = useState(''); // typed here only; it fills in the pickers and is never sent to the server
   const buyerRef = useRef({}); buyerRef.current = { country, region: REGIONS[country] ? region : '' };
   const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
@@ -314,7 +345,14 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
           <h1 className="co-h">{embedded ? 'Pay with card' : `Pay with ${who}`}</h1>
           {tax && (
             <div className="co-where">
-              <label className="muted small" htmlFor="co-country">Where are you? (sets the tax)</label>
+              <label className="muted small" htmlFor="co-postal">Billing location</label>
+              <p className="muted small co-locmsg">Enter your postal or ZIP code and we will find your tax region, or choose it below.</p>
+              <input id="co-postal" className="co-select" type="text" autoComplete="postal-code" maxLength={10} placeholder="Postal or ZIP code" value={postal} disabled={busy}
+                onChange={(e) => {
+                  const v = e.target.value; setPostal(v);
+                  const r = fromPostal(v, tax);
+                  if (r) { setCountry(r.country); setRegion(REGIONS[r.country] && REGIONS[r.country][r.region] ? r.region : ''); setLocMsg(r.region ? 'Tax region found from your postal code. Please check it below.' : ''); }
+                }} />
               <button type="button" className="btn co-loc" disabled={busy || locBusy} onClick={async () => {
                 setLocBusy(true); setLocMsg('');
                 try { const r = await locate(tax); setCountry(r.country); setRegion(REGIONS[r.country] && REGIONS[r.country][r.region] ? r.region : ''); setLocMsg('Filled in from your location. Change it below if it is wrong.'); }
@@ -322,7 +360,7 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
                 setLocBusy(false);
               }}><Icon name="pin" size={16} /> {locBusy ? 'Finding you…' : 'Use my location'}</button>
               {locMsg && <p className="muted small co-locmsg">{locMsg}</p>}
-              <Select id="co-country" className="co-select" value={country} onChange={(e) => { setCountry(e.target.value); setRegion(''); }} disabled={busy}>
+              <Select id="co-country" aria-label="Country" className="co-select" value={country} onChange={(e) => { setCountry(e.target.value); setRegion(''); }} disabled={busy}>
                 <option value="" disabled>Choose your country</option>
                 {tax.countries.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
                 <option value="ZZ">Somewhere else</option>
@@ -340,7 +378,7 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
           {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
           {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? `Opening ${who}…` : pack.recurring ? `Subscribe for ${total} a month with ${who}` : `Pay ${total} with ${who}`}</button>}
           {error && <p className="error-text">{error}</p>}
-          <BuyNotices />
+          <BuyNotices paypal={provider === 'paypal'} tax={!!tax} />
         </main>
         <aside className="co-receipt">
           <div className="co-rcpt-in">
