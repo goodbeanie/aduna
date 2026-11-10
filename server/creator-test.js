@@ -2,6 +2,7 @@
 const assert = require('assert');
 const { cleanup } = require('./test-env');
 process.env.RESEND_API_KEY = 're_test_not_real'; // verification on; NODE_ENV=test keeps mail in mailer.outbox
+process.env.CREATOR_EMAILS = 'test.creator@gmail.com';
 const mailer = require('./mailer');
 const { httpServer, ready } = require('./index');
 
@@ -19,7 +20,7 @@ const reg = async (name, email) => {
 };
 const verify = (acc) => call('/me/verify-email', { method: 'POST', token: acc.token, body: { code: acc.code } });
 const step = (m) => console.log('✓', m);
-const CREATOR = 'adunachatapp@gmail.com';
+const CREATOR = 'test.creator@gmail.com';
 
 (async () => {
   await ready;
@@ -28,8 +29,8 @@ const CREATOR = 'adunachatapp@gmail.com';
 
   // any number of accounts can sign up with the creator address, and none of them is told it is "taken"
   const c1 = await reg('creator_one', CREATOR);
-  const c2 = await reg('creator_two', 'Adunachatapp@gmail.com');
-  const c3 = await reg('creator_three', 'aduna.chat.app+x@gmail.com');
+  const c2 = await reg('creator_two', 'Test.Creator@gmail.com');
+  const c3 = await reg('creator_three', 'testcreator+x@gmail.com');
   for (const c of [c1, c2, c3]) assert.strictEqual(c.status, 200, JSON.stringify(c));
   step('three accounts can register with the creator address');
 

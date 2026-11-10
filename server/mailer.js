@@ -1,7 +1,7 @@
 // Sends email. Two providers, picked by environment variables (never put keys or passwords in code):
 //
 //  A) Gmail over SMTP. NOTE: Render's free plan blocks SMTP ports, so this only works on paid plans or other hosts:
-//   GMAIL_USER          the Gmail address to send from, e.g. adunachatapp@gmail.com
+//   GMAIL_USER          the Gmail address to send from, e.g. you@gmail.com
 //   GMAIL_APP_PASSWORD  a Google "app password" (Google Account > Security > 2-Step Verification > App passwords)
 //                       Limit: about 500 emails a day.
 //
