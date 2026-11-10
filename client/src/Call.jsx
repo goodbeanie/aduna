@@ -9,6 +9,7 @@ import { levelOf, SpeakingGate } from './speaking.js';
 import { ringtoneFor } from './ringtones.js';
 import { loadDevices, micConstraint, camConstraint, applyOutput, EVENT as DEVICES_EVENT } from './devices.js';
 import { ScreenSharePicker, ShareBar, shareSpec, desktopScreen } from './ScreenShare.jsx';
+import { shareZoom } from './sharezoom.js';
 
 // While a call is ringing the tab title flashes, and a desktop notification shows if the tab is hidden.
 let titleTimer = null, titleBase = '';
@@ -67,6 +68,7 @@ export function useCall({ socketRef, privKey, getUser, isPlus = () => false }) {
     const r = rt.current;
     stopRing();
     r.local?.getTracks().forEach((t) => t.stop());
+    if (r.zoom) { r.zoom.stop(); r.zoom = null; } // before the screen track stops: it draws from it
     r.screen?.stop();
     r.cam?.stop();
     try { r.pc?.close(); } catch { /* already closed */ }
@@ -247,7 +249,7 @@ export function useCall({ socketRef, privKey, getUser, isPlus = () => false }) {
       else {
         const t = (await navigator.mediaDevices.getUserMedia({ video: camConstraint() })).getVideoTracks()[0];
         r.cam = t; r.local.addTrack(t);
-        if (r.vsender) await r.vsender.replaceTrack(r.screen || t); else r.vsender = r.pc.addTrack(t, r.local);
+        if (r.vsender) await r.vsender.replaceTrack((r.screen && (r.zoom?.out() || r.screen)) || t); else r.vsender = r.pc.addTrack(t, r.local);
       }
       announce();
     } catch (e) { set({ notice: e.name === 'NotAllowedError' ? 'Camera permission was denied' : 'Could not start the camera' }); }
@@ -268,6 +270,7 @@ export function useCall({ socketRef, privKey, getUser, isPlus = () => false }) {
   async function stopShare() {
     const r = rt.current, t = r.screen;
     if (!t) return;
+    if (r.zoom) { r.zoom.stop(); r.zoom = null; }
     r.screen = null; t.stop();
     const back = r.cam && r.cam.readyState === 'live' ? r.cam : null;
     if (r.vsender) { await r.vsender.replaceTrack(back).catch(() => {}); tuneSender(r.vsender, 0, ''); }
@@ -306,6 +309,8 @@ export function useCall({ socketRef, privKey, getUser, isPlus = () => false }) {
       r.screen = t; t.onended = () => stopShare(); // the browser's own "Stop sharing" button ends it too
       if (r.vsender) await r.vsender.replaceTrack(t); else r.vsender = r.pc.addTrack(t, r.local);
       tuneSender(r.vsender, q.kbps, q.content);
+      // Aduna desktop, whole-screen share: a hotkey zooms the picture in on the cursor (sharezoom.js). `swap` puts the zoomed or the plain track on the sender.
+      r.zoom = shareZoom({ track: t, fps: q.fps, notice: (n) => set({ notice: n }), swap: (x) => (r.vsender ? r.vsender.replaceTrack(x) : undefined) });
       set({ sharing: true });
       announce();
     } catch (e) {

@@ -10,6 +10,7 @@ import { useContextMenu } from './ContextMenu.jsx';
 import { VOL, prefsOf, setPrefs, soundVolume, useUserPrefs, useAllUserPrefs } from './voiceprefs.js';
 import { Tile, StageBtn, CallTimer, useSpeaking, usePhone } from './Call.jsx';
 import { ScreenSharePicker, ShareBar, shareSpec, desktopScreen } from './ScreenShare.jsx';
+import { shareZoom } from './sharezoom.js';
 import { hasFeature } from './features.js';
 
 // Screen sharing in voice channels is gated (server/features.js): until a published release lists 'vc-screenshare' only creator accounts have it.
@@ -34,7 +35,7 @@ export function useVoice({ socketRef, ready, isPlus = () => false, canShare = ()
   const [linked, setLinked] = useState({});   // userId -> true once the connection to them is up
   const [flash, setFlash] = useState({});     // userId -> soundId, for the second or two after they played a soundboard sound
   const sRef = useRef(IDLE);
-  const rt = useRef({ local: null, peers: new Map(), opening: new Map(), chain: Promise.resolve(), screen: null, screenStream: null, shareQ: null, mutedBeforeDeafen: false });
+  const rt = useRef({ local: null, peers: new Map(), opening: new Map(), chain: Promise.resolve(), screen: null, screenStream: null, shareQ: null, zoom: null, outTrack: null, mutedBeforeDeafen: false });
   const set = (patch) => { sRef.current = { ...sRef.current, ...patch }; setState(sRef.current); };
   const without = (m, id) => { if (!(id in m)) return m; const n = { ...m }; delete n[id]; return n; };
 
@@ -60,8 +61,9 @@ export function useVoice({ socketRef, ready, isPlus = () => false, canShare = ()
     r.opening.clear();
     r.chain = Promise.resolve();
     r.local?.getTracks().forEach((t) => t.stop());
+    if (r.zoom) { r.zoom.stop(); r.zoom = null; } // before the screen track stops: it draws from it
     r.screen?.stop();
-    r.local = null; r.screen = null; r.screenStream = null; r.shareQ = null; r.mutedBeforeDeafen = false;
+    r.local = null; r.screen = null; r.screenStream = null; r.shareQ = null; r.outTrack = null; r.mutedBeforeDeafen = false;
     stopAllClips(); // leaving the channel cuts off any sound still playing
     setFlash({});
   };
@@ -76,9 +78,9 @@ export function useVoice({ socketRef, ready, isPlus = () => false, canShare = ()
     if (r.screen && r.screen.readyState === 'live') attachScreen(peer);
   }
   function attachScreen(peer) {
-    const r = rt.current, q = r.shareQ;
-    if (peer.vsender) peer.vsender.replaceTrack(r.screen).catch(() => {});
-    else peer.vsender = peer.pc.addTrack(r.screen, r.screenStream); // a new picture line: the pair negotiates again by itself
+    const r = rt.current, q = r.shareQ, track = r.outTrack || r.screen; // outTrack: the zoomed picture while the share is zoomed in
+    if (peer.vsender) peer.vsender.replaceTrack(track).catch(() => {});
+    else peer.vsender = peer.pc.addTrack(track, r.screenStream); // a new picture line: the pair negotiates again by itself
     if (q) tuneSender(peer.vsender, q.kbps, q.content);
   }
 
@@ -197,7 +199,8 @@ export function useVoice({ socketRef, ready, isPlus = () => false, canShare = ()
   async function stopShare() {
     const r = rt.current, t = r.screen;
     if (!t) return;
-    r.screen = null; r.screenStream = null; r.shareQ = null; t.stop();
+    if (r.zoom) { r.zoom.stop(); r.zoom = null; }
+    r.screen = null; r.screenStream = null; r.shareQ = null; r.outTrack = null; t.stop();
     for (const p of r.peers.values()) {
       if (p.vsender) { await p.vsender.replaceTrack(null).catch(() => {}); tuneSender(p.vsender, 0, ''); }
     }
@@ -232,6 +235,11 @@ export function useVoice({ socketRef, ready, isPlus = () => false, canShare = ()
       r.screen = t; r.screenStream = new MediaStream([t]); r.shareQ = q;
       t.onended = () => stopShare(); // the browser's own "Stop sharing" button ends it too
       for (const p of r.peers.values()) if (p.tracksAdded) attachScreen(p); // peers still being set up pick it up in addLocalTracks
+      // Aduna desktop, whole-screen share: a hotkey zooms the picture in on the cursor (sharezoom.js). `swap` puts the zoomed or the plain track on every sender.
+      r.zoom = shareZoom({
+        track: t, fps: q.fps, notice: (n) => set({ notice: n }),
+        swap: (x) => { r.outTrack = x === t ? null : x; return Promise.all([...r.peers.values()].filter((p) => p.vsender).map((p) => p.vsender.replaceTrack(x).catch(() => {}))); },
+      });
       set({ sharing: true, preview: r.screenStream });
       announce();
     } catch (e) {

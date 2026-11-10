@@ -3,6 +3,7 @@ import { Icon } from './ui.jsx';
 import { useLang } from './i18n.js';
 import { levelOf } from './speaking.js';
 import * as snd from './callsound.js';
+import { ShareZoomSettings } from './ShareZoomSettings.jsx';
 import { loadDevices, saveDevices, listDevices, onDeviceChange, canPickOutput, micConstraint, camConstraint, applyOutput } from './devices.js';
 
 // Settings > Voice & Video: pick the microphone, camera and speakers, and try each one.
@@ -122,6 +123,7 @@ export function VoiceSettings() {
       </div>
       {camTest && <video ref={videoRef} className="dev-preview" autoPlay playsInline muted />}
       <p className="muted small hint">{t('vvApply')}</p>
+      <ShareZoomSettings />
     </div>
   );
 }

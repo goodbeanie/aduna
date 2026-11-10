@@ -20,6 +20,20 @@ if (location.protocol === 'https:') {
       sources: () => ipcRenderer.invoke('screen:sources'),
       choose: (id) => ipcRenderer.invoke('screen:choose', String(id || '')),
     },
+    // Zoom while sharing a whole screen (see desktop/zoom.js). begin/end bracket a share, active(true) while the picture is zoomed in,
+    // and on(cb) delivers what the hotkey, the cursor and the scroll wheel do: cb('toggle'), cb('wheel', { dir: 1 | -1 }), cb('cursor', { x, y }).
+    zoom: {
+      begin: () => ipcRenderer.invoke('zoom:begin'),
+      end: () => ipcRenderer.invoke('zoom:end'),
+      active: (on) => ipcRenderer.invoke('zoom:active', !!on),
+      getKey: () => ipcRenderer.invoke('zoom:get-key'),
+      setKey: (key) => ipcRenderer.invoke('zoom:set-key', String(key || '')),
+      on: (cb) => {
+        if (typeof cb !== 'function') return () => {};
+        const hs = ['toggle', 'wheel', 'cursor'].map((type) => { const h = (_e, d) => cb(type, d); ipcRenderer.on('zoom:' + type, h); return [type, h]; });
+        return () => hs.forEach(([type, h]) => ipcRenderer.removeListener('zoom:' + type, h));
+      },
+    },
     // The game the app found running (desktop/games.js): the callback gets its name, or null when none is running. It also fires once at the start.
     game: {
       onChange: (cb) => {

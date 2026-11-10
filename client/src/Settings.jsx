@@ -23,7 +23,7 @@ const KEYWORDS = {
   appearance: 'theme colour color dark light font accent',
   language: 'translate locale',
   notifications: 'sound alerts mute desktop',
-  voice: 'microphone mic camera audio input output',
+  voice: 'microphone mic camera audio input output zoom screen share shortcut hotkey keybind',
   security: 'password two factor 2fa sessions login email',
   whatsnew: 'updates changelog release',
   developer: 'bots api token ai coder',

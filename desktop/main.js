@@ -1,12 +1,13 @@
 // Aduna desktop app: a window that opens https://aduna.onrender.com/app and nothing else.
 // All secrets and settings live on the server, so nothing sensitive is stored in this app.
 // Updates are fetched from https://aduna.onrender.com/updates/ (see the publish setting in package.json).
-const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, nativeTheme, screen, shell, session, ipcMain, Notification, desktopCapturer } = require('electron');
+const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, nativeTheme, screen, shell, session, ipcMain, Notification, desktopCapturer, globalShortcut } = require('electron');
 const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
 const games = require('./games');
+const zoomLib = require('./zoom'); // screen-share zoom: hotkey, cursor and scroll wheel (the picture itself is zoomed by the page)
 
 const ORIGIN = 'https://aduna.onrender.com';
 const APP_URL = ORIGIN + '/app';
@@ -24,6 +25,7 @@ const nativeToasts = new Map();       // fallback only: tag -> native Windows no
 let theme = {};                       // latest colours from the page, forwarded to the title bar
 let upd = { phase: 'idle' };          // update status shown in the server bar: idle | checking | none | downloading | ready | installing | error
 let ai = null;                        // the AI bot builder (ai/ai-service.js): runs in the background, its panel is in Settings > Developer
+let zoom = null;                      // screen-share zoom (zoom.js), created with the screen-share handlers
 
 function openExternal(url) { try { if (/^https?:$/.test(new URL(url).protocol)) shell.openExternal(url); } catch { /* ignore */ } }
 const alive = (v) => v && v.webContents && !v.webContents.isDestroyed();
@@ -88,6 +90,7 @@ function createWindow() {
   wc.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
     if (isMainFrame && code !== -3) wc.loadFile(path.join(__dirname, 'offline.html'));
   });
+  wc.on('did-start-loading', () => { if (zoom) zoom.end(); }); // a reload ends any share, so the hotkey and the scroll listener must not outlive it
   wc.on('did-finish-load', () => { pushUpd(); sendPresence(); });
   wc.loadURL(APP_URL);
 }
@@ -378,6 +381,15 @@ function setDetectGames(on) { const p = readPrefs(); p.detectGames = !!on; write
 let pendingShare = null;
 function setupScreenShare() {
   const fromAduna = (wc) => !!wc && !wc.isDestroyed() && wc.getURL().startsWith(ORIGIN);
+  // Zoom while sharing a whole screen (zoom.js): the hotkey, the cursor position and the scroll wheel; the page does the zooming.
+  zoom = zoomLib.create({
+    globalShortcut, screen,
+    send: (ch, data) => { if (alive(page)) page.webContents.send(ch, data); },
+    getPrefs: readPrefs,
+    setPrefs: (patch) => writePrefs({ ...readPrefs(), ...patch }),
+    loadHook: () => { try { return require('uiohook-napi').uIOhook; } catch { return null; } }, // optional: without it only scrolling to zoom is missing
+  });
+  zoom.ipc(ipcMain, fromAduna);
   ipcMain.handle('screen:sources', async (e) => {
     if (!fromAduna(e.sender)) return [];
     try {
@@ -394,6 +406,7 @@ function setupScreenShare() {
   ipcMain.handle('screen:choose', (e, id) => {
     if (!fromAduna(e.sender)) return false;
     pendingShare = typeof id === 'string' && /^(screen|window):[\w:.-]+$/.test(id) ? { id, at: Date.now() } : null;
+    zoom.shareSource(null); // a new choice: forget the old share until the request below says what was picked
     return !!pendingShare;
   });
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
@@ -401,7 +414,7 @@ function setupScreenShare() {
     const deny = () => { try { callback({}); } catch { /* already answered */ } };
     if (!pick || Date.now() - pick.at > 15000 || !request.frame || !request.frame.url.startsWith(ORIGIN)) return deny();
     desktopCapturer.getSources({ types: ['screen', 'window'] })
-      .then((list) => { const s = list.find((x) => x.id === pick.id); if (s) callback({ video: s }); else deny(); }) // video only: sharing system audio would feed the other person's voice back to them
+      .then((list) => { const s = list.find((x) => x.id === pick.id); if (s) { zoom.shareSource(s); callback({ video: s }); } else deny(); }) // video only: sharing system audio would feed the other person's voice back to them
       .catch(deny);
   }, { useSystemPicker: false });
 }
@@ -410,7 +423,7 @@ app.setAppUserModelId('app.aduna.desktop'); // same as build.appId: Windows need
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', showWindow);
-  app.on('before-quit', () => { quitting = true; if (ai) ai.shutdown().catch(() => {}); }); // lets the update installer and "Quit" really close the window; a running AI build stops after its last saved attempt
+  app.on('before-quit', () => { quitting = true; if (zoom) zoom.end(); if (ai) ai.shutdown().catch(() => {}); }); // lets the update installer and "Quit" really close the window; a running AI build stops after its last saved attempt
   app.whenReady().then(() => {
     // Calls need the microphone and camera; mentions need notifications. Allowed only for the Aduna server.
     const ok = (wc, perm) => ['media', 'notifications', 'fullscreen', 'clipboard-sanitized-write'].includes(perm) && !!wc && wc.getURL().startsWith(ORIGIN);

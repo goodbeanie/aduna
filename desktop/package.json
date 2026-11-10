@@ -23,6 +23,7 @@
     "files": [
       "main.js",
       "games.js",
+      "zoom.js",
       "offline.html",
       "titlebar.html",
       "titlebar-preload.js",
@@ -51,7 +52,8 @@
     ],
     "asarUnpack": [
       "ai/*.js",
-      "node_modules/quickjs-emscripten/**"
+      "node_modules/quickjs-emscripten/**",
+      "node_modules/uiohook-napi/**"
     ],
     "win": {
       "target": [
@@ -86,5 +88,8 @@
   "dependencies": {
     "electron-updater": "^6.3.9",
     "quickjs-emscripten": "~0.23.0"
+  },
+  "optionalDependencies": {
+    "uiohook-napi": "^1.5.4"
   }
 }
