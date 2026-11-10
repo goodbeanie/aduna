@@ -75,5 +75,16 @@
       { "title": "Bot pages in Explorer", "text": "On the Bots tab, bots now show their banner and picture. Press Read more, or a bot’s name, to open its page and add it to a server." },
       { "title": "Longer messages with Aduna Plus", "text": "Aduna Plus members can write messages up to 4,000 characters instead of 2,000. A counter appears in the message box as you get close to the limit." }
     ]
+  },
+  {
+    "id": "2026.11.10",
+    "date": "2026-11-10",
+    "title": "Zoom while you share your screen",
+    "desktop": "1.4.107",
+    "android": "2026.11.10.23",
+    "items": [
+      { "title": "Zoom in on your cursor", "text": "In the Aduna desktop app, while you share your whole screen, press Ctrl + Alt + Shift + Z to zoom the shared picture in on your cursor. Press it again to zoom back out. Scroll while zoomed in to zoom even closer. You still see your normal screen; only the people watching see the zoom." },
+      { "title": "Pick your own shortcut", "text": "Don’t like the shortcut? Change it in Settings > Voice & Video. It has to include Ctrl, Alt or Win so normal typing is never affected." }
+    ]
   }
 ]
