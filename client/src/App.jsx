@@ -40,6 +40,7 @@ const Clips = CLIPS_ENABLED ? React.lazy(() => import('./Clips.jsx')) : null;
 import { OnboardingFlow } from './Onboarding.jsx';
 import Setup from './Setup.jsx';
 import NameWarning from './NameWarning.jsx';
+import ModWarning from './ModWarning.jsx';
 import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
@@ -162,6 +163,9 @@ export default function App() {
   }
   if (me?.emailVerified === false) {
     return <VerifyEmail me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
+  }
+  if (me?.modState?.pending?.length) { // a moderator warning that has not been read: nothing else until they press "I understand" (server/moderation.js)
+    return <ModWarning me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
   }
   if (me?.nameWarning && !nameSkip) {
     return <NameWarning me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onContinue={() => setNameSkip(true)} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
@@ -582,6 +586,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('user:update', (u) => { addUsers([u]); if (u.id === me.id) setMe((m) => ({ ...m, ...u })); });
     s.on('features:update', (f) => setMe((m) => (m ? { ...m, features: f || {} } : m))); // a feature was tested, released or pulled back (server/features.js)
     s.on('releases:update', () => window.dispatchEvent(new Event('aduna:releases'))); // a creator published or pulled back a release: What's new reloads (WhatsNew.jsx)
+    s.on('links:update', () => window.dispatchEvent(new Event('aduna:links'))); // a creator changed the unsafe link blocklist: links are checked again (LinkGuard.jsx)
     s.on('server:update', (sv) => {
       setServers((prev) => (prev.some((x) => x.id === sv.id) ? prev.map((x) => (x.id === sv.id ? sv : x)) : [...prev, sv]));
       addUsers(sv.members);

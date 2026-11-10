@@ -7,10 +7,14 @@ import './admin.css';
 // non-admins with a 404; if /api/admin/me fails here anyway, the page sends the visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin' };
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
+// "for how long" choices (hours; the server's limits are in server/moderation.js)
+const MUTE_FOR = [[1, '1 hour'], [6, '6 hours'], [24, '1 day'], [72, '3 days'], [168, '7 days'], [720, '30 days']];
+const SUSPEND_FOR = [['', 'Until I lift it'], [24, '1 day'], [72, '3 days'], [168, '7 days'], [720, '30 days']];
+const BAN_FOR = [[24, '1 day'], [168, '7 days'], [720, '30 days'], [8760, '1 year'], ['forever', 'Until I lift it']];
 const label = (s) => String(s || '').replace(/[_-]/g, ' ').replace(/^./, (c) => c.toUpperCase());
 const tabFromHash = () => { const h = location.hash.replace('#', ''); return TABS.some((t) => t[0] === h) ? h : 'overview'; };
 
@@ -28,11 +32,13 @@ function Face({ u, size = 36 }) {
   );
 }
 
-// A question in the page's own style. d: { title, body, lines, match (type this to confirm), textarea (label), checkbox: { label, on }, confirmLabel, danger }
+// A question in the page's own style. d: { title, body, lines, match (type this to confirm), textarea (label), required (the text may not be empty),
+// duration: { label, options: [[value, name]], value } (a "for how long" choice, handed back as `hours`), checkbox: { label, on }, confirmLabel, danger }
 function Dialog({ d, onDone }) {
   const [text, setText] = useState('');
   const [checked, setChecked] = useState(!!(d.checkbox && d.checkbox.on));
-  const ready = d.match ? text.trim().toLowerCase() === String(d.match).toLowerCase() : true;
+  const [hours, setHours] = useState(d.duration ? String(d.duration.value) : '');
+  const ready = (d.match ? text.trim().toLowerCase() === String(d.match).toLowerCase() : true) && (!d.required || !!text.trim());
   useEffect(() => {
     const k = (e) => { if (e.key === 'Escape') onDone(null); };
     window.addEventListener('keydown', k);
@@ -54,10 +60,17 @@ function Dialog({ d, onDone }) {
             <textarea rows={3} maxLength={300} value={text} onChange={(e) => setText(e.target.value)} />
           </label>
         )}
+        {d.duration && (
+          <label className="adm-field"><span>{d.duration.label}</span>
+            <select className="adm-input" value={hours} onChange={(e) => setHours(e.target.value)}>
+              {d.duration.options.map(([v, name]) => <option key={v} value={String(v)}>{name}</option>)}
+            </select>
+          </label>
+        )}
         {d.checkbox && <label className="adm-check"><input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} /><span>{d.checkbox.label}</span></label>}
         <div className="adm-actions">
           <button className="adm-btn" onClick={() => onDone(null)}>Cancel</button>
-          <button className={'adm-btn ' + (d.danger ? 'danger' : 'primary')} disabled={!ready} onClick={() => onDone({ text: text.trim(), checked })}>{d.confirmLabel || 'Confirm'}</button>
+          <button className={'adm-btn ' + (d.danger ? 'danger' : 'primary')} disabled={!ready} onClick={() => onDone({ text: text.trim(), checked, hours })}>{d.confirmLabel || 'Confirm'}</button>
         </div>
       </div>
     </div>
@@ -278,10 +291,26 @@ function UserDetail({ id, onChanged, onClose }) {
   const after = () => { load(); onChanged(); };
 
   const suspend = async () => {
-    const r = await ask({ title: `Suspend ${u.username}?`, body: 'They are signed out everywhere right away and cannot sign in. Nothing of theirs is removed, and their username and email stay reserved. You can lift this later.', textarea: 'Reason (they see it when they try to sign in)', confirmLabel: 'Suspend', danger: true });
-    if (r && await run(() => api(`/admin/users/${u.id}/suspend`, { method: 'POST', body: { reason: r.text } }), 'Account suspended')) after();
+    const r = await ask({ title: `Suspend ${u.username}?`, body: 'They are signed out everywhere right away and cannot sign in. Nothing of theirs is removed, and their username and email stay reserved. You can lift this later, or pick a length and it ends by itself.', textarea: 'Reason (they see it when they try to sign in)', duration: { label: 'For how long', options: SUSPEND_FOR, value: '' }, confirmLabel: 'Suspend', danger: true });
+    if (r && await run(() => api(`/admin/users/${u.id}/suspend`, { method: 'POST', body: { reason: r.text, hours: r.hours ? Number(r.hours) : undefined } }), 'Account suspended')) after();
   };
   const unsuspend = async () => { if (await run(() => api(`/admin/users/${u.id}/unsuspend`, { method: 'POST' }), 'Suspension lifted')) after(); };
+  const m = u.moderation || { warnings: [], activeWarnings: 0, mute: null, suspendedUntil: null };
+  const warn = async () => {
+    const r = await ask({ title: `Warn ${u.username}?`, body: 'Next time they open Aduna they see this and must press “I understand” before they can send anything. A warning counts for 90 days: the 3rd is a 24 hour mute and the 5th a 7 day suspension, automatically.', textarea: 'What is it for? (they read this)', required: true, confirmLabel: 'Send warning' });
+    if (!r) return;
+    await run(() => api(`/admin/users/${u.id}/warn`, { method: 'POST', body: { reason: r.text } }).then((x) => { after(); return x; }),
+      (x) => (x.escalation ? `Warning sent. That was warning ${x.moderation.activeWarnings}, so they are now ${x.escalation.type === 'mute' ? 'muted for 24 hours' : 'suspended for 7 days'}.` : 'Warning sent'));
+  };
+  const mute = async () => {
+    const r = await ask({ title: `Mute ${u.username}?`, body: 'They cannot send messages in channels, DMs or groups until it ends. They can still read, and see the reason.', textarea: 'Reason (they see it)', required: true, duration: { label: 'For how long', options: MUTE_FOR, value: 24 }, confirmLabel: 'Mute' });
+    if (r && await run(() => api(`/admin/users/${u.id}/mute`, { method: 'POST', body: { reason: r.text, hours: Number(r.hours) } }), 'Muted')) after();
+  };
+  const unmute = async () => { if (await run(() => api(`/admin/users/${u.id}/unmute`, { method: 'POST' }), 'Mute lifted')) after(); };
+  const retract = async (w) => {
+    const r = await ask({ title: 'Take this warning back?', body: w.seenAt ? 'It stops counting towards the 3 and 5 warning limits. A mute or suspension it already caused stays until you lift it.' : 'They have not read it yet, so it disappears from their screen. A mute or suspension it already caused stays until you lift it.', confirmLabel: 'Take it back' });
+    if (r && await run(() => api(`/admin/users/${u.id}/warnings/${w.id}`, { method: 'DELETE' }), 'Warning taken back')) after();
+  };
   const del = async () => {
     const lines = u.owned.map((s) => `The server “${s.name}” (${s.members} member${s.members === 1 ? '' : 's'}) is deleted`);
     if (u.liveClips) lines.push(`${u.liveClips} live clip${u.liveClips === 1 ? '' : 's'} removed`);
@@ -314,8 +343,11 @@ function UserDetail({ id, onChanged, onClose }) {
       <div className="adm-tags">
         {u.role && <span className="adm-tag">{ROLE[u.role]}</span>}
         {u.suspended && <span className="adm-tag bad">Suspended</span>}
+        {m.mute && <span className="adm-tag warn">Muted</span>}
+        {m.activeWarnings > 0 && <span className="adm-tag warn">{m.activeWarnings} warning{m.activeWarnings === 1 ? '' : 's'}</span>}
       </div>
-      {u.suspended && <p className="adm-details">Suspended {when(u.suspended.at)}{u.suspended.reason ? `: ${u.suspended.reason}` : ''}</p>}
+      {u.suspended && <p className="adm-details">Suspended {when(u.suspended.at)}{u.suspended.until ? ` until ${when(u.suspended.until)}` : ' until lifted'}{u.suspended.reason ? `: ${u.suspended.reason}` : ''}</p>}
+      {m.mute && <p className="adm-details">Muted until {when(m.mute.until)}{m.mute.auto ? ' (automatic, from warnings)' : m.mute.by ? ` by ${m.mute.by}` : ''}: {m.mute.reason}</p>}
       {u.bio && <p className="adm-details">{u.bio}</p>}
       <dl className="adm-facts">
         <div><dt>Joined</dt><dd>{when(u.createdAt)}</dd></div>
@@ -329,6 +361,8 @@ function UserDetail({ id, onChanged, onClose }) {
 
       {u.canModerate ? (
         <div className="adm-actions">
+          <button className="adm-btn" onClick={warn}>Warn</button>
+          {m.mute ? <button className="adm-btn" onClick={unmute}>Lift mute</button> : <button className="adm-btn" onClick={mute}>Mute</button>}
           {u.suspended ? <button className="adm-btn" onClick={unsuspend}>Lift suspension</button> : <button className="adm-btn" onClick={suspend}>Suspend</button>}
           <button className="adm-btn danger" onClick={del}>Delete account</button>
           {me.canManageAdmins && (u.role === 'admin' ? <button className="adm-btn" onClick={dropAdmin}>Remove as admin</button> : !u.role && !u.suspended && <button className="adm-btn" onClick={makeAdmin}>Make admin</button>)}
@@ -337,6 +371,19 @@ function UserDetail({ id, onChanged, onClose }) {
         <p className="adm-muted">{u.id === me.id ? 'This is you.' : u.role === 'creator' ? 'Founder accounts cannot be moderated here.' : 'Only a founder can act on an admin.'}</p>
       )}
       {u.ownsOfficialServer && <p className="adm-muted">This account owns the official Aduna server, so it cannot be deleted until that is transferred.</p>}
+
+      <h3>Warnings</h3>
+      {m.warnings.length ? (
+        <ul className="adm-reports">
+          {m.warnings.map((w) => (
+            <li key={w.id}>
+              <div><b>{w.counts ? 'Counts' : 'Over 90 days old'}</b> <span className="adm-muted">{w.by ? `by ${w.by}` : 'automatic'} · {when(w.at)} · {w.seenAt ? `read ${when(w.seenAt)}` : 'not read yet'}</span></div>
+              <p className="adm-details">{w.reason}</p>
+              {u.canModerate && <button className="adm-btn small" onClick={() => retract(w)}>Take back</button>}
+            </li>
+          ))}
+        </ul>
+      ) : <p className="adm-muted">None.</p>}
 
       <h3>Reports about them</h3>
       {d.reports.length ? <ReportItems list={d.reports} onChanged={after} /> : <p className="adm-muted">None.</p>}
@@ -371,6 +418,7 @@ function People({ focusId, clearFocus, refresh }) {
                     <span><b>{u.displayName}</b><small className="adm-muted"> @{u.username}</small></span>
                     {u.role && <span className="adm-tag">{u.role === 'creator' ? 'Founder' : 'Admin'}</span>}
                     {u.suspended && <span className="adm-tag bad">Suspended</span>}
+                    {u.muted && <span className="adm-tag warn">Muted</span>}
                     {u.reports > 0 && <span className="adm-tag warn">{u.reports}</span>}
                   </button>
                 </li>
@@ -662,6 +710,119 @@ function Releases() {
   );
 }
 
+// ---------- unsafe links ----------
+// Creator accounts only. Links to these domains (and everything under them) are blocked for everybody, with no "Show anyway". The browser also checks
+// every link by itself for lookalike addresses, shorteners and program downloads; this list is for sites you know are bad. Changes reach open apps at once.
+function Links() {
+  const { me, say, run, ask } = useAdm();
+  const [data, setData] = useState(null);
+  const [domain, setDomain] = useState('');
+  const [note, setNote] = useState('');
+  const load = useCallback(() => api('/admin/links').then(setData).catch((e) => { setData({ links: [], seed: 0, max: 0, lookup: false }); say(e.message, 'error'); }), [say]);
+  useEffect(() => { if (me.canManageFeatures) load(); }, [load, me.canManageFeatures]);
+  if (!me.canManageFeatures) return <Empty text="Only a creator account can change the link blocklist." />;
+  if (!data) return <p className="adm-muted">Loading…</p>;
+  const add = async (e) => {
+    e.preventDefault();
+    if (!domain.trim()) return;
+    if (await run(() => api('/admin/links', { method: 'POST', body: { domain, note } }).then(setData), () => 'Blocked')) { setDomain(''); setNote(''); }
+  };
+  const drop = async (l) => {
+    const ok = await ask({ title: `Unblock ${l.domain}?`, body: 'Links to it work again (the browser’s other checks still apply).', confirmLabel: 'Unblock' });
+    if (ok) await run(() => api('/admin/links/' + encodeURIComponent(l.domain), { method: 'DELETE' }).then(setData), () => 'Unblocked');
+  };
+  return (
+    <>
+      <div className="adm-card">
+        <h3>How link protection works</h3>
+        <ul className="adm-lines">
+          <li>Every link in a message is checked in the person’s browser, so it also works in encrypted DMs and group chats. Lookalike addresses, shorteners and program downloads are hidden behind a warning with <b>Show anyway</b>.</li>
+          <li>A domain on this list is <b>blocked outright</b>, with no way through. It blocks the domain and every address under it.</li>
+          <li>Suspicious links in server channels are also looked up with Google Safe Browsing: {data.lookup ? <b>on</b> : <b>off</b>}{data.lookup ? '.' : ' (set SAFE_BROWSING_API_KEY on Render to turn it on).'} In DMs a person can press “Check with Google” on a link, which sends just that address.</li>
+          <li>{data.seed} starter domain{data.seed === 1 ? ' is' : 's are'} built in (server/link-blocklist.json) and can only be changed in the code.</li>
+        </ul>
+      </div>
+      <form className="adm-card" onSubmit={add}>
+        <h3>Block a domain</h3>
+        <input className="adm-input" placeholder="evil.example" value={domain} maxLength={253} onChange={(e) => setDomain(e.target.value)} aria-label="Domain to block" autoComplete="off" spellCheck={false} />
+        <input className="adm-input" placeholder="Note (why, optional)" value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} aria-label="Note" />
+        <div className="adm-actions"><button className="adm-btn primary" disabled={!domain.trim()}>Block it</button></div>
+      </form>
+      <div className="adm-card">
+        <h3>Blocked by you ({data.links.length}{data.max ? ` of ${data.max}` : ''})</h3>
+        {!data.links.length && <p className="adm-muted">Nothing yet.</p>}
+        {data.links.map((l) => (
+          <div className="adm-row adm-line" key={l.domain}>
+            <div><b className="adm-mono">{l.domain}</b> <span className="adm-muted">{l.by ? `added by ${l.by} · ` : ''}{when(l.at)}{l.note ? ` · ${l.note}` : ''}</span></div>
+            <button type="button" className="adm-btn small danger" onClick={() => drop(l)}>Unblock</button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ---------- IP bans ----------
+// Creator accounts only (server/moderation.js). Aduna keeps no address per account, so a ban cannot be made from a person: type the address in, for example
+// from the host's logs. A banned address gets a "blocked" page and cannot open a live connection. Your own address and very wide ranges are refused.
+function IpBans() {
+  const { me, say, ask } = useAdm();
+  const [data, setData] = useState(null);
+  const [rule, setRule] = useState('');
+  const [reason, setReason] = useState('');
+  const [hrs, setHrs] = useState('720');
+  const load = useCallback(() => api('/admin/ip-bans').then(setData).catch((e) => { setData({ bans: [], enabled: true, yourIp: '', max: 0 }); say(e.message, 'error'); }), [say]);
+  useEffect(() => { if (me.canManageFeatures) load(); }, [load, me.canManageFeatures]);
+  if (!me.canManageFeatures) return <Empty text="Only a creator account can manage IP bans." />;
+  if (!data) return <p className="adm-muted">Loading…</p>;
+  const submit = async (confirmLarge) => {
+    try {
+      setData(await api('/admin/ip-bans', { method: 'POST', body: { rule, reason, hours: hrs === 'forever' ? null : Number(hrs), confirmLarge: confirmLarge === true } }));
+      say('Banned'); setRule(''); setReason('');
+    } catch (e) {
+      if (e.code === 'large_range') { if (await ask({ title: 'Ban a very wide range?', body: e.message, confirmLabel: 'Ban the range', danger: true })) submit(true); } else say(e.message, 'error');
+    }
+  };
+  const lift = async (b) => {
+    const ok = await ask({ title: `Lift the ban on ${b.rule}?`, body: 'That address can use Aduna again straight away.', confirmLabel: 'Lift ban' });
+    if (!ok) return;
+    try { setData(await api('/admin/ip-bans/' + encodeURIComponent(b.id), { method: 'DELETE' })); say('Ban lifted'); } catch (e) { say(e.message, 'error'); }
+  };
+  return (
+    <>
+      <div className="adm-card">
+        <h3>How IP bans work</h3>
+        <ul className="adm-lines">
+          <li>A banned address, or any address inside a banned range like <span className="adm-mono">1.2.3.0/24</span>, gets a plain “blocked” answer on every page and cannot open a live connection.</li>
+          <li>Aduna does not keep an address for each account, so you cannot ban “this person’s IP”. Copy the address from your host’s logs and type it here.</li>
+          <li>Many people share one address (a school, a phone network). Prefer a short ban, and a single address over a range.</li>
+          <li>The server sees you as <b className="adm-mono">{data.yourIp || 'unknown'}</b>. A ban that would cover it is refused.</li>
+          <li>{data.enabled ? 'IP bans are on.' : <b>IP bans are switched off (IP_BAN=off on Render), so nothing below is enforced.</b>} If a mistake ever blocks everybody, set IP_BAN=off on Render and restart.</li>
+        </ul>
+      </div>
+      <form className="adm-card" onSubmit={(e) => { e.preventDefault(); if (rule.trim() && reason.trim()) submit(false); }}>
+        <h3>Ban an address</h3>
+        <input className="adm-input" placeholder="203.0.113.7 or 203.0.113.0/24" value={rule} maxLength={64} onChange={(e) => setRule(e.target.value)} aria-label="Address or range to ban" autoComplete="off" spellCheck={false} />
+        <input className="adm-input" placeholder="Reason (kept in the log)" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} aria-label="Reason" />
+        <label className="adm-field"><span>For how long</span>
+          <select className="adm-input" value={hrs} onChange={(e) => setHrs(e.target.value)}>{BAN_FOR.map(([v, name]) => <option key={v} value={String(v)}>{name}</option>)}</select>
+        </label>
+        <div className="adm-actions"><button className="adm-btn primary" disabled={!rule.trim() || !reason.trim()}>Ban it</button></div>
+      </form>
+      <div className="adm-card">
+        <h3>Banned now ({data.bans.length}{data.max ? ` of ${data.max}` : ''})</h3>
+        {!data.bans.length && <p className="adm-muted">Nothing yet.</p>}
+        {data.bans.map((b) => (
+          <div className="adm-row adm-line" key={b.id}>
+            <div><b className="adm-mono">{b.rule}</b> <span className="adm-muted">{b.by ? `by ${b.by} · ` : ''}{when(b.at)} · {b.until ? `until ${when(b.until)}` : 'until lifted'} · {b.reason}</span></div>
+            <button type="button" className="adm-btn small danger" onClick={() => lift(b)}>Lift</button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 // ---------- log ----------
 function Log() {
   const { say } = useAdm();
@@ -699,7 +860,9 @@ function Overview({ go }) {
       <div className="adm-card">
         <h3>How this works</h3>
         <ul className="adm-lines">
-          <li><b>Suspend</b> locks an account out right away and keeps its username and email reserved. You can lift it.</li>
+          <li><b>Warn</b> shows the person a message they must read before they can send anything. The 3rd warning in 90 days is a 24 hour mute and the 5th a 7 day suspension.</li>
+          <li><b>Mute</b> stops someone sending messages for a set time. They can still read.</li>
+          <li><b>Suspend</b> locks an account out right away and keeps its username and email reserved. You can lift it, or pick a length and it ends by itself.</li>
           <li><b>Delete account</b> is permanent: it signs them out, removes their servers, clips and bots, and (optionally) their messages.</li>
           <li>Reports never tell the person who reported them. Everything you do here is recorded in the Log.</li>
         </ul>
@@ -757,7 +920,7 @@ export default function AdminPage() {
         <header className="adm-top">
           <a className="adm-logo" href="/admin" onClick={(e) => { e.preventDefault(); go('overview'); }}>Aduna <small>Admin</small></a>
           <nav className="adm-nav" aria-label="Admin pages">
-            {TABS.filter(([id]) => id !== 'releases' || me.canManageFeatures).map(([id, name]) => (
+            {TABS.filter(([id]) => (id !== 'releases' && id !== 'links' && id !== 'ipbans') || me.canManageFeatures).map(([id, name]) => (
               <button key={id} className={'adm-tab' + (tab === id ? ' on' : '')} aria-current={tab === id ? 'page' : undefined} onClick={() => go(id)}>
                 {name}{id === 'reports' && reportCount > 0 && <b>{reportCount}</b>}{id === 'applications' && summary && summary.applications > 0 && <b>{summary.applications}</b>}
               </button>
@@ -774,6 +937,8 @@ export default function AdminPage() {
           {tab === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
           {tab === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
           {tab === 'releases' && <Releases />}
+          {tab === 'links' && <Links />}
+          {tab === 'ipbans' && <IpBans />}
           {tab === 'admins' && <Admins openUser={openUser} />}
           {tab === 'log' && <Log />}
         </main>

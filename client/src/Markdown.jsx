@@ -34,11 +34,13 @@ function trimUrl(u) {
   }
 }
 
-function linkNode(shown, href) {
+function linkNode(shown, href, ctx) {
   let ok = false;
   try { const x = new URL(href); ok = (x.protocol === 'https:' || x.protocol === 'http:') && !!x.hostname; } catch { /* not a link */ }
   if (!ok) return null;
-  return { node: <a href={href} target="_blank" rel="noopener noreferrer nofollow">{shown}</a>, len: shown.length };
+  // ctx.link(href, shown) lets the caller draw the link itself (the unsafe link guard); without it this is a plain link
+  const node = ctx && ctx.link ? ctx.link(href, shown) : <a href={href} target="_blank" rel="noopener noreferrer nofollow">{shown}</a>;
+  return { node, len: shown.length };
 }
 
 // ---------- spoiler ----------
@@ -56,15 +58,15 @@ function Spoiler({ children }) {
 // EARLIEST wins (ties go to the one listed first); a handler that returns null means "not really a match, treat it as text".
 const wrap = (render) => (m, rec) => ({ node: render(rec(m[1])) });
 
-function basePatterns() {
+function basePatterns(ctx) {
   return [
     { re: /\\([\\*_~`|>#\-[\]()<:@])/g, fn: (m) => ({ node: m[1] }) },
     { re: /(?<!`)``(?!`)([\s\S]+?)(?<!`)``(?!`)/g, fn: (m) => ({ node: <code className="md-code">{m[1]}</code> }) },
     { re: /(?<!`)`(?!`)([^`\n]+)`(?!`)/g, fn: (m) => ({ node: <code className="md-code">{m[1]}</code> }) },
-    { re: /<(https?:\/\/[^\s<>]+)>/gi, fn: (m) => { const l = linkNode(m[1], m[1]); return l && { node: l.node, len: m[0].length }; } },
+    { re: /<(https?:\/\/[^\s<>]+)>/gi, fn: (m) => { const l = linkNode(m[1], m[1], ctx); return l && { node: l.node, len: m[0].length }; } },
     'ATOM',
-    { re: /https?:\/\/[^\s<]+/gi, fn: (m) => { const u = trimUrl(m[0]); return linkNode(u, u); } },
-    { re: BARE_RE, fn: (m) => { const u = trimUrl(m[0]); return linkNode(u, 'https://' + u); } },
+    { re: /https?:\/\/[^\s<]+/gi, fn: (m) => { const u = trimUrl(m[0]); return linkNode(u, u, ctx); } },
+    { re: BARE_RE, fn: (m) => { const u = trimUrl(m[0]); return linkNode(u, 'https://' + u, ctx); } },
     { re: /\|\|(?=\S)([\s\S]*?\S)\|\|/g, fn: wrap((c) => <Spoiler>{c}</Spoiler>) },
     { re: /\*\*\*(?=\S)([\s\S]*?\S)\*\*\*/g, fn: wrap((c) => <strong><em>{c}</em></strong>) },
     { re: /\*\*(?=\S)([\s\S]*?\S)\*\*(?!\*)/g, fn: wrap((c) => <strong>{c}</strong>) },
@@ -179,9 +181,9 @@ function blocks(seg, pats, ctx, push) {
   flushPlain(false);
 }
 
-// ctx: { atomRe, atom(match, key) }   atomRe is a global RegExp for the tokens the caller renders itself (emoji, mentions)
+// ctx: { atomRe, atom(match, key), link?(href, shown) }   atomRe is a global RegExp for the tokens the caller renders itself (emoji, mentions); link draws a link (the unsafe link guard)
 export function renderMarkdown(text, ctx) {
-  const pats = basePatterns().map((p) => (p === 'ATOM' ? { re: ctx.atomRe, fn: (m) => ({ node: ctx.atom(m) }) } : p));
+  const pats = basePatterns(ctx).map((p) => (p === 'ATOM' ? { re: ctx.atomRe, fn: (m) => ({ node: ctx.atom(m) }) } : p));
   const out = [];
   const push = (n) => out.push(React.cloneElement(n, { key: out.length }));
 

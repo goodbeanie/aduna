@@ -32,6 +32,7 @@ const { createFcm } = require('./fcm');
 const np = require('./notifprefs');
 const listing = require('./listing');
 const appropriate = require('./appropriate'); // the checker for usernames, display names, bios and server names (and the 3-day warning)
+const moderation = require('./moderation'); // warnings, mutes, timed suspensions and IP bans for the admin page
 const activityLib = require('./activity');
 const clipsLib = require('./clips'); // clips: short vertical videos (see the "clips" block below)
 const screenLib = require('./screen'); // clip screening: OpenAI moderation of frames, music recognition, re-post matching (see POST /api/clips/:id/complete)
@@ -54,6 +55,7 @@ const botstate = require('./botstate');
 const botfetch = require('./botfetch');
 const webhooksLib = require('./webhooks'); // incoming webhooks and the GitHub integration (rules only; the routes sit next to the bot routes, see "webhooks" below)
 const linkpreview = require('./linkpreview');
+const linkSafeLib = require('./linksafe'); // unsafe link protection: the blocklist and the Safe Browsing lookup (see the "unsafe links" block below)
 const { createBotHost } = require('./bothost');
 const { createIce } = require('./turn');
 const sandbox = require('./sandbox'); // starts its worker threads on first use, not at boot (each holds a WebAssembly runtime)
@@ -295,7 +297,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u) });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
@@ -398,6 +400,28 @@ app.disable('x-powered-by');
 app.use(security.securityHeaders()); // CSP, clickjacking, nosniff, referrer, permissions, HSTS over HTTPS (see security.js)
 app.use('/api', security.csrfGuard()); // a request from another site that carries the login cookie is refused (see security.js)
 app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
+
+// ----- IP bans (server/moderation.js; the creator manages the list on the /admin page) -----
+// A banned address gets a plain 403 on every page and API call, and cannot open a live connection. The list lives in meta "ipbans" and is loaded in start().
+// Nothing here knows who anybody is: Aduna does not keep an address per account, so a ban is typed in by hand (from the host's logs, say).
+// IP_BAN=off turns the check off: the way back in if a mistake ever blocks everybody.
+const ipBans = moderation.createIpBans();
+const ipBanOn = () => !['off', '0', 'false', 'no'].includes(String(process.env.IP_BAN || '').trim().toLowerCase());
+// the address Express would call req.ip for this socket: behind the one trusted proxy it is the last X-Forwarded-For entry
+const socketIp = (socket) => {
+  const fwd = String(socket.handshake.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return TRUST_PROXY && fwd.length ? fwd[fwd.length - 1] : socket.handshake.address;
+};
+app.use((req, res, next) => {
+  if (!ipBanOn() || !ipBans.matches(req.ip, Date.now())) return next();
+  if (req.originalUrl.startsWith('/api')) return res.status(403).json({ error: 'This connection has been blocked.', code: 'ip_banned' });
+  res.status(403).type('text').send('This connection has been blocked.');
+});
+let ipBanChain = Promise.resolve();
+const saveIpBans = () => { // one write at a time, so two changes never overwrite each other
+  ipBanChain = ipBanChain.then(() => store.setMeta('ipbans', JSON.stringify(ipBans.snapshot()))).catch((e) => console.error('Could not save the IP bans:', e.message));
+  return ipBanChain;
+};
 
 // Android app updates: the app asks which build is newest. Source, in order: updates/latest.json on this site (like the desktop feed), else android-latest.json in the DOWNLOAD_BASE_URL bucket (written by ZipPush), else the latest GitHub Release of GITHUB_REPO (the Android workflow
 // publishes one per build, tag android-<versionCode>, with the .apk attached; the repo must be public), or set
@@ -4306,7 +4330,8 @@ function adminLogAdd(by, action, target, note) {
 // The email address is private even from admins, so it is never part of these.
 const adminUserRow = (u) => ({
   id: u.id, username: u.username, displayName: u.displayName || u.username, createdAt: u.createdAt || null, role: adminRole(u),
-  suspended: u.suspended ? { at: u.suspended.at, reason: u.suspended.reason || '' } : null, deleted: !!u.deleted,
+  suspended: u.suspended ? { at: u.suspended.at, reason: u.suspended.reason || '', until: u.suspended.until || null } : null, deleted: !!u.deleted,
+  muted: moderation.muted(u, now()), warnings: moderation.activeWarnings(u, now()).length,
   reports: (u.reports || []).length, avatarImage: u.avatarImage || null, avatarColor: u.avatarColor || '#8c6b4f', avatarEmoji: u.avatarEmoji || '',
 });
 const adminReportRows = (list) => (list || []).map((r) => ({ by: db().users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at, about: r.about || 'account', message: r.message || null }));
@@ -4408,19 +4433,21 @@ app.get('/api/admin/users/:id', auth, adminOnly, (req, res) => {
       clips: clips.length, liveClips: clips.filter((c) => clipsLib.isLive(c, now())).length, bots: myBots(u.id).length,
       ownsOfficialServer: !!defaultServer() && defaultServer().ownerId === u.id,
       canModerate: u.id !== req.user.id && !isCreator(u) && (!adminRole(u) || isCreator(req.user)),
+      moderation: moderation.adminView(u, now(), (id) => db().users[id]?.username || null), // warnings (newest first), the open mute, when a timed suspension ends
     },
     reports: adminReportRows(u.reports),
   });
 });
 
 // suspend = locked out everywhere right now, nothing is removed, and the username and email stay reserved (so it cannot just sign up again);
-// unsuspend = they can sign in again
+// with `hours` it ends by itself (the minute sweep in start() lifts it), without it it lasts until an admin lifts it; unsuspend = they can sign in again
 app.post('/api/admin/users/:id/suspend', auth, adminOnly, ah(async (req, res) => {
   const u = modTarget(req, res); if (!u) return;
   const reason = clip(req.body?.reason, 300).trim();
-  u.suspended = { at: now(), by: req.user.id, reason };
+  const r = moderation.setSuspension(u, { by: req.user.id, reason, hours: req.body?.hours, now: now() });
+  if (r.error) return res.status(400).json({ error: r.error });
   await revokeAllSessions(u);
-  adminLogAdd(req.user, 'suspend', u.username, reason);
+  adminLogAdd(req.user, 'suspend', u.username, reason + (u.suspended.until ? ` (until ${new Date(u.suspended.until).toISOString().slice(0, 16)}Z)` : ''));
   res.json({ ok: true, user: adminUserRow(u) });
 }));
 app.post('/api/admin/users/:id/unsuspend', auth, adminOnly, (req, res) => {
@@ -4430,6 +4457,98 @@ app.post('/api/admin/users/:id/unsuspend', auth, adminOnly, (req, res) => {
   adminLogAdd(req.user, 'unsuspend', u.username, '');
   res.json({ ok: true, user: adminUserRow(u) });
 });
+
+// ----- warnings, mutes and IP bans (server/moderation.js) -----
+// A warning must be read ("I understand", POST /api/me/warnings/ack) before the person can send anything again. The 3rd active warning in 90 days is a
+// 24 hour mute and the 5th a 7 day suspension. A mute stops channel, DM and group messages but nothing else. Both end by themselves (moderationSweep).
+const modView = (u) => moderation.adminView(u, now(), (id) => db().users[id]?.username || null);
+const modReply = (u, extra) => ({ ok: true, user: adminUserRow(u), moderation: modView(u), ...extra });
+const hoursText = (h) => (h % 24 === 0 ? `${h / 24} day${h === 24 ? '' : 's'}` : `${h} hour${h === 1 ? '' : 's'}`);
+app.post('/api/admin/users/:id/warn', auth, adminOnly, ah(async (req, res) => {
+  const u = modTarget(req, res); if (!u) return;
+  const r = moderation.warn(u, { by: req.user.id, reason: req.body?.reason, now: now() });
+  if (r.error) return res.status(400).json({ error: r.error });
+  let applied = null;
+  const e = r.escalation;
+  if (e && e.type === 'mute') {
+    if (!(u.mute && u.mute.until > now() + e.hours * 3600_000)) { moderation.setMute(u, { by: null, reason: e.reason, hours: e.hours, now: now(), auto: true }); applied = 'mute'; } // never shortens a longer mute
+  } else if (e && e.type === 'suspend') {
+    if (!u.suspended || (u.suspended.until && u.suspended.until < now() + e.hours * 3600_000)) { moderation.setSuspension(u, { by: null, reason: e.reason, hours: e.hours, now: now() }); applied = 'suspend'; } // never shortens a longer one
+  }
+  if (applied === 'suspend') await revokeAllSessions(u);
+  store.save();
+  emitUserUpdate(u);
+  adminLogAdd(req.user, 'warn', u.username, r.warning.reason + (applied ? ` (automatic ${applied === 'mute' ? hoursText(e.hours) + ' mute' : hoursText(e.hours) + ' suspension'}: warning ${r.count})` : ''));
+  if (applied) adminLogAdd({ username: 'moderation' }, applied === 'mute' ? 'mute' : 'suspend', u.username, e.reason);
+  res.json(modReply(u, { escalation: applied ? { type: applied, hours: e.hours } : null }));
+}));
+app.delete('/api/admin/users/:id/warnings/:wid', auth, adminOnly, (req, res) => {
+  const u = modTarget(req, res); if (!u) return;
+  if (!moderation.retractWarning(u, String(req.params.wid))) return res.status(404).json({ error: 'That warning is gone' });
+  store.save();
+  emitUserUpdate(u); // an unread warning that is taken back leaves their screen
+  adminLogAdd(req.user, 'retract warning', u.username, '');
+  res.json(modReply(u));
+});
+app.post('/api/admin/users/:id/mute', auth, adminOnly, (req, res) => {
+  const u = modTarget(req, res); if (!u) return;
+  const r = moderation.setMute(u, { by: req.user.id, reason: req.body?.reason, hours: req.body?.hours, now: now() });
+  if (r.error) return res.status(400).json({ error: r.error });
+  store.save();
+  emitUserUpdate(u);
+  adminLogAdd(req.user, 'mute', u.username, `${r.mute.reason} (until ${new Date(r.mute.until).toISOString().slice(0, 16)}Z)`);
+  res.json(modReply(u));
+});
+app.post('/api/admin/users/:id/unmute', auth, adminOnly, (req, res) => {
+  const u = modTarget(req, res); if (!u) return;
+  delete u.mute;
+  store.save();
+  emitUserUpdate(u);
+  adminLogAdd(req.user, 'unmute', u.username, '');
+  res.json(modReply(u));
+});
+// The person's app calls this when they press "I understand": every warning they were shown counts as read. Calling it again changes nothing.
+app.post('/api/me/warnings/ack', auth, (req, res) => {
+  const u = req.user;
+  if (moderation.acknowledge(u, now())) { store.save(); emitUserUpdate(u); }
+  res.json({ user: ownUser(u) });
+});
+// IP bans (creator accounts only). Aduna keeps no address per account, so a ban is typed in by hand (from the host's logs, say). `yourIp` lets the page
+// show what the server sees for the creator, and a ban that would cover that address is refused. hours: left out = 30 days, null = until lifted.
+const ipBanRows = () => ipBans.active(now()).sort((a, b) => b.at - a.at).map((b) => ({ id: b.id, rule: b.rule, reason: b.reason, at: b.at, until: b.until, by: b.by ? db().users[b.by]?.username || null : null }));
+const ipBanView = (req) => ({ bans: ipBanRows(), enabled: ipBanOn(), yourIp: moderation.normalizeIp(req.ip), max: moderation.LIMITS.maxIpBans, defaultHours: moderation.LIMITS.defaultIpBanHours });
+app.get('/api/admin/ip-bans', auth, adminOnly, needCreator, (req, res) => res.json(ipBanView(req)));
+app.post('/api/admin/ip-bans', auth, adminOnly, needCreator, ah(async (req, res) => {
+  const b = req.body || {};
+  const hours = !('hours' in b) || b.hours === '' ? undefined : b.hours;
+  const r = ipBans.add({ rule: b.rule, reason: b.reason, by: req.user.id, hours, now: now(), confirmLarge: b.confirmLarge === true, selfIp: req.ip });
+  if (r.error) return res.status(r.code ? 409 : 400).json({ error: r.error, code: r.code });
+  await saveIpBans();
+  adminLogAdd(req.user, 'ip ban', r.ban.rule, r.ban.reason + (r.ban.until ? ` (until ${new Date(r.ban.until).toISOString().slice(0, 16)}Z)` : ' (until lifted)'));
+  res.json({ ok: true, ...ipBanView(req) });
+}));
+app.delete('/api/admin/ip-bans/:id', auth, adminOnly, needCreator, ah(async (req, res) => {
+  const ban = ipBans.snapshot().find((x) => x.id === req.params.id);
+  if (!ban || !ipBans.remove(ban.id)) return res.status(404).json({ error: 'That ban is gone' });
+  await saveIpBans();
+  adminLogAdd(req.user, 'lift ip ban', ban.rule, '');
+  res.json({ ok: true, ...ipBanView(req) });
+}));
+// Every minute (and once at start): mutes and timed suspensions that ran out end, and expired IP bans are dropped.
+async function moderationSweep() {
+  const t = now(), due = moderation.expired(db().users, t), out = { unmuted: 0, unsuspended: 0, ipBansDropped: 0 };
+  for (const id of due.unmute) { const u = db().users[id]; if (u && u.mute && !(u.mute.until > t)) { delete u.mute; out.unmuted++; emitUserUpdate(u); } }
+  for (const id of due.unsuspend) {
+    const u = db().users[id];
+    if (!u || !u.suspended || !u.suspended.until || u.suspended.until > t) continue;
+    delete u.suspended; out.unsuspended++;
+    adminLogAdd({ username: 'moderation' }, 'unsuspend', u.username, 'the timed suspension ended');
+  }
+  if (out.unmuted || out.unsuspended) store.save();
+  out.ipBansDropped = ipBans.prune(t);
+  if (out.ipBansDropped) await saveIpBans();
+  return out;
+}
 
 // Deleting an account turns the record into an empty shell with the same id ("Deleted user", no email, no keys, no password), so old messages, DMs and
 // groups still point at something. Everything else of theirs goes: they are signed out everywhere; servers they own are deleted (the others they simply
@@ -4712,6 +4831,55 @@ app.post('/api/admin/releases/:id/:action(publish|unpublish)', auth, adminOnly, 
   pushReleases();
   if ((r.features || []).length) pushFeatures(); // its features go public with it, or back to creators only
   res.json({ ok: true, ...releasesView(req.user) });
+});
+
+// ----- unsafe links -----
+// What the browser cannot decide alone. Direct messages and group chats are end-to-end encrypted, so the browser checks the links in them itself
+// (client/src/linksafe.js: lookalike addresses, shorteners, executable downloads, and the blocklist below). The blocklist has two sources: the plain
+// list in server/link-blocklist.json (changes with the code) and the domains a creator adds on /admin > Links (db().linkblocks, no deploy needed).
+// A listed domain blocks itself and everything under it. The live lookup (Google Safe Browsing, needs SAFE_BROWSING_API_KEY on Render) is asked only
+// about links the browser found suspicious: automatically in server channels, and by a button press in DMs and groups, since the server never sees
+// those links otherwise. Nothing here stores or logs the addresses it is asked about.
+const safeBrowsing = linkSafeLib.createSafeBrowsing({ key: process.env.SAFE_BROWSING_API_KEY });
+let linkFileDomains = [];
+try { linkFileDomains = JSON.parse(fs.readFileSync(path.join(__dirname, 'link-blocklist.json'), 'utf8')).domains || []; } catch (e) { console.error('Could not read link-blocklist.json:', e.message); }
+let linkSetCache = null;
+const linkBlockDomains = () => linkSetCache || (linkSetCache = linkSafeLib.domainSet(linkFileDomains, db().linkblocks));
+const linksChanged = () => { linkSetCache = null; io.emit('links:update'); };
+app.get('/api/links/blocklist', auth, (_req, res) => res.json({ domains: [...linkBlockDomains()], lookup: safeBrowsing.enabled }));
+app.post('/api/links/check', auth, lookupLimiter, ah(async (req, res) => {
+  const urls = linkSafeLib.cleanUrls(req.body && req.body.urls);
+  if (!urls.length) return res.json({ results: [], lookup: false });
+  res.json(await linkSafeLib.checkUrls({ urls, domains: linkBlockDomains(), safeBrowsing }));
+}));
+// /admin > Links (creator accounts only)
+const linkAdminView = () => ({
+  links: Object.values(db().linkblocks).map((l) => ({ domain: l.domain, note: l.note || '', at: l.at, by: l.by })).sort((a, b) => b.at - a.at),
+  seed: linkFileDomains.length, max: linkSafeLib.MAX_DOMAINS, lookup: safeBrowsing.enabled,
+});
+app.get('/api/admin/links', auth, adminOnly, needCreator, (_req, res) => res.json(linkAdminView()));
+app.post('/api/admin/links', auth, adminOnly, needCreator, (req, res) => {
+  const domain = linkSafeLib.cleanDomain(req.body && req.body.domain);
+  if (!domain) return res.status(400).json({ error: 'Enter a domain like evil.example (not a bare ending like “com”)' });
+  const own = linkSafeLib.hostOf(req.protocol + '://' + (req.headers.host || ''));
+  if (own && (own === domain || own.endsWith('.' + domain))) return res.status(400).json({ error: 'That would block Aduna’s own address' });
+  if (db().linkblocks[domain] || linkFileDomains.includes(domain)) return res.status(409).json({ error: domain + ' is already blocked' });
+  if (Object.keys(db().linkblocks).length >= linkSafeLib.MAX_DOMAINS) return res.status(400).json({ error: 'The list is full' });
+  const note = clip(req.body && req.body.note, 200).trim();
+  db().linkblocks[domain] = { domain, note, at: now(), by: req.user.username };
+  store.save();
+  adminLogAdd(req.user, 'block link domain', domain, note);
+  linksChanged();
+  res.json({ ok: true, ...linkAdminView() });
+});
+app.delete('/api/admin/links/:domain', auth, adminOnly, needCreator, (req, res) => {
+  const domain = linkSafeLib.cleanDomain(req.params.domain);
+  if (!domain || !db().linkblocks[domain]) return res.status(404).json({ error: linkFileDomains.includes(domain) ? 'That one is in server/link-blocklist.json, so it is removed there, in the code' : 'Not on the list' });
+  delete db().linkblocks[domain];
+  store.save();
+  adminLogAdd(req.user, 'unblock link domain', domain, '');
+  linksChanged();
+  res.json({ ok: true, ...linkAdminView() });
 });
 
 app.get('/api/admin/log', auth, adminOnly, ah(async (_req, res) => {
@@ -5579,7 +5747,7 @@ function broadcastPresence(uid) {
 // The audience sees the public profile (Invisible shows as offline); the person's own devices get the real status.
 function emitUserUpdate(u) {
   toAudience(u.id).except('user:' + u.id).emit('user:update', publicUser(u));
-  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), showActivity: u.showActivity !== false, nameWarning: nameWarningView(u) }); // their own devices also learn which badges they own and wear, whether their game is shown, and whether a name warning is open
+  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), showActivity: u.showActivity !== false, nameWarning: nameWarningView(u), modState: moderation.view(u, now()) }); // their own devices also learn which badges they own and wear, whether their game is shown, and whether a name warning, a moderator warning or a mute is open
 }
 // Two people just became able to see each other (friend request, joining a server): each learns the other's current presence.
 function introduce(a, b) {
@@ -5593,6 +5761,7 @@ io.use((socket, next) => {
   const u = userFromToken(socket.handshake.auth?.token || security.readSessionCookie(socket.handshake.headers, security.isSecure(socket.handshake.headers, socket.handshake.secure, TRUST_PROXY)));
   if (!u) return next(new Error('unauthorized'));
   if (needsVerify(u)) return next(new Error('unverified'));
+  if (ipBanOn() && ipBans.matches(socketIp(socket), Date.now())) return next(new Error('blocked'));
   socket.data.uid = u.id;
   next();
 });
@@ -5703,6 +5872,8 @@ io.on('connection', (socket) => {
     bucket.push(t);
     return true;
   };
+  // a muted person, or someone with a moderator warning they have not read yet, cannot send (server/moderation.js): an error text for the app, or null
+  const sendBlocked = () => moderation.sendBlock(db().users[uid], now());
 
   // Checks attachments on a channel message. File ids must be uploads by this user for this channel
   // that no message uses yet; GIFs must come from the GIF host. Returns null if anything is wrong.
@@ -5730,11 +5901,12 @@ io.on('connection', (socket) => {
     return m && check(m) ? replyTo : null;
   };
 
-  groups.attachSocket(socket, { uid, allowed, validReply, busy: () => !!callOf(uid) }); // group:send, gcall:*, group:typing
+  groups.attachSocket(socket, { uid, allowed, sendBlocked, validReply, busy: () => !!callOf(uid) }); // group:send, gcall:*, group:typing
 
   socket.on('message:send', async (p, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!allowed()) return reply({ error: 'Slow down' });
+    const blocked = sendBlocked(); if (blocked) return reply({ error: blocked });
     const content = clip(p?.content, maxChars(db().users[uid])).trim();
     const f = findChannel(p?.channelId);
     if (!f || !f.server.members.includes(uid)) return reply({ error: 'Cannot send' });
@@ -5780,6 +5952,7 @@ io.on('connection', (socket) => {
   socket.on('dm:send', async (p, ack) => {
     const reply = typeof ack === 'function' ? ack : () => {};
     if (!allowed()) return reply({ error: 'Slow down' });
+    const blocked = sendBlocked(); if (blocked) return reply({ error: blocked });
     const to = db().users[p?.to];
     if (!to || to.id === uid) return reply({ error: 'Cannot send' });
     if (blockedEither(uid, to.id)) return reply({ error: 'You cannot message this person' });
@@ -6120,6 +6293,7 @@ io.on('connection', (socket) => {
 // Connect to Postgres, load the data, then start serving. `ready` resolves once that is done.
 async function start() {
   await store.init();
+  try { ipBans.load(JSON.parse((await store.getMeta('ipbans')) || '[]')); } catch (e) { console.error('Could not load the IP bans:', e.message); } // the saved ban list (a broken one starts empty rather than stopping the server)
   store.setProtectedOwners(() => storagePlan.protectedIds(store.db, Date.now())); // storage-plan files are outside the shared pool
   await store.backfillFileOwners();                                               // files from before owners were kept in the open
   try { await syncReleases(); } catch (e) { console.error('Releases sync failed:', e.message); } // new releases arrive as private drafts
@@ -6134,6 +6308,9 @@ async function start() {
   const nameRun = async () => { try { const r = await nameSweep(); if (r.warned || r.deleted || r.renamed) console.log('Name checker:', JSON.stringify(r)); } catch (e) { console.error('Name sweep failed:', e.message); } };
   await nameRun(); // flagged names that appeared while the server was off, and warnings that ran out
   if (process.env.NODE_ENV !== 'test') setInterval(nameRun, 3600_000).unref(); // tests call nameSweep() themselves
+  const modRun = async () => { try { const r = await moderationSweep(); if (r.unmuted || r.unsuspended || r.ipBansDropped) console.log('Moderation sweep:', JSON.stringify(r)); } catch (e) { console.error('Moderation sweep failed:', e.message); } };
+  await modRun(); // mutes and suspensions that ran out while the server was off
+  if (process.env.NODE_ENV !== 'test') setInterval(modRun, 60_000).unref(); // tests call moderationSweep() themselves
   // free storage limit: load the last one, work out the new one now and then every 6 hours; people who just went over it get the warning pushed to them,
   // and every free person gets the new limit (and the warning that older files could be removed) pushed when the cap is first on and whenever the limit changes
   await storageBudget.load();
@@ -6168,7 +6345,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, nameSweep, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, nameSweep, moderationSweep, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep: for the tests
 
 
-/* HANDOFF: see HANDOFF.md in the project root for what this server does, what is done, and what is left. */
+

@@ -1,0 +1,21 @@
+{
+  "about": "Starter blocklist of well-known IP-logger / tracking-link services. A listed domain blocks itself and every address under it. This is only a seed: add more from /admin > Links (no deploy needed), and turn on SAFE_BROWSING_API_KEY for a live lookup.",
+  "domains": [
+    "grabify.link",
+    "leancoding.co",
+    "stopify.co",
+    "freegiftcards.co",
+    "joinmy.site",
+    "curiouscat.club",
+    "catsnthings.fun",
+    "catsnthings.com",
+    "iplogger.org",
+    "iplogger.com",
+    "iplogger.ru",
+    "iplogger.co",
+    "2no.co",
+    "yip.su",
+    "blasze.com",
+    "ps3cfw.com"
+  ]
+}

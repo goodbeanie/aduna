@@ -1,6 +1,6 @@
 // Bot records: validation, code checks, views and search (no Express, no database: tested by bots-logic-test.js).
 //
-// A bot is a small JavaScript program a developer writes and Aduna runs in a sandbox (the runtime is NOT in this file; see HANDOFF.md).
+// A bot is a small JavaScript program a developer writes and Aduna runs in a sandbox (the runtime is NOT in this file; see sandbox.js and sandbox-core.js).
 // bots[id] = { id, ownerId, name, description, about (long description), tags, avatarImage (image id or null), bannerImage (image id or null), visibility: 'private'|'public', code, createdAt, updatedAt, installs: [serverId],
 //              reports: [...], listingHold }
 // "private" = only its developer can install it; "public" = listed on the Bots tab in the explorer and anyone can add it to a server

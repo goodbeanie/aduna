@@ -18,5 +18,8 @@ mobile/java-home.txt
 
 # local scratch files (not part of the app)
 tmp-*
+HANDOFF.md
 client/.css-backup
 client/styles.original.css.txt
+screenshots/
+recordings/

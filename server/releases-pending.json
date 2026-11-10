@@ -109,5 +109,17 @@
       { "title": "A bar you can read", "text": "The storage bar no longer looks empty on dark themes, and a small amount of use still shows a sliver. Under it you now see how much you have used and how much is free, or your upload limit if you set one." },
       { "title": "Member goal on the home page", "text": "The Aduna home page now shows how many people have joined and how close we are to our goal of 1,000 members." }
     ]
+  },
+  {
+    "id": "2026.11.10.4",
+    "date": "2026-11-10",
+    "title": "Unsafe links and moderator warnings",
+    "desktop": "1.4.110",
+    "android": "2026.11.10.2331",
+    "items": [
+      { "title": "Unsafe links are hidden", "text": "Links that look dangerous, such as lookalike addresses, link shorteners and program downloads, now show as “Link hidden: looks unsafe”. Press “Show anyway” to see the real address first and decide for yourself. This also works in direct messages and group chats." },
+      { "title": "Known bad sites are blocked", "text": "Addresses on Aduna’s block list can’t be opened from a message at all. Creators can add to the list from the admin page and the change shows up right away." },
+      { "title": "Warnings from moderators", "text": "If a moderator warns you, you see it when you open Aduna and have to press “I understand” before you can send messages again. Warnings count for 90 days. The third is a 24-hour mute and the fifth is a 7-day suspension." }
+    ]
   }
 ]

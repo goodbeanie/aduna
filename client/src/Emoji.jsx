@@ -4,12 +4,13 @@ import { api } from './api.js';
 import { askConfirm, toast } from './Dialogs.jsx';
 import { ChannelMention, EveryoneMention, Mention } from './Mentions.jsx';
 import { renderMarkdown } from './Markdown.jsx';
+import { SafeLink, guardedLink } from './LinkGuard.jsx';
 
 // ---------- links + custom emoji inside message text ----------
 const URL_RE = /(https?:\/\/[^\s<]+[^\s<.,;:!?)"'\]])/g;
 export function Linkified({ text }) {
   return text.split(URL_RE).map((part, i) => (i % 2
-    ? <a key={i} href={part} target="_blank" rel="noopener noreferrer nofollow">{part}</a>
+    ? <SafeLink key={i} href={part} shown={part} />
     : part));
 }
 
@@ -22,10 +23,11 @@ const RICH = /<:([a-z0-9_]{2,32}):([0-9a-f]{16})>|<@([0-9a-f]{16})>|<#([0-9a-f]{
 // mention: { users, meId, onUser, channels, onChannel, everyone } - everyone is true only when the server accepted this message's @everyone;
 // channels ({ id: channel }) and onChannel are only given inside a server channel, where a channel tag can be shown and opened
 // Message text is Discord-style Markdown (see Markdown.jsx); emoji, mentions and @everyone are drawn here and handed in as atoms.
-export function Rich({ text: raw, mention }) {
+export function Rich({ text: raw, mention, live }) {
   const text = String(raw ?? '');
   const big = ONLY_EMOJI.test(text);
   return renderMarkdown(text, {
+    link: guardedLink(!!live), // links go through the unsafe link guard; `live` is true in server channels, where the server may look suspicious ones up
     atomRe: RICH,
     atom: (m) => {
       if (m[2]) return <CustomEmoji id={m[2]} name={m[1]} big={big} />;

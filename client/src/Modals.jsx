@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ColorInput, Select } from './Controls.jsx';
 import { api } from './api.js';
+import { SafeLink } from './LinkGuard.jsx';
 import { Avatar, BadgeIcons, Banner, BannerBlur, bannerBlurClass, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, lightness, CUSTOM_THEME_ID } from './profilethemes.js';
 import { nameProps, NAME_FONTS, MAX_NAME_STOPS, DEFAULT_NAME_GRADIENT, nameGradientCss } from './namestyle.js';
@@ -227,9 +228,8 @@ export function ProfileLinks({ links }) {
       <h4>LINKS</h4>
       <div className="plinks">
         {safe.map((l, i) => (
-          <a key={i} className="plink" href={l.url} target="_blank" rel="noopener noreferrer nofollow ugc" title={l.url}>
-            <Icon name="link" size={14} /><span>{l.label}</span>
-          </a>
+          <SafeLink key={i} href={l.url} anchor={{ className: 'plink', rel: 'noopener noreferrer nofollow ugc', title: l.url }}
+            shown={<><Icon name="link" size={14} /><span>{l.label}</span></>} />
         ))}
       </div>
     </>

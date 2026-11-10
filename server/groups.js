@@ -338,12 +338,14 @@ function create(deps) {
   }
 
   function attachSocket(socket, ctx) {
-    const { uid, allowed, validReply } = ctx;
+    const { uid, allowed, validReply, sendBlocked } = ctx;
     const reply = (ack) => (typeof ack === 'function' ? ack : () => {});
 
     socket.on('group:send', async (p, ack) => {
       const done = reply(ack);
       if (!allowed()) return done({ error: 'Slow down' });
+      const blocked = sendBlocked && sendBlocked(); // muted, or a moderator warning not read yet (server/moderation.js)
+      if (blocked) return done({ error: blocked });
       const g = memberOf(p?.groupId, uid);
       if (!g) return done({ error: 'Cannot send' });
       if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > cipherMax(uid) || p.iv.length > 64) return done({ error: 'Bad payload' });

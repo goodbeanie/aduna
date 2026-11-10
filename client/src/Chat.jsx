@@ -254,7 +254,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
           )}
           {editing
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} limit={charLimit(me)} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > charLimit(me)) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
-            : (m.content || m.editedAt) && !wshare && !cshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+            : (m.content || m.editedAt) && !wshare && !cshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} live={!dm} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
           {wshare && !editing && <WordleShareCard share={wshare} />}
         {cshare && !editing && <ContextoShareCard share={cshare} />}
