@@ -15,6 +15,7 @@ const REGISTRY = [
   { id: 'sponsored-card', name: 'Sponsored card', desc: 'One clearly labelled, static “Sponsored” card at the bottom of the Shop. Needs ADS_JSON set on the server.' },
   { id: 'rewarded-ads', name: 'Watch an ad for credits', desc: 'An opt-in “Watch a sponsor, earn credits” button on the Quests tab, with a daily cap. Needs ADS_JSON set on the server.' },
   { id: 'vc-screenshare', name: 'Voice channel screen share', desc: 'Share your screen in a voice channel, and watch other people’s shares.' },
+  { id: 'screenshare-zoom', name: 'Zoom while sharing your screen', desc: 'Aduna desktop app: a shortcut (changeable in Settings > Voice & Video) zooms the shared screen in on your cursor, and scrolling zooms further.' },
 ];
 
 const has = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);

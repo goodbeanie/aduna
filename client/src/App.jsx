@@ -34,6 +34,7 @@ import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
 import { StorageDock } from './Storage.jsx';
 import { CLIPS_ENABLED, hasFeature } from './features.js';
+import { ZOOM_FEATURE } from './sharezoom.js';
 // the Clips screen is only loaded when Clips are switched on (features.js); while they are off none of its code is fetched
 const Clips = CLIPS_ENABLED ? React.lazy(() => import('./Clips.jsx')) : null;
 import { OnboardingFlow } from './Onboarding.jsx';
@@ -246,7 +247,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const plainRef = useRef(plain);
   const pending = useRef(new Set());
   const lastChan = useRef({});
-  const call = useCall({ socketRef, privKey, getUser: (id) => usersRef.current[id], isPlus: () => !!meRef.current?.plus });
+  const call = useCall({ socketRef, privKey, getUser: (id) => usersRef.current[id], isPlus: () => !!meRef.current?.plus, canZoom: () => hasFeature(meRef.current, ZOOM_FEATURE) });
   const callHandleRef = useRef(call.handle);
   callHandleRef.current = call.handle;
   viewRef.current = view;
@@ -602,7 +603,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     return () => { clearInterval(iv); unwatch(); s.disconnect(); };
   }, [me.id, setMe, addUsers, logout, loadFriends, loadNotes, loadSocial]);
 
-  const voice = useVoice({ socketRef, ready: me.id, isPlus: () => !!meRef.current?.plus, canShare: () => hasFeature(meRef.current, SHARE_FEATURE) });
+  const voice = useVoice({ socketRef, ready: me.id, isPlus: () => !!meRef.current?.plus, canShare: () => hasFeature(meRef.current, SHARE_FEATURE), canZoom: () => hasFeature(meRef.current, ZOOM_FEATURE) });
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
   useEffect(() => { if (!evToast) return undefined; const t = setTimeout(() => setEvToast(null), 60000); return () => clearTimeout(t); }, [evToast]);
 

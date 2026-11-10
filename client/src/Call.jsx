@@ -56,7 +56,7 @@ export async function getMedia(video, lite = false) {
 // One-to-one calls. Media goes straight between the browsers (WebRTC). The server only rings and relays
 // signalling, and the signalling is encrypted with the conversation key, so it cannot read or alter it.
 // Offers use the "perfect negotiation" pattern so either side can add video or share a screen mid-call.
-export function useCall({ socketRef, privKey, getUser, isPlus = () => false }) {
+export function useCall({ socketRef, privKey, getUser, isPlus = () => false, canZoom = () => false }) {
   const [call, setCall] = useState(IDLE);
   const cRef = useRef(IDLE);
   const rt = useRef({ pc: null, local: null, remote: null, cam: null, screen: null, vsender: null, polite: false, makingOffer: false, ignoreOffer: false, cands: [], tracksAdded: false, chain: Promise.resolve() });
@@ -310,7 +310,7 @@ export function useCall({ socketRef, privKey, getUser, isPlus = () => false }) {
       if (r.vsender) await r.vsender.replaceTrack(t); else r.vsender = r.pc.addTrack(t, r.local);
       tuneSender(r.vsender, q.kbps, q.content);
       // Aduna desktop, whole-screen share: a hotkey zooms the picture in on the cursor (sharezoom.js). `swap` puts the zoomed or the plain track on the sender.
-      r.zoom = shareZoom({ track: t, fps: q.fps, notice: (n) => set({ notice: n }), swap: (x) => (r.vsender ? r.vsender.replaceTrack(x) : undefined) });
+      r.zoom = canZoom() ? shareZoom({ track: t, fps: q.fps, notice: (n) => set({ notice: n }), swap: (x) => (r.vsender ? r.vsender.replaceTrack(x) : undefined) }) : null;
       set({ sharing: true });
       announce();
     } catch (e) {

@@ -83,7 +83,7 @@ export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, o
           <div style={tab === 'profile' ? undefined : { display: 'none' }}><h1>{t('tabProfile')}</h1><ProfileEditor me={me} onClose={onClose} onSaved={onSaved} onLogout={onLogout} /></div>
           {tab === 'notifications' && <><h1>{t('tabNotifications')}</h1><NotificationSettings me={me} onPrefs={onPrefs} /></>}
           {tab === 'activity' && <><h1>{t('tabActivity')}</h1><ActivitySettings me={me} onSaved={onSaved} /></>}
-          {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings /></>}
+          {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings me={me} /></>}
           {tab === 'security' && <><h1>{t('tabSecurity')}</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
           {tab === 'whatsnew' && <><h1>{t('tabWhatsNew')}</h1><WhatsNewSettings /></>}
           {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} aiFocus={aiFocus} /></>}

@@ -82,6 +82,7 @@
     "title": "Zoom while you share your screen",
     "desktop": "1.4.107",
     "android": "2026.11.10.23",
+    "features": ["screenshare-zoom"],
     "items": [
       { "title": "Zoom in on your cursor", "text": "In the Aduna desktop app, while you share your whole screen, press Ctrl + Alt + Shift + Z to zoom the shared picture in on your cursor. Press it again to zoom back out. Scroll while zoomed in to zoom even closer. You still see your normal screen; only the people watching see the zoom." },
       { "title": "Pick your own shortcut", "text": "Don’t like the shortcut? Change it in Settings > Voice & Video. It has to include Ctrl, Alt or Win so normal typing is never affected." }

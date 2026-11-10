@@ -4,11 +4,13 @@ import { useLang } from './i18n.js';
 import { levelOf } from './speaking.js';
 import * as snd from './callsound.js';
 import { ShareZoomSettings } from './ShareZoomSettings.jsx';
+import { ZOOM_FEATURE } from './sharezoom.js';
+import { hasFeature } from './features.js';
 import { loadDevices, saveDevices, listDevices, onDeviceChange, canPickOutput, micConstraint, camConstraint, applyOutput } from './devices.js';
 
 // Settings > Voice & Video: pick the microphone, camera and speakers, and try each one.
 // What is chosen here is used by the next call or voice-channel join (the speakers also change in a call that is already running).
-export function VoiceSettings() {
+export function VoiceSettings({ me }) {
   const { t } = useLang();
   const [sel, setSel] = useState(loadDevices);
   const [list, setList] = useState({ mics: [], cams: [], outs: [], labelled: true });
@@ -123,7 +125,7 @@ export function VoiceSettings() {
       </div>
       {camTest && <video ref={videoRef} className="dev-preview" autoPlay playsInline muted />}
       <p className="muted small hint">{t('vvApply')}</p>
-      <ShareZoomSettings />
+      {hasFeature(me, ZOOM_FEATURE) && <ShareZoomSettings />}
     </div>
   );
 }

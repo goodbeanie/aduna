@@ -7,6 +7,7 @@
 // What you see in your own preview stays the plain screen. The pure parts (the crop, the steps, the key names) are tested in scripts/sharezoom-test.mjs.
 
 export const DEFAULT_KEY = 'Control+Alt+Shift+Z'; // keep in step with desktop/zoom.js
+export const ZOOM_FEATURE = 'screenshare-zoom';   // gated (server/features.js): creator accounts only until a published release lists it
 export const ZOOM = { start: 2, min: 1.25, max: 6, factor: 1.2 };
 
 const clamp = (n, lo, hi) => Math.min(hi, Math.max(lo, n));

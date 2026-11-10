@@ -26,7 +26,7 @@ export const SHARE_FEATURE = 'vc-screenshare';
 // so a person who deafens themselves simply does not hear it (rules: server/soundboard.js, buttons: Soundboard.jsx).
 const IDLE = { channelId: null, serverId: null, connecting: false, muted: false, deafened: false, error: '', notice: '', sharing: false, picker: false, preview: null, local: null, startedAt: 0 };
 
-export function useVoice({ socketRef, ready, isPlus = () => false, canShare = () => true }) {
+export function useVoice({ socketRef, ready, isPlus = () => false, canShare = () => true, canZoom = () => false }) {
   const [state, setState] = useState(IDLE);
   const [members, setMembers] = useState({}); // channelId -> [userId], for the whole server list
   const [remote, setRemote] = useState({});   // userId -> MediaStream with their voice (rendered by <VoiceAudio>)
@@ -236,7 +236,7 @@ export function useVoice({ socketRef, ready, isPlus = () => false, canShare = ()
       t.onended = () => stopShare(); // the browser's own "Stop sharing" button ends it too
       for (const p of r.peers.values()) if (p.tracksAdded) attachScreen(p); // peers still being set up pick it up in addLocalTracks
       // Aduna desktop, whole-screen share: a hotkey zooms the picture in on the cursor (sharezoom.js). `swap` puts the zoomed or the plain track on every sender.
-      r.zoom = shareZoom({
+      r.zoom = !canZoom() ? null : shareZoom({
         track: t, fps: q.fps, notice: (n) => set({ notice: n }),
         swap: (x) => { r.outTrack = x === t ? null : x; return Promise.all([...r.peers.values()].filter((p) => p.vsender).map((p) => p.vsender.replaceTrack(x).catch(() => {}))); },
       });
