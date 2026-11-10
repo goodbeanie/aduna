@@ -26,34 +26,24 @@ h1{font-weight:400;font-size:clamp(44px,7vw,88px);line-height:1.04;letter-spacin
 .try{margin-top:32px;padding-top:20px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
 .try-label{font-size:16px;color:var(--muted)}
 .dots{display:flex;flex-wrap:wrap;gap:8px}
-/* two columns on a wide screen: the words on the left, the product on the right, so the chat is on the first screen */
+/* two columns on a wide screen: the words on the left, the member goal on the right, so the goal is on the first screen */
 @media(min-width:1000px){
   .hero{grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:56px;align-items:center;padding:56px 0 64px}
   .hero h1{font-size:clamp(52px,5.4vw,76px)}
-  .hero .mock{margin:0}
-  .hero .mock .body{grid-template-columns:168px minmax(0,1fr);min-height:400px}
-  .hero .mock .mem{display:none}
+  .hero .goal{margin:0}
 }
-/* mock window */
-.mock{margin:0;border-radius:14px;overflow:hidden;background:var(--d-bg);color:var(--d-text);border:1px solid var(--line);text-align:left;font-size:17px;transition:background-color .3s,color .3s}
-.mock .bar{height:50px;background:var(--d-bg3);display:flex;align-items:center;gap:12px;padding:0 14px;border-bottom:1px solid var(--d-line)}
-.si{width:34px;height:34px;border-radius:10px;background:#fffbef;display:flex;align-items:center;justify-content:center}.si img{height:20px}.si.r{border-radius:50%;box-shadow:0 0 0 2px var(--d-bg3),0 0 0 4px #fffbef}
-.mock .body{display:grid;grid-template-columns:210px 1fr 190px;min-height:380px}
-.mock .side{background:var(--d-bg2);border-right:1px solid var(--d-line);padding-bottom:14px}
-.mock .ban{height:84px;background:#fffbef url(/aduna-icon.png);background-size:46px 50px;position:relative}
-.mock .ban::after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 30%,rgba(0,0,0,.75))}
-.mock .ban b{position:absolute;left:12px;bottom:8px;z-index:2;color:#fff;font-weight:400;font-size:18px}
-.cat{font-size:13px;color:var(--d-muted);padding:14px 14px 5px}
-.ch{margin:0 6px;padding:6px 10px;border-radius:8px;color:var(--d-muted);display:flex;justify-content:space-between}
-.ch.on{background:var(--d-sel,#3a3a3e);color:var(--d-head,#fff)}.ch i{font-style:normal;background:var(--gold);color:#1a1405;border-radius:10px;padding:0 7px;font-size:12px;line-height:19px}
-.mock .chat{display:flex;flex-direction:column;min-width:0;min-height:0}
-.msgs{padding:18px 20px;display:flex;flex-direction:column;gap:12px;flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--d-line) transparent}
-.m{display:flex;gap:12px}.av{width:38px;height:38px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-size:17px}
-.m .n{font-size:16px}.m .n small{color:var(--d-muted);font-size:12px;margin-left:6px}.m .t{font-size:17px;margin-top:1px}
-.mn{background:rgba(224,176,74,.22);color:var(--gold);padding:0 6px;border-radius:6px}
-.rx{display:inline-flex;gap:6px;margin:6px 6px 0 0;padding:3px 10px;border-radius:14px;background:var(--d-field);border:1px solid #4a4a4f;font-size:14px}
-.mock .mem{border-left:1px solid var(--d-line);padding:16px}.mock .mem .t{font-size:13px;color:var(--d-muted);margin-bottom:10px}
-.mock .mem div.p{display:flex;align-items:center;gap:10px;margin-bottom:10px;font-size:15px}.mock .mem .av{width:30px;height:30px;font-size:13px}
+/* member goal (landing.js fills in the number from /api/public/members). Drawn in the page's band colours so a theme pick restyles it. */
+.goal{margin:0;border-radius:14px;background:var(--band);color:var(--band-fg);padding:44px 40px;text-align:left;transition:background-color .3s,color .3s}
+.goal-kicker{font-size:20px;color:var(--band-muted)}
+.goal-count{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 16px;margin:12px 0 26px;line-height:1}
+.goal-count b{font-weight:400;font-size:clamp(72px,10vw,128px);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.goal-count .of{font-size:clamp(26px,3.2vw,40px);color:var(--band-muted)}
+.goal-bar{height:20px;border-radius:10px;border:2px solid var(--band-muted);overflow:hidden}
+.goal-fill{height:100%;width:0;background:var(--band-fg);transition:width .9s ease-out}
+.goal-note{margin-top:20px;font-size:20px;color:var(--band-muted)}
+.goal.off .goal-count,.goal.off .goal-bar{display:none}
+.goal.off .goal-note{margin-top:14px;font-size:clamp(26px,3.2vw,40px);color:var(--band-fg);line-height:1.2}
+@media(max-width:560px){.goal{padding:30px 24px}}
 /* sections */
 section{padding:88px 0}
 h2{font-weight:400;font-size:clamp(36px,5vw,64px);line-height:1.08;letter-spacing:-.01em;margin-bottom:14px}
@@ -78,19 +68,12 @@ h2{font-weight:400;font-size:clamp(36px,5vw,64px);line-height:1.08;letter-spacin
 .final .logo-ic{margin:0 auto}
 .final h2{font-size:clamp(44px,7vw,92px);margin:18px 0 28px}
 footer{border-top:2px solid var(--line);padding:32px 0 48px;color:var(--muted);font-size:17px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px}
-@media(max-width:900px){.two{grid-template-columns:1fr;gap:28px}.two>div:first-child{position:static}.split{grid-template-columns:1fr}.mock .body{grid-template-columns:1fr}.mock .side,.mock .mem{display:none}nav .links a.t{display:none}}
+@media(max-width:900px){.two{grid-template-columns:1fr;gap:28px}.two>div:first-child{position:static}.split{grid-template-columns:1fr}nav .links a.t{display:none}}
 @media(max-width:560px){.btn.big{height:54px;font-size:21px}}
 #pwa-toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);max-width:min(92vw,440px);background:#111112;color:#fff;padding:14px 18px;border-radius:14px;font-size:15px;line-height:1.4;box-shadow:0 8px 30px rgba(0,0,0,.25);opacity:0;pointer-events:none;transition:.25s;z-index:50}
 #pwa-toast.show{opacity:1;transform:translate(-50%,0)}
 
 /* was inline style="" attributes */
-.is1{background:#d0603f !important}
-.is2{color:#f0b08f !important}
-.is3{background:#c0563f !important}
-.is4{color:#e8a08a !important}
-.is5{background:#8a5fa0 !important}
-.is6{color:#d3f0a4 !important}
-.is7{color:#9d978a !important}
 .is8{background:#fbf8f1 !important;color:#1c1812 !important}
 .is9{background:#f3f8fb !important;color:#1f5f8b !important}
 .is10{background:#f4f8f1 !important;color:#2f6b45 !important}
@@ -114,38 +97,7 @@ a:focus-visible,button:focus-visible{outline:3px solid var(--fg);outline-offset:
 .btn:focus-visible{border-radius:12px}
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
 .feat>div,nav,footer{transition:border-color .3s}
-html.lt .is2{color:#a8481f !important}html.lt .is4{color:#a8432d !important}html.lt .is6{color:#4d7a1a !important}
-html.lt .mn{color:#8a6414}
-@media (prefers-reduced-motion:reduce){body,.dark,.mock,.btn{transition:none}}
-
-/* live demo (landing-demo.js): the hero chat answers back. Without the script the form stays hidden and the chat is the plain picture it used to be. */
-.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
-.demo-tag{display:none;margin-left:auto;align-items:center;gap:7px;font-size:13px;color:var(--d-muted)}
-.demo-tag::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--green)}
-.mock.live .demo-tag{display:flex}
-.hero .mock.live .body{height:420px;min-height:0}
-.compose{display:none;gap:8px;padding:12px 14px;border-top:1px solid var(--d-line);background:var(--d-bg)}
-.mock.live .compose{display:flex}
-.compose input{flex:1;min-width:0;height:44px;border-radius:10px;border:1px solid var(--d-line);background:var(--d-field);color:var(--d-text);padding:0 14px;font:inherit;font-size:17px}
-.compose input::placeholder{color:var(--d-muted)}
-.compose input:disabled{opacity:.6}
-.compose button{height:44px;padding:0 18px;border-radius:10px;border:0;background:var(--gold);color:#1a1405;font:inherit;font-size:17px;cursor:pointer}
-.compose button:hover{opacity:.9}
-.compose button:disabled{opacity:.5;cursor:default}
-.compose input:focus-visible,.compose button:focus-visible,.mock .join-inline:focus-visible{outline:2px solid var(--d-head,#fff);outline-offset:2px}
-.compose.nudge input{animation:nudge 2.2s ease-in-out 3}
-@keyframes nudge{0%,100%{box-shadow:0 0 0 0 rgba(224,176,74,0)}50%{box-shadow:0 0 0 4px rgba(224,176,74,.45)}}
-.m.new{animation:pop .25s ease-out}
-@keyframes pop{from{opacity:0;transform:translateY(6px)}}
-.m .n.you{color:var(--d-head,#fff)}
-.m .t{overflow-wrap:anywhere}
-.typing{display:flex;align-items:center;gap:4px;color:var(--d-muted);font-size:14px;min-height:20px}
-.typing i{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.3;animation:blink 1s infinite}
-.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
-.typing span{margin-left:6px}
-@keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
-.mock .join-inline{display:inline-flex;margin-top:8px;height:40px;padding:0 18px;font-size:17px;border-radius:10px;background:var(--gold);border-color:var(--gold);color:#1a1405}
-@media (prefers-reduced-motion:reduce){.m.new,.compose.nudge input,.typing i{animation:none}.typing i{opacity:.7}}
+@media (prefers-reduced-motion:reduce){body,.dark,.goal,.goal-fill,.btn{transition:none}}
 
 /* the logos are black-on-transparent images; drawing them as a mask in the text colour keeps them readable on every theme */
 .logo-wm,.logo-ic{display:block;background:var(--fg);-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;-webkit-mask-position:left center;mask-position:left center;-webkit-mask-size:contain;mask-size:contain;transition:background-color .3s}

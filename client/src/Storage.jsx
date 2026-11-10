@@ -10,6 +10,14 @@ import { setStorageFullHandler, setPlusLimitHandler, sizeLabel } from './files.j
 
 const GB = 1024 ** 3;
 const fmt = (n) => (n >= GB ? (n / GB).toFixed(n >= 10 * GB ? 0 : 1) + ' GB' : sizeLabel(n));
+// width of a usage bar in %: a small amount (10 MB of 10 GB) would round to 0 and the bar would look empty, so any use shows at least a sliver
+const fillPct = (used, limit) => (!limit || !used ? 0 : Math.min(100, Math.max(2, (used / limit) * 100)));
+// the same share as text: "<1%", "4.2%", "57%". Never "0%" while something is stored.
+const pctLabel = (used, limit) => {
+  if (!limit || !used) return '0%';
+  const v = Math.min(100, (used / limit) * 100);
+  return v < 1 ? '<1%' : v < 10 ? v.toFixed(1) + '%' : Math.round(v) + '%';
+};
 const day = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 const WHERE = { dm: 'Private message', group: 'Group chat', channel: 'Server channel', other: 'Unsent upload' };
 // icon and label for a file in the list: photo, video, audio, otherwise its extension (ZIP, HTML, ...)
@@ -63,7 +71,7 @@ function CleanupModal({ needed = 0, fileName, limitMB = 0, readOnly = false, onU
             const t = typeInfo(f);
             return (
               <li key={f.id}>
-                <label className={'st-row' + (pick.has(f.id) ? ' on' : '')}>
+                <label className={'st-row keep-case' + (pick.has(f.id) ? ' on' : '')}>
                   <input type="checkbox" checked={pick.has(f.id)} onChange={() => toggle(f.id)} />
                   <span className="st-ico"><Icon name={t.icon} size={18} /></span>
                   <span className="st-main">
@@ -89,17 +97,31 @@ function CleanupModal({ needed = 0, fileName, limitMB = 0, readOnly = false, onU
 }
 
 // Plus: the plan's 10 GB always applies. An upload limit of your own is optional (a smaller number than the plan).
-function LimitForm({ current, onSave, busy, saveLabel = 'Save', max = 10 }) {
+// `requireChange`: the Save button stays off until the choice differs from what is saved (the Storage window); the "do you want a limit?" question leaves it on.
+function LimitForm({ current, onSave, busy, saveLabel = 'Save', max = 10, requireChange = false }) {
   const [mode, setMode] = useState(current ? 'set' : 'none');
   const [gb, setGb] = useState(current ? String(Math.round((current / GB) * 10) / 10) : String(Math.min(5, max)));
   const n = Number(gb);
   const valid = mode === 'none' || (Number.isFinite(n) && n >= 1 && n <= max);
+  const changed = mode === 'none' ? !!current : !current || Math.round(n * 10) !== Math.round((current / GB) * 10);
   return (
-    <div className="st-limit">
-      <label className="st-row on"><input type="radio" name="plus-limit" checked={mode === 'none'} onChange={() => setMode('none')} /><span className="st-main"><span className="st-name">No upload limit</span><span className="st-sub">Upload up to the full {max} GB of your plan.</span></span></label>
-      <label className="st-row on"><input type="radio" name="plus-limit" checked={mode === 'set'} onChange={() => setMode('set')} /><span className="st-main"><span className="st-name">Set an upload limit</span><span className="st-sub">Uploads stop when you reach it. You can change it any time.</span></span></label>
-      {mode === 'set' && <label className="st-sub" style={{ display: 'block', margin: '8px 0' }}>Limit in GB (1 to {max}) <input type="number" min="1" max={max} step="1" value={gb} onChange={(e) => setGb(e.target.value)} style={{ width: 90, marginLeft: 8 }} /></label>}
-      <button className="btn primary" onClick={() => onSave(mode === 'none' ? null : n)} disabled={busy || !valid}>{saveLabel}</button>
+    <div className="st-limit" role="radiogroup" aria-label="Upload limit">
+      <label className={'st-row st-radio keep-case' + (mode === 'none' ? ' on' : '')}>
+        <input type="radio" name="plus-limit" checked={mode === 'none'} onChange={() => setMode('none')} />
+        <span className="st-main"><span className="st-name">No upload limit</span><span className="st-sub">Upload up to the full {max} GB of your plan.</span></span>
+      </label>
+      <label className={'st-row st-radio keep-case' + (mode === 'set' ? ' on' : '')}>
+        <input type="radio" name="plus-limit" checked={mode === 'set'} onChange={() => setMode('set')} />
+        <span className="st-main"><span className="st-name">Set an upload limit</span><span className="st-sub">Uploads stop when you reach it. You can change it any time.</span></span>
+        {mode === 'set' && (
+          <span className="st-gb">
+            <input type="number" min="1" max={max} step="1" value={gb} onChange={(e) => setGb(e.target.value)} aria-label={`Upload limit in GB, 1 to ${max}`} aria-invalid={!valid} />
+            <span>GB</span>
+          </span>
+        )}
+      </label>
+      {mode === 'set' && !valid && <p className="st-hint">Enter a number from 1 to {max}.</p>}
+      <button className="btn primary" onClick={() => onSave(mode === 'none' ? null : n)} disabled={busy || !valid || (requireChange && !changed)}>{saveLabel}</button>
     </div>
   );
 }
@@ -111,17 +133,24 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
       {s.subscriber ? (
         <>
           <div className="st-stat"><b>{fmt(s.used)}</b><span>of {fmt(s.limit)} used</span></div>
-          <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></div>
+          <div className="st-track big" role="progressbar" aria-label="Storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}>
+            <i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: fillPct(s.used, s.limit) + '%' }} />
+            {s.uploadLimit > 0 && s.uploadLimit < s.limit && <b className="st-mark" title={`Upload limit: ${fmt(s.uploadLimit)}`} style={{ left: Math.min(99, (s.uploadLimit / s.limit) * 100) + '%' }} />}
+          </div>
+          <div className="st-scale">
+            <span>{pctLabel(s.used, s.limit)} used</span>
+            <span>{s.uploadLimit > 0 && s.uploadLimit < s.limit ? `Upload limit ${fmt(s.uploadLimit)}` : `${fmt(Math.max(0, s.limit - s.used))} free`}</span>
+          </div>
           <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${(s.plan.cents / 100).toFixed(2)}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
-          <p className="st-note"><b>Upload limit (optional)</b></p>
-          <LimitForm current={s.uploadLimit} max={Math.round(s.limit / GB)} onSave={onSaveLimit} busy={busy} />
+          <p className="st-head">Upload limit <span>(optional)</span></p>
+          <LimitForm current={s.uploadLimit} max={Math.round(s.limit / GB)} onSave={onSaveLimit} busy={busy} requireChange />
         </>
       ) : (
         <>
           {s.freeLimit ? (
             <>
               <div className="st-stat"><b>{fmt(s.used)}</b><span>of {fmt(s.freeLimit)} free storage used</span></div>
-              <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round((s.used / s.freeLimit) * 100))}><i className={s.readOnly || s.used >= s.freeLimit * 0.95 ? 'full' : s.used >= s.freeLimit * 0.8 ? 'warn' : ''} style={{ width: Math.min(100, Math.round((s.used / s.freeLimit) * 100)) + '%' }} /></div>
+              <div className="st-track big" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(100, Math.round((s.used / s.freeLimit) * 100))}><i className={s.readOnly || s.used >= s.freeLimit * 0.95 ? 'full' : s.used >= s.freeLimit * 0.8 ? 'warn' : ''} style={{ width: fillPct(s.used, s.freeLimit) + '%' }} /></div>
               {s.readOnly && <p className="st-note"><b>Attachments are read-only.</b> The free limit is now {fmt(s.freeLimit)} and you are over it. You can still see and download your files, but you cannot add more until you delete some files or get {fmt(s.plan.bytes)} of your own. Older files could be removed to make room for others.</p>}
               <p className="st-note"><b>Heads up:</b> free storage is limited per person ({fmt(s.freeLimit)} right now) and old files expire after a while. The limit follows how many people support Aduna, so it can go down or up. Older files could be removed to make room, so download anything you want to keep, or get {fmt(s.plan.bytes)} of your own so nothing is ever removed.</p>
             </>
@@ -147,7 +176,7 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
         </>
       )}
       <div className="st-actions">
-        <button className="btn" onClick={onManage}>Manage files</button>
+        <button className="btn st-left" onClick={onManage}>Manage files</button>
         {s.subscriber && s.renews && <button className="btn danger-btn" onClick={onCancelPlan} disabled={busy}>Cancel plan</button>}
         <button className="btn primary" onClick={onClose}>Done</button>
       </div>
@@ -244,8 +273,8 @@ export function StorageDock({ storage, setStorage }) {
           <span className="st-label"><Icon name="bag" size={13} /> {s.subscriber ? (s.limit ? `${fmt(s.used)} of ${fmt(s.limit)}` : `${fmt(s.used)} stored`) : s.freeLimit ? `${fmt(s.used)} of ${fmt(s.freeLimit)}` : `${fmt(s.used)} stored`}</span>
           {!s.subscriber && <span className="st-up">{s.readOnly ? 'Read-only' : `Get ${fmt(s.plan.bytes)}`}</span>}
         </span>
-        {s.subscriber && s.limit && <span className="st-track"><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: pct + '%' }} /></span>}
-        {!s.subscriber && s.freeLimit && <span className="st-track"><i className={s.readOnly || freePct >= 95 ? 'full' : freePct >= 80 ? 'warn' : ''} style={{ width: freePct + '%' }} /></span>}
+        {s.subscriber && s.limit && <span className="st-track"><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: fillPct(s.used, s.limit) + '%' }} /></span>}
+        {!s.subscriber && s.freeLimit && <span className="st-track"><i className={s.readOnly || freePct >= 95 ? 'full' : freePct >= 80 ? 'warn' : ''} style={{ width: fillPct(s.used, s.freeLimit) + '%' }} /></span>}
       </button>
       {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={() => { setModal(null); setCoErr(''); setCheckout(true); }} onManage={() => setModal('files')} onCancelPlan={cancelPlan} onSaveLimit={(gb) => saveLimit(gb)} />}
       {ask && (

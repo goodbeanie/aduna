@@ -93,6 +93,7 @@ Environment variables:
 | `CSP_MODE` | no | `enforce` (default), `report-only` (the browser only logs policy violations: use this if a page ever looks broken after an update) or `off`. |
 | `SIGNUPS_PER_HOUR` | no | New accounts allowed per IP address per hour (default 10). |
 | `STRIPE_MANAGED_PAYMENTS` | no | Set to `on` only if you want Stripe's Managed Payments (Stripe handles sales tax). Aduna opts out of it per checkout by default because Managed Payments needs a tax code on every product, which Aduna does not send. |
+| `MEMBER_GOAL` | no | The target shown on the home page's member counter (default 1000). The count itself is every account that is not a bot or deleted, from `GET /api/public/members`. |
 | `DEFAULT_SERVER_INVITE` | no | Invite code of the server every new account joins automatically at sign-up (default `aduna`; falls back to a server named "Aduna"). Set to `off` to disable. |
 | `ATTACHMENT_TTL_DAYS` | no | Days to keep attachments of 10 MB or less (default 14). |
 | `LARGE_ATTACHMENT_TTL_DAYS` | no | Days to keep attachments over `LARGE_ATTACHMENT_MB` (default 5). |

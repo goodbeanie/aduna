@@ -5,8 +5,11 @@ html[data-grad] .storage-bar { background: color-mix(in srgb, var(--bg3) 70%, tr
 .st-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .st-label { display: inline-flex; align-items: center; gap: 5px; }
 .st-up { color: var(--link); font-weight: 600; }
-.st-track { display: block; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
-.st-track.big { height: 9px; border-radius: 5px; margin: 6px 0 10px; }
+/* the track is a faint wash of the text colour, not --line: --line is nearly the window colour on dark themes, which made the bar look empty */
+.st-track { position: relative; display: block; height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--text) 16%, transparent); overflow: hidden; }
+.st-track.big { height: 10px; border-radius: 5px; margin: 8px 0 6px; }
+.st-mark { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); opacity: .7; }
+.st-scale { display: flex; justify-content: space-between; gap: 12px; margin: 0 0 12px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .st-track i { display: block; height: 100%; background: var(--ink); border-radius: inherit; transition: width .3s ease; }
 .st-track i.warn { background: var(--idle); }
 .st-track i.full { background: var(--danger); }
@@ -26,7 +29,7 @@ html[data-grad] .storage-bar { background: color-mix(in srgb, var(--bg3) 70%, tr
 .st-perks li::before { content: ''; position: absolute; left: 3px; top: 3px; width: 5px; height: 9px; border: solid var(--ink); border-width: 0 2px 2px 0; transform: rotate(45deg); }
 .st-cta { width: 100%; justify-content: center; padding: 10px 14px; font-weight: 600; }
 .st-list { list-style: none; margin: 12px 0; padding: 0; max-height: 46vh; overflow-y: auto; overflow-x: hidden; border: 1px solid var(--line); border-radius: 12px; }
-.st-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--line); min-width: 0; }
+.st-row { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 14px; letter-spacing: 0; cursor: pointer; border-bottom: 1px solid var(--line); min-width: 0; } /* margin 0: the global label rule adds 14px above and 6px below */
 .st-list li:last-child .st-row { border-bottom: 0; }
 .st-row:hover { background: var(--hover); }
 .st-row.on { background: var(--sel); }
@@ -38,6 +41,20 @@ html[data-grad] .storage-bar { background: color-mix(in srgb, var(--bg3) 70%, tr
 .st-type { flex: none; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); font-size: 11px; font-weight: 600; letter-spacing: .03em; color: var(--muted); }
 .st-size { flex: none; min-width: 64px; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
 .st-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
-.st-actions > .muted { margin-right: auto; }
+.st-actions > .muted, .st-actions > .st-left { margin-right: auto; }
+/* Plus upload-limit choices. Three global rules fought these rows: the input rule (width 100%, padding) stretched the radios, the label rule added
+   margins, and forms.css lower-cased every label. The radios are sized here, .st-row zeroes the margin, and the labels carry "keep-case". */
+.st-head { margin: 18px 0 0; font-size: 14px; font-weight: 600; color: var(--text); }
+.st-head span { font-weight: 400; color: var(--muted); }
+.st-limit { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.st-limit .st-row { border: 1px solid var(--line); border-radius: 12px; align-items: flex-start; padding: 12px 14px; }
+.st-limit .st-row.on { border-color: var(--ink); background: var(--sel); }
+.st-row input[type=radio] { flex: none; width: 16px; height: 16px; min-width: 16px; min-height: 0; margin: 2px 0 0; padding: 0; accent-color: var(--ink); cursor: pointer; }
+.st-limit .st-sub { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.4; }
+.st-gb { flex: none; display: inline-flex; align-items: center; gap: 6px; align-self: center; font-size: 13px; color: var(--muted); }
+.st-limit .st-gb input { width: 64px; min-height: 0 !important; height: 34px; padding: 0 8px; text-align: right; font-size: 14px; font-variant-numeric: tabular-nums; }
+.st-gb input[aria-invalid=true] { border-color: var(--danger); }
+.st-hint { margin: 0; font-size: 12px; color: var(--danger); }
+.st-limit > .btn { align-self: flex-start; margin-top: 4px; }
 .st-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 @media (max-width: 600px) { .st-type { display: none; } .st-offer { flex-direction: column; align-items: stretch; } }

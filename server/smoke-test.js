@@ -72,6 +72,16 @@ async function putImg(kind, body, type, token) {
   const bob = await makeUser('bob');
   step('registered two users');
 
+  { // the home page's member goal: no login needed, people only (no bots, no deleted accounts), short public cache
+    const r = await fetch(base + '/api/public/members'), j = await r.json();
+    assert.strictEqual(r.status, 200, 'the member count needs no login');
+    assert.strictEqual(j.count, Object.values(store.db.users).filter((u) => !u.bot && !u.deleted).length, 'counts people, not bots or deleted accounts');
+    assert.ok(j.count >= 2, 'both new accounts are counted');
+    assert.strictEqual(j.goal, 1000, 'the default goal is 1000');
+    assert.ok(/max-age=30/.test(r.headers.get('cache-control') || ''), 'cached for a short while');
+  }
+  step('public member count for the home page');
+
   assert.strictEqual((await call('/register', { method: 'POST', body: { username: 'ALICE', email: 'other@example.com', password: 'password123', publicKey: 'x', encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } })).status, 409);
   assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'alice', password: 'wrongpass' } })).status, 401);
   assert.strictEqual((await call('/login', { method: 'POST', body: { username: 'alice', password: 'password123' } })).status, 200);

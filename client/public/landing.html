@@ -56,29 +56,12 @@
       </div>
     </div>
 
-    <div class="mock" id="demo" role="group" aria-label="Aduna chat preview">
-      <div class="bar" aria-hidden="true"><div class="si"><img src="/aduna-icon.png" alt=""></div><div class="si r"><img src="/aduna-icon.png" alt=""></div><span class="demo-tag">live demo</span></div>
-      <div class="body">
-        <div class="side" aria-hidden="true"><div class="ban"><b>Aduna</b></div>
-          <div class="cat">Information</div><div class="ch">rules</div><div class="ch">announcements</div>
-          <div class="cat">Voice</div><div class="ch">chill</div>
-          <div class="cat">Chats</div><div class="ch on">general</div><div class="ch">media</div><div class="ch">gaming <i>2</i></div></div>
-        <div class="chat">
-          <div class="msgs" id="demo-log" role="log" aria-live="polite" aria-label="Demo conversation">
-            <div class="m"><div class="is1 av">M</div><div><div class="is2 n">maya<small>8:42 PM</small></div><div class="t">okay who's in for game night tonight?</div></div></div>
-            <div class="m"><div class="is3 av">T</div><div><div class="is4 n">tristan<small>8:42 PM</small></div><div class="t">me!! what are we playing</div></div></div>
-            <div class="m"><div class="is5 av">B</div><div><div class="is6 n">beanie<small>8:43 PM</small></div><div class="t">Aduna trivia. Obviously. <span class="mn">@maya</span> you're hosting!</div></div></div>
-          </div>
-          <form class="compose" id="demo-form" autocomplete="off">
-            <label class="sr" id="demo-label" for="demo-input">Type a message to the demo chat</label>
-            <input id="demo-input" type="text" maxlength="160" placeholder="Say hi to the group" enterkeyhint="send" spellcheck="false">
-            <button type="submit">Send</button>
-          </form>
-        </div>
-        <div class="mem" aria-hidden="true"><div class="t">3 online</div>
-          <div class="p"><div class="is5 av">B</div>beanie</div><div class="p"><div class="is1 av">M</div>maya</div><div class="p"><div class="is3 av">T</div>tristan</div></div>
-      </div>
-    </div>
+    <aside class="goal" id="goal" aria-labelledby="goal-title">
+      <p class="goal-kicker" id="goal-title">Aduna members</p>
+      <p class="goal-count"><b id="goal-n">&ndash;</b><span class="of">of <span id="goal-target">1,000</span></span></p>
+      <div class="goal-bar" id="goal-track" role="progressbar" aria-labelledby="goal-title" aria-valuemin="0" aria-valuemax="1000" aria-valuenow="0"><div class="goal-fill" id="goal-fill"></div></div>
+      <p class="goal-note" id="goal-note">Our goal is 1,000 members. Come be one of them.</p>
+    </aside>
   </header>
 </div>
 
@@ -117,6 +100,5 @@
 </div>
 
 <script src="/landing.js"></script>
-<script src="/landing-demo.js"></script>
 </body>
 </html>

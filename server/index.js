@@ -429,6 +429,16 @@ app.get('/updates/latest.json', (req, res) => { // what the phone app reads; no 
 // offers a reload when the answer differs from the one it loaded with, so phones and open tabs notice a deploy without anyone sending a link.
 const BUILD_ID = (() => { try { return require('crypto').createHash('sha1').update(fs.readFileSync(path.join(__dirname, '..', 'client', 'dist', 'index.html'))).digest('hex').slice(0, 12); } catch { return 'dev'; } })();
 app.get('/api/build', (_req, res) => res.set('Cache-Control', 'no-store').json({ build: BUILD_ID }));
+// The home page's member goal ("412 of 1,000"). No login, so it only ever returns two numbers. It counts people: bots and deleted accounts are left out.
+// Counting walks every user, so the answer is reused for 30 seconds however many visitors ask. MEMBER_GOAL sets the target (default 1000).
+// Registered before the /api no-store rule below, so the short public cache header on this one answer is kept.
+let memberCountCache = { at: 0, count: 0 };
+app.get('/api/public/members', (_req, res) => {
+  const t = Date.now();
+  if (t - memberCountCache.at >= 30_000) memberCountCache = { at: t, count: Object.values(db().users).filter((u) => !u.bot && !u.deleted).length };
+  const goal = parseInt(process.env.MEMBER_GOAL, 10);
+  res.set('Cache-Control', 'public, max-age=30').json({ count: memberCountCache.count, goal: goal > 0 ? goal : 1000 });
+});
 app.get('/api/app-version', ah(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   const local = readApkFeed(req); // updates/latest.json on this site wins over every other source
