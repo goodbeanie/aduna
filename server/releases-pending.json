@@ -121,5 +121,16 @@
       { "title": "Known bad sites are blocked", "text": "Addresses on Aduna’s block list can’t be opened from a message at all. Creators can add to the list from the admin page and the change shows up right away." },
       { "title": "Warnings from moderators", "text": "If a moderator warns you, you see it when you open Aduna and have to press “I understand” before you can send messages again. Warnings count for 90 days. The third is a 24-hour mute and the fifth is a 7-day suspension." }
     ]
+  },
+  {
+    "id": "2026.11.10.5",
+    "date": "2026-11-10",
+    "title": "Pay for storage with a saved card",
+    "desktop": "1.4.111",
+    "android": "2026.11.11.624",
+    "items": [
+      { "title": "Card on file for the storage plan", "text": "You can now pay for the Aduna Plus storage plan with a card that PayPal keeps for you. It renews once a month, and you can cancel it any time in the Storage window. Aduna never sees your card number." },
+      { "title": "Easier card form", "text": "The card form in checkout has bigger fields and no extra border inside the box, and it highlights the field you are typing in. This applies to the storage plan and to buying credits." }
+    ]
   }
 ]
