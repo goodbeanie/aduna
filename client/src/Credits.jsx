@@ -208,7 +208,7 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, recurring = false, 
     const fail = (e) => { if (!dead) { setPaying(false); onError(e?.message && !/^\s*\{/.test(e.message) && e.message.length < 160 ? e.message : 'The payment did not go through. Check your details or try another way to pay.'); } };
     loadPaypal(clientId).then((paypal) => {
       if (dead) return;
-      const input = { 'font-size': '16px', 'font-family': 'inherit', color: css('--head', '#222'), background: 'transparent', padding: '0 14px', outline: 'none' };
+      const input = { 'font-size': '15px', 'font-family': 'inherit', 'font-weight': '500', 'letter-spacing': '0.01em', color: css('--head', '#222'), background: 'transparent', border: 'none', 'border-radius': '0', 'box-shadow': 'none', appearance: 'none', '-webkit-appearance': 'none', padding: '0 16px', outline: 'none' };
       const fields = paypal.CardFields({
         createOrder: makeOrder('card'),
         onApprove: approved,
