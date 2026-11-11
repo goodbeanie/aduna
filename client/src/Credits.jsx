@@ -168,31 +168,26 @@ function BuyNotices({ paypal = false, tax = false, place = false, saved = false,
   );
 }
 
-// Loads PayPal's script once. The card boxes and the PayPal button come from it; card details are typed into boxes that PayPal
-// serves inside Aduna's checkout, so they go straight to PayPal and never reach Aduna.
-// The script is tied to one currency, so a buyer who switches country gets it loaded again for the other one.
-let sdkPromise = null, sdkCurrency = '';
+// Loads PayPal's script once per currency. The card boxes and the PayPal button come from it; card details are typed into boxes that
+// PayPal serves inside Aduna's checkout, so they go straight to PayPal and never reach Aduna.
+// Each currency gets its own namespace: a second copy of the script under window.paypal does not start and leaves no CardFields.
+const sdkLoads = {};
 function loadPaypal(clientId, currency = 'usd') {
   const cur = String(currency).toUpperCase();
-  if (sdkCurrency === cur && window.paypal?.CardFields) return Promise.resolve(window.paypal);
-  if (sdkCurrency !== cur) {
-    document.querySelectorAll('script[data-pp-sdk]').forEach((s) => s.remove());
-    delete window.paypal;
-    sdkPromise = null;
-  }
-  if (!sdkPromise) {
-    sdkCurrency = cur;
-    sdkPromise = new Promise((resolve, reject) => {
+  const ns = 'paypal_' + cur.toLowerCase();
+  if (!sdkLoads[cur]) {
+    sdkLoads[cur] = new Promise((resolve, reject) => {
       const el = document.createElement('script');
       el.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&components=buttons,card-fields&currency=${cur}&intent=capture&disable-funding=paylater,venmo`;
       el.dataset.ppSdk = '1';
+      el.dataset.namespace = ns;
       el.async = true;
-      el.onload = () => (window.paypal ? resolve(window.paypal) : reject(new Error('PayPal did not load')));
-      el.onerror = () => reject(new Error('PayPal did not load'));
+      el.onload = () => (window[ns] ? resolve(window[ns]) : (el.remove(), reject(new Error('PayPal did not load'))));
+      el.onerror = () => { el.remove(); reject(new Error('PayPal did not load')); };
       document.head.appendChild(el);
-    }).catch((e) => { sdkPromise = null; sdkCurrency = ''; throw e; });
+    }).catch((e) => { delete sdkLoads[cur]; throw e; });
   }
-  return sdkPromise;
+  return sdkLoads[cur];
 }
 
 const css = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
@@ -219,13 +214,14 @@ function PayForm({ pack, clientId, currency, getBuyer, blocked, total, recurring
     loadPaypal(clientId, currency).then((paypal) => {
       if (dead) return;
       const input = { 'font-size': '15px', 'font-family': 'inherit', 'font-weight': '500', 'letter-spacing': '0.01em', color: css('--head', '#222'), background: 'transparent', border: 'none', 'border-radius': '0', 'box-shadow': 'none', appearance: 'none', '-webkit-appearance': 'none', padding: '0 16px', outline: 'none' };
-      const fields = paypal.CardFields({
+      // CardFields is missing when PayPal has cards off for this account or currency; the PayPal button still works.
+      const fields = typeof paypal.CardFields !== 'function' ? null : paypal.CardFields({
         createOrder: makeOrder('card'),
         onApprove: approved,
         onError: fail,
         style: { input, '.invalid': { color: css('--err-fg', '#c00') }, ':focus': { color: css('--head', '#222') } },
       });
-      if (fields.isEligible()) {
+      if (fields?.isEligible()) {
         cf.current = fields;
         const shown = [
           fields.NameField({ placeholder: 'Name on card' }).render('#pp-name'),
