@@ -37,18 +37,22 @@ const EARN = {
   minJitterMs: 8,                  // ...the gaps between them must vary by at least this (robots type evenly)
 };
 
-// Prices: about 250 credits a dollar at the smallest pack, with a bigger bonus the bigger the pack (+8%, +16%, +24%, +32%).
-// A pack's id is its credit amount. Older payments keep the pack id they were bought under (their own record says how many credits they gave).
-// cents is the US price, cadCents the Canadian one (about 1.4 times the US price, set by hand). Both are the full price the buyer pays:
-// PayPal's 4.9% + 30 cents is already in them, so checkout adds no fee line.
+// Prices, set in Canadian dollars: 500 credits for 1.99, 1,000 for 3.49, 2,500 for 6.99 and 5,000 for 9.99, plus PayPal's 4.9% + 30 cents, rounded
+// up to the next price ending in 9 (cadCents). A pack's id is its credit amount. Older payments keep the pack id they were bought under (their own
+// record says how many credits they gave).
+// cadCents is the full price a Canadian buyer pays, the fee already in it, so checkout adds no fee line. With PayPal the US price is that converted at
+// the live rate (server/fx.js); cents is the US price used when PayPal is off or the rate is unknown (about cadCents / 1.4).
 const PACKS = [
-  { id: 'p500', credits: 500, cents: 249, cadCents: 329 },
+  { id: 'p500', credits: 500, cents: 179, cadCents: 249 },
+  { id: 'p1000', credits: 1000, cents: 289, cadCents: 399 },
+  { id: 'p2500', credits: 2500, cents: 549, cadCents: 769 },
+  { id: 'p5000', credits: 5000, cents: 779, cadCents: 1089 },
+];
+// The packs sold before the price changes. Not offered any more; only so a payment that was started before it still finishes and is credited.
+const LEGACY_PACKS = [
   { id: 'p1350', credits: 1350, cents: 559, cadCents: 769 },
   { id: 'p2900', credits: 2900, cents: 1089, cadCents: 1509 },
   { id: 'p6200', credits: 6200, cents: 2139, cadCents: 2979 },
-];
-// The packs sold before the price change. Not offered any more; only so a payment that was started before it still finishes and is credited.
-const LEGACY_PACKS = [
   { id: 'p1200', credits: 1200, cents: 999 },
   { id: 'p2600', credits: 2600, cents: 1999 },
   { id: 'p7000', credits: 7000, cents: 4999 },

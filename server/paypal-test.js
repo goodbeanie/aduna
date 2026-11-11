@@ -53,15 +53,15 @@ function fakePaypal(opts = {}) {
   // ---- creating the order ----
   {
     const f = fakePaypal(), u = user();
-    const pack = C.PACKS.find((p) => p.id === 'p2900');
+    const pack = C.PACKS.find((p) => p.id === 'p2500');
     const out = await C.createPaypalOrder({ user: u, pack: { id: pack.id, credits: pack.credits, cents: 1 }, origin: 'https://aduna.test', buyer: US, fetchImpl: f.impl });
     assert.ok(out.url.startsWith('https://www.sandbox.paypal.com/'), 'buyer is sent to PayPal');
     const order = JSON.parse(f.calls.find((c) => c.url.endsWith('/v2/checkout/orders')).body);
     assert.strictEqual(order.intent, 'CAPTURE');
     assert.strictEqual(order.purchase_units[0].amount.value, '0.01', 'the amount is whatever pack it is handed (index.js hands it the SERVER pack)');
     const o2 = JSON.parse((await (async () => { await C.createPaypalOrder({ user: u, pack, origin: 'https://aduna.test', buyer: US, fetchImpl: f.impl }); return f.calls.filter((c) => c.url.endsWith('/v2/checkout/orders')).at(-1); })()).body);
-    assert.strictEqual(o2.purchase_units[0].amount.value, '10.79'); assert.strictEqual(o2.purchase_units[0].amount.currency_code, 'USD');
-    assert.strictEqual(o2.purchase_units[0].custom_id, 'u1|p2900||1079|US|WA|0', 'user, pack, total, and where the buyer is');
+    assert.strictEqual(o2.purchase_units[0].amount.value, '5.49'); assert.strictEqual(o2.purchase_units[0].amount.currency_code, 'USD');
+    assert.strictEqual(o2.purchase_units[0].custom_id, 'u1|p2500||549|US|WA|0', 'user, pack, total, and where the buyer is');
     assert.strictEqual(o2.payment_source.paypal.experience_context.return_url, 'https://aduna.test/app?credits=paypal');
     assert.strictEqual(o2.payment_source.paypal.experience_context.cancel_url, 'https://aduna.test/app?credits=cancelled');
     assert.strictEqual(o2.payment_source.paypal.experience_context.shipping_preference, 'NO_SHIPPING');
@@ -78,15 +78,15 @@ function fakePaypal(opts = {}) {
   {
     const u = user(), db = { users: { u1: u }, payments: {} };
     const f = fakePaypal();
-    const { orderId } = await C.createPaypalOrder({ user: u, pack: C.PACKS.find((p) => p.id === 'p2900'), origin: 'x', buyer: US, fetchImpl: f.impl });
+    const { orderId } = await C.createPaypalOrder({ user: u, pack: C.PACKS.find((p) => p.id === 'p2500'), origin: 'x', buyer: US, fetchImpl: f.impl });
     await assert.rejects(C.capturePaypalOrder({ orderId: '../../x', db, fetchImpl: f.impl }), /Bad order/);
     const a = await C.capturePaypalOrder({ orderId, db, fetchImpl: f.impl, now: T0 });
-    assert.strictEqual(a.status, 'completed'); assert.deepStrictEqual(a.change, { uid: 'u1', delta: 2900, reason: 'purchase' });
-    assert.strictEqual(u.credits.balance, 2900); assert.strictEqual(u.credits.bought, 2900);
+    assert.strictEqual(a.status, 'completed'); assert.deepStrictEqual(a.change, { uid: 'u1', delta: 2500, reason: 'purchase' });
+    assert.strictEqual(u.credits.balance, 2500); assert.strictEqual(u.credits.bought, 2500);
     assert.ok(db.payments['pp_CAP-' + orderId], 'payment recorded');
     const b = await C.capturePaypalOrder({ orderId, db, fetchImpl: f.impl, now: T0 + 1000 });
     assert.strictEqual(b.status, 'completed'); assert.strictEqual(b.change, null, 'second capture (tab reload, webhook race) pays nothing more');
-    assert.strictEqual(u.credits.balance, 2900);
+    assert.strictEqual(u.credits.balance, 2500);
 
     // wrong amount, pending, unknown user/pack
     const db2 = { users: { u1: user() }, payments: {} };
@@ -188,17 +188,17 @@ function fakePaypal(opts = {}) {
     const { orderId } = await C.createPaypalOrder({ user: u, pack, origin: 'x', embedded: 'paypal', buyer: { country: 'CA', region: 'BC' }, fetchImpl: f.impl });
     const pu = f.orders[orderId].pu;
     assert.strictEqual(pu.amount.currency_code, 'CAD', 'a Canadian buyer pays in CAD');
-    assert.strictEqual(pu.amount.value, '3.68'); assert.strictEqual(pu.amount.breakdown.tax_total.value, '0.39', 'GST 5% and PST 7% are each rounded: 0.16 + 0.23'); assert.strictEqual(pu.amount.breakdown.item_total.value, '3.29');
-    assert.strictEqual(pu.custom_id, 'ut|p500|CA-BC|368|CA|BC|39');
+    assert.strictEqual(pu.amount.value, '2.78'); assert.strictEqual(pu.amount.breakdown.tax_total.value, '0.29', 'GST 5% and PST 7% are each rounded: 0.12 + 0.17'); assert.strictEqual(pu.amount.breakdown.item_total.value, '2.49');
+    assert.strictEqual(pu.custom_id, 'ut|p500|CA-BC|278|CA|BC|29');
     const db = { users: { ut: u }, payments: {}, servers: {}, emojis: {}, friendships: {} };
     assert.strictEqual((await C.capturePaypalOrder({ orderId, db, fetchImpl: f.impl })).change.delta, 500, 'credits for the pack, not for the tax');
     const rec = db.payments['pp_CAP-' + orderId];
-    assert.strictEqual(rec.cents, 368, 'the payment records what was really paid');
-    assert.deepStrictEqual([rec.currency, rec.country, rec.region, rec.tax], ['cad', 'CA', 'BC', 39], 'and in what currency, where from and how much of it was tax');
-    const refund = { event_type: 'PAYMENT.CAPTURE.REFUNDED', resource: { amount: { value: '3.68' }, links: [{ rel: 'up', href: 'https://api/v2/payments/captures/CAP-' + orderId }] } };
+    assert.strictEqual(rec.cents, 278, 'the payment records what was really paid');
+    assert.deepStrictEqual([rec.currency, rec.country, rec.region, rec.tax], ['cad', 'CA', 'BC', 29], 'and in what currency, where from and how much of it was tax');
+    const refund = { event_type: 'PAYMENT.CAPTURE.REFUNDED', resource: { amount: { value: '2.78' }, links: [{ rel: 'up', href: 'https://api/v2/payments/captures/CAP-' + orderId }] } };
     assert.strictEqual(C.handlePaypalEvent(refund, db, T0).delta, -500, 'a full refund (price + tax) takes the credits back');
     // a capture that is not for price + tax pays nothing
-    const f2 = fakePaypal({ amount: { currency_code: 'CAD', value: '3.29' } });
+    const f2 = fakePaypal({ amount: { currency_code: 'CAD', value: '2.49' } });
     const o2 = (await C.createPaypalOrder({ user: u, pack, origin: 'x', embedded: 'paypal', buyer: { country: 'CA', region: 'BC' }, fetchImpl: f2.impl })).orderId;
     assert.strictEqual((await C.capturePaypalOrder({ orderId: o2, db: { users: { ut: u }, payments: {} }, fetchImpl: f2.impl })).change, null, 'paying only the price when tax was due is not credited');
     delete process.env.TAX_COLLECT_IN;
@@ -215,19 +215,19 @@ function fakePaypal(opts = {}) {
     await assert.rejects(order({ country: 'GB', region: 'ENG' }), /only sells to Canada and the US/, 'nowhere else');
     await assert.rejects(order({ country: 'ZZ' }), /only sells to/, '"somewhere else" is refused too');
     const us = await order(US), ca = await order(CA);
-    assert.deepStrictEqual([us.pu.amount.currency_code, us.pu.amount.value], ['USD', '2.39']);
-    assert.deepStrictEqual([ca.pu.amount.currency_code, ca.pu.amount.value], ['CAD', '3.29']);
+    assert.deepStrictEqual([us.pu.amount.currency_code, us.pu.amount.value], ['USD', '1.79']);
+    assert.deepStrictEqual([ca.pu.amount.currency_code, ca.pu.amount.value], ['CAD', '2.49']);
     process.env.SELL_TO = 'CA';
     await assert.rejects(order(US), /only sells to Canada for now/, 'SELL_TO narrows where Aduna sells');
     delete process.env.SELL_TO;
 
     // a Canadian order that comes back paid in USD is not credited, even at the right number
-    const fw = fakePaypal({ amount: { currency_code: 'USD', value: '3.29' } });
+    const fw = fakePaypal({ amount: { currency_code: 'USD', value: '2.49' } });
     const ow = (await C.createPaypalOrder({ user: u, pack, origin: 'x', embedded: 'paypal', buyer: CA, fetchImpl: fw.impl })).orderId;
     assert.strictEqual((await C.capturePaypalOrder({ orderId: ow, db, fetchImpl: fw.impl })).change, null, 'wrong currency for the country: nothing credited');
 
     // PayPal's own idea of where the payer is gets compared with what the buyer picked
-    const cap = (payerCountry) => ({ id: 'CP' + payerCountry, status: 'COMPLETED', custom_id: 'ur|p500||329|CA|BC|0', amount: { currency_code: 'CAD', value: '3.29' }, payerCountry });
+    const cap = (payerCountry) => ({ id: 'CP' + payerCountry, status: 'COMPLETED', custom_id: 'ur|p500||249|CA|BC|0', amount: { currency_code: 'CAD', value: '2.49' }, payerCountry });
     C.applyPaypalCapture(cap('CA'), db, T0); assert.strictEqual(db.payments.pp_CPCA.review, undefined, 'same country: nothing to look at');
     C.applyPaypalCapture(cap('US'), db, T0); assert.strictEqual(db.payments.pp_CPUS.review, 'payer-differs');
     C.applyPaypalCapture(cap('FR'), db, T0); assert.strictEqual(db.payments.pp_CPFR.review, 'payer-outside');
@@ -248,7 +248,7 @@ function fakePaypal(opts = {}) {
     assert.strictEqual(v.purchases, true); assert.strictEqual(v.provider, 'paypal');
     const co = await run('POST /api/credits/checkout', { body: { packId: 'p500', cents: 1, amount: '0.01', ...US } });
     assert.ok(co.body.url.includes('paypal.com'), 'checkout goes to PayPal');
-    assert.strictEqual(JSON.parse(f.calls.filter((c) => c.url.endsWith('/v2/checkout/orders')).at(-1).body).purchase_units[0].amount.value, '2.39', 'the browser cannot set the price');
+    assert.strictEqual(JSON.parse(f.calls.filter((c) => c.url.endsWith('/v2/checkout/orders')).at(-1).body).purchase_units[0].amount.value, '1.79', 'the browser cannot set the price');
     const nowhere = await run('POST /api/credits/checkout', { body: { packId: 'p500', country: 'DE', region: 'BE' } });
     assert.strictEqual(nowhere.status, 400); assert.ok(/only sells to/.test(nowhere.body.error), 'a buyer outside Canada and the US is told so before anything is created');
     assert.strictEqual((await run('POST /api/credits/checkout', { body: { packId: 'p500' } })).status, 400, 'no location, no checkout');
@@ -258,7 +258,7 @@ function fakePaypal(opts = {}) {
     const eo = await run('POST /api/credits/paypal/order', { body: { packId: 'p500', method: 'card', cents: 1, ...US } });
     assert.ok(/^ORD/.test(eo.body.orderId));
     const eb = JSON.parse(f.calls.filter((c) => c.url.endsWith('/v2/checkout/orders')).at(-1).body);
-    assert.strictEqual(eb.purchase_units[0].amount.value, '2.39', 'embedded orders are priced by the server too');
+    assert.strictEqual(eb.purchase_units[0].amount.value, '1.79', 'embedded orders are priced by the server too');
     assert.strictEqual(eb.payment_source.card.attributes.verification.method, 'SCA_WHEN_REQUIRED', 'card orders ask for 3-D Secure when needed');
     assert.strictEqual(eb.payment_source.paypal, undefined);
     await run('POST /api/credits/paypal/order', { body: { packId: 'p500', method: 'paypal', ...US } });
@@ -275,7 +275,7 @@ function fakePaypal(opts = {}) {
 
     // webhook: forged is refused; approved-but-never-returned order is captured; replays pay nothing
     const hdr = { 'paypal-auth-algo': 'a', 'paypal-cert-url': 'https://api.paypal.com/c', 'paypal-transmission-id': 't', 'paypal-transmission-sig': 's', 'paypal-transmission-time': 'now' };
-    const o2 = (await C.createPaypalOrder({ user: u, pack: C.PACKS.find((p) => p.id === 'p2900'), origin: 'x', buyer: US, fetchImpl: f.impl })).orderId;
+    const o2 = (await C.createPaypalOrder({ user: u, pack: C.PACKS.find((p) => p.id === 'p2500'), origin: 'x', buyer: US, fetchImpl: f.impl })).orderId;
     const evt = { event_type: 'CHECKOUT.ORDER.APPROVED', resource: { id: o2 } }, raw = Buffer.from(JSON.stringify(evt));
     const bad = fakePaypal({ verify: 'FAILURE' });
     const app2 = { get() {}, post: (p, ...h) => (routes2['POST ' + p] = h) }, routes2 = {};
@@ -285,11 +285,11 @@ function fakePaypal(opts = {}) {
     assert.strictEqual(u.credits.balance, 500, 'a forged webhook credits nothing');
 
     assert.strictEqual((await run('POST /api/credits/webhook/paypal', { rawBody: raw, body: evt, headers: hdr })).status, 200);
-    assert.strictEqual(u.credits.balance, 500 + 2900, 'an approved order is captured and credited even if the buyer never came back');
-    assert.deepStrictEqual(pushed.at(-1), ['u1', { balance: 3400, delta: 2900, reason: 'purchase' }]);
-    const done = { event_type: 'PAYMENT.CAPTURE.COMPLETED', resource: { id: 'CAP-' + o2, status: 'COMPLETED', custom_id: 'u1|p2900', amount: { currency_code: 'USD', value: '10.79' } } };
+    assert.strictEqual(u.credits.balance, 500 + 2500, 'an approved order is captured and credited even if the buyer never came back');
+    assert.deepStrictEqual(pushed.at(-1), ['u1', { balance: 3000, delta: 2500, reason: 'purchase' }]);
+    const done = { event_type: 'PAYMENT.CAPTURE.COMPLETED', resource: { id: 'CAP-' + o2, status: 'COMPLETED', custom_id: 'u1|p2500', amount: { currency_code: 'USD', value: '5.49' } } };
     await run('POST /api/credits/webhook/paypal', { rawBody: Buffer.from(JSON.stringify(done)), body: done, headers: hdr });
-    assert.strictEqual(u.credits.balance, 3400, 'the completion webhook that follows pays nothing more');
+    assert.strictEqual(u.credits.balance, 3000, 'the completion webhook that follows pays nothing more');
     assert.strictEqual((await run('POST /api/credits/webhook/paypal', { rawBody: undefined, body: done, headers: hdr })).status, 400, 'no raw body: refused');
 
     // PayPal off: its routes say so

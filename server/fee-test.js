@@ -30,8 +30,8 @@ assert.strictEqual(F.quote({}, 499, ON).fee, 58, '$4.99 plan: $0.58 fee');
 assert.strictEqual(F.quote({}, 1999, ON).fee, 135, '$19.99 pack: $1.35 fee');
 step('examples: 1.99 -> 0.42, 4.99 -> 0.58, 19.99 -> 1.35');
 
-// the listed prices (server/credits.js, server/storage.js) were set from this: each leaves at least the old price after the cut
-for (const [net, listed] of [[279, 329], [699, 769], [1399, 1509], [2799, 2979], [199, 249], [499, 559], [999, 1089], [1999, 2139]]) {
+// the listed prices (server/credits.js, server/storage.js) were set from this: each leaves at least the price it is based on after the cut
+for (const [net, listed] of [[199, 249], [349, 399], [699, 769], [999, 1089]]) {
   assert.ok(listed >= F.grossUp(net, 4.9, 30), net + ' is covered by ' + listed);
   assert.ok(listed - F.grossUp(net, 4.9, 30) < 10, listed + ' is the next price ending in 9, not more');
 }
