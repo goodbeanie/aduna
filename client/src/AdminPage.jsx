@@ -337,6 +337,18 @@ function UserDetail({ id, onChanged, onClose }) {
     const r = await ask({ title: 'Reset the storage plan for this test account?', body: 'This clears the plan record on Aduna, so Subscribe works again for another test payment. It does not touch PayPal: a card saved there stays, and nothing is refunded. Payment testing only.', confirmLabel: 'Reset plan', danger: true });
     if (r && await run(() => api(`/admin/users/${u.id}/storage-reset`, { method: 'POST' }), (x) => `Storage plan cleared (was ${x.was})`)) after();
   };
+  const forceRenew = async () => {
+    const r = await ask({ title: 'Force a renewal for this test account?', body: 'This makes the plan due right now and charges the saved card at PayPal, exactly like the monthly renewal does (a sandbox charge while the server is in sandbox mode). Pressing it again charges again. Payment testing only.', confirmLabel: 'Charge saved card now' });
+    if (!r) return;
+    const text = (x) => {
+      const p = x.plan || {};
+      if (x.result === 'charged') return `Renewed: charged the saved card. Paid through ${when(p.paidThrough)}, next charge ${when(p.nextChargeAt)}.`;
+      if (x.result === 'pending') return 'PayPal is still processing the payment. The hourly check will finish it; look at the plan again in a minute.';
+      if (x.result === 'ended') return 'The charge was declined and the plan ended (that was the 3rd decline in a row).';
+      return `The charge was declined (${p.failures} of 3). Status: ${p.status}, next try ${when(p.nextChargeAt)}.`;
+    };
+    if (await run(() => api(`/admin/users/${u.id}/storage-renew`, { method: 'POST' }), text)) after();
+  };
 
   return (
     <div className="adm-card adm-detail">
@@ -378,7 +390,8 @@ function UserDetail({ id, onChanged, onClose }) {
       {u.canResetStorage && (
         <div className="adm-actions">
           <button className="adm-btn" onClick={resetStorage}>Reset storage plan (payment testing)</button>
-          <span className="adm-muted">Plan now: {u.storagePlanStatus || 'none'}</span>
+          {u.canForceRenew && <button className="adm-btn" onClick={forceRenew}>Force renew (payment testing)</button>}
+          <span className="adm-muted">Plan now: {u.storagePlanStatus || 'none'}{u.storageNextChargeAt ? ` · next charge ${when(u.storageNextChargeAt)}` : ''}{u.storagePaidThrough ? ` · paid through ${when(u.storagePaidThrough)}` : ''}</span>
         </div>
       )}
 

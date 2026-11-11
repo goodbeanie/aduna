@@ -4432,7 +4432,7 @@ app.get('/api/admin/users/:id', auth, adminOnly, (req, res) => {
       owned: mine.filter((s) => s.ownerId === u.id).map((s) => ({ id: s.id, name: s.name, members: humanCount(s) })),
       clips: clips.length, liveClips: clips.filter((c) => clipsLib.isLive(c, now())).length, bots: myBots(u.id).length,
       ownsOfficialServer: !!defaultServer() && defaultServer().ownerId === u.id,
-      canResetStorage: isPaymentTester(u), storagePlanStatus: u.storageSub && u.storageSub.status ? String(u.storageSub.status) : null, // the "Reset storage plan" button (payment testing) shows for the test account only
+      canResetStorage: isPaymentTester(u), storagePlanStatus: u.storageSub && u.storageSub.status ? String(u.storageSub.status) : null, canForceRenew: isPaymentTester(u) && !!u.storageSub && u.storageSub.kind === 'vault' && !!u.storageSub.vaultId && ['active', 'past_due'].includes(u.storageSub.status), storageNextChargeAt: (u.storageSub && u.storageSub.nextChargeAt) || null, storagePaidThrough: (u.storageSub && u.storageSub.paidThrough) || null, // the "Reset storage plan" button (payment testing) shows for the test account only
       canModerate: u.id !== req.user.id && !isCreator(u) && (!adminRole(u) || isCreator(req.user)),
       moderation: moderation.adminView(u, now(), (id) => db().users[id]?.username || null), // warnings (newest first), the open mute, when a timed suspension ends
     },
@@ -4472,6 +4472,30 @@ app.post('/api/admin/users/:id/storage-reset', auth, adminOnly, (req, res) => {
   adminLogAdd(req.user, 'storage-reset', u.username, `payment test: storage plan record cleared (was ${was})`);
   res.json({ ok: true, was });
 });
+
+// PAYMENT TESTING ONLY: "Force renew". Makes the saved-card plan of the test account due right now and runs the real monthly charge (storagePlan.chargeRenewal,
+// the same code the hourly sweep uses), so the renewal can be tried without waiting a month. It really charges the saved card at PayPal (sandbox while
+// PAYPAL_ENV is sandbox). Same gate as the reset: only the account with the VERIFIED email adunachat@gmail.com, a plain 404 for everybody else.
+app.post('/api/admin/users/:id/storage-renew', auth, adminOnly, ah(async (req, res) => {
+  const u = db().users[req.params.id];
+  if (!isPaymentTester(u)) return res.status(404).json({ error: 'Not found' });
+  const s = u.storageSub;
+  if (!s || s.kind !== 'vault' || !s.vaultId || !['active', 'past_due'].includes(s.status)) return res.status(400).json({ error: 'There is no saved card to charge. Subscribe with a card first (the plan must be active or past_due).' });
+  const t = now(), before = { dueAt: s.dueAt, nextChargeAt: s.nextChargeAt }, paidBefore = s.paidThrough;
+  s.dueAt = t; s.nextChargeAt = t; // due now; a new time per press also gives PayPal a new request id, so a second press is a second charge
+  let r;
+  try { r = await storagePlan.chargeRenewal({ user: u, now: t }); }
+  catch (e) { console.error('Force renew failed:', e.message); s.dueAt = before.dueAt; s.nextChargeAt = before.nextChargeAt; return res.status(502).json({ error: 'Could not reach PayPal: ' + e.message }); }
+  if (r.skipped) { s.dueAt = before.dueAt; s.nextChargeAt = before.nextChargeAt; return res.status(400).json({ error: 'Nothing was charged: the stored plan record is not chargeable (check the server log).' }); }
+  store.save();
+  if (storageApi) storageApi.push(u.id);
+  const result = r.ok ? 'charged' : r.ended ? 'ended' : r.transient ? 'pending' : 'declined';
+  adminLogAdd(req.user, 'storage-renew', u.username, `payment test: forced renewal, result ${result}`);
+  res.json({
+    ok: true, result, paidBefore: paidBefore || null,
+    plan: { status: s.status, paidThrough: s.paidThrough || null, nextChargeAt: s.nextChargeAt || null, failures: s.failures || 0 },
+  });
+}));
 
 // ----- warnings, mutes and IP bans (server/moderation.js) -----
 // A warning must be read ("I understand", POST /api/me/warnings/ack) before the person can send anything again. The 3rd active warning in 90 days is a
