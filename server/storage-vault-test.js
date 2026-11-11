@@ -5,6 +5,7 @@
 const assert = require('assert');
 process.env.PAYPAL_CLIENT_ID = 'cid'; process.env.PAYPAL_CLIENT_SECRET = 'sec'; process.env.PAYPAL_WEBHOOK_ID = 'WH-1';
 delete process.env.STRIPE_SECRET_KEY; delete process.env.STRIPE_WEBHOOK_SECRET; delete process.env.PAYPAL_ENV;
+process.env.PAYMENT_FEE = 'off'; // these tests check the plain price; the processing fee has its own test (server/fee-test.js)
 const S = require('./storage');
 const C = require('./credits');
 const step = (m) => console.log('✓', m);
@@ -72,10 +73,10 @@ async function subscribed(f, u = user(), now = T0) {
   {
     const f = fakePaypal(), u = user();
     const { orderId, totalCents } = await S.createVaultOrder({ user: u, buyer: { amount: 1 }, fetchImpl: f.impl });
-    assert.ok(/^ORD/.test(orderId)); assert.strictEqual(totalCents, 499, 'the server sets the price');
+    assert.ok(/^ORD/.test(orderId)); assert.strictEqual(totalCents, 549, 'the server sets the price');
     const b = posts(f, '/v2/checkout/orders')[0].body, pu = b.purchase_units[0], card = b.payment_source.card;
-    assert.strictEqual(pu.amount.value, '4.99'); assert.strictEqual(pu.amount.currency_code, 'USD');
-    assert.strictEqual(pu.custom_id, 'storage|u1|499');
+    assert.strictEqual(pu.amount.value, '5.49'); assert.strictEqual(pu.amount.currency_code, 'USD');
+    assert.strictEqual(pu.custom_id, 'storage|u1|549');
     assert.strictEqual(card.attributes.vault.store_in_vault, 'ON_SUCCESS', 'PayPal keeps the card after a successful payment');
     assert.strictEqual(card.stored_credential, undefined, 'the first order carries no stored_credential block');
     assert.strictEqual(b.intent, 'CAPTURE');
@@ -91,7 +92,7 @@ async function subscribed(f, u = user(), now = T0) {
     assert.deepStrictEqual({ status: r.status, saved: r.saved, changed: r.changed }, { status: 'active', saved: true, changed: true });
     const s = u.storageSub;
     assert.strictEqual(s.kind, 'vault'); assert.strictEqual(s.status, 'active'); assert.strictEqual(s.vaultId, 'VLT123abc');
-    assert.deepStrictEqual(s.netRef, REF); assert.strictEqual(s.amountCents, 499);
+    assert.deepStrictEqual(s.netRef, REF); assert.strictEqual(s.amountCents, 549);
     assert.strictEqual(s.paypalId, undefined, 'the old subscription id is dropped so it is not synced again');
     assert.strictEqual(s.nextChargeAt, Date.UTC(2026, 11, 10, 12, 0, 0)); assert.strictEqual(s.paidThrough, T0 + S.PAID_FOR_MS);
     assert.strictEqual(S.isSubscriber(u, T0 + DAY), true);
@@ -148,7 +149,7 @@ async function subscribed(f, u = user(), now = T0) {
     assert.strictEqual(f.calls.length, 0, 'not due yet: PayPal is not even called');
     assert.deepStrictEqual(await S.renewDue({ db, fetchImpl: f.impl, now: due + 60_000 }), ['u1']);
     const b = posts(f, '/v2/checkout/orders')[0], card = b.body.payment_source.card;
-    assert.strictEqual(card.vault_id, 'VLT123abc'); assert.strictEqual(b.body.purchase_units[0].amount.value, '4.99');
+    assert.strictEqual(card.vault_id, 'VLT123abc'); assert.strictEqual(b.body.purchase_units[0].amount.value, '5.49');
     assert.deepStrictEqual(card.stored_credential, { payment_initiator: 'MERCHANT', payment_type: 'RECURRING', usage: 'SUBSEQUENT', previous_network_transaction_reference: REF });
     assert.ok(b.init.headers['PayPal-Request-Id'].includes(String(due)), 'same attempt, same request id: a retry cannot charge twice');
     const s = u.storageSub;

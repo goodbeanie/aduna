@@ -37,8 +37,10 @@ This is the part most worth checking against the code.
 **The server can read**
 - Messages in server channels. They are not end-to-end encrypted, the same as Discord. They are still encrypted at rest (see below).
 - Who talks to whom and when in DMs, and which emoji were used for reactions.
+- A plain-text preview of each one-to-one DM, up to 140 characters. The sender's app attaches it so the recipient's phone notification can show what was said. It is on by default, and the recipient can turn it off in Settings > Notifications ("Show message text in notifications"). The server doesn't store it, but it does see it and hands it to the push service. Group chats don't send previews.
+- Whether a DM carried a GIF or an event phrase. The browser reports this so credits events can count it.
 - Signalling for voice channels. Audio itself goes peer to peer and is encrypted by WebRTC, but the setup messages pass through the server in the clear.
-- Your email address (kept private, never shown to other people), your username, profile and friend list.
+- Your email address, username, profile and friend list. Your email is never shown to other people. The only place anyone else sees it is a join application, which admins read if applications are switched on.
 
 **How the DM encryption works** (all of it is in `client/src/crypto.js`)
 1. At sign-up the browser makes an ECDH P-256 keypair. The public key goes to the server.

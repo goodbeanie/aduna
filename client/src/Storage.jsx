@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { askConfirm, toast } from './Dialogs.jsx';
 import { Checkout } from './Credits.jsx';
+import { homeCountry, priceFor } from './region.js';
 import { setStorageFullHandler, setPlusLimitHandler, sizeLabel } from './files.js';
 
 // The storage plan: a usage bar above the profile bar, the plan window, the cleanup window (when a plan's 10 GB is full) and the checkout.
@@ -141,7 +142,7 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
             <span>{pctLabel(s.used, s.limit)} used</span>
             <span>{s.uploadLimit > 0 && s.uploadLimit < s.limit ? `Upload limit ${fmt(s.uploadLimit)}` : `${fmt(Math.max(0, s.limit - s.used))} free`}</span>
           </div>
-          <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${(s.plan.cents / 100).toFixed(2)}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
+          <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${((s.currency === 'cad' ? s.plan.cadCents : s.plan.cents) / 100).toFixed(2)}${s.currency === 'cad' ? ' CAD' : ''}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
           <p className="st-head">Upload limit <span>(optional)</span></p>
           <LimitForm current={s.uploadLimit} max={Math.round(s.limit / GB)} onSave={onSaveLimit} busy={busy} requireChange />
         </>
@@ -163,21 +164,21 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
           <div className="st-offer">
             <div className="st-offer-head">
               <div><div className="st-offer-title">{fmt(s.plan.bytes)} of your own</div><div className="st-note">Just for you</div></div>
-              <div className="st-price">${(s.plan.cents / 100).toFixed(2)}<small>/month</small></div>
+              <div className="st-price">{priceFor(s.plan, s.regions ? homeCountry(s.regions.countries) : 'US').text}<small>/month{s.regions ? ' ' + priceFor(s.plan, homeCountry(s.regions.countries)).code : ''}</small></div>
             </div>
             <ul className="st-perks">
               <li>Never removed or expired while you have it</li>
               <li>You choose what to delete when it is full</li>
               <li>Cancel any time</li>
             </ul>
-            <button className="btn primary st-cta" onClick={onSubscribe} disabled={!s.purchases || busy}>{s.purchases ? 'Get storage' : 'Not available yet'}</button>
+            <button className="btn primary st-cta" onClick={onSubscribe} disabled={!s.purchases || busy}>{s.purchases ? 'Get storage' : s.paused ? 'Paused for now' : 'Not available yet'}</button>
           </div>
           {s.status === 'ended' && <p className="st-note">Your last plan ended{s.paidThrough ? ' on ' + day(s.paidThrough) : ''}. Files are kept for 14 days after that, then the normal clean-up applies again.</p>}
         </>
       )}
       <div className="st-actions">
         <button className="btn st-left" onClick={onManage}>Manage files</button>
-        {s.subscriber && <a className="btn" href="/payments">Payments</a>}
+        {s.subscriber && !s.paused && <a className="btn" href="/payments">Payments</a>}
         {s.subscriber && s.renews && <button className="btn danger-btn" onClick={onCancelPlan} disabled={busy}>Cancel plan</button>}
         <button className="btn primary" onClick={onClose}>Done</button>
       </div>
@@ -271,7 +272,7 @@ export function StorageDock({ storage, setStorage }) {
 
   const freePct = s.freeLimit ? Math.min(100, Math.round((s.used / s.freeLimit) * 100)) : 0;
 
-  if (checkout) return <Checkout pack={plan} provider={s.provider} clientId={s.paypalClientId || null} tax={s.tax} busy={busy} error={coErr} onPay={subscribe} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(false); setBusy(false); }} />;
+  if (checkout) return <Checkout pack={plan} provider={s.provider} clientId={s.paypalClientId || null} tax={s.tax} fee={s.fee} regions={s.regions} busy={busy} error={coErr} onPay={subscribe} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(false); setBusy(false); }} />;
 
   return (
     <>

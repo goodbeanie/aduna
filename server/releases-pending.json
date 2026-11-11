@@ -132,5 +132,17 @@
       { "title": "Card on file for the storage plan", "text": "You can now pay for the Aduna Plus storage plan with a card that PayPal keeps for you. It renews once a month, and you can cancel it any time in the Storage window. Aduna never sees your card number." },
       { "title": "Easier card form", "text": "The card form in checkout has bigger fields and no extra border inside the box, and it highlights the field you are typing in. This applies to the storage plan and to buying credits." }
     ]
+  },
+  {
+    "id": "2026.11.11",
+    "date": "2026-11-11",
+    "title": "New credit packs and prices in Canadian dollars",
+    "desktop": "1.4.112",
+    "android": "2026.11.11.2223",
+    "items": [
+      { "title": "New credit packs", "text": "Credits now come in four packs: 500, 1,350, 2,900 and 6,200. The bigger the pack, the more extra credits you get for your money." },
+      { "title": "Pay in Canadian or US dollars", "text": "Pick your country and province or state at checkout. People in Canada see prices and pay in Canadian dollars, and people in the US pay in US dollars. The price you see already includes PayPal's fee, so checkout shows one price." },
+      { "title": "Canada and the US only for now", "text": "Credits and the Aduna Plus storage plan can only be bought from Canada or the US at the moment. Storage is now $7.69 a month in Canadian dollars, and the US price follows the exchange rate." }
+    ]
   }
 ]

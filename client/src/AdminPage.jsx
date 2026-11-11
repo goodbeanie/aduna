@@ -7,7 +7,7 @@ import './admin.css';
 // non-admins with a 404; if /api/admin/me fails here anyway, the page sends the visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin' };
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
@@ -785,6 +785,84 @@ function Links() {
   );
 }
 
+// ---------- sales ----------
+// Creator accounts only (server/sales-report.js). Sales to Canada and the US in Canadian dollars over the last 12 months, against the limits that
+// decide when to register for sales tax. US payments are converted at the rate set in SALES_USD_TO_CAD.
+function Sales() {
+  const { me, say } = useAdm();
+  const [d, setD] = useState(null);
+  useEffect(() => { if (me.canManageFeatures) api('/admin/sales').then(setD).catch((e) => say(e.message, 'error')); }, [me.canManageFeatures, say]);
+  if (!me.canManageFeatures) return <Empty text="Only a creator account can see sales." />;
+  if (!d) return <div className="adm-card"><p className="adm-muted">Loading…</p></div>;
+  const cad = (c) => (c / 100).toLocaleString(undefined, { style: 'currency', currency: 'CAD' });
+  const label = { over: 'Over the limit', near: 'Getting close', ok: 'Under the limit' };
+  const day = (t) => new Date(t).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  const place = (r) => `${r.region}, ${r.country === 'US' ? 'United States' : 'Canada'}`;
+  return (
+    <>
+      <div className="adm-card">
+        <h3>Sales and tax limits</h3>
+        <p className="adm-muted">{day(d.since)} to {day(d.until)}, in Canadian dollars, without the tax collected. US sales count at 1 USD = {d.rate} CAD. Refunded payments are left out.</p>
+      </div>
+      <div className="adm-card adm-scroll">
+        <table className="adm-table">
+          <thead><tr><th>Where</th><th>Payments</th><th>Sales</th><th>Limit</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><b>All of Canada</b></td><td>{d.canada.count}</td><td>{cad(d.canada.cents)}</td><td>{cad(d.canada.limit)}</td><td>{label[d.canada.status]}</td></tr>
+            {d.regions.map((r) => <tr key={r.country + r.region}><td>{place(r)}</td><td>{r.count}</td><td>{cad(r.cents)}</td><td>{cad(r.limit)}</td><td>{label[r.status]}</td></tr>)}
+            <tr><td><b>All of the United States</b></td><td>{d.us.count}</td><td>{cad(d.us.cents)}</td><td /><td /></tr>
+            {d.unplaced.count > 0 && <tr><td>No location saved</td><td>{d.unplaced.count}</td><td>{cad(d.unplaced.cents)}</td><td /><td /></tr>}
+          </tbody>
+        </table>
+        {!d.regions.length && <p className="adm-muted">No sales with a location yet.</p>}
+      </div>
+    </>
+  );
+}
+
+// ---------- switches ----------
+// Creator accounts only (server/switches.js). A switch that is off closes that part of Aduna for everybody who is not an admin; admins and creators
+// can still use it, so they can test and fix it while it is closed. Everything is on until someone turns it off. Changes apply to the next request.
+function Switches() {
+  const { me, say, run, ask } = useAdm();
+  const [data, setData] = useState(null);
+  const load = useCallback(() => api('/admin/switches').then(setData).catch((e) => { setData({ switches: [] }); say(e.message, 'error'); }), [say]);
+  useEffect(() => { if (me.canManageFeatures) load(); }, [load, me.canManageFeatures]);
+  if (!me.canManageFeatures) return <Empty text="Only a creator account can change switches." />;
+  if (!data) return <p className="adm-muted">Loading…</p>;
+  const flip = async (s) => {
+    const off = s.on; // on now: this turns it off
+    const ok = await ask(off
+      ? { title: `Turn off ${s.name}?`, body: 'It closes right away for everyone who is not an admin. You and the other admins can still use it.', lines: s.keeps ? [s.keeps] : [], confirmLabel: 'Turn off', danger: true }
+      : { title: `Turn on ${s.name}?`, body: 'It opens again for everyone right away.', confirmLabel: 'Turn on' });
+    if (ok) await run(() => api('/admin/switches/' + encodeURIComponent(s.id), { method: 'POST', body: { on: !s.on } }).then(setData), () => (off ? `${s.name} is off for the public` : `${s.name} is on`));
+  };
+  return (
+    <>
+      <div className="adm-card">
+        <h3>How switches work</h3>
+        <ul className="adm-lines">
+          <li>A switch that is <b>off</b> closes that part of Aduna for everybody who is not an admin. Admins and creators are never closed out, so you can still test it.</li>
+          <li>Everything is on until you turn it off. Every change is written to the Log.</li>
+        </ul>
+      </div>
+      <div className="adm-card">
+        {!data.switches.length && <p className="adm-muted">No switches yet.</p>}
+        {data.switches.map((s) => (
+          <div className="adm-row adm-line" key={s.id}>
+            <div>
+              <b>{s.name}</b> <span className="adm-muted">{s.on ? 'On' : 'Off for the public'}{!s.on && s.at ? ` · since ${when(s.at)}${s.by ? ` by ${s.by}` : ''}` : ''}</span>
+              <p className="adm-muted">{s.desc}</p>
+              {s.keeps && <p className="adm-muted">{s.keeps}</p>}
+            </div>
+            <button type="button" className={'adm-btn small' + (s.on ? ' danger' : ' primary')} onClick={() => flip(s)}>{s.on ? 'Turn off' : 'Turn on'}</button>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
 // ---------- IP bans ----------
 // Creator accounts only (server/moderation.js). Aduna keeps no address per account, so a ban cannot be made from a person: type the address in, for example
 // from the host's logs. A banned address gets a "blocked" page and cannot open a live connection. Your own address and very wide ranges are refused.
@@ -943,7 +1021,7 @@ export default function AdminPage() {
         <header className="adm-top">
           <a className="adm-logo" href="/admin" onClick={(e) => { e.preventDefault(); go('overview'); }}>Aduna <small>Admin</small></a>
           <nav className="adm-nav" aria-label="Admin pages">
-            {TABS.filter(([id]) => (id !== 'releases' && id !== 'links' && id !== 'ipbans') || me.canManageFeatures).map(([id, name]) => (
+            {TABS.filter(([id]) => (id !== 'releases' && id !== 'switches' && id !== 'sales' && id !== 'links' && id !== 'ipbans') || me.canManageFeatures).map(([id, name]) => (
               <button key={id} className={'adm-tab' + (tab === id ? ' on' : '')} aria-current={tab === id ? 'page' : undefined} onClick={() => go(id)}>
                 {name}{id === 'reports' && reportCount > 0 && <b>{reportCount}</b>}{id === 'applications' && summary && summary.applications > 0 && <b>{summary.applications}</b>}
               </button>
@@ -960,6 +1038,8 @@ export default function AdminPage() {
           {tab === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
           {tab === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
           {tab === 'releases' && <Releases />}
+          {tab === 'switches' && <Switches />}
+{tab === 'sales' && <Sales />}
           {tab === 'links' && <Links />}
           {tab === 'ipbans' && <IpBans />}
           {tab === 'admins' && <Admins openUser={openUser} />}

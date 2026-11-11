@@ -12,7 +12,7 @@ const money = (cents, cur = 'usd') => (cents / 100).toLocaleString(undefined, { 
 function PlanCard({ s, busy, onCancel }) {
   let state = 'none', line = 'You do not have a plan right now.';
   if (s.lifetime) { state = 'on'; line = 'Plus is on for this account for good. There is nothing to pay or cancel.'; }
-  else if (s.subscriber && s.renews) { state = 'on'; line = `Renews around ${day(s.paidThrough)} for ${money(s.plan.cents, s.plan.currency)}.`; }
+  else if (s.subscriber && s.renews) { state = 'on'; line = `Renews around ${day(s.paidThrough)} for ${money(s.currency === 'cad' ? s.plan.cadCents : s.plan.cents, s.currency || 'usd')}.`; }
   else if (s.subscriber) { state = 'ending'; line = `Your plan will not renew. You keep Plus until ${day(s.paidThrough)}, and your files are kept for 14 days after that.`; }
   else if (s.status === 'ended') line = `Your last plan ended${s.paidThrough ? ' on ' + day(s.paidThrough) : ''}.`;
   const label = state === 'on' ? 'Active' : state === 'ending' ? 'Ends ' + day(s.paidThrough) : 'No plan';
@@ -37,8 +37,8 @@ function PlanCard({ s, busy, onCancel }) {
 }
 
 function rowOf(it, currency) {
-  if (it.kind === 'storage') return { at: it.at, name: it.renewal ? 'Aduna Plus, monthly renewal' : 'Aduna Plus', sub: 'Paid by card', amount: money(it.cents, currency) };
-  if (it.kind === 'credits') return { at: it.at, name: `Bought ${it.credits.toLocaleString()} credits`, sub: it.reversed ? 'Refunded or reversed' : 'Paid by card', amount: money(it.cents, currency) };
+  if (it.kind === 'storage') return { at: it.at, name: it.renewal ? 'Aduna Plus, monthly renewal' : 'Aduna Plus', sub: 'Paid by card', amount: money(it.cents, it.currency || currency) };
+  if (it.kind === 'credits') return { at: it.at, name: `Bought ${it.credits.toLocaleString()} credits`, sub: it.reversed ? 'Refunded or reversed' : 'Paid by card', amount: money(it.cents, it.currency || currency) };
   return { at: it.t, name: `Shop: ${it.note || 'purchase'}`, sub: 'Paid with credits', amount: '−' + Math.abs(it.amount).toLocaleString() + ' credits' };
 }
 

@@ -39,6 +39,8 @@ const screenLib = require('./screen'); // clip screening: OpenAI moderation of f
 const polls = require('./polls');
 const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global) and one for each server (see the "wordle" block below)
 const contextoLib = require('./contexto'); // Contexto: a daily word guessed by meaning, same scopes as Wordle (see the "contexto" block below)
+const salesReport = require('./sales-report'); // sales to Canada and the US in CAD against the sales tax registration limits (/admin > Sales)
+const switchesLib = require('./switches'); // kill switches a creator flips in /admin > Switches (payments, ...): closed for the public, never for admins
 const featuresLib = require('./features'); // feature releases: off / testing (creator accounts only) / live (see the "feature releases" block below)
 const releasesLib = require('./releases'); // "What's new" releases: every release is a private draft until a creator publishes it (see the "releases" block below)
 const calllog = require('./calllog');
@@ -203,6 +205,16 @@ const testOnly = (u) => (isCreator(u) ? featuresLib.testSet(db().releases, u.tes
 const featureOn = (id, u) => featuresLib.enabled(db().releases, id, isCreator(u), testOnly(u));
 const needFeature = (id) => (req, res, next) => (featureOn(id, req.user) ? next() : res.status(404).json({ error: 'Not found' }));
 const featuresFor = (u) => featuresLib.forUser(db().releases, isCreator(u), testOnly(u));
+// Switches (server/switches.js): a creator turns a part of Aduna off for everyone who is not an admin (/admin > Switches). Admins and creators are never closed out.
+// switchClosed('payments', u) says whether it is closed for that person; switchOpen('payments') is a route guard that answers a closed person with a 503
+// { code: 'feature_off' } and lets everyone else (and anyone not signed in: the route's own login check answers them) through.
+const switchClosed = (id, u) => switchesLib.closed(db().switches, id, isAdmin(u));
+const switchOpen = (id) => (req, res, next) => {
+  const bearer = (req.headers.authorization || '').replace(/^Bearer /, '');
+  const u = userFromToken(bearer || security.readSessionCookie(req.headers, secureReq(req)));
+  if (u && switchClosed(id, u)) return res.status(503).json({ error: switchesLib.pausedMessage(id), code: 'feature_off', feature: id });
+  next();
+};
 const CREATOR_BADGE = { id: 'creator', name: 'Founder', builtin: true, image: null, emoji: '', color: '' };
 // The Artist badge: automatic once an artist's first item has been approved (db().artists[id].badge, see the artists block). The client draws it
 // from /badges/artist.png as a mask in the surrounding text colour (`glyph`), so it is white on dark themes and dark on light ones.
@@ -4921,6 +4933,20 @@ app.delete('/api/admin/links/:domain', auth, adminOnly, needCreator, (req, res) 
   res.json({ ok: true, ...linkAdminView() });
 });
 
+// ----- switches: turn a part of Aduna off for the public (creator accounts only; admins and creators are never closed out) -----
+app.get('/api/admin/sales', auth, adminOnly, needCreator, (_req, res) => res.json(salesReport.report(db())));
+app.get('/api/admin/switches', auth, adminOnly, needCreator, (_req, res) => res.json({ switches: switchesLib.list(db().switches) }));
+app.post('/api/admin/switches/:id', auth, adminOnly, needCreator, (req, res) => {
+  if (!db().switches) db().switches = Object.create(null);
+  const r = switchesLib.set(db().switches, req.params.id, req.body && req.body.on, req.user.username, now());
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  if (r.changed) {
+    store.save();
+    adminLogAdd(req.user, r.on ? 'switch on' : 'switch off', req.params.id, ''); // open screens read the state when they load; a closed route answers on its own
+  }
+  res.json({ ok: true, switches: switchesLib.list(db().switches) });
+});
+
 app.get('/api/admin/log', auth, adminOnly, ah(async (_req, res) => {
   let list = [];
   try { list = JSON.parse((await store.getMeta('adminlog')) || '[]'); } catch { /* an unreadable log shows as empty */ }
@@ -5547,8 +5573,15 @@ app.get('/api/call/config', auth, ah(async (req, res) => {
   res.set('Cache-Control', 'no-store');
   res.json({ iceServers, relay });
 }));
+// Switch: payments. While a creator has Payments off (/admin > Switches), nobody but an admin can START a payment or open the Payments page. Only the starts are
+// closed: capturing an order that is already paid for, the signed webhooks, monthly renewals of saved cards and cancelling a plan keep working, so nobody is
+// charged without being credited, or kept paying for a plan they cannot cancel. Registered before the routes below so it runs first.
+app.post(['/api/credits/checkout', '/api/credits/paypal/order', '/api/storage/subscribe', '/api/storage/vault/order'], switchOpen('payments'));
+app.get('/api/payments', switchOpen('payments'));
+const paymentsOpen = (u) => !switchClosed('payments', u);
 // Credits (balance, quests, buying). Must be registered before the /api 404 handler below.
 credits.register(app, {
+  paymentsOpen, // Payments switch (above): the credits view says "paused" and turns the Buy buttons off while a creator has it off
   auth, ah, db, save: () => store.save(),
   notify: (uid, payload) => io.to('user:' + uid).emit('credits:update', payload),
   isDev: (u) => !!u.developer || isCreator(u), // may use the Halloween / Christmas test mode
@@ -5567,9 +5600,10 @@ const storageBudget = storageBudgetLib.create({
   getMeta: (k) => store.getMeta(k), setMeta: (k, v) => store.setMeta(k, v),
   log: console,
 });
-// Storage plan (10 GB for $4.99 a month): usage, cleanup list, PayPal subscription. Registered here so /api/files can push usage updates.
+// Storage plan (10 GB for $5.59 a month): usage, cleanup list, PayPal subscription. Registered here so /api/files can push usage updates.
 storageApi = storagePlan.register(app, {
   auth, ah, db, save: () => store.save(), store, freeBudget: storageBudget,
+  paymentsOpen, // Payments switch: the storage view says "paused" and turns Get storage off while a creator has it off (renewals and cancelling still work)
   runRenewals: true, // charges saved cards when their month is due (server/storage.js, card on file)
   notify: (uid, v) => io.to('user:' + uid).emit('storage:update', v),
   userChanged: (uid) => { const u = db().users[uid]; if (u) emitUserUpdate(u); }, // the Plus badge on their profile turned on or off
@@ -5588,9 +5622,9 @@ storageApi = storagePlan.register(app, {
 app.get('/api/payments', auth, (req, res) => {
   const u = req.user;
   const packs = Object.values(db().payments || {}).filter((p) => p && p.userId === u.id)
-    .map((p) => ({ kind: 'credits', at: p.createdAt, cents: p.cents, credits: p.credits, reversed: !!p.reversed }));
+    .map((p) => ({ kind: 'credits', at: p.createdAt, cents: p.cents, currency: p.currency || 'usd', credits: p.credits, reversed: !!p.reversed }));
   const storage = (Array.isArray(u.storagePayments) ? u.storagePayments : [])
-    .map((p) => ({ kind: 'storage', at: p.at, cents: p.cents, renewal: !!p.renewal }));
+    .map((p) => ({ kind: 'storage', at: p.at, cents: p.cents, currency: p.currency || 'usd', renewal: !!p.renewal }));
   const ledger = ((u.credits && u.credits.ledger) || []).map((l) => ({ t: l.t, amount: l.amount, reason: l.reason, note: l.note || null, n: l.n || null }));
   res.json({ currency: storagePlan.PLAN.currency, payments: [...packs, ...storage].sort((a, b) => b.at - a.at), ledger });
 });
@@ -6397,6 +6431,7 @@ if (require.main === module) {
   ready
     .then(() => httpServer.listen(PORT, () => {
       console.log(`Aduna running on port ${PORT}`);
+      require('./fx').start(); // the USD to CAD rate the US prices follow: fetched now and every 6 hours (only when run for real, never in the tests)
       // Wordle and Contexto read their word lists the first time someone guesses, which made that first guess slow. Do it now, just after the server is up.
       setTimeout(() => { try { wordleLib.warm(); contextoLib.warm(contextoLib.answerFor('global', contextoLib.dayOf(Date.now()), SECRET)); } catch (e) { console.warn('Game warm-up skipped:', e.message); } }, 1500);
     }))

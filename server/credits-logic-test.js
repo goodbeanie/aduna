@@ -281,7 +281,7 @@ const sign = (body, t, secret = SECRET) => `t=${t},v1=${crypto.createHmac('sha25
   assert.strictEqual((await run('POST /api/credits/checkout', { body: { packId: 'bogus' } })).status, 400);
   assert.strictEqual((await run('POST /api/credits/checkout', { body: { packId: 'p500', cents: 1 } })).body.url, 'https://checkout.stripe.test/c/pay_1');
   const sent = new URLSearchParams(calls[0].init.body);
-  assert.strictEqual(sent.get('line_items[0][price_data][unit_amount]'), '499', 'price comes from the server pack, never from the request');
+  assert.strictEqual(sent.get('line_items[0][price_data][unit_amount]'), String(C.PACKS.find((p) => p.id === 'p500').cents), 'price comes from the server pack, never from the request');
   assert.strictEqual(sent.get('metadata[userId]'), 'u1'); assert.strictEqual(sent.get('metadata[packId]'), 'p500');
   assert.strictEqual(sent.get('success_url'), 'https://aduna.test/app?credits=paid');
   assert.strictEqual(calls[0].init.headers.Authorization, 'Bearer sk_test_x');

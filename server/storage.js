@@ -2,7 +2,7 @@
 // Storage plan: files are free, but the shared pool for everybody's attachments is small (STORAGE_LIMIT_GB, see db.js).
 //
 //   * Free: no limit per person. When the shared pool is full, an upload pushes out the oldest files of other free people (makeRoom).
-//   * Storage plan ($4.99 a month, billed by PayPal Subscriptions): the person gets 10 GB of their own. Their files are not part of the
+//   * Storage plan ($5.59 a month, billed by PayPal Subscriptions): the person gets 10 GB of their own. Their files are not part of the
 //     shared pool, are never pushed out and never expire while the plan runs (plus a grace period after it ends). When the 10 GB is
 //     full the upload is refused with code 'storage_full' and the app lets them pick files to delete (GET /api/storage/files).
 //
@@ -12,10 +12,15 @@
 
 const crypto = require('crypto');
 const TAX = require('./tax');
+const FEE = require('./fee');
+const REG = require('./regions');
 const credits = require('./credits');
 
 const GB = 1024 ** 3, DAY = 86_400_000;
-const PLAN = { id: 'storage10', name: 'Aduna Storage', cents: 499, currency: 'usd', bytes: 10 * GB };
+const FX = require('./fx');
+// cadCents: the price you set (Canadian dollars). cents: the US price when PayPal is off or the rate is unknown; with PayPal the US price is
+// cadCents converted at the live rate (REG.priceIn, server/fx.js).
+const PLAN = { id: 'storage10', name: 'Aduna Storage', cents: 559, cadCents: 769, currency: 'usd', bytes: 10 * GB };
 const GRACE_MS = 14 * DAY;       // after a plan ends its files are kept this long before the normal clean-up applies to them again
 const PAID_FOR_MS = 32 * DAY;    // one payment covers a month plus a little slack for a late webhook
 const SUB_ID = /^[A-Za-z0-9-]{8,40}$/;
@@ -103,27 +108,32 @@ async function ppFetch(fetchImpl, token, method, path, body, headers = {}) {
   return { ok: r.ok, status: r.status, j };
 }
 
-// One-time setup at PayPal: a product and a monthly plan at PLAN.cents. Fixed request ids make a second run return the same ones.
-async function createPlan(fetchImpl = fetch, fresh = false) {
+// One-time setup at PayPal: a product and a monthly plan at planCents() (the price plus PayPal's processing fee, server/fee.js), one plan per currency.
+// Fixed request ids make a second run return the same ones; the price is part of the plan's request id, so a changed fee makes a new plan.
+const planCents = (cur = 'usd') => { const base = REG.priceIn(PLAN, cur); return base + FEE.quote({}, base).fee; };
+async function createPlan(fetchImpl = fetch, fresh = false, cur = 'usd') {
   const token = await credits.ppToken(fetchImpl);
   const rid = (name) => name + (fresh ? '-' + crypto.randomUUID() : ''); // `fresh`: new request ids, so PayPal makes a new product and plan instead of replaying an old answer
   const prod = await ppFetch(fetchImpl, token, 'POST', '/v1/catalogs/products',
     { name: PLAN.name, description: '10 GB of file storage on Aduna', type: 'DIGITAL', category: 'SOFTWARE' }, { 'PayPal-Request-Id': rid('aduna-storage-product-1') });
   if (!prod.ok || !prod.j.id) throw new Error(`PayPal product setup failed (${prod.status}): ${prod.j.message || 'no id'}`);
   const plan = await ppFetch(fetchImpl, token, 'POST', '/v1/billing/plans', {
-    product_id: prod.j.id, name: PLAN.name + ' (monthly)', description: '10 GB of file storage, billed every month', status: 'ACTIVE',
+    product_id: prod.j.id, name: PLAN.name + (cur === 'usd' ? ' (monthly)' : ` (monthly, ${cur.toUpperCase()})`), description: '10 GB of file storage, billed every month', status: 'ACTIVE',
     billing_cycles: [{ frequency: { interval_unit: 'MONTH', interval_count: 1 }, tenure_type: 'REGULAR', sequence: 1, total_cycles: 0,
-      pricing_scheme: { fixed_price: { value: (PLAN.cents / 100).toFixed(2), currency_code: PLAN.currency.toUpperCase() } } }],
+      pricing_scheme: { fixed_price: { value: (planCents(cur) / 100).toFixed(2), currency_code: cur.toUpperCase() } } }],
     payment_preferences: { auto_bill_outstanding: true, setup_fee_failure_action: 'CANCEL', payment_failure_threshold: 3 },
-  }, { 'PayPal-Request-Id': rid('aduna-storage-plan-1') });
+  }, { 'PayPal-Request-Id': rid('aduna-storage-plan-1-' + (cur === 'usd' ? '' : cur + '-') + planCents(cur)) });
   if (!plan.ok || !plan.j.id) throw new Error(`PayPal plan setup failed (${plan.status}): ${plan.j.message || 'no id'}`);
   return plan.j.id;
 }
 
 // Starts a subscription and returns where to send the buyer to approve it on PayPal. The price comes from the plan; the tax the buyer
 // owes (only where Aduna is set up to collect it, server/tax.js) is added as the plan's tax for this subscription only.
-async function createSubscription({ user, buyer = {}, origin, planId, fetchImpl = fetch }) {
-  const q = TAX.quote(buyer, PLAN.cents);
+// Where the buyer is gets kept on their record (storageWhere) until PayPal says the plan is active.
+async function createSubscription({ user, buyer = {}, origin, planId, fetchImpl = fetch, now = Date.now() }) {
+  const where = REG.resolve(buyer);
+  if (!where.ok) throw Object.assign(new Error(where.error), { forBuyer: true });
+  const q = TAX.quote(buyer, REG.priceIn(PLAN, where.currency));
   if (!q.ok) throw Object.assign(new Error(q.error), { forBuyer: true });
   const token = await credits.ppToken(fetchImpl);
   const r = await ppFetch(fetchImpl, token, 'POST', '/v1/billing/subscriptions', {
@@ -141,6 +151,7 @@ async function createSubscription({ user, buyer = {}, origin, planId, fetchImpl 
   let host = '';
   try { host = new URL(link.href).hostname; } catch { /* handled below */ }
   if (!/(^|\.)paypal\.com$/.test(host)) throw new Error('PayPal subscription failed: unexpected approval address');
+  user.storageWhere = { country: where.country, region: where.region, currency: where.currency, at: now };
   return { url: link.href, subscriptionId: r.j.id };
 }
 
@@ -148,6 +159,7 @@ async function createSubscription({ user, buyer = {}, origin, planId, fetchImpl 
 function applyActive(u, sub, now = Date.now()) {
   const old = rec(u) || {};
   const next = Date.parse(sub?.billing_info?.next_billing_time);
+  const w = u.storageWhere;
   u.storageSub = {
     ...old,
     status: 'active',
@@ -155,6 +167,7 @@ function applyActive(u, sub, now = Date.now()) {
     since: old.since || now,
     paidThrough: Math.max(Number(old.paidThrough) || 0, Number.isFinite(next) ? next + 3 * DAY : now + PAID_FOR_MS),
     syncedAt: now,
+    ...(w ? { country: w.country, region: w.region, currency: w.currency } : {}),
   };
 }
 
@@ -238,7 +251,9 @@ const MAX_FAILURES = 3;          // ...and the plan ends after this many decline
 const VAULT_ID = /^[0-9a-zA-Z_-]{3,100}$/;
 const money = (cents) => (cents / 100).toFixed(2);
 const isVault = (u) => !!rec(u) && rec(u).kind === 'vault';
-const amountOk = (cents) => Number.isInteger(cents) && cents >= PLAN.cents && cents <= Math.round(PLAN.cents * 1.5); // price + at most the tax the server adds
+// price + at most the tax and processing fee the server adds, in the currency that was paid
+// (the US price follows the exchange rate, so a stored or just-captured amount may be a little under today's price: REG.floorIn allows for that)
+const amountOk = (cents, cur = 'usd') => { const base = REG.priceIn(PLAN, cur); return !!base && Number.isInteger(cents) && cents >= REG.floorIn(PLAN, cur) && cents <= Math.round(base * 1.75); };
 
 // the same day next calendar month (the 31st becomes the last day of a shorter month)
 function addMonth(ms) {
@@ -250,29 +265,33 @@ function addMonth(ms) {
 }
 
 // What the /payments page lists: every storage payment, newest first. Kept on the person, not in storageSub, so resetting a plan does not erase it.
-function logPayment(user, { id, cents, at, renewal = false }) {
+function logPayment(user, { id, cents, at, renewal = false, currency = 'usd', country = '', region = '', tax = 0 }) {
   const list = Array.isArray(user.storagePayments) ? user.storagePayments : (user.storagePayments = []);
   if (list.some((p) => p.id === id)) return;
-  list.unshift({ id, cents, at, renewal });
+  list.unshift({ id, cents, at, renewal, currency, country, region, tax });
   if (list.length > 60) list.length = 60;
 }
 
 // First payment: the order the card fields pay. The price (and the tax, where Aduna collects it) is set here, never by the browser.
 // store_in_vault asks PayPal to keep the card once the payment goes through.
 async function createVaultOrder({ user, buyer = {}, fetchImpl = fetch }) {
-  const q = TAX.quote(buyer, PLAN.cents);
+  const where = REG.resolve(buyer);
+  if (!where.ok) throw Object.assign(new Error(where.error), { forBuyer: true });
+  const base = REG.priceIn(PLAN, where.currency);
+  const q = TAX.quote(buyer, base);
   if (!q.ok) throw Object.assign(new Error(q.error), { forBuyer: true });
-  const total = PLAN.cents + q.tax, cur = PLAN.currency.toUpperCase();
+  const f = FEE.quote(buyer, base + q.tax);         // PayPal's cut as its own line; the monthly renewals charge this same stored total
+  const total = base + q.tax + f.fee, cur = where.currency.toUpperCase();
   const token = await credits.ppToken(fetchImpl);
   const r = await ppFetch(fetchImpl, token, 'POST', '/v2/checkout/orders', {
     intent: 'CAPTURE',
     purchase_units: [{
       reference_id: PLAN.id,
-      custom_id: `storage|${user.id}|${total}`,
+      custom_id: `storage|${user.id}|${total}|${where.country}|${where.region}|${q.tax}`,
       description: PLAN.name + ' (monthly)',
-      amount: q.tax
-        ? { currency_code: cur, value: money(total), breakdown: { item_total: { currency_code: cur, value: money(PLAN.cents) }, tax_total: { currency_code: cur, value: money(q.tax) } } }
-        : { currency_code: cur, value: money(PLAN.cents) },
+      amount: q.tax || f.fee
+        ? { currency_code: cur, value: money(total), breakdown: { item_total: { currency_code: cur, value: money(base) }, ...(q.tax ? { tax_total: { currency_code: cur, value: money(q.tax) } } : {}), ...(f.fee ? { handling: { currency_code: cur, value: money(f.fee) } } : {}) } }
+        : { currency_code: cur, value: money(base) },
     }],
     payment_source: { card: {
       attributes: { vault: { store_in_vault: 'ON_SUCCESS' }, verification: { method: 'SCA_WHEN_REQUIRED' } }, // PayPal keeps the card after a successful payment; 3-D Secure when the bank asks for it
@@ -293,14 +312,15 @@ async function captureVaultOrder({ user, orderId, fetchImpl = fetch, now = Date.
   if (!r.ok && (r.j.details || []).some((x) => x.issue === 'ORDER_ALREADY_CAPTURED')) r = await ppFetch(fetchImpl, token, 'GET', `/v2/checkout/orders/${orderId}`);
   if (!r.ok) throw new Error(`PayPal capture failed (${r.status}): ${r.j.message || r.j.name || 'unknown'}`);
   const pu = (r.j.purchase_units || [])[0] || {}, cap = (pu.payments?.captures || [])[0];
-  const [tag, uid, totalStr] = String(pu.custom_id || cap?.custom_id || '').split('|');
+  const [tag, uid, totalStr, country = '', region = '', taxStr] = String(pu.custom_id || cap?.custom_id || '').split('|');
   if (tag !== 'storage' || uid !== user.id) return { status: 'mismatch' };
   if (!cap || cap.status !== 'COMPLETED') return { status: 'pending' };
-  const cents = Math.round(Number(cap.amount?.value) * 100);
-  if (!amountOk(cents) || cents !== Number(totalStr) || String(cap.amount?.currency_code).toUpperCase() !== PLAN.currency.toUpperCase()) {
+  const cents = Math.round(Number(cap.amount?.value) * 100), cur = String(cap.amount?.currency_code).toLowerCase();
+  if (!amountOk(cents, cur) || cents !== Number(totalStr) || (!!country && REG.currencyOf(country) !== cur)) {
     console.error('Storage: PayPal capture', cap.id, 'amount does not match the plan; not activating');
     return { status: 'failed' };
   }
+  const tax = Number(taxStr) || 0;
   const old = rec(user) || {};
   if (old.kind === 'vault' && old.lastCaptureId === cap.id) return { status: 'active', saved: !!old.vaultId, changed: false };
   const vault = r.j.payment_source?.card?.attributes?.vault;
@@ -311,11 +331,11 @@ async function captureVaultOrder({ user, orderId, fetchImpl = fetch, now = Date.
   user.storageSub = {
     ...rest, kind: 'vault',
     status: saved ? 'active' : 'cancelled', // paid but PayPal did not keep the card: the month is theirs, there is nothing to renew
-    vaultId: saved ? vault.id : null, netRef, amountCents: cents,
+    vaultId: saved ? vault.id : null, netRef, amountCents: cents, currency: cur, country, region, tax,
     dueAt: addMonth(now), nextChargeAt: saved ? addMonth(now) : null, failures: 0, lastCaptureId: cap.id,
     since: old.since || now, paidThrough: Math.max(Number(old.paidThrough) || 0, now) + PAID_FOR_MS, syncedAt: now,
   };
-  logPayment(user, { id: cap.id, cents, at: now });
+  logPayment(user, { id: cap.id, cents, at: now, currency: cur, country, region, tax });
   return { status: 'active', saved, changed: true };
 }
 
@@ -323,9 +343,10 @@ async function captureVaultOrder({ user, orderId, fetchImpl = fetch, now = Date.
 async function chargeRenewal({ user, fetchImpl = fetch, now = Date.now() }) {
   const s = rec(user);
   if (!s || s.kind !== 'vault' || !s.vaultId || !['active', 'past_due'].includes(s.status) || !Number.isFinite(s.nextChargeAt) || now < s.nextChargeAt) return { ok: false, skipped: true };
-  if (!amountOk(s.amountCents)) { console.error('Storage: bad stored amount for', user.id, '; not charging'); return { ok: false, skipped: true }; }
+  const curKey = s.currency || 'usd';                // plans bought before CAD pricing have no currency saved: they are USD
+  if (!amountOk(s.amountCents, curKey)) { console.error('Storage: bad stored amount for', user.id, '; not charging'); return { ok: false, skipped: true }; }
   const token = await credits.ppToken(fetchImpl);
-  const cur = PLAN.currency.toUpperCase();
+  const cur = curKey.toUpperCase();
   // same request id for the same attempt: if we crash after PayPal charged but before saving, the retry gets the same answer, not a second charge
   let r = await ppFetch(fetchImpl, token, 'POST', '/v2/checkout/orders', {
     intent: 'CAPTURE',
@@ -336,11 +357,11 @@ async function chargeRenewal({ user, fetchImpl = fetch, now = Date.now() }) {
   if (r.ok && r.j.status !== 'COMPLETED' && SUB_ID.test(String(r.j.id || ''))) r = await ppFetch(fetchImpl, token, 'POST', `/v2/checkout/orders/${r.j.id}/capture`, {}, { 'PayPal-Request-Id': 'rcap-' + r.j.id });
   if (r.status >= 500) return { ok: false, transient: true };
   const cap = r.ok ? ((r.j.purchase_units || [])[0]?.payments?.captures || [])[0] : null;
-  if (cap && cap.status === 'COMPLETED' && Math.round(Number(cap.amount?.value) * 100) === s.amountCents) {
+  if (cap && cap.status === 'COMPLETED' && Math.round(Number(cap.amount?.value) * 100) === s.amountCents && String(cap.amount?.currency_code).toUpperCase() === cur) {
     s.status = 'active'; s.failures = 0; s.lastCaptureId = cap.id; s.syncedAt = now;
     s.paidThrough = Math.max(Number(s.paidThrough) || 0, now + PAID_FOR_MS);
     s.dueAt = addMonth(s.dueAt || now); s.nextChargeAt = s.dueAt;
-    logPayment(user, { id: cap.id, cents: s.amountCents, at: now, renewal: true });
+    logPayment(user, { id: cap.id, cents: s.amountCents, at: now, renewal: true, currency: curKey, country: s.country || '', region: s.region || '', tax: Number(s.tax) || 0 });
     return { ok: true };
   }
   if (cap && cap.status === 'PENDING') return { ok: false, transient: true }; // PayPal is still looking at it; the same request id answers the same next time
@@ -389,28 +410,33 @@ async function cancelVault({ user, fetchImpl = fetch, now = Date.now() }) {
 //      fetchImpl?, getMeta?, setMeta?, now?, freeBudget? (server/storage-budget.js: the free people's own limit) }
 function register(app, d) {
   const nowMs = () => (d.now ? d.now() : Date.now());
-  let planMem = null;
-  const planId = async (force = false) => {
-    if (process.env.PAYPAL_STORAGE_PLAN_ID) return process.env.PAYPAL_STORAGE_PLAN_ID; // a plan you made yourself in the PayPal dashboard
-    if (planMem && !force) return planMem;
-    const key = 'storage-plan:' + credits.ppBase();                                   // sandbox and live each get their own
+  const planMem = {};
+  const planId = async (force = false, cur = 'usd') => {
+    // a plan you made yourself in the PayPal dashboard (PAYPAL_STORAGE_PLAN_ID_CAD for the Canadian one)
+    const own = cur === 'usd' ? process.env.PAYPAL_STORAGE_PLAN_ID : process.env['PAYPAL_STORAGE_PLAN_ID_' + cur.toUpperCase()];
+    if (own) return own;
+    if (planMem[cur] && !force) return planMem[cur];
+    const key = 'storage-plan:' + credits.ppBase() + ':' + (cur === 'usd' ? '' : cur + ':') + planCents(cur); // sandbox and live each get their own; a changed price (fee on/off) gets a new plan
     const cached = !force && d.getMeta ? await d.getMeta(key) : null;
-    if (cached) return (planMem = cached);
-    const id = await createPlan(d.fetchImpl, force);
+    if (cached) return (planMem[cur] = cached);
+    const id = await createPlan(d.fetchImpl, force, cur);
     if (d.setMeta) await d.setMeta(key, id);
-    return (planMem = id);
+    return (planMem[cur] = id);
   };
 
   async function viewOf(u) {
     const now = nowMs(), s = rec(u), sub = isSubscriber(u, now);
     const pay = credits.paypalEnabled();
+    const open = !d.paymentsOpen || d.paymentsOpen(u); // false while a creator has Payments switched off for this person
     const used = await d.store.userFileBytes(u.id);
     const cap = !sub && d.freeBudget ? d.freeBudget.limitBytes() : null; // a free person's own limit (null: none, or the cap is not switched on)
     return {
-      plan: { ...PLAN },
+      plan: { ...PLAN, cents: pay ? REG.priceIn(PLAN, 'usd') : PLAN.cents }, // with PayPal the US price follows the exchange rate (server/fx.js)
+      fx: pay ? FX.view() : null,
       subscriber: sub,
       lifetime: hasLifetime(u),
       status: s ? s.status : 'none',
+      currency: (s && s.currency) || 'usd', // what this person pays in (USD until they have bought in CAD)
       paidThrough: s && s.paidThrough ? s.paidThrough : null,
       renews: sub && !!s && s.status === 'active',
       used,
@@ -418,10 +444,13 @@ function register(app, d) {
       uploadLimit: sub ? plusLimitOf(u) : null, // Plus: the optional upload limit the person set for themselves (null: none)
       freeLimit: cap,                 // bytes a free person may keep (null: no limit of their own)
       readOnly: cap !== null && used > cap, // over it: new attachments are refused until files are deleted or the person upgrades (their files are kept)
-      purchases: pay,
+      purchases: pay && open,
+      paused: pay && !open, // a creator has Payments switched off (/admin > Switches): Get storage says "paused"
       provider: pay ? 'paypal' : null,
       paypalClientId: pay ? credits.ppId() : null, // public by design: the browser needs it to load PayPal's card fields
       tax: pay ? TAX.publicInfo() : null,
+      fee: pay ? FEE.publicInfo() : null,
+      regions: pay ? REG.publicInfo() : null,
     };
   }
   const plusSeen = new Map(); // uid -> whether the Plus badge was last shown; other people's profiles refresh only when it changes
@@ -495,15 +524,17 @@ function register(app, d) {
     if (limited(req, res, 5)) return;
     if (hasLifetime(req.user)) return res.status(409).json({ error: 'Aduna Plus is already on for this account' });
     if (isSubscriber(req.user, nowMs()) && rec(req.user) && rec(req.user).status === 'active') return res.status(409).json({ error: 'You already have the storage plan' });
+    const where = REG.resolve(req.body);
+    if (!where.ok) return res.status(400).json({ error: where.error });
     const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     try {
       let r;
-      try { r = await createSubscription({ user: req.user, buyer: req.body, origin, planId: await planId(), fetchImpl: d.fetchImpl }); }
+      try { r = await createSubscription({ user: req.user, buyer: req.body, origin, planId: await planId(false, where.currency), fetchImpl: d.fetchImpl }); }
       catch (e) {
         // PayPal does not know the remembered plan (404: it was made under another sandbox/live account): make a fresh one once and try again
         if (e.status !== 404 || process.env.PAYPAL_STORAGE_PLAN_ID) throw e;
         console.error('Storage plan not found at PayPal, making a new one:', e.message);
-        r = await createSubscription({ user: req.user, buyer: req.body, origin, planId: await planId(true), fetchImpl: d.fetchImpl });
+        r = await createSubscription({ user: req.user, buyer: req.body, origin, planId: await planId(true, where.currency), fetchImpl: d.fetchImpl });
       }
       res.json({ url: r.url });
     } catch (e) {

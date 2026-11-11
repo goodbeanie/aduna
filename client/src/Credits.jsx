@@ -5,6 +5,7 @@ import { Icon, Modal } from './ui.jsx';
 import { EmptyState, PanelSkeleton } from './ShellBits.jsx';
 import { askConfirm, toast } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
+import { homeCountry, rememberCountry, priceFor, rateNote } from './region.js';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
 
@@ -153,32 +154,43 @@ function StreakCard({ s }) {
 }
 
 // The notices shown before paying. Shown on the Credits page and again inside the checkout, where `paypal` and `tax` add the two notes below.
-function BuyNotices({ paypal = false, tax = false, saved = false }) {
+function BuyNotices({ paypal = false, tax = false, place = false, saved = false, fee = false }) {
   return (
     <div className="buy-notices">
       {saved
         ? <div className="buy-note"><Icon name="shield" size={16} /><span>Your card is saved securely by PayPal, not by Aduna. Aduna never sees or stores your card details. Your plan renews every month and you can cancel any time in Storage.</span></div>
         : <div className="buy-note"><Icon name="shield" size={16} /><span>Aduna does not save your payment information, your security is our priority.</span></div>}
       {paypal && <div className="buy-note"><Icon name="shield" size={16} /><span>Secure checkout is provided by PayPal. Your card details are entered directly with PayPal and are never seen or stored by Aduna.</span></div>}
+      {fee && <div className="buy-note"><Icon name="coin" size={16} /><span>The processing fee is what PayPal charges to handle your payment. Aduna adds it so the price of the item stays the same for us.</span></div>}
       {tax && <div className="buy-note"><Icon name="pin" size={16} /><span>We ask for your billing location only to calculate the sales tax that applies to your order. Your postal code stays in your browser; only your country and province or state are sent with the order.</span></div>}
+      {place && <div className="buy-note"><Icon name="pin" size={16} /><span>Aduna sells to Canada and the US, and prices are in Canadian or US dollars depending on where you are. Your postal code stays in your browser; only your country and province or state are sent with the order.</span></div>}
     </div>
   );
 }
 
 // Loads PayPal's script once. The card boxes and the PayPal button come from it; card details are typed into boxes that PayPal
 // serves inside Aduna's checkout, so they go straight to PayPal and never reach Aduna.
-let sdkPromise = null;
-function loadPaypal(clientId) {
-  if (window.paypal?.CardFields) return Promise.resolve(window.paypal);
+// The script is tied to one currency, so a buyer who switches country gets it loaded again for the other one.
+let sdkPromise = null, sdkCurrency = '';
+function loadPaypal(clientId, currency = 'usd') {
+  const cur = String(currency).toUpperCase();
+  if (sdkCurrency === cur && window.paypal?.CardFields) return Promise.resolve(window.paypal);
+  if (sdkCurrency !== cur) {
+    document.querySelectorAll('script[data-pp-sdk]').forEach((s) => s.remove());
+    delete window.paypal;
+    sdkPromise = null;
+  }
   if (!sdkPromise) {
+    sdkCurrency = cur;
     sdkPromise = new Promise((resolve, reject) => {
       const el = document.createElement('script');
-      el.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&components=buttons,card-fields&currency=USD&intent=capture&disable-funding=paylater,venmo`;
+      el.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&components=buttons,card-fields&currency=${cur}&intent=capture&disable-funding=paylater,venmo`;
+      el.dataset.ppSdk = '1';
       el.async = true;
       el.onload = () => (window.paypal ? resolve(window.paypal) : reject(new Error('PayPal did not load')));
       el.onerror = () => reject(new Error('PayPal did not load'));
       document.head.appendChild(el);
-    }).catch((e) => { sdkPromise = null; throw e; });
+    }).catch((e) => { sdkPromise = null; sdkCurrency = ''; throw e; });
   }
   return sdkPromise;
 }
@@ -188,7 +200,7 @@ const css = (name, fallback) => getComputedStyle(document.documentElement).getPr
 // The card form and PayPal button inside Aduna's checkout. onPaid(result) runs after the server has captured the order.
 // For a monthly plan (`recurring`) the card is saved by PayPal (the server asks for it) and charged by the server every month; PayPal's
 // button cannot do that, so instead there is a button that opens PayPal's own subscription page (`onPaypalPage`) for PayPal-account payers.
-function PayForm({ pack, clientId, getBuyer, blocked, total, recurring = false, onPaypalPage, onPaid, onFallback, onError }) {
+function PayForm({ pack, clientId, currency, getBuyer, blocked, total, recurring = false, onPaypalPage, onPaid, onFallback, onError }) {
   const [ready, setReady] = useState(false);
   const [cardOk, setCardOk] = useState(true);
   const [noCard, setNoCard] = useState(false);
@@ -204,7 +216,7 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, recurring = false, 
       : api('/credits/paypal/order', { method: 'POST', body: { packId: pack.id, method, ...getBuyer() } })).then((r) => r.orderId);
     const approved = ({ orderID }) => api(recurring ? '/storage/vault/capture' : '/credits/paypal/capture', { method: 'POST', body: { orderId: orderID } }).then((r) => { if (!dead) onPaid(r); });
     const fail = (e) => { console.error('PayPal card error:', e?.message || e); if (!dead) { setPaying(false); onError(e?.message && !/^\s*\{/.test(e.message) && e.message.length < 160 ? e.message : 'The payment did not go through. Check your details or try another way to pay.'); } };
-    loadPaypal(clientId).then((paypal) => {
+    loadPaypal(clientId, currency).then((paypal) => {
       if (dead) return;
       const input = { 'font-size': '15px', 'font-family': 'inherit', 'font-weight': '500', 'letter-spacing': '0.01em', color: css('--head', '#222'), background: 'transparent', border: 'none', 'border-radius': '0', 'box-shadow': 'none', appearance: 'none', '-webkit-appearance': 'none', padding: '0 16px', outline: 'none' };
       const fields = paypal.CardFields({
@@ -229,7 +241,7 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, recurring = false, 
         buttons = paypal.Buttons({
           fundingSource: paypal.FUNDING.PAYPAL,
           style: { layout: 'vertical', shape: 'rect', height: 44, label: 'paypal' },
-          onClick: (_d, actions) => { if (blockedRef.current) { onError('Choose where you are first so the right tax is added.'); return actions.reject(); } onError(''); return actions.resolve(); },
+          onClick: (_d, actions) => { if (blockedRef.current) { onError('Choose your country and province or state first.'); return actions.reject(); } onError(''); return actions.resolve(); },
           createOrder: makeOrder('paypal'),
           onApprove: approved,
           onError: fail,
@@ -239,7 +251,7 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, recurring = false, 
       setReady(true);
     }).catch((e) => { console.error('PayPal checkout setup failed:', e); if (!dead) onFallback(e?.message || 'PayPal could not be set up'); });
     return () => { dead = true; try { buttons?.close(); } catch { /* already gone */ } cf.current = null; };
-  }, [pack.id, clientId, recurring]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pack.id, clientId, recurring, currency]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function payByCard() {
     if (!cf.current) return;
@@ -270,6 +282,8 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, recurring = false, 
 const PROVINCES = { AB: 'Alberta', BC: 'British Columbia', MB: 'Manitoba', NB: 'New Brunswick', NL: 'Newfoundland and Labrador', NS: 'Nova Scotia', NT: 'Northwest Territories', NU: 'Nunavut', ON: 'Ontario', PE: 'Prince Edward Island', QC: 'Quebec', SK: 'Saskatchewan', YT: 'Yukon' };
 const STATES = { AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming' };
 const REGIONS = { CA: PROVINCES, US: STATES };
+// What PayPal's cut adds to `net` cents so the sale still nets `net` (same whole-number maths as server/fee.js). `fee` = { percent, fixedCents } from the server.
+const processingFee = (net, fee) => { const den = 10000 - Math.round(fee.percent * 100); return Math.floor(((net + fee.fixedCents) * 10000 + den - 1) / den) - net; };
 const countryName = (c) => { try { return new Intl.DisplayNames(undefined, { type: 'region' }).of(c) || c; } catch { return c; } };
 
 // Asks the browser where the buyer is, then turns the coordinates into a country and state/province (BigDataCloud, no key needed).
@@ -321,8 +335,9 @@ function fromPostal(raw, tax) {
 // `pack` is a credit pack, or (Storage.jsx) a plan: { cents, currency, recurring: true, title, subtitle, icon }, billed every month.
 // A plan with a PayPal client id uses the same card boxes: PayPal saves the card and the server charges it each month. Without the client id,
 // or if the card form cannot start, the buyer is sent to PayPal's own page to approve a PayPal subscription instead.
-export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, onError, onClose }) {
-  const [country, setCountry] = useState('');
+export function Checkout({ pack, provider, clientId, tax, fee, regions, busy, error, onPay, onPaid, onError, onClose }) {
+  const [country, setCountry] = useState(() => (regions ? homeCountry(regions.countries) : '')); // the country whose price was shown, so the price does not change under the buyer
+  useEffect(() => { if (regions && country) rememberCountry(country); }, [regions, country]); // next time the shop shows this country's price
   const [region, setRegion] = useState('');
   const [locBusy, setLocBusy] = useState(false);
   const [locMsg, setLocMsg] = useState('');
@@ -331,13 +346,27 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
   const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
   const embedded = provider === 'paypal' && !!clientId && !fallback;
-  const needsRegion = !!tax && !!REGIONS[country] && Object.keys(tax.rates).some((k) => k.startsWith(country + '-'));
+  const where = regions || tax;                  // the countries Aduna sells to, or else the ones it collects tax in
+  const asks = !!where;
+  const needsRegion = !!REGIONS[country] && (!!regions || (!!tax && Object.keys(tax.rates).some((k) => k.startsWith(country + '-'))));
   const code = needsRegion ? (region ? country + '-' + region : '') : country;
-  const picked = !tax || (!!country && !(needsRegion && !region));
+  const picked = !asks || (!!country && !(needsRegion && !region));
+  const cur = regions && country ? regions.currency[country] || 'usd' : pack.currency || 'usd';
+  const cents = cur === 'cad' && pack.cadCents ? pack.cadCents : pack.cents;
+  const sellsOnly = regions ? `Aduna only sells to ${regions.countries.map(countryName).join(' and ')} for now.` : '';
   const hit = tax && picked ? tax.rates[code] : null;
-  const parts = hit ? (hit.parts || [{ label: hit.label, rate: hit.rate }]).map((x) => ({ ...x, amount: Math.round((pack.cents * x.rate) / 100) })) : [];
+  const parts = hit ? (hit.parts || [{ label: hit.label, rate: hit.rate }]).map((x) => ({ ...x, amount: Math.round((cents * x.rate) / 100) })) : [];
   const taxCents = parts.reduce((t, x) => t + x.amount, 0);
-  const price = money(pack.cents, pack.currency), total = money(pack.cents + taxCents, pack.currency);
+  // PayPal's processing fee, worked out the same way as the server does (server/fee.js); the server's amount is the one charged.
+  // Where the buyer's country is not known yet, the fee waits until it is.
+  const net = cents + taxCents;
+  const feeCents = fee && picked && !(country && fee.skip.includes(country)) ? processingFee(net, fee) : 0;
+  const price = money(cents, cur), total = money(net + feeCents, cur);
+  // a postal code or location that is outside what Aduna sells to clears the picker and says so
+  const fill = (r, msg) => {
+    if (regions && r.country === 'ZZ') { setCountry(''); setRegion(''); setLocMsg(sellsOnly); return; }
+    setCountry(r.country); setRegion(REGIONS[r.country] && REGIONS[r.country][r.region] ? r.region : ''); setLocMsg(msg);
+  };
   useEffect(() => {
     const h = (e) => e.key === 'Escape' && !busy && onClose();
     window.addEventListener('keydown', h);
@@ -352,27 +381,27 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
       <div className="co-grid">
         <main className="co-form">
           <h1 className="co-h">{embedded ? 'Pay with card' : `Pay with ${who}`}</h1>
-          {tax && (
+          {asks && (
             <div className="co-where">
               <label className="muted small" htmlFor="co-postal">Billing location</label>
-              <p className="muted small co-locmsg">Enter your postal or ZIP code and we will find your tax region, or choose it below.</p>
+              <p className="muted small co-locmsg">Enter your postal or ZIP code and we will find your {regions ? 'province or state' : 'tax region'}, or choose it below.</p>
               <input id="co-postal" className="co-select" type="text" autoComplete="postal-code" maxLength={10} placeholder="Postal or ZIP code" value={postal} disabled={busy}
                 onChange={(e) => {
                   const v = e.target.value; setPostal(v);
-                  const r = fromPostal(v, tax);
-                  if (r) { setCountry(r.country); setRegion(REGIONS[r.country] && REGIONS[r.country][r.region] ? r.region : ''); setLocMsg(r.region ? 'Tax region found from your postal code. Please check it below.' : ''); }
+                  const r = fromPostal(v, where);
+                  if (r) fill(r, r.region ? (regions ? 'Found from your postal code. Please check it below.' : 'Tax region found from your postal code. Please check it below.') : '');
                 }} />
               <button type="button" className="btn co-loc" disabled={busy || locBusy} onClick={async () => {
                 setLocBusy(true); setLocMsg('');
-                try { const r = await locate(tax); setCountry(r.country); setRegion(REGIONS[r.country] && REGIONS[r.country][r.region] ? r.region : ''); setLocMsg('Filled in from your location. Change it below if it is wrong.'); }
+                try { fill(await locate(where), 'Filled in from your location. Change it below if it is wrong.'); }
                 catch (e) { setLocMsg(e.message); }
                 setLocBusy(false);
               }}><Icon name="pin" size={16} /> {locBusy ? 'Finding you…' : 'Use my location'}</button>
               {locMsg && <p className="muted small co-locmsg">{locMsg}</p>}
               <Select id="co-country" aria-label="Country" className="co-select" value={country} onChange={(e) => { setCountry(e.target.value); setRegion(''); }} disabled={busy}>
                 <option value="" disabled>Choose your country</option>
-                {tax.countries.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
-                <option value="ZZ">Somewhere else</option>
+                {where.countries.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
+                {!regions && <option value="ZZ">Somewhere else</option>}
               </Select>
               {needsRegion && (
                 <Select className="co-select" aria-label={country === 'US' ? 'State' : 'Province'} value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}>
@@ -382,12 +411,13 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
               )}
             </div>
           )}
-          {embedded && <PayForm pack={pack} clientId={clientId} getBuyer={() => buyerRef.current} blocked={!picked} total={total} recurring={!!pack.recurring} onPaypalPage={() => onPay(buyerRef.current)} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
+          {embedded && !picked && <p className="muted small">Choose your country and {country === 'US' ? 'state' : 'province or state'} above to pay.</p>}
+          {embedded && picked && <PayForm key={cur} pack={pack} clientId={clientId} currency={cur} getBuyer={() => buyerRef.current} blocked={!picked} total={total} recurring={!!pack.recurring} onPaypalPage={() => onPay(buyerRef.current)} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
           {provider === 'paypal' && !clientId && !pack.recurring && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
           {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
           {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? `Opening ${who}…` : pack.recurring ? `Subscribe for ${total} a month with ${who}` : `Pay ${total} with ${who}`}</button>}
           {error && <p className="error-text">{error}</p>}
-          <BuyNotices paypal={provider === 'paypal'} tax={!!tax} saved={!!pack.recurring && embedded} />
+          <BuyNotices paypal={provider === 'paypal'} tax={!!tax} place={!!regions && !tax} fee={feeCents > 0} saved={!!pack.recurring && embedded} />
         </main>
         <aside className="co-receipt">
           <div className="co-rcpt-in">
@@ -400,8 +430,9 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
             </div>
             <div className="co-line"><span>Subtotal</span><span>{price}</span></div>
             {tax && !picked && <div className="co-line"><span>Tax</span><span className="muted small">Choose where you are</span></div>}
-            {tax && picked && !parts.length && <div className="co-line"><span>Tax</span><span>{money(0, pack.currency)}</span></div>}
-            {parts.map((x) => <div key={x.label} className="co-line"><span>{x.label} ({x.rate}%)</span><span>{money(x.amount, pack.currency)}</span></div>)}
+            {tax && picked && !parts.length && <div className="co-line"><span>Tax</span><span>{money(0, cur)}</span></div>}
+            {parts.map((x) => <div key={x.label} className="co-line"><span>{x.label} ({x.rate}%)</span><span>{money(x.amount, cur)}</span></div>)}
+            {feeCents > 0 && <div className="co-line"><span>Processing fee</span><span>{money(feeCents, cur)}</span></div>}
             <div className="co-line total"><span>Total due today</span><b>{total}</b></div>
             {pack.recurring && <p className="muted small">Then {total} every month until you cancel. You can cancel any time in Storage; you keep the plan until the month you paid for ends.</p>}
           </div>
@@ -466,6 +497,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
   const [checkout, setCheckout] = useState(null); // the pack being checked out, or null
   const [coErr, setCoErr] = useState('');
   const captured = useRef('');
+  const [homePick, setHomePick] = useState(null); // 'CA' or 'US' when the person flips the price switch; otherwise the guess in region.js
   const shownBalance = useCountUp(d ? d.balance : null);
   const [bump, setBump] = useState(0);
   useEffect(() => { if (d) setBump((n) => n + 1); }, [d?.balance]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -564,10 +596,11 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
 
   const locked = d?.unlocksAt && d.unlocksAt > Date.now();
   const mins = locked ? Math.max(1, Math.ceil((d.unlocksAt - Date.now()) / 60000)) : 0;
+  const home = homePick || homeCountry(d?.regions?.countries); // whose price to show: Canadians see CAD, people in the US see USD
   const m = d?.messaging;
   // an artist's marketplace shows only their items; otherwise the whole shop
   const shopItems = d ? (artistId ? d.shop.filter((it) => it.byId === artistId) : d.shop) : [];
-  if (checkout && d) return <Checkout pack={checkout} provider={d.provider} clientId={d.paypalClientId} tax={d.tax} busy={!!busy} error={coErr} onPay={pay} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(null); setBusy(''); }} />;
+  if (checkout && d) return <Checkout pack={checkout} provider={d.provider} clientId={d.paypalClientId} tax={d.tax} fee={d.fee} regions={d.regions} busy={!!busy} error={coErr} onPay={pay} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(null); setBusy(''); }} />;
 
   return (
     <section className="chat">
@@ -591,12 +624,19 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
               {d.packs.map((p) => (
                 <div key={p.id} className="credit-pack">
                   <div className="pack-amt"><Icon name="coin" size={20} />{p.credits.toLocaleString()}</div>
-                  <button className="btn primary" disabled={!d.purchases} onClick={() => { setBuying(false); setCoErr(''); setCheckout(p); }}>{money(p.cents, p.currency)}</button>
+                  <button className="btn primary" disabled={!d.purchases} onClick={() => { setBuying(false); setCoErr(''); setCheckout(p); }}>{priceFor(p, d.regions ? home : 'US').text}{d.regions ? <small className="buy-cad"> {priceFor(p, home).code}</small> : null}</button>
                 </div>
               ))}
             </div>
+            {d.regions && d.regions.countries.length > 1 && (
+              <p className="muted small">
+                Prices in {home === 'US' ? 'US dollars' : 'Canadian dollars'}.{' '}
+                <button type="button" className="link-btn" onClick={() => { const n = home === 'US' ? 'CA' : 'US'; rememberCountry(n); setHomePick(n); }}>Show {home === 'US' ? 'Canadian' : 'US'} prices</button>
+                {home === 'US' && rateNote(d.fx) ? ' ' + rateNote(d.fx) : ''}
+              </p>
+            )}
             {d.purchases && <BuyNotices />}
-            {!d.purchases && <p className="muted small">Buying credits is not set up on this server yet.</p>}
+            {!d.purchases && <p className="muted small">{d.paused ? 'Payments are paused right now. Please check back soon.' : 'Buying credits is not set up on this server yet.'}</p>}
           </Modal>
         )}
         {d && (
@@ -656,7 +696,7 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
             {d.ads?.enabled && d.ads.sponsored && <SponsorCard ad={d.ads.sponsored} />}
             {d.ads?.enabled && d.ads.adsense && <AdSenseUnit cfg={d.ads.adsense} />}
 
-            <a className="pay-link" href="/payments">
+            <a className="pay-link" href="/payments" style={d.paused ? { display: 'none' } : undefined}>
               <span className="pay-link-ico"><Icon name="bag" size={18} /></span>
               <span className="grow"><b>Purchase history and plans</b><span className="muted small"> See what you bought and manage your plan</span></span>
               <Icon name="chevron" size={18} className="pay-link-go" />

@@ -37,12 +37,23 @@ const EARN = {
   minJitterMs: 8,                  // ...the gaps between them must vary by at least this (robots type evenly)
 };
 
+// Prices: about 250 credits a dollar at the smallest pack, with a bigger bonus the bigger the pack (+8%, +16%, +24%, +32%).
+// A pack's id is its credit amount. Older payments keep the pack id they were bought under (their own record says how many credits they gave).
+// cents is the US price, cadCents the Canadian one (about 1.4 times the US price, set by hand). Both are the full price the buyer pays:
+// PayPal's 4.9% + 30 cents is already in them, so checkout adds no fee line.
 const PACKS = [
-  { id: 'p500', credits: 500, cents: 499 },
+  { id: 'p500', credits: 500, cents: 249, cadCents: 329 },
+  { id: 'p1350', credits: 1350, cents: 559, cadCents: 769 },
+  { id: 'p2900', credits: 2900, cents: 1089, cadCents: 1509 },
+  { id: 'p6200', credits: 6200, cents: 2139, cadCents: 2979 },
+];
+// The packs sold before the price change. Not offered any more; only so a payment that was started before it still finishes and is credited.
+const LEGACY_PACKS = [
   { id: 'p1200', credits: 1200, cents: 999 },
   { id: 'p2600', credits: 2600, cents: 1999 },
   { id: 'p7000', credits: 7000, cents: 4999 },
 ];
+const packForPayment = (id) => PACKS.find((p) => p.id === id) || LEGACY_PACKS.find((p) => p.id === id);
 const CURRENCY = 'usd';
 const LEDGER_KEEP = 40;
 
@@ -309,15 +320,19 @@ function streakView(c, now) {
 }
 
 // ---------- what the client sees ----------
-function view(u, db, { purchases, now = Date.now(), dev = false, creator = false, features = {} }) {
+function view(u, db, { purchases, paused = false, now = Date.now(), dev = false, creator = false, features = {} }) {
   const c = acct(u), d = today(c, now);
   return {
     balance: c.balance,
     purchases,
+    paused: !!paused, // purchases are set up but a creator has Payments switched off (/admin > Switches): the client says "paused", not "not set up"
     provider: purchases ? (paypalEnabled() ? 'paypal' : 'stripe') : null,
     tax: paypalEnabled() ? TAX.publicInfo() : null,
+    fee: paypalEnabled() ? FEE.publicInfo() : null,
+    regions: paypalEnabled() ? REG.publicInfo() : null,
     paypalClientId: paypalEnabled() ? ppId() : null, // public by design: the browser needs it to load PayPal's card fields and button
-    packs: PACKS.map((p) => ({ ...p, currency: CURRENCY })),
+    packs: PACKS.map((p) => ({ ...p, cents: paypalEnabled() ? REG.priceIn(p, 'usd') : p.cents, currency: CURRENCY })), // with PayPal the US price follows the exchange rate (server/fx.js)
+    fx: paypalEnabled() ? FX.view() : null,
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
     streakInfo: streakView(c, now),
     ads: ads.view(u, { now, unlocksAt: unlocksAt(u), rewarded: !!features.rewarded, sponsored: !!features.sponsored }), // { enabled: false } unless sponsors are configured AND a feature switch is on for this person; never anything in chat or voice
@@ -352,6 +367,9 @@ const paypalEnabled = () => !!(ppId() && ppSecret() && ppHook());
 const ppBase = () => (String(process.env.PAYPAL_ENV || '').toLowerCase() === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com');
 const purchasesEnabled = () => paypalEnabled() || stripeEnabled();
 const TAX = require('./tax');
+const REG = require('./regions');      // where Aduna sells and in which currency (server/regions.js)
+const FX = require('./fx');            // the USD to CAD rate the US price is worked out from (server/fx.js)
+const FEE = require('./fee');          // PayPal's processing fee, passed on to the buyer (server/fee.js)
 const ppMoney = (cents) => (cents / 100).toFixed(2);
 const ppOrderId = (v) => (typeof v === 'string' && /^[A-Za-z0-9-]{8,40}$/.test(v) ? v : null);
 
@@ -370,9 +388,14 @@ async function ppToken(fetchImpl = fetch) {
 // Without `embedded` it returns where to send the buyer (PayPal's own page). With embedded 'card' or 'paypal' the buyer pays inside
 // Aduna's checkout (PayPal's card fields or PayPal button) and only the order id is returned; the browser then hands it back to be captured.
 async function createPaypalOrder({ user, pack, origin, embedded = null, buyer = {}, fetchImpl = fetch }) {
-  const q = TAX.quote(buyer, pack.cents);                      // tax only where Aduna is set up to collect it (server/tax.js)
+  const where = REG.resolve(buyer);                            // Canada and the US only, each in its own currency (server/regions.js)
+  if (!where.ok) throw Object.assign(new Error(where.error), { forBuyer: true });
+  const base = REG.priceIn(pack, where.currency);
+  if (!base) throw Object.assign(new Error('This pack is not for sale in ' + where.currency.toUpperCase()), { forBuyer: true });
+  const q = TAX.quote(buyer, base);                            // tax only where Aduna is set up to collect it (server/tax.js)
   if (!q.ok) throw Object.assign(new Error(q.error), { forBuyer: true });
-  const total = pack.cents + q.tax;
+  const f = FEE.quote(buyer, base + q.tax);                    // PayPal's cut, as its own "processing fee" line (server/fee.js)
+  const total = base + q.tax + f.fee, extra = q.tax + f.fee, cur = where.currency.toUpperCase();
   const token = await ppToken(fetchImpl);
   const r = await fetchImpl(ppBase() + '/v2/checkout/orders', {
     method: 'POST',
@@ -381,12 +404,12 @@ async function createPaypalOrder({ user, pack, origin, embedded = null, buyer = 
       intent: 'CAPTURE',
       purchase_units: [{
         reference_id: pack.id,
-        custom_id: q.tax ? `${user.id}|${pack.id}|${q.code}|${total}` : `${user.id}|${pack.id}`, // the total paid travels with the order so the capture can be checked
+        custom_id: `${user.id}|${pack.id}|${q.code || ''}|${total}|${where.country}|${where.region}|${q.tax}`, // the total paid and where the buyer is travel with the order: the capture checks one and records the other
         description: `${pack.credits.toLocaleString('en-US')} Aduna credits`,
-        amount: q.tax
-          ? { currency_code: CURRENCY.toUpperCase(), value: ppMoney(total), breakdown: { item_total: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(pack.cents) }, tax_total: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(q.tax) } } }
-          : { currency_code: CURRENCY.toUpperCase(), value: ppMoney(pack.cents) },
-        ...(q.tax ? { items: [{ name: `${pack.credits.toLocaleString('en-US')} Aduna credits`, quantity: '1', category: 'DIGITAL_GOODS', unit_amount: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(pack.cents) }, tax: { currency_code: CURRENCY.toUpperCase(), value: ppMoney(q.tax) } }] } : {}),
+        amount: extra
+          ? { currency_code: cur, value: ppMoney(total), breakdown: { item_total: { currency_code: cur, value: ppMoney(base) }, ...(q.tax ? { tax_total: { currency_code: cur, value: ppMoney(q.tax) } } : {}), ...(f.fee ? { handling: { currency_code: cur, value: ppMoney(f.fee) } } : {}) } }
+          : { currency_code: cur, value: ppMoney(base) },
+        ...(q.tax ? { items: [{ name: `${pack.credits.toLocaleString('en-US')} Aduna credits`, quantity: '1', category: 'DIGITAL_GOODS', unit_amount: { currency_code: cur, value: ppMoney(base) }, tax: { currency_code: cur, value: ppMoney(q.tax) } }] } : {}),
       }],
       ...(embedded === 'card'
         ? { payment_source: { card: { attributes: { verification: { method: 'SCA_WHEN_REQUIRED' } } } } } // 3-D Secure when the bank asks for it
@@ -415,16 +438,24 @@ function applyPaypalCapture(cap, db, now = Date.now()) {
   if (String(cap.custom_id || '').startsWith('storage|')) return null;                // the storage plan: server/storage.js looks after it
   const key = 'pp_' + cap.id;
   if (db.payments[key]) return null;                                                // retries and the return trip + webhook: pay once
-  const [uid, packId, , totalStr] = String(cap.custom_id || '').split('|');
-  const pack = PACKS.find((p) => p.id === packId), u = db.users[uid];
+  const [uid, packId, , totalStr, country = '', region = '', taxStr] = String(cap.custom_id || '').split('|');
+  const pack = packForPayment(packId), u = db.users[uid];
   if (!pack || !u) { console.error('Credits: PayPal capture', cap.id, 'has an unknown pack or user'); return null; }
-  const cents = Math.round(Number(cap.amount?.value) * 100);
-  const expected = totalStr === undefined ? pack.cents : Number(totalStr);       // price + the tax the server added when it made the order
-  if (!Number.isInteger(expected) || expected < pack.cents || expected > Math.round(pack.cents * 1.5) || cents !== expected || String(cap.amount?.currency_code).toUpperCase() !== CURRENCY.toUpperCase()) {
+  const cents = Math.round(Number(cap.amount?.value) * 100), cur = String(cap.amount?.currency_code).toLowerCase();
+  const base = REG.priceIn(pack, cur);                                         // the pack's price in the currency that was paid
+  const expected = totalStr === undefined ? base : Number(totalStr);             // price + the tax and processing fee the server added when it made the order
+  const wrongCurrency = !!country && REG.currencyOf(country) !== cur;           // a Canadian order is paid in CAD, a US one in USD
+  if (!base || !Number.isInteger(expected) || expected < REG.floorIn(pack, cur) || expected > Math.round(base * 1.75) || cents !== expected || wrongCurrency) {
     console.error('Credits: PayPal capture', cap.id, 'amount does not match the pack; not crediting');
     return null;
   }
-  db.payments[key] = { id: key, userId: u.id, packId: pack.id, credits: pack.credits, cents: expected, intent: 'pp:' + cap.id, createdAt: now, reversed: false };
+  const why = REG.review(country, cap.payerCountry);
+  db.payments[key] = {
+    id: key, userId: u.id, packId: pack.id, credits: pack.credits, cents: expected, currency: cur, country, region, tax: Number(taxStr) || 0,
+    ...(cap.payerCountry ? { payerCountry: cap.payerCountry } : {}), ...(why ? { review: why } : {}),
+    intent: 'pp:' + cap.id, createdAt: now, reversed: false,
+  };
+  if (why) console.warn(`Credits: payment ${key} needs a look (${why}): the buyer said ${country || 'nothing'}, PayPal says ${cap.payerCountry}`);
   grant(u, pack.credits, 'purchase', { note: `${pack.credits} credits`, kind: 'buy', now });
   return { uid: u.id, delta: pack.credits, reason: 'purchase' };
 }
@@ -445,7 +476,7 @@ async function capturePaypalOrder({ orderId, db, fetchImpl = fetch, now = Date.n
   if (!r.ok) throw new Error(`PayPal capture failed (${r.status}): ${j.message || j.name || 'unknown'}`);
   const cap = j.purchase_units?.[0]?.payments?.captures?.[0];
   if (!cap) return { status: 'incomplete', change: null };
-  const withCustom = { ...cap, custom_id: cap.custom_id || j.purchase_units[0].custom_id };
+  const withCustom = { ...cap, custom_id: cap.custom_id || j.purchase_units[0].custom_id, payerCountry: REG.payerCountryOf(j) };
   const change = applyPaypalCapture(withCustom, db, now);
   return { status: cap.status === 'COMPLETED' ? 'completed' : 'pending', change };
 }
@@ -532,7 +563,7 @@ function handleStripeEvent(event, db, now = Date.now()) {
   if (event?.type === 'checkout.session.completed' || event?.type === 'checkout.session.async_payment_succeeded') {
     if (obj.payment_status !== 'paid') return null; // an async payment: wait for async_payment_succeeded
     if (db.payments[obj.id]) return null;            // Stripe retries and sends duplicates: pay once per session
-    const pack = PACKS.find((p) => p.id === obj.metadata?.packId);
+    const pack = packForPayment(obj.metadata?.packId);
     const u = db.users[obj.metadata?.userId];
     if (!pack || !u) { console.error('Credits: paid session', obj.id, 'has an unknown pack or user'); return null; }
     if (obj.amount_total !== pack.cents || String(obj.currency).toLowerCase() !== CURRENCY) {
@@ -564,11 +595,12 @@ function register(app, d) {
   // developers (and the creator) can switch an event on for themselves to test it, see events.js
   const isDev = (u) => !!(d.isDev && d.isDev(u));
   const isCreator = (u) => !!(d.isCreator && d.isCreator(u));
+  const paymentsOpen = (u) => !d.paymentsOpen || d.paymentsOpen(u); // the Payments switch (index.js); open when nothing says otherwise
   // feature releases (features.js): 'rewarded-ads' and 'sponsored-card' decide whether this person sees the sponsor button and the card
   const featureOn = (id, u) => !!(d.featureOn && d.featureOn(id, u));
   const needRewardedAds = (req, res, next) => (featureOn('rewarded-ads', req.user) ? next() : res.status(404).json({ error: 'Not found' }));
   const fullView = (u) => view(u, d.db(), {
-    purchases: purchasesEnabled(), dev: isDev(u), creator: isCreator(u),
+    purchases: purchasesEnabled() && paymentsOpen(u), paused: purchasesEnabled() && !paymentsOpen(u), dev: isDev(u), creator: isCreator(u),
     features: { rewarded: featureOn('rewarded-ads', u), sponsored: featureOn('sponsored-card', u) },
   });
 
