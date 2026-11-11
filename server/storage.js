@@ -267,7 +267,9 @@ async function createVaultOrder({ user, buyer = {}, fetchImpl = fetch }) {
         : { currency_code: cur, value: money(PLAN.cents) },
     }],
     payment_source: { card: {
-      attributes: { vault: { store_in_vault: 'ON_SUCCESS' }, verification: { method: 'SCA_WHEN_REQUIRED' } }, // 3-D Secure when the bank asks for it
+      // TEMPORARY SANDBOX TEST: store_in_vault removed to see whether it is what makes PayPal answer 422 at confirm-payment-source.
+      // Without it PayPal does not keep the card, so there is no monthly renewal until it goes back in.
+      attributes: { verification: { method: 'SCA_WHEN_REQUIRED' } }, // 3-D Secure when the bank asks for it
       // No stored_credential ("first recurring payment") block here: it is suspected of making PayPal's card fields reject the card.
       // The monthly charge works without it; it links back to the first payment only when PayPal returns a reference.
     } },
