@@ -249,6 +249,14 @@ function addMonth(ms) {
   return d.getTime();
 }
 
+// What the /payments page lists: every storage payment, newest first. Kept on the person, not in storageSub, so resetting a plan does not erase it.
+function logPayment(user, { id, cents, at, renewal = false }) {
+  const list = Array.isArray(user.storagePayments) ? user.storagePayments : (user.storagePayments = []);
+  if (list.some((p) => p.id === id)) return;
+  list.unshift({ id, cents, at, renewal });
+  if (list.length > 60) list.length = 60;
+}
+
 // First payment: the order the card fields pay. The price (and the tax, where Aduna collects it) is set here, never by the browser.
 // store_in_vault asks PayPal to keep the card once the payment goes through.
 async function createVaultOrder({ user, buyer = {}, fetchImpl = fetch }) {
@@ -307,6 +315,7 @@ async function captureVaultOrder({ user, orderId, fetchImpl = fetch, now = Date.
     dueAt: addMonth(now), nextChargeAt: saved ? addMonth(now) : null, failures: 0, lastCaptureId: cap.id,
     since: old.since || now, paidThrough: Math.max(Number(old.paidThrough) || 0, now) + PAID_FOR_MS, syncedAt: now,
   };
+  logPayment(user, { id: cap.id, cents, at: now });
   return { status: 'active', saved, changed: true };
 }
 
@@ -331,6 +340,7 @@ async function chargeRenewal({ user, fetchImpl = fetch, now = Date.now() }) {
     s.status = 'active'; s.failures = 0; s.lastCaptureId = cap.id; s.syncedAt = now;
     s.paidThrough = Math.max(Number(s.paidThrough) || 0, now + PAID_FOR_MS);
     s.dueAt = addMonth(s.dueAt || now); s.nextChargeAt = s.dueAt;
+    logPayment(user, { id: cap.id, cents: s.amountCents, at: now, renewal: true });
     return { ok: true };
   }
   if (cap && cap.status === 'PENDING') return { ok: false, transient: true }; // PayPal is still looking at it; the same request id answers the same next time

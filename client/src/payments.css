@@ -1,0 +1,46 @@
+.pay-page { height: 100%; overflow-y: auto; background: var(--bg); color: var(--text); }
+.pay-wrap { max-width: 720px; margin: 0 auto; padding: 20px 16px 48px; }
+.pay-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.pay-head h1 { margin: 0; font-size: 22px; color: var(--head); }
+.pay-back { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; border-radius: 10px; color: var(--text); }
+.pay-back:hover { background: var(--hover); }
+.pay-h { margin: 26px 0 10px; font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.pay-card { background: var(--bg2); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+.pay-card-top { display: flex; align-items: center; gap: 12px; }
+.pay-ico { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 11px; background: var(--chip-on); color: var(--head); flex: none; }
+.pay-card-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pay-card-main b { color: var(--head); }
+.pay-sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.pay-pill { flex: none; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--hover); color: var(--muted); }
+.pay-pill.on { background: var(--ok-bg); color: var(--ok-fg); }
+.pay-pill.ending { background: var(--err-bg); color: var(--err-fg); }
+.pay-line { margin: 12px 0 0; line-height: 1.5; }
+.pay-warn { color: var(--danger); }
+.pay-quiet { color: var(--muted); font-size: 13px; }
+.pay-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.pay-actions:empty { display: none; }
+.pay-actions .btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.pay-list { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--bg2); }
+.pay-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; }
+.pay-row + .pay-row { border-top: 1px solid var(--line); }
+.pay-row-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.pay-row-main b { color: var(--head); overflow-wrap: anywhere; }
+.pay-amt { flex: none; font-variant-numeric: tabular-nums; color: var(--head); }
+.pay-empty { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 28px 16px; text-align: center; background: var(--bg2); border: 1px dashed var(--line2); border-radius: 14px; color: var(--muted); }
+.pay-empty b { color: var(--head); }
+.pay-msg { margin: 12px 0 0; padding: 10px 14px; border-radius: 10px; font-size: 14px; }
+.pay-msg.ok { background: var(--ok-bg); color: var(--ok-fg); }
+.pay-msg.error { background: var(--err-bg); color: var(--err-fg); }
+.pay-foot { margin-top: 14px; }
+@media (max-width: 480px) {
+  .pay-wrap { padding: 12px 12px 40px; }
+  .pay-row { padding: 12px; }
+}
+
+/* the link card in the Shop */
+.pay-link { display: flex; align-items: center; gap: 12px; margin-top: 22px; padding: 12px 14px; background: var(--bg2); border: 1px solid var(--line); border-radius: 12px; color: var(--text); text-decoration: none; }
+.pay-link:hover { background: var(--hover); }
+.pay-link-ico { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px; background: var(--chip-on); color: var(--head); flex: none; }
+.pay-link b { display: block; color: var(--head); }
+.pay-link .muted { display: block; }
+.pay-link-go { flex: none; color: var(--muted); transform: rotate(-90deg); }

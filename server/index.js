@@ -5583,6 +5583,17 @@ storageApi = storagePlan.register(app, {
     return m;
   },
 });
+// The /payments page: what this person paid. Credit packs come from db().payments (written when a payment clears), storage payments from
+// user.storagePayments (server/storage.js), and the credits ledger adds shop purchases and refunds. Only ever the signed-in person's own.
+app.get('/api/payments', auth, (req, res) => {
+  const u = req.user;
+  const packs = Object.values(db().payments || {}).filter((p) => p && p.userId === u.id)
+    .map((p) => ({ kind: 'credits', at: p.createdAt, cents: p.cents, credits: p.credits, reversed: !!p.reversed }));
+  const storage = (Array.isArray(u.storagePayments) ? u.storagePayments : [])
+    .map((p) => ({ kind: 'storage', at: p.at, cents: p.cents, renewal: !!p.renewal }));
+  const ledger = ((u.credits && u.credits.ledger) || []).map((l) => ({ t: l.t, amount: l.amount, reason: l.reason, note: l.note || null, n: l.n || null }));
+  res.json({ currency: storagePlan.PLAN.currency, payments: [...packs, ...storage].sort((a, b) => b.at - a.at), ledger });
+});
 // ----- push notifications (installed mobile app / browsers while Aduna is closed) -----
 // Keys are generated once and kept in the database (see db.js). The service worker (client/public/sw.js) shows the notification.
 let vapidReady = false;
@@ -5701,6 +5712,13 @@ if (fs.existsSync(dist)) {
   app.get(/^\/admin\/?$/, (req, res, next) => {
     const me = userFromToken(security.readSessionCookie(req.headers, secureReq(req)));
     if (!isAdmin(me) || needsVerify(me)) return res.redirect(302, '/');
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
+  // /payments needs a signed-in person; anyone else goes to the app's sign-in first.
+  app.get(/^\/payments\/?$/, (req, res, next) => {
+    const me = userFromToken(security.readSessionCookie(req.headers, secureReq(req)));
+    if (!me || needsVerify(me)) return res.redirect(302, '/app');
     res.set('Cache-Control', 'no-store');
     next();
   });

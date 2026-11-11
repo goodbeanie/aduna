@@ -25,6 +25,7 @@ import './wordle.css';
 import './contexto.css';
 import './events.css';
 import AdminPage from './AdminPage.jsx';
+import Payments from './Payments.jsx';
 import { CLIPS_ENABLED } from './features.js';
 // The Clips pages (feed, one clip, creator dashboard) are only loaded when Clips are switched on (features.js). While they are off nothing of them is fetched.
 const Dashboard = CLIPS_ENABLED ? React.lazy(() => import('./Dashboard.jsx')) : null;
@@ -53,11 +54,12 @@ initTheme();
 initKeyboard();
 
 startPhrases();
-// /dashboard is the Clips creator page (upload clips), /admin is the admin page (admins only), /clips is the Clips website (the feed), /clips/user/<id> is one person's Clips page,
+// /dashboard is the Clips creator page (upload clips), /admin is the admin page (admins only), /payments is the plan and purchase history, /clips is the Clips website (the feed), /clips/user/<id> is one person's Clips page,
 // /clips/<clip id> is one clip on its own page; everything else is the app
 const path = location.pathname;
 const onDashboard = CLIPS_ENABLED && /^\/dashboard\/?$/.test(path);
 const onAdmin = /^\/admin\/?$/.test(path);
+const onPayments = /^\/payments\/?$/.test(path);
 const onClipsFeed = CLIPS_ENABLED && /^\/clips\/?$/.test(path);
 const clipsUser = CLIPS_ENABLED ? /^\/clips\/user\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null : null;
 const clipId = CLIPS_ENABLED ? /^\/clips\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null : null;
@@ -66,10 +68,11 @@ createRoot(document.getElementById('root')).render(
     <React.Suspense fallback={null}>
       {onDashboard ? <Dashboard />
         : onAdmin ? <AdminPage />
-          : onClipsFeed ? <ClipsSite />
-            : clipsUser ? <ClipsSite userId={clipsUser} />
-              : clipId ? <ClipPage id={clipId} />
-                : <App />}
+          : onPayments ? <Payments />
+            : onClipsFeed ? <ClipsSite />
+              : clipsUser ? <ClipsSite userId={clipsUser} />
+                : clipId ? <ClipPage id={clipId} />
+                  : <App />}
     </React.Suspense>
   </ErrorBoundary>
 );

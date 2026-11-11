@@ -7,8 +7,6 @@ import { askConfirm, toast } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
-const REASON = { message: 'Messages', purchase: 'Bought credits', refund: 'Refund', chargeback: 'Payment reversed', shop: 'Shop', artist: 'Artist sale', ad: 'Sponsor' };
-const when = (t) => new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 function Quest({ q, locked, busy, onClaim }) {
   const pct = Math.round((q.have / q.need) * 100);
@@ -658,16 +656,11 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
             {d.ads?.enabled && d.ads.sponsored && <SponsorCard ad={d.ads.sponsored} />}
             {d.ads?.enabled && d.ads.adsense && <AdSenseUnit cfg={d.ads.adsense} />}
 
-            <h4 className="credit-h">Recent activity</h4>
-            {d.ledger.length === 0 && <p className="muted small">Nothing yet. Credits you earn, buy or spend will show up here.</p>}
-            <div className="ledger">
-              {d.ledger.map((l, i) => (
-                <div key={i} className="ledger-row">
-                  <span className="grow">{l.reason === 'quest' ? l.note : l.reason === 'shop' ? `Shop: ${l.note || 'purchase'}` : l.reason === 'artist' ? `Artist sale: ${l.note || 'badge'}` : REASON[l.reason] || l.reason}{l.reason === 'message' && l.n > 1 ? ` (${l.n})` : ''}<span className="muted small"> · {when(l.t)}</span></span>
-                  <b className={l.amount > 0 ? 'plus' : 'minus'}>{l.amount > 0 ? '+' : '−'}{Math.abs(l.amount).toLocaleString()}</b>
-                </div>
-              ))}
-            </div>
+            <a className="pay-link" href="/payments">
+              <span className="pay-link-ico"><Icon name="bag" size={18} /></span>
+              <span className="grow"><b>Purchase history and plans</b><span className="muted small"> See what you bought and manage your plan</span></span>
+              <Icon name="chevron" size={18} className="pay-link-go" />
+            </a>
             </>}
 
             {page === 'quests' && <>

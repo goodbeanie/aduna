@@ -177,6 +177,7 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
       )}
       <div className="st-actions">
         <button className="btn st-left" onClick={onManage}>Manage files</button>
+        {s.subscriber && <a className="btn" href="/payments">Payments</a>}
         {s.subscriber && s.renews && <button className="btn danger-btn" onClick={onCancelPlan} disabled={busy}>Cancel plan</button>}
         <button className="btn primary" onClick={onClose}>Done</button>
       </div>
