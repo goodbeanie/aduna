@@ -152,5 +152,15 @@
     "items": [
       { "title": "New pack sizes", "text": "Credits now come in packs of 500, 1,000, 2,500 and 5,000. They cost $2.49, $3.99, $7.69 and $10.89 in Canadian dollars. The US price follows the exchange rate." }
     ]
+  },
+  {
+    "id": "2026.11.11.3",
+    "date": "2026-11-11",
+    "title": "Card form fix for US checkout",
+    "desktop": "1.4.113",
+    "android": "2026.11.11.2249",
+    "items": [
+      { "title": "Card form after switching country", "text": "Switching between Canada and the US at checkout could leave the card form stuck on an error. The card boxes now load for either country." }
+    ]
   }
 ]
