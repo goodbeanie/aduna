@@ -104,17 +104,18 @@ async function ppFetch(fetchImpl, token, method, path, body, headers = {}) {
 }
 
 // One-time setup at PayPal: a product and a monthly plan at PLAN.cents. Fixed request ids make a second run return the same ones.
-async function createPlan(fetchImpl = fetch) {
+async function createPlan(fetchImpl = fetch, fresh = false) {
   const token = await credits.ppToken(fetchImpl);
+  const rid = (name) => name + (fresh ? '-' + crypto.randomUUID() : ''); // `fresh`: new request ids, so PayPal makes a new product and plan instead of replaying an old answer
   const prod = await ppFetch(fetchImpl, token, 'POST', '/v1/catalogs/products',
-    { name: PLAN.name, description: '10 GB of file storage on Aduna', type: 'DIGITAL', category: 'SOFTWARE' }, { 'PayPal-Request-Id': 'aduna-storage-product-1' });
+    { name: PLAN.name, description: '10 GB of file storage on Aduna', type: 'DIGITAL', category: 'SOFTWARE' }, { 'PayPal-Request-Id': rid('aduna-storage-product-1') });
   if (!prod.ok || !prod.j.id) throw new Error(`PayPal product setup failed (${prod.status}): ${prod.j.message || 'no id'}`);
   const plan = await ppFetch(fetchImpl, token, 'POST', '/v1/billing/plans', {
     product_id: prod.j.id, name: PLAN.name + ' (monthly)', description: '10 GB of file storage, billed every month', status: 'ACTIVE',
     billing_cycles: [{ frequency: { interval_unit: 'MONTH', interval_count: 1 }, tenure_type: 'REGULAR', sequence: 1, total_cycles: 0,
       pricing_scheme: { fixed_price: { value: (PLAN.cents / 100).toFixed(2), currency_code: PLAN.currency.toUpperCase() } } }],
     payment_preferences: { auto_bill_outstanding: true, setup_fee_failure_action: 'CANCEL', payment_failure_threshold: 3 },
-  }, { 'PayPal-Request-Id': 'aduna-storage-plan-1' });
+  }, { 'PayPal-Request-Id': rid('aduna-storage-plan-1') });
   if (!plan.ok || !plan.j.id) throw new Error(`PayPal plan setup failed (${plan.status}): ${plan.j.message || 'no id'}`);
   return plan.j.id;
 }
@@ -136,7 +137,7 @@ async function createSubscription({ user, buyer = {}, origin, planId, fetchImpl 
     ...(q.tax ? { plan: { taxes: { percentage: String(q.rate), inclusive: false } } } : {}),
   }, { 'PayPal-Request-Id': crypto.randomUUID(), Prefer: 'return=representation' });
   const link = (r.j.links || []).find((l) => l.rel === 'approve');
-  if (!r.ok || !link?.href || !SUB_ID.test(String(r.j.id || ''))) throw new Error(`PayPal subscription failed (${r.status}): ${r.j.message || 'no approval link'}`);
+  if (!r.ok || !link?.href || !SUB_ID.test(String(r.j.id || ''))) throw Object.assign(new Error(`PayPal subscription failed (${r.status}): ${r.j.message || 'no approval link'}`), { status: r.status });
   let host = '';
   try { host = new URL(link.href).hostname; } catch { /* handled below */ }
   if (!/(^|\.)paypal\.com$/.test(host)) throw new Error('PayPal subscription failed: unexpected approval address');
@@ -233,13 +234,13 @@ function handleEvent(ev, db, now = Date.now()) {
 function register(app, d) {
   const nowMs = () => (d.now ? d.now() : Date.now());
   let planMem = null;
-  const planId = async () => {
+  const planId = async (force = false) => {
     if (process.env.PAYPAL_STORAGE_PLAN_ID) return process.env.PAYPAL_STORAGE_PLAN_ID; // a plan you made yourself in the PayPal dashboard
-    if (planMem) return planMem;
+    if (planMem && !force) return planMem;
     const key = 'storage-plan:' + credits.ppBase();                                   // sandbox and live each get their own
-    const cached = d.getMeta ? await d.getMeta(key) : null;
+    const cached = !force && d.getMeta ? await d.getMeta(key) : null;
     if (cached) return (planMem = cached);
-    const id = await createPlan(d.fetchImpl);
+    const id = await createPlan(d.fetchImpl, force);
     if (d.setMeta) await d.setMeta(key, id);
     return (planMem = id);
   };
@@ -339,7 +340,14 @@ function register(app, d) {
     if (isSubscriber(req.user, nowMs()) && rec(req.user) && rec(req.user).status === 'active') return res.status(409).json({ error: 'You already have the storage plan' });
     const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     try {
-      const r = await createSubscription({ user: req.user, buyer: req.body, origin, planId: await planId(), fetchImpl: d.fetchImpl });
+      let r;
+      try { r = await createSubscription({ user: req.user, buyer: req.body, origin, planId: await planId(), fetchImpl: d.fetchImpl }); }
+      catch (e) {
+        // PayPal does not know the remembered plan (404: it was made under another sandbox/live account): make a fresh one once and try again
+        if (e.status !== 404 || process.env.PAYPAL_STORAGE_PLAN_ID) throw e;
+        console.error('Storage plan not found at PayPal, making a new one:', e.message);
+        r = await createSubscription({ user: req.user, buyer: req.body, origin, planId: await planId(true), fetchImpl: d.fetchImpl });
+      }
       res.json({ url: r.url });
     } catch (e) {
       if (e.forBuyer) return res.status(400).json({ error: e.message });
