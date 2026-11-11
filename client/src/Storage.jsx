@@ -255,6 +255,12 @@ export function StorageDock({ storage, setStorage }) {
     catch (e) { toast(e.message, 'error'); }
     setBusy(false);
   }
+  // The card was paid and the server captured it (it saves the card at PayPal and starts the plan): show the new state.
+  function paid(r) {
+    setStorage(r); setCheckout(false); setBusy(false); setCoErr('');
+    if (r.status === 'active') toast(r.saved === false ? 'Your storage plan is on for this month. PayPal could not save your card, so it will not renew.' : 'Your storage plan is on. Thank you!');
+    else toast('PayPal is still processing your payment. Please do not pay again; check Storage again in a few minutes.');
+  }
   const finishFull = (ok) => { full?.resolve(ok); setFull(null); reload(); };
 
   if (!storage) return null;
@@ -264,7 +270,7 @@ export function StorageDock({ storage, setStorage }) {
 
   const freePct = s.freeLimit ? Math.min(100, Math.round((s.used / s.freeLimit) * 100)) : 0;
 
-  if (checkout) return <Checkout pack={plan} provider={s.provider} clientId={null} tax={s.tax} busy={busy} error={coErr} onPay={subscribe} onPaid={() => {}} onError={setCoErr} onClose={() => { setCheckout(false); setBusy(false); }} />;
+  if (checkout) return <Checkout pack={plan} provider={s.provider} clientId={s.paypalClientId || null} tax={s.tax} busy={busy} error={coErr} onPay={subscribe} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(false); setBusy(false); }} />;
 
   return (
     <>
