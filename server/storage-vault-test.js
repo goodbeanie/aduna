@@ -76,7 +76,7 @@ async function subscribed(f, u = user(), now = T0) {
     const b = posts(f, '/v2/checkout/orders')[0].body, pu = b.purchase_units[0], card = b.payment_source.card;
     assert.strictEqual(pu.amount.value, '4.99'); assert.strictEqual(pu.amount.currency_code, 'USD');
     assert.strictEqual(pu.custom_id, 'storage|u1|499');
-    assert.strictEqual(card.attributes.vault, undefined, 'TEMPORARY: the first order does not ask PayPal to keep the card');
+    assert.strictEqual(card.attributes.vault.store_in_vault, 'ON_SUCCESS', 'PayPal keeps the card after a successful payment');
     assert.strictEqual(card.stored_credential, undefined, 'the first order carries no stored_credential block');
     assert.strictEqual(b.intent, 'CAPTURE');
     assert.ok(f.calls[0].url.startsWith('https://api-m.sandbox.paypal.com/'), 'sandbox unless PAYPAL_ENV=live');

@@ -205,7 +205,7 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, recurring = false, 
       ? api('/storage/vault/order', { method: 'POST', body: { ...getBuyer() } })
       : api('/credits/paypal/order', { method: 'POST', body: { packId: pack.id, method, ...getBuyer() } })).then((r) => r.orderId);
     const approved = ({ orderID }) => api(recurring ? '/storage/vault/capture' : '/credits/paypal/capture', { method: 'POST', body: { orderId: orderID } }).then((r) => { if (!dead) onPaid(r); });
-    const fail = (e) => { if (!dead) { setPaying(false); onError(e?.message && !/^\s*\{/.test(e.message) && e.message.length < 160 ? e.message : 'The payment did not go through. Check your details or try another way to pay.'); } };
+    const fail = (e) => { console.error('PayPal card error:', e?.message || e); if (!dead) { setPaying(false); onError(e?.message && !/^\s*\{/.test(e.message) && e.message.length < 160 ? e.message : 'The payment did not go through. Check your details or try another way to pay.'); } };
     loadPaypal(clientId).then((paypal) => {
       if (dead) return;
       const input = { 'font-size': '15px', 'font-family': 'inherit', 'font-weight': '500', 'letter-spacing': '0.01em', color: css('--head', '#222'), background: 'transparent', border: 'none', 'border-radius': '0', 'box-shadow': 'none', appearance: 'none', '-webkit-appearance': 'none', padding: '0 16px', outline: 'none' };
@@ -246,7 +246,7 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, recurring = false, 
   function payByCard() {
     if (!cf.current) return;
     onError(''); setPaying(true);
-    cf.current.submit().catch((e) => { setPaying(false); onError(e?.message && e.message.length < 160 ? e.message : 'Check your card details and try again.'); });
+    cf.current.submit().catch((e) => { console.error('PayPal card error:', e?.message || e); setPaying(false); onError(e?.message && e.message.length < 160 ? e.message : 'Check your card details and try again.'); });
   }
 
   return (
