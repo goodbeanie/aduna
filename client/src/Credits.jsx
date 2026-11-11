@@ -155,10 +155,12 @@ function StreakCard({ s }) {
 }
 
 // The notices shown before paying. Shown on the Credits page and again inside the checkout, where `paypal` and `tax` add the two notes below.
-function BuyNotices({ paypal = false, tax = false }) {
+function BuyNotices({ paypal = false, tax = false, saved = false }) {
   return (
     <div className="buy-notices">
-      <div className="buy-note"><Icon name="shield" size={16} /><span>Aduna does not save your payment information, your security is our priority.</span></div>
+      {saved
+        ? <div className="buy-note"><Icon name="shield" size={16} /><span>Your card is saved securely by PayPal, not by Aduna. Aduna never sees or stores your card details. Your plan renews every month and you can cancel any time in Storage.</span></div>
+        : <div className="buy-note"><Icon name="shield" size={16} /><span>Aduna does not save your payment information, your security is our priority.</span></div>}
       {paypal && <div className="buy-note"><Icon name="shield" size={16} /><span>Secure checkout is provided by PayPal. Your card details are entered directly with PayPal and are never seen or stored by Aduna.</span></div>}
       {tax && <div className="buy-note"><Icon name="pin" size={16} /><span>We ask for your billing location only to calculate the sales tax that applies to your order. Your postal code stays in your browser; only your country and province or state are sent with the order.</span></div>}
     </div>
@@ -186,7 +188,9 @@ function loadPaypal(clientId) {
 const css = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 
 // The card form and PayPal button inside Aduna's checkout. onPaid(result) runs after the server has captured the order.
-function PayForm({ pack, clientId, getBuyer, blocked, total, onPaid, onFallback, onError }) {
+// For a monthly plan (`recurring`) the card is saved by PayPal (the server asks for it) and charged by the server every month; PayPal's
+// button cannot do that, so instead there is a button that opens PayPal's own subscription page (`onPaypalPage`) for PayPal-account payers.
+function PayForm({ pack, clientId, getBuyer, blocked, total, recurring = false, onPaypalPage, onPaid, onFallback, onError }) {
   const [ready, setReady] = useState(false);
   const [cardOk, setCardOk] = useState(true);
   const [noCard, setNoCard] = useState(false);
@@ -197,8 +201,10 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, onPaid, onFallback,
 
   useEffect(() => {
     let dead = false, buttons = null;
-    const makeOrder = (method) => () => api('/credits/paypal/order', { method: 'POST', body: { packId: pack.id, method, ...getBuyer() } }).then((r) => r.orderId);
-    const approved = ({ orderID }) => api('/credits/paypal/capture', { method: 'POST', body: { orderId: orderID } }).then((r) => { if (!dead) onPaid(r); });
+    const makeOrder = (method) => () => (recurring
+      ? api('/storage/vault/order', { method: 'POST', body: { ...getBuyer() } })
+      : api('/credits/paypal/order', { method: 'POST', body: { packId: pack.id, method, ...getBuyer() } })).then((r) => r.orderId);
+    const approved = ({ orderID }) => api(recurring ? '/storage/vault/capture' : '/credits/paypal/capture', { method: 'POST', body: { orderId: orderID } }).then((r) => { if (!dead) onPaid(r); });
     const fail = (e) => { if (!dead) { setPaying(false); onError(e?.message && !/^\s*\{/.test(e.message) && e.message.length < 160 ? e.message : 'The payment did not go through. Check your details or try another way to pay.'); } };
     loadPaypal(clientId).then((paypal) => {
       if (dead) return;
@@ -221,19 +227,21 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, onPaid, onFallback,
         Promise.allSettled(shown).then(reveal);
         setTimeout(() => { if (!dead) setLive(true); }, 3000); // never leave the boxes hidden
       } else { setCardOk(false); setNoCard(true); console.warn('PayPal card fields are not available for this account/browser'); }
-      buttons = paypal.Buttons({
-        fundingSource: paypal.FUNDING.PAYPAL,
-        style: { layout: 'vertical', shape: 'rect', height: 44, label: 'paypal' },
-        onClick: (_d, actions) => { if (blockedRef.current) { onError('Choose where you are first so the right tax is added.'); return actions.reject(); } onError(''); return actions.resolve(); },
-        createOrder: makeOrder('paypal'),
-        onApprove: approved,
-        onError: fail,
-      });
-      if (buttons.isEligible()) buttons.render('#pp-button');
+      if (!recurring) {
+        buttons = paypal.Buttons({
+          fundingSource: paypal.FUNDING.PAYPAL,
+          style: { layout: 'vertical', shape: 'rect', height: 44, label: 'paypal' },
+          onClick: (_d, actions) => { if (blockedRef.current) { onError('Choose where you are first so the right tax is added.'); return actions.reject(); } onError(''); return actions.resolve(); },
+          createOrder: makeOrder('paypal'),
+          onApprove: approved,
+          onError: fail,
+        });
+        if (buttons.isEligible()) buttons.render('#pp-button');
+      }
       setReady(true);
     }).catch((e) => { console.error('PayPal checkout setup failed:', e); if (!dead) onFallback(e?.message || 'PayPal could not be set up'); });
     return () => { dead = true; try { buttons?.close(); } catch { /* already gone */ } cf.current = null; };
-  }, [pack.id, clientId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pack.id, clientId, recurring]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function payByCard() {
     if (!cf.current) return;
@@ -249,10 +257,12 @@ function PayForm({ pack, clientId, getBuyer, blocked, total, onPaid, onFallback,
         <div className="pp-field" id="pp-name" />
         <div className="pp-field" id="pp-number" />
         <div className="pp-row"><div className="pp-field" id="pp-expiry" /><div className="pp-field" id="pp-cvv" /></div>
-        <button type="button" className="btn primary pay-btn" disabled={!ready || paying || blocked} onClick={payByCard}>{paying ? 'Processing…' : `Pay ${total}`}</button>
+        <button type="button" className="btn primary pay-btn" disabled={!ready || paying || blocked} onClick={payByCard}>{paying ? 'Processing…' : recurring ? `Subscribe ${total} a month` : `Pay ${total}`}</button>
       </div>
       <div className={'pay-or' + (ready ? '' : ' hidden')}><span>{cardOk ? 'or' : 'pay with'}</span></div>
-      <div id="pp-button" className="pp-button" />
+      {recurring
+        ? <button type="button" className={'btn pay-btn pay-pp' + (ready ? '' : ' hidden')} disabled={paying || blocked} onClick={onPaypalPage}>Subscribe with a PayPal account</button>
+        : <div id="pp-button" className="pp-button" />}
     </div>
   );
 }
@@ -310,8 +320,9 @@ function fromPostal(raw, tax) {
   return { country, region };
 }
 
-// `pack` is a credit pack, or (Storage.jsx) a plan: { cents, currency, recurring: true, title, subtitle, icon }, which PayPal bills every month.
-// PayPal's card boxes only take one-off payments, so a recurring plan always goes to PayPal's own page to be approved.
+// `pack` is a credit pack, or (Storage.jsx) a plan: { cents, currency, recurring: true, title, subtitle, icon }, billed every month.
+// A plan with a PayPal client id uses the same card boxes: PayPal saves the card and the server charges it each month. Without the client id,
+// or if the card form cannot start, the buyer is sent to PayPal's own page to approve a PayPal subscription instead.
 export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, onPaid, onError, onClose }) {
   const [country, setCountry] = useState('');
   const [region, setRegion] = useState('');
@@ -321,7 +332,7 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
   const buyerRef = useRef({}); buyerRef.current = { country, region: REGIONS[country] ? region : '' };
   const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
   const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
-  const embedded = provider === 'paypal' && !!clientId && !fallback && !pack.recurring;
+  const embedded = provider === 'paypal' && !!clientId && !fallback;
   const needsRegion = !!tax && !!REGIONS[country] && Object.keys(tax.rates).some((k) => k.startsWith(country + '-'));
   const code = needsRegion ? (region ? country + '-' + region : '') : country;
   const picked = !tax || (!!country && !(needsRegion && !region));
@@ -373,12 +384,12 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
               )}
             </div>
           )}
-          {embedded && <PayForm pack={pack} clientId={clientId} getBuyer={() => buyerRef.current} blocked={!picked} total={total} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
+          {embedded && <PayForm pack={pack} clientId={clientId} getBuyer={() => buyerRef.current} blocked={!picked} total={total} recurring={!!pack.recurring} onPaypalPage={() => onPay(buyerRef.current)} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
           {provider === 'paypal' && !clientId && !pack.recurring && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
           {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
           {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? `Opening ${who}…` : pack.recurring ? `Subscribe for ${total} a month with ${who}` : `Pay ${total} with ${who}`}</button>}
           {error && <p className="error-text">{error}</p>}
-          <BuyNotices paypal={provider === 'paypal'} tax={!!tax} />
+          <BuyNotices paypal={provider === 'paypal'} tax={!!tax} saved={!!pack.recurring && embedded} />
         </main>
         <aside className="co-receipt">
           <div className="co-rcpt-in">

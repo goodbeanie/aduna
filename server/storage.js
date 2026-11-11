@@ -409,6 +409,7 @@ function register(app, d) {
       readOnly: cap !== null && used > cap, // over it: new attachments are refused until files are deleted or the person upgrades (their files are kept)
       purchases: pay,
       provider: pay ? 'paypal' : null,
+      paypalClientId: pay ? credits.ppId() : null, // public by design: the browser needs it to load PayPal's card fields
       tax: pay ? TAX.publicInfo() : null,
     };
   }
