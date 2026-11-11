@@ -374,7 +374,7 @@ export function Checkout({ pack, provider, clientId, tax, busy, error, onPay, on
             </div>
           )}
           {embedded && <PayForm pack={pack} clientId={clientId} getBuyer={() => buyerRef.current} blocked={!picked} total={total} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
-          {provider === 'paypal' && !clientId && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
+          {provider === 'paypal' && !clientId && !pack.recurring && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
           {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
           {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? `Opening ${who}…` : pack.recurring ? `Subscribe for ${total} a month with ${who}` : `Pay ${total} with ${who}`}</button>}
           {error && <p className="error-text">{error}</p>}
