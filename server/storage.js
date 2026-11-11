@@ -268,7 +268,8 @@ async function createVaultOrder({ user, buyer = {}, fetchImpl = fetch }) {
     }],
     payment_source: { card: {
       attributes: { vault: { store_in_vault: 'ON_SUCCESS' }, verification: { method: 'SCA_WHEN_REQUIRED' } }, // 3-D Secure when the bank asks for it
-      stored_credential: { payment_initiator: 'CUSTOMER', payment_type: 'RECURRING', usage: 'FIRST' },
+      // No stored_credential ("first recurring payment") block here: it is suspected of making PayPal's card fields reject the card.
+      // The monthly charge works without it; it links back to the first payment only when PayPal returns a reference.
     } },
   }, { 'PayPal-Request-Id': crypto.randomUUID() });
   if (!r.ok || !SUB_ID.test(String(r.j.id || ''))) throw new Error(`PayPal checkout failed (${r.status}): ${r.j.message || 'no order id'}`);

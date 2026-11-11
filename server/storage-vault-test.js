@@ -77,10 +77,10 @@ async function subscribed(f, u = user(), now = T0) {
     assert.strictEqual(pu.amount.value, '4.99'); assert.strictEqual(pu.amount.currency_code, 'USD');
     assert.strictEqual(pu.custom_id, 'storage|u1|499');
     assert.strictEqual(card.attributes.vault.store_in_vault, 'ON_SUCCESS', 'PayPal keeps the card after a successful payment');
-    assert.deepStrictEqual(card.stored_credential, { payment_initiator: 'CUSTOMER', payment_type: 'RECURRING', usage: 'FIRST' });
+    assert.strictEqual(card.stored_credential, undefined, 'the first order carries no stored_credential block');
     assert.strictEqual(b.intent, 'CAPTURE');
     assert.ok(f.calls[0].url.startsWith('https://api-m.sandbox.paypal.com/'), 'sandbox unless PAYPAL_ENV=live');
-    step('first order: price from the server, card kept by PayPal after success, first recurring payment');
+    step('first order: price from the server, card kept by PayPal after success, no first-recurring flag');
   }
 
   // ---- first payment: the capture starts the plan ----
