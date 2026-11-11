@@ -4432,6 +4432,7 @@ app.get('/api/admin/users/:id', auth, adminOnly, (req, res) => {
       owned: mine.filter((s) => s.ownerId === u.id).map((s) => ({ id: s.id, name: s.name, members: humanCount(s) })),
       clips: clips.length, liveClips: clips.filter((c) => clipsLib.isLive(c, now())).length, bots: myBots(u.id).length,
       ownsOfficialServer: !!defaultServer() && defaultServer().ownerId === u.id,
+      canResetStorage: isPaymentTester(u), storagePlanStatus: u.storageSub && u.storageSub.status ? String(u.storageSub.status) : null, // the "Reset storage plan" button (payment testing) shows for the test account only
       canModerate: u.id !== req.user.id && !isCreator(u) && (!adminRole(u) || isCreator(req.user)),
       moderation: moderation.adminView(u, now(), (id) => db().users[id]?.username || null), // warnings (newest first), the open mute, when a timed suspension ends
     },
@@ -4456,6 +4457,20 @@ app.post('/api/admin/users/:id/unsuspend', auth, adminOnly, (req, res) => {
   store.save();
   adminLogAdd(req.user, 'unsuspend', u.username, '');
   res.json({ ok: true, user: adminUserRow(u) });
+});
+
+// PAYMENT TESTING ONLY: lets an admin wipe the storage plan record of ONE account, so the checkout can be tried again. It works only for the account whose
+// VERIFIED email is adunachat@gmail.com; for every other account it answers a plain 404, and it never touches PayPal (a saved sandbox card stays there).
+const PAYMENT_TEST_KEY = security.emailKey(security.cleanEmail('adunachat@gmail.com'));
+const isPaymentTester = (u) => !!u && !u.bot && !u.deleted && u.emailVerified === true && !!u.email && security.emailKey(security.cleanEmail(u.email)) === PAYMENT_TEST_KEY;
+app.post('/api/admin/users/:id/storage-reset', auth, adminOnly, (req, res) => {
+  const u = db().users[req.params.id];
+  if (!isPaymentTester(u)) return res.status(404).json({ error: 'Not found' });
+  const was = u.storageSub && u.storageSub.status ? String(u.storageSub.status) : 'none';
+  delete u.storageSub;
+  store.save();
+  adminLogAdd(req.user, 'storage-reset', u.username, `payment test: storage plan record cleared (was ${was})`);
+  res.json({ ok: true, was });
 });
 
 // ----- warnings, mutes and IP bans (server/moderation.js) -----

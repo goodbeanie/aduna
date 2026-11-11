@@ -333,6 +333,10 @@ function UserDetail({ id, onChanged, onClose }) {
     const r = await ask({ title: `Remove ${u.username} as admin?`, confirmLabel: 'Remove admin', danger: true });
     if (r && await run(() => api('/admin/admins/' + u.id, { method: 'DELETE' }), 'Admin removed')) after();
   };
+  const resetStorage = async () => {
+    const r = await ask({ title: 'Reset the storage plan for this test account?', body: 'This clears the plan record on Aduna, so Subscribe works again for another test payment. It does not touch PayPal: a card saved there stays, and nothing is refunded. Payment testing only.', confirmLabel: 'Reset plan', danger: true });
+    if (r && await run(() => api(`/admin/users/${u.id}/storage-reset`, { method: 'POST' }), (x) => `Storage plan cleared (was ${x.was})`)) after();
+  };
 
   return (
     <div className="adm-card adm-detail">
@@ -371,6 +375,12 @@ function UserDetail({ id, onChanged, onClose }) {
         <p className="adm-muted">{u.id === me.id ? 'This is you.' : u.role === 'creator' ? 'Founder accounts cannot be moderated here.' : 'Only a founder can act on an admin.'}</p>
       )}
       {u.ownsOfficialServer && <p className="adm-muted">This account owns the official Aduna server, so it cannot be deleted until that is transferred.</p>}
+      {u.canResetStorage && (
+        <div className="adm-actions">
+          <button className="adm-btn" onClick={resetStorage}>Reset storage plan (payment testing)</button>
+          <span className="adm-muted">Plan now: {u.storagePlanStatus || 'none'}</span>
+        </div>
+      )}
 
       <h3>Warnings</h3>
       {m.warnings.length ? (
