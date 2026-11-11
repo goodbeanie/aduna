@@ -412,6 +412,7 @@ async function createPaypalOrder({ user, pack, origin, embedded = null, buyer = 
 // Applies one PayPal capture object to `db` (the caller saves). Only a COMPLETED capture for the right amount pays out, once.
 function applyPaypalCapture(cap, db, now = Date.now()) {
   if (!cap || cap.status !== 'COMPLETED' || typeof cap.id !== 'string') return null; // PENDING: wait for the webhook
+  if (String(cap.custom_id || '').startsWith('storage|')) return null;                // the storage plan: server/storage.js looks after it
   const key = 'pp_' + cap.id;
   if (db.payments[key]) return null;                                                // retries and the return trip + webhook: pay once
   const [uid, packId, , totalStr] = String(cap.custom_id || '').split('|');

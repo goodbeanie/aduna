@@ -5531,6 +5531,7 @@ const storageBudget = storageBudgetLib.create({
 // Storage plan (10 GB for $4.99 a month): usage, cleanup list, PayPal subscription. Registered here so /api/files can push usage updates.
 storageApi = storagePlan.register(app, {
   auth, ah, db, save: () => store.save(), store, freeBudget: storageBudget,
+  runRenewals: true, // charges saved cards when their month is due (server/storage.js, card on file)
   notify: (uid, v) => io.to('user:' + uid).emit('storage:update', v),
   userChanged: (uid) => { const u = db().users[uid]; if (u) emitUserUpdate(u); }, // the Plus badge on their profile turned on or off
   getMeta: (k) => store.getMeta(k), setMeta: (k, v) => store.setMeta(k, v),

@@ -228,6 +228,151 @@ function handleEvent(ev, db, now = Date.now()) {
   return null;
 }
 
+// ---------- Card on file (PayPal Vault) ----------
+// The card is typed into PayPal's own card fields and PayPal keeps it. Aduna stores only the vault id PayPal hands back, plus the card
+// network's reference for the first payment, and charges that saved card once a month (renewDue). Aduna never sees a card number.
+// u.storageSub for a card on file: { kind: 'vault', status, vaultId, netRef, amountCents, dueAt, nextChargeAt, failures, lastCaptureId, since, paidThrough, syncedAt }
+//   dueAt = the day this month's bill belongs to; nextChargeAt = when we try next (later than dueAt after a declined payment).
+const RETRY_MS = 3 * DAY;        // a declined payment is tried again after this long
+const MAX_FAILURES = 3;          // ...and the plan ends after this many declines in a row
+const VAULT_ID = /^[0-9a-zA-Z_-]{3,100}$/;
+const money = (cents) => (cents / 100).toFixed(2);
+const isVault = (u) => !!rec(u) && rec(u).kind === 'vault';
+const amountOk = (cents) => Number.isInteger(cents) && cents >= PLAN.cents && cents <= Math.round(PLAN.cents * 1.5); // price + at most the tax the server adds
+
+// the same day next calendar month (the 31st becomes the last day of a shorter month)
+function addMonth(ms) {
+  const d = new Date(ms), day = d.getUTCDate();
+  d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 1);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, last));
+  return d.getTime();
+}
+
+// First payment: the order the card fields pay. The price (and the tax, where Aduna collects it) is set here, never by the browser.
+// store_in_vault asks PayPal to keep the card once the payment goes through.
+async function createVaultOrder({ user, buyer = {}, fetchImpl = fetch }) {
+  const q = TAX.quote(buyer, PLAN.cents);
+  if (!q.ok) throw Object.assign(new Error(q.error), { forBuyer: true });
+  const total = PLAN.cents + q.tax, cur = PLAN.currency.toUpperCase();
+  const token = await credits.ppToken(fetchImpl);
+  const r = await ppFetch(fetchImpl, token, 'POST', '/v2/checkout/orders', {
+    intent: 'CAPTURE',
+    purchase_units: [{
+      reference_id: PLAN.id,
+      custom_id: `storage|${user.id}|${total}`,
+      description: PLAN.name + ' (monthly)',
+      amount: q.tax
+        ? { currency_code: cur, value: money(total), breakdown: { item_total: { currency_code: cur, value: money(PLAN.cents) }, tax_total: { currency_code: cur, value: money(q.tax) } } }
+        : { currency_code: cur, value: money(PLAN.cents) },
+    }],
+    payment_source: { card: {
+      attributes: { vault: { store_in_vault: 'ON_SUCCESS' }, verification: { method: 'SCA_WHEN_REQUIRED' } }, // 3-D Secure when the bank asks for it
+      stored_credential: { payment_initiator: 'CUSTOMER', payment_type: 'RECURRING', usage: 'FIRST' },
+    } },
+  }, { 'PayPal-Request-Id': crypto.randomUUID() });
+  if (!r.ok || !SUB_ID.test(String(r.j.id || ''))) throw new Error(`PayPal checkout failed (${r.status}): ${r.j.message || 'no order id'}`);
+  return { orderId: r.j.id, totalCents: total };
+}
+
+// The card fields paid the order: capture it (the money moves), check what PayPal says, and keep the vault id for the monthly charge.
+// Safe to call twice (the webhook or a second tab may capture first: then the order is just read).
+async function captureVaultOrder({ user, orderId, fetchImpl = fetch, now = Date.now() }) {
+  if (!SUB_ID.test(String(orderId || ''))) throw new Error('Bad order');
+  const token = await credits.ppToken(fetchImpl);
+  let r = await ppFetch(fetchImpl, token, 'POST', `/v2/checkout/orders/${orderId}/capture`, {}, { 'PayPal-Request-Id': 'scap-' + orderId });
+  if (!r.ok && (r.j.details || []).some((x) => x.issue === 'ORDER_ALREADY_CAPTURED')) r = await ppFetch(fetchImpl, token, 'GET', `/v2/checkout/orders/${orderId}`);
+  if (!r.ok) throw new Error(`PayPal capture failed (${r.status}): ${r.j.message || r.j.name || 'unknown'}`);
+  const pu = (r.j.purchase_units || [])[0] || {}, cap = (pu.payments?.captures || [])[0];
+  const [tag, uid, totalStr] = String(pu.custom_id || cap?.custom_id || '').split('|');
+  if (tag !== 'storage' || uid !== user.id) return { status: 'mismatch' };
+  if (!cap || cap.status !== 'COMPLETED') return { status: 'pending' };
+  const cents = Math.round(Number(cap.amount?.value) * 100);
+  if (!amountOk(cents) || cents !== Number(totalStr) || String(cap.amount?.currency_code).toUpperCase() !== PLAN.currency.toUpperCase()) {
+    console.error('Storage: PayPal capture', cap.id, 'amount does not match the plan; not activating');
+    return { status: 'failed' };
+  }
+  const old = rec(user) || {};
+  if (old.kind === 'vault' && old.lastCaptureId === cap.id) return { status: 'active', saved: !!old.vaultId, changed: false };
+  const vault = r.j.payment_source?.card?.attributes?.vault;
+  const saved = !!vault && vault.status === 'VAULTED' && VAULT_ID.test(String(vault.id || ''));
+  const ref = r.j.payment_source?.card?.stored_credential?.previous_network_transaction_reference;
+  const netRef = ref && typeof ref.id === 'string' ? Object.fromEntries(['id', 'date', 'network', 'acquirer_reference_number'].filter((k) => typeof ref[k] === 'string').map((k) => [k, ref[k]])) : null;
+  const { paypalId, ...rest } = old; // an older PayPal Subscriptions record must not be synced against any more
+  user.storageSub = {
+    ...rest, kind: 'vault',
+    status: saved ? 'active' : 'cancelled', // paid but PayPal did not keep the card: the month is theirs, there is nothing to renew
+    vaultId: saved ? vault.id : null, netRef, amountCents: cents,
+    dueAt: addMonth(now), nextChargeAt: saved ? addMonth(now) : null, failures: 0, lastCaptureId: cap.id,
+    since: old.since || now, paidThrough: Math.max(Number(old.paidThrough) || 0, now) + PAID_FOR_MS, syncedAt: now,
+  };
+  return { status: 'active', saved, changed: true };
+}
+
+// One monthly charge of the saved card, made by the server (the person is not there). Returns { ok, skipped?, transient?, ended? }.
+async function chargeRenewal({ user, fetchImpl = fetch, now = Date.now() }) {
+  const s = rec(user);
+  if (!s || s.kind !== 'vault' || !s.vaultId || !['active', 'past_due'].includes(s.status) || !Number.isFinite(s.nextChargeAt) || now < s.nextChargeAt) return { ok: false, skipped: true };
+  if (!amountOk(s.amountCents)) { console.error('Storage: bad stored amount for', user.id, '; not charging'); return { ok: false, skipped: true }; }
+  const token = await credits.ppToken(fetchImpl);
+  const cur = PLAN.currency.toUpperCase();
+  // same request id for the same attempt: if we crash after PayPal charged but before saving, the retry gets the same answer, not a second charge
+  let r = await ppFetch(fetchImpl, token, 'POST', '/v2/checkout/orders', {
+    intent: 'CAPTURE',
+    purchase_units: [{ reference_id: PLAN.id, custom_id: `storage|${user.id}|${s.amountCents}`, description: PLAN.name + ' (monthly)', amount: { currency_code: cur, value: money(s.amountCents) } }],
+    payment_source: { card: { vault_id: s.vaultId, stored_credential: { payment_initiator: 'MERCHANT', payment_type: 'RECURRING', usage: 'SUBSEQUENT', ...(s.netRef ? { previous_network_transaction_reference: s.netRef } : {}) } } },
+  }, { 'PayPal-Request-Id': `renew-${user.id}-${s.nextChargeAt}` });
+  if (r.status >= 500) return { ok: false, transient: true }; // PayPal trouble, not a decline: try again at the next run, count nothing
+  if (r.ok && r.j.status !== 'COMPLETED' && SUB_ID.test(String(r.j.id || ''))) r = await ppFetch(fetchImpl, token, 'POST', `/v2/checkout/orders/${r.j.id}/capture`, {}, { 'PayPal-Request-Id': 'rcap-' + r.j.id });
+  if (r.status >= 500) return { ok: false, transient: true };
+  const cap = r.ok ? ((r.j.purchase_units || [])[0]?.payments?.captures || [])[0] : null;
+  if (cap && cap.status === 'COMPLETED' && Math.round(Number(cap.amount?.value) * 100) === s.amountCents) {
+    s.status = 'active'; s.failures = 0; s.lastCaptureId = cap.id; s.syncedAt = now;
+    s.paidThrough = Math.max(Number(s.paidThrough) || 0, now + PAID_FOR_MS);
+    s.dueAt = addMonth(s.dueAt || now); s.nextChargeAt = s.dueAt;
+    return { ok: true };
+  }
+  if (cap && cap.status === 'PENDING') return { ok: false, transient: true }; // PayPal is still looking at it; the same request id answers the same next time
+  s.failures = (Number(s.failures) || 0) + 1;
+  console.error('Storage: monthly charge declined for', user.id, `(${s.failures}/${MAX_FAILURES}):`, r.status, r.j.name || r.j.message || '');
+  if (s.failures >= MAX_FAILURES) { end(user, now); s.nextChargeAt = null; await deleteVaultToken(s, fetchImpl); return { ok: false, ended: true }; }
+  s.status = 'past_due'; s.nextChargeAt = now + RETRY_MS;
+  return { ok: false };
+}
+
+// Charges everybody whose month is due. Returns the ids of the people whose plan changed (the caller saves and pushes).
+async function renewDue({ db, fetchImpl = fetch, now = Date.now() }) {
+  const changed = [];
+  for (const u of Object.values((db && db.users) || {})) {
+    const s = rec(u);
+    if (!s || s.kind !== 'vault' || !s.vaultId || !Number.isFinite(s.nextChargeAt) || now < s.nextChargeAt) continue;
+    try { const r = await chargeRenewal({ user: u, fetchImpl, now }); if (!r.skipped && !r.transient) changed.push(u.id); }
+    catch (e) { console.error('Storage: monthly charge error for', u.id + ':', e.message); }
+  }
+  return changed;
+}
+
+// Asks PayPal to forget the saved card. Best effort: the plan is already stopped, so a failure here only leaves an unused token at PayPal.
+async function deleteVaultToken(s, fetchImpl = fetch) {
+  const id = s.vaultId;
+  s.vaultId = null;
+  if (!id || !VAULT_ID.test(id)) return;
+  try {
+    const token = await credits.ppToken(fetchImpl);
+    const r = await ppFetch(fetchImpl, token, 'DELETE', `/v3/vault/payment-tokens/${encodeURIComponent(id)}`);
+    if (!r.ok && r.status !== 404) console.error('Storage: could not delete the saved card at PayPal:', r.status);
+  } catch (e) { console.error('Storage: could not delete the saved card at PayPal:', e.message); }
+}
+
+// The person cancels: no more charges, the plan stays until the month that was paid for ends, and PayPal forgets the card.
+async function cancelVault({ user, fetchImpl = fetch, now = Date.now() }) {
+  const s = rec(user);
+  if (!s || s.kind !== 'vault' || !['active', 'past_due'].includes(s.status)) return { ok: false, error: 'You do not have a plan to cancel' };
+  s.status = 'cancelled'; s.nextChargeAt = null; s.syncedAt = now;
+  await deleteVaultToken(s, fetchImpl);
+  return { ok: true };
+}
+
 // ---------- routes ----------
 // d: { auth, ah, db() -> store.db, save(), store, notify(uid, view), fileLabels() -> Map(id -> { name, type, where }), filesGone(ids),
 //      fetchImpl?, getMeta?, setMeta?, now?, freeBudget? (server/storage-budget.js: the free people's own limit) }
@@ -369,21 +514,67 @@ function register(app, d) {
     } catch (e) { console.error(e.message); res.status(502).json({ error: 'We could not confirm your plan yet. If PayPal charged you, it will show up shortly.' }); }
   }));
 
+  // Card on file. Step 1: the browser asks for an order, pays it in PayPal's card fields, then step 2 hands the order id back to be captured.
+  app.post('/api/storage/vault/order', d.auth, d.ah(async (req, res) => {
+    if (!credits.paypalEnabled()) return res.status(503).json({ error: 'The storage plan is not set up on this server yet' });
+    if (limited(req, res, 5)) return;
+    if (hasLifetime(req.user)) return res.status(409).json({ error: 'Aduna Plus is already on for this account' });
+    if (isSubscriber(req.user, nowMs()) && rec(req.user) && rec(req.user).status === 'active') return res.status(409).json({ error: 'You already have the storage plan' });
+    try { res.json({ orderId: (await createVaultOrder({ user: req.user, buyer: req.body, fetchImpl: d.fetchImpl })).orderId }); }
+    catch (e) {
+      if (e.forBuyer) return res.status(400).json({ error: e.message });
+      console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' });
+    }
+  }));
+
+  app.post('/api/storage/vault/capture', d.auth, d.ah(async (req, res) => {
+    if (!credits.paypalEnabled()) return res.status(503).json({ error: 'The storage plan is not set up on this server yet' });
+    if (limited(req, res, 10)) return;
+    try {
+      const r = await captureVaultOrder({ user: req.user, orderId: req.body?.orderId, fetchImpl: d.fetchImpl, now: nowMs() });
+      if (r.status === 'mismatch') return res.status(400).json({ error: 'That payment belongs to another account' });
+      if (r.status === 'failed') return res.status(502).json({ error: 'We could not confirm your payment. If PayPal charged you, contact support.' });
+      if (r.changed) { d.save(); push(req.user.id); }
+      res.json({ status: r.status, saved: r.saved, ...(await viewOf(req.user)) });
+    } catch (e) { console.error(e.message); res.status(502).json({ error: 'We could not confirm your payment yet. If PayPal charged you, your plan will show up shortly.' }); }
+  }));
+
   app.post('/api/storage/cancel', d.auth, d.ah(async (req, res) => {
     if (!credits.paypalEnabled()) return res.status(503).json({ error: 'The storage plan is not set up on this server yet' });
     if (limited(req, res, 5)) return;
     try {
-      const r = await cancelSubscription({ user: req.user, fetchImpl: d.fetchImpl, now: nowMs() });
+      const r = isVault(req.user)
+        ? await cancelVault({ user: req.user, fetchImpl: d.fetchImpl, now: nowMs() })
+        : await cancelSubscription({ user: req.user, fetchImpl: d.fetchImpl, now: nowMs() });
       if (!r.ok) return res.status(400).json({ error: r.error });
       d.save(); push(req.user.id);
       res.json(await viewOf(req.user));
     } catch (e) { console.error(e.message); res.status(502).json({ error: 'Could not cancel with PayPal. Try again, or cancel it in your PayPal account.' }); }
   }));
 
-  return { push, viewOf, planId };
+  // Monthly charges of saved cards: once shortly after start-up, then every hour (only when index.js asks for it with runRenewals).
+  let renewing = false;
+  const runRenewals = async () => {
+    if (renewing || !credits.paypalEnabled()) return [];
+    renewing = true;
+    try {
+      const ids = await renewDue({ db: d.db(), fetchImpl: d.fetchImpl, now: nowMs() });
+      if (ids.length) { d.save(); ids.forEach((id) => push(id)); }
+      return ids;
+    } catch (e) { console.error('Storage renewals failed:', e.message); return []; }
+    finally { renewing = false; }
+  };
+  if (d.runRenewals) {
+    const first = setTimeout(runRenewals, 60_000), every = setInterval(runRenewals, 3600_000);
+    if (first.unref) first.unref();
+    if (every.unref) every.unref();
+  }
+
+  return { push, viewOf, planId, runRenewals };
 }
 
 module.exports = {
   PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, hasLifetime, setLifetime, isProtected, protectedIds, plusLimitOf, effectiveLimit, overQuota, pickOldest, makeRoom,
   createPlan, createSubscription, confirmSubscription, syncSubscription, cancelSubscription, applyActive, handleEvent, register,
+  createVaultOrder, captureVaultOrder, chargeRenewal, renewDue, cancelVault, addMonth,
 };
