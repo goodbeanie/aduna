@@ -22,14 +22,14 @@ export function PlusLogo({ height = 34 }) {
 export function plusPerks(bytes) {
   const gb = Math.round(bytes / 1024 ** 3);
   return [
-    `${gb} GB of your own storage, never removed or expired while you have it`,
-    'You choose what to delete when it is full, and can set your own upload limit',
-    `Messages up to ${PLUS_CHARS.toLocaleString()} characters instead of ${FREE_CHARS.toLocaleString()}`,
-    'Screen share in 1080p, and Smooth mode at 60 fps',
-    'Earn 1.5x the credits from messages and quests, with no daily cap',
-    'Quests only Plus members can claim',
-    'The Plus badge on your profile',
-    'Cancel any time',
+    `${gb} GB that's just yours. Nothing gets deleted or expires while you have Plus`,
+    'When it fills up, you pick what to delete. You can also set your own upload limit',
+    `Longer messages: ${PLUS_CHARS.toLocaleString()} characters instead of ${FREE_CHARS.toLocaleString()}`,
+    'Screen share at 1080p, or 60 fps in Smooth mode',
+    'Earn 1.5x credits from messages and quests, no daily cap',
+    'Quests only Plus members can do',
+    'A Plus badge on your profile',
+    'Cancel whenever you want',
   ];
 }
 

@@ -88,8 +88,7 @@ function BootSplash() {
   const d = { '--boot-d': `-${((typeof performance !== 'undefined' ? performance.now() : 0) / 1000 % 3.6).toFixed(2)}s` };
   return (
     <div className="boot resume" role="status" aria-label="Loading Aduna" style={d}>
-      <div className="boot-wrap"><span className="boot-ring" /><span className="boot-ring b" /><span className="boot-mark" /><span className="boot-word" /></div>
-      <div className="boot-bar"><i /></div>
+      <div className="boot-wrap"><span className="boot-mark" /><span className="boot-word" /></div>
     </div>
   );
 }

@@ -143,7 +143,7 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
             <span>{pctLabel(s.used, s.limit)} used</span>
             <span>{s.uploadLimit > 0 && s.uploadLimit < s.limit ? `Upload limit ${fmt(s.uploadLimit)}` : `${fmt(Math.max(0, s.limit - s.used))} free`}</span>
           </div>
-          <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${((s.currency === 'cad' ? s.plan.cadCents : s.plan.cents) / 100).toFixed(2)}${s.currency === 'cad' ? ' CAD' : ''}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
+          <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${((s.currency === 'cad' ? s.plan.cadCents : s.plan.cents) / 100).toFixed(2)}${s.currency === 'cad' ? ' CAD' : ''}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files stay yours and never get cleared to make room for anyone else.</p>
           <p className="st-head">Included with Aduna Plus</p>
           <ul className="st-perks st-included">{plusPerks(s.plan.bytes).map((p) => <li key={p}>{p}</li>)}</ul>
           <p className="st-head">Upload limit <span>(optional)</span></p>
