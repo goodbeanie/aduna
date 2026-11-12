@@ -64,7 +64,7 @@
 .su-status.ok { color: var(--ok-fg); }
 .su-status.bad { color: var(--err-fg); }
 
-.su-pill { display: inline-block; margin-left: 8px; padding: 2px 9px; border: 1px solid var(--line2); border-radius: 999px; background: color-mix(in srgb, var(--head) 8%, transparent); color: var(--text); font-size: 11px; font-weight: 600; letter-spacing: .04em; line-height: 1.5; vertical-align: middle; }
+.su-optional { margin-left: 6px; color: var(--muted); font-weight: 500; text-transform: none; letter-spacing: 0; }
 
 /* a heads-up that is not an error: the person can carry on, but should know what they are giving up */
 .su-warn { margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--gold, #a67c1f); border-radius: var(--r-md); background: color-mix(in srgb, var(--gold, #a67c1f) 10%, transparent); color: var(--text); font-size: 13px; line-height: 1.45; }

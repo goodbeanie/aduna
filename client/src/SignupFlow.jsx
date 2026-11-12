@@ -336,7 +336,7 @@ export default function SignupFlow({ mailOk, apply, turnstileKey, onSubmit, onLo
 
             <div className="su-main">
               <section className="su-sec">
-                <label htmlFor="su-email">{t('email')}{!google && <span className="su-pill">{t('optionalTag')}</span>}</label>
+                <label htmlFor="su-email">{t('email')}{!google && <span className="su-optional">{t('optionalTag')}</span>}</label>
                 <input id="su-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus={!google} readOnly={!!google} autoComplete="email" maxLength={254} placeholder="you@example.com" />
                 <p className="hint">{google ? 'Verified by Google. No code to enter.' : t('emailHint')}</p>
                 {!google && mailOk && !email.trim() && (

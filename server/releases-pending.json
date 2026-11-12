@@ -217,5 +217,13 @@
     "items": [
       { "title": "Optional tag on the email box", "text": "The email box on the sign-up page now has an Optional tag next to its label, so it is clear you can skip it." }
     ]
+  },
+  {
+    "id": "2026.11.12.4",
+    "date": "2026-11-12",
+    "title": "Email label says (optional)",
+    "items": [
+      { "title": "Plainer optional label", "text": "On the sign-up page the email label now reads \"Email (optional)\" in plain text instead of a badge." }
+    ]
   }
 ]
