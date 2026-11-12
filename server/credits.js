@@ -23,6 +23,9 @@ const ads = require('./ads');       // opt-in "watch a sponsor, earn credits" an
 const EARN = {
   msgReward: 2,                    // credits per rewarded message
   msgDailyCap: 40,                 // most credits messaging can pay per UTC day (= 20 messages)
+  plusMultiplier: 1.5,             // Aduna Plus earns this much more from messages and quests
+  plusMsgLimit: 60,                // rewarded messages per UTC day that pay the Plus rate
+  plusMsgAfter: 1,                 // what a Plus message pays after that, until the day rolls over
   msgCooldownMs: 45_000,           // at most one rewarded message per this long
   minServerMembers: 3,             // a server with fewer members than this pays nothing (stops solo farming)
   minAccountAgeMs: 30 * 60_000,    // new accounts earn and claim nothing for 30 minutes
@@ -62,6 +65,10 @@ const CURRENCY = 'usd';
 const LEDGER_KEEP = 40;
 
 const dayKey = (ts) => new Date(ts).toISOString().slice(0, 10);
+
+const plusPay = (n, plus) => (plus ? Math.round(n * EARN.plusMultiplier) : n);
+// what the next rewarded message pays, given today's counters
+const messagePay = (d, plus) => (!plus ? EARN.msgReward : d.msgs < EARN.plusMsgLimit ? plusPay(EARN.msgReward, true) : EARN.plusMsgAfter);
 
 // ---------- account record ----------
 function acct(u) {
@@ -201,7 +208,7 @@ function remember(norm, userId, now) {
 
 // Called for every message sent in a server channel. Returns { ok: true, amount } when it paid, else { ok: false, reason }.
 // The reason is for tests and logs; it is not shown to people (it would only teach spammers what to avoid).
-function rewardMessage({ user: u, content, proof, server, channel, humans, now = Date.now() }) {
+function rewardMessage({ user: u, content, proof, server, channel, humans, plus = false, now = Date.now() }) {
   const no = (reason) => ({ ok: false, reason });
   if ((channel.type || 'text') !== 'text') return no('channel type');
   if ((humans ?? server.members.length) < EARN.minServerMembers) return no('small server');
@@ -220,17 +227,18 @@ function rewardMessage({ user: u, content, proof, server, channel, humans, now =
   if (repeat) return no('repeat');
 
   if (now - c.lastMsgAt < EARN.msgCooldownMs) return no('cooldown');
-  if (d.msg + EARN.msgReward > EARN.msgDailyCap) return no('daily cap');
+  if (!plus && d.msg + EARN.msgReward > EARN.msgDailyCap) return no('daily cap');
   const tp = typingProblem(proof, norm.length);
   if (tp) return no(tp);
   if (!othersSpoke(channel.id, u.id, now)) return no('nobody to talk to');
 
+  const amount = messagePay(d, plus);
   c.lastMsgAt = now;
   c.msgTotal++;
-  d.msg += EARN.msgReward;
+  d.msg += amount;
   d.msgs++;
-  grant(u, EARN.msgReward, 'message', { now });
-  return { ok: true, amount: EARN.msgReward, balance: c.balance };
+  grant(u, amount, 'message', { now });
+  return { ok: true, amount, balance: c.balance };
 }
 
 // A reaction to someone else's message. Pays nothing itself; it counts towards the daily "react" quest.
@@ -256,6 +264,10 @@ const QUESTS = [
   { id: 'server', reward: 25, title: 'Start your own server', desc: 'Create a server.', progress: ({ db, u }) => ({ have: Math.min(1, Object.values(db.servers || {}).filter((s) => s.ownerId === u.id).length), need: 1 }) },
   { id: 'emoji', reward: 20, title: 'Make your mark', desc: 'Upload a custom emoji.', progress: ({ db, u }) => ({ have: Math.min(1, Object.values(db.emojis || {}).filter((e) => e.ownerId === u.id && !e.disabled).length), need: 1 }) },
   { id: 'firstmsg', reward: 10, title: 'Break the ice', desc: 'Send your first message that earns credits.', progress: ({ c }) => ({ have: Math.min(1, c.msgTotal), need: 1 }) },
+  // Aduna Plus only: shown to everyone, claimable with Plus
+  { id: 'pluschat', daily: true, plusOnly: true, reward: 30, title: 'Keep it going', desc: 'Send 30 messages that earn credits today.', progress: ({ c, now }) => ({ have: today(c, now).msgs, need: 30 }) },
+  { id: 'plusreact', daily: true, plusOnly: true, reward: 12, title: 'Spread the love', desc: 'React to 8 different messages from other people today.', progress: ({ c, now }) => ({ have: today(c, now).react.length, need: 8 }) },
+  { id: 'plusstreak', plusOnly: true, reward: 50, title: 'A week of Plus', desc: 'Reach a 7-day check-in streak.', progress: ({ c, now }) => ({ have: Math.min(7, streakAlive(c, now) ? c.streak : 0), need: 7 }) },
 ];
 
 const streakBonus = (streak) => Math.min(Math.max(streak - 1, 0), 5) * 2;
@@ -273,21 +285,26 @@ const milestoneBonus = (streak) => STREAK_MILESTONES.find((m) => m.days === stre
 // the streak the next check-in would make
 const nextStreak = (c, now) => (c.lastCheckin === dayKey(now - 86_400_000) ? c.streak + 1 : 1);
 const unlocksAt = (u) => (u.createdAt || 0) + EARN.minAccountAgeMs;
+const streakAlive = (c, now) => c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000);
 
-function questList(u, db, now = Date.now()) {
+function questList(u, db, now = Date.now(), plus = false) {
   const c = acct(u), d = today(c, now);
   return QUESTS.map((q) => {
     const { have, need } = q.progress({ u, c, db, now });
     const claimed = !!(q.daily ? d.claimed : c.claimed)[q.id];
     let reward = q.reward;
     if (q.id === 'checkin') { const s = nextStreak(c, now); reward += streakBonus(s) + milestoneBonus(s); }
-    return { id: q.id, title: q.title, desc: q.desc, daily: !!q.daily, reward, have: Math.min(have, need), need, done: have >= need, claimed };
+    return {
+      id: q.id, title: q.title, desc: q.desc, daily: !!q.daily, reward: plusPay(reward, plus), have: Math.min(have, need), need, done: have >= need, claimed,
+      plusOnly: !!q.plusOnly, locked: !!q.plusOnly && !plus,
+    };
   });
 }
 
-function claimQuest(u, id, db, now = Date.now()) {
+function claimQuest(u, id, db, now = Date.now(), plus = false) {
   const q = QUESTS.find((x) => x.id === id);
   if (!q) return { status: 404, error: 'Unknown quest' };
+  if (q.plusOnly && !plus) return { status: 403, error: 'This quest is for Aduna Plus' };
   if (now < unlocksAt(u)) return { status: 403, error: 'Rewards unlock 30 minutes after you sign up', unlocksAt: unlocksAt(u) };
   const c = acct(u), d = today(c, now);
   const claimed = q.daily ? d.claimed : c.claimed;
@@ -303,28 +320,28 @@ function claimQuest(u, id, db, now = Date.now()) {
     amount += streakBonus(c.streak) + milestone;
   }
   claimed[id] = now; // marked before paying: the check and the payment happen in one synchronous step
+  amount = plusPay(amount, plus);
   grant(u, amount, 'quest', { note: milestone ? `${q.title} (${c.streak}-day streak!)` : q.title, now });
-  return { ok: true, amount, balance: c.balance, ...(milestone ? { milestone, streak: c.streak } : {}) };
+  return { ok: true, amount, balance: c.balance, ...(milestone ? { milestone: plusPay(milestone, plus), streak: c.streak } : {}) };
 }
 
 // What the Quests page shows for the check-in streak: the current run, the best run, and the next reward waiting at the end of it.
-function streakView(c, now) {
-  const alive = c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000);
-  const streak = alive ? c.streak : 0;
+function streakView(c, now, plus = false) {
+  const streak = streakAlive(c, now) ? c.streak : 0;
   const next = STREAK_MILESTONES.find((m) => m.days > streak) || null;
   return {
     current: streak,
     best: Math.max(c.bestStreak, streak),
     checkedInToday: c.lastCheckin === dayKey(now),
     atRisk: c.lastCheckin === dayKey(now - 86_400_000) && streak > 0, // checked in yesterday, not yet today: check in today to keep it
-    next: next ? { days: next.days, bonus: next.bonus, left: next.days - streak } : null,
-    milestones: STREAK_MILESTONES.map((m) => ({ ...m, reached: streak >= m.days })),
-    dailyBonusMax: streakBonus(99),
+    next: next ? { days: next.days, bonus: plusPay(next.bonus, plus), left: next.days - streak } : null,
+    milestones: STREAK_MILESTONES.map((m) => ({ ...m, bonus: plusPay(m.bonus, plus), reached: streak >= m.days })),
+    dailyBonusMax: plusPay(streakBonus(99), plus),
   };
 }
 
 // ---------- what the client sees ----------
-function view(u, db, { purchases, paused = false, now = Date.now(), dev = false, creator = false, features = {} }) {
+function view(u, db, { purchases, paused = false, now = Date.now(), dev = false, creator = false, plus = false, features = {} }) {
   const c = acct(u), d = today(c, now);
   return {
     balance: c.balance,
@@ -338,14 +355,17 @@ function view(u, db, { purchases, paused = false, now = Date.now(), dev = false,
     packs: PACKS.map((p) => ({ ...p, cents: paypalEnabled() ? REG.priceIn(p, 'usd') : p.cents, currency: CURRENCY })), // with PayPal the US price follows the exchange rate (server/fx.js)
     fx: paypalEnabled() ? FX.view() : null,
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
-    streakInfo: streakView(c, now),
+    streakInfo: streakView(c, now, plus),
     ads: ads.view(u, { now, unlocksAt: unlocksAt(u), rewarded: !!features.rewarded, sponsored: !!features.sponsored }), // { enabled: false } unless sponsors are configured AND a feature switch is on for this person; never anything in chat or voice
     unlocksAt: unlocksAt(u) > now ? unlocksAt(u) : null,
-    quests: questList(u, db, now),
+    quests: questList(u, db, now, plus),
     event: events.view(u, { now, dev }), // the Halloween / Christmas quests and Advent calendar, or null when no event is on
     shop: shop.view(u, db.badges, { now, all: creator, users: db.users }), // the badges on show today (the creator sees every priced badge, with its state), with what this person already owns marked; an artist's item says who made it
     shopInfo: shop.info(now),                              // the daily shop: how many are shown at once and when today's picks change
-    messaging: { reward: EARN.msgReward, cap: EARN.msgDailyCap, earnedToday: d.msg, cooldownMs: EARN.msgCooldownMs, nextAt: c.lastMsgAt + EARN.msgCooldownMs, minMembers: EARN.minServerMembers },
+    messaging: {
+      reward: messagePay(d, plus), cap: plus ? null : EARN.msgDailyCap, earnedToday: d.msg, cooldownMs: EARN.msgCooldownMs, nextAt: c.lastMsgAt + EARN.msgCooldownMs, minMembers: EARN.minServerMembers,
+      plus: plus ? { rate: plusPay(EARN.msgReward, true), limit: EARN.plusMsgLimit, after: EARN.plusMsgAfter, messagesToday: d.msgs } : null,
+    },
     lifetime: { earned: c.earned, bought: c.bought, spent: c.spent },
     ledger: c.ledger.slice(0, 25),
   };
@@ -603,15 +623,16 @@ function register(app, d) {
   // feature releases (features.js): 'rewarded-ads' and 'sponsored-card' decide whether this person sees the sponsor button and the card
   const featureOn = (id, u) => !!(d.featureOn && d.featureOn(id, u));
   const needRewardedAds = (req, res, next) => (featureOn('rewarded-ads', req.user) ? next() : res.status(404).json({ error: 'Not found' }));
+  const isPlus = (u) => !!(d.isPlus && d.isPlus(u));
   const fullView = (u) => view(u, d.db(), {
-    purchases: purchasesEnabled() && paymentsOpen(u), paused: purchasesEnabled() && !paymentsOpen(u), dev: isDev(u), creator: isCreator(u),
+    purchases: purchasesEnabled() && paymentsOpen(u), paused: purchasesEnabled() && !paymentsOpen(u), dev: isDev(u), creator: isCreator(u), plus: isPlus(u),
     features: { rewarded: featureOn('rewarded-ads', u), sponsored: featureOn('sponsored-card', u) },
   });
 
   app.get('/api/credits', d.auth, (req, res) => res.json(fullView(req.user)));
 
   app.post('/api/credits/quests/:id/claim', d.auth, (req, res) => {
-    const r = claimQuest(req.user, req.params.id, d.db());
+    const r = claimQuest(req.user, req.params.id, d.db(), Date.now(), isPlus(req.user));
     if (!r.ok) return res.status(r.status).json({ error: r.error, unlocksAt: r.unlocksAt });
     d.save();
     push(req.user, r.amount, 'quest');

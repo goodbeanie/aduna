@@ -5,6 +5,7 @@ import { Icon, Modal } from './ui.jsx';
 import { EmptyState, PanelSkeleton } from './ShellBits.jsx';
 import { askConfirm, toast } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
+import PlusCard from './PlusCard.jsx';
 import { homeCountry, rememberCountry, priceFor, rateNote } from './region.js';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
@@ -14,14 +15,16 @@ function Quest({ q, locked, busy, onClaim }) {
   return (
     <div className={'quest' + (q.claimed ? ' claimed' : '')}>
       <div className="quest-main">
-        <b>{q.title}</b>
+        <b>{q.plusOnly && <span className="plus-tag">Plus</span>}{q.title}</b>
         <div className="muted small">{q.desc}</div>
-        {q.need > 1 && !q.claimed && <div className="quest-bar" title={`${q.have} of ${q.need}`}><i style={{ width: pct + '%' }} /></div>}
+        {q.need > 1 && !q.claimed && !q.locked && <div className="quest-bar" title={`${q.have} of ${q.need}`}><i style={{ width: pct + '%' }} /></div>}
       </div>
       <span className="reward"><Icon name="coin" size={15} />{q.reward}</span>
       {q.claimed
         ? <span className="quest-done"><Icon name="check" size={16} /> {q.daily ? 'Done today' : 'Claimed'}</span>
-        : <button className="btn primary small-btn" disabled={!q.done || locked || busy === q.id} onClick={() => onClaim(q)}>{busy === q.id ? 'Claiming…' : q.done ? 'Claim' : `${q.have}/${q.need}`}</button>}
+        : q.locked
+          ? <span className="muted small">Plus only</span>
+          : <button className="btn primary small-btn" disabled={!q.done || locked || busy === q.id} onClick={() => onClaim(q)}>{busy === q.id ? 'Claiming…' : q.done ? 'Claim' : `${q.have}/${q.need}`}</button>}
     </div>
   );
 }
@@ -479,7 +482,7 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
 // Credits: balance, buying, the earning rules, quests and recent activity.
 // `rev` goes up whenever the server says the balance changed, so this page refreshes itself.
 // `page` picks the tab: 'shop' (buy credits, spend them on badges, recent activity) or 'quests' (earn credits: events, chatting, quests).
-export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOrder, creator = false, artistId = null, onAllItems }) {
+export default function Credits({ page = 'shop', storage = null, onBack, rev, justPaid, paypalOrder, creator = false, artistId = null, onAllItems }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
@@ -697,14 +700,26 @@ export default function Credits({ page = 'shop', onBack, rev, justPaid, paypalOr
               <span className="grow"><b>Purchase history and plans</b><span className="muted small"> See what you bought and manage your plan</span></span>
               <Icon name="chevron" size={18} className="pay-link-go" />
             </a>
+            {storage && storage.plan && !artistId && (
+              <div className="shop-plus">
+                <h4 className="credit-h">Aduna Plus</h4>
+                <PlusCard plan={storage.plan} country={storage.regions ? homeCountry(storage.regions.countries) : 'US'} regions={storage.regions} subscriber={storage.subscriber} purchases={storage.purchases} paused={storage.paused} onGet={() => window.dispatchEvent(new Event('aduna:plus'))} />
+              </div>
+            )}
             </>}
 
             {page === 'quests' && <>
             <h4 className="credit-h">Earn by chatting</h4>
             <div className="earn-card">
-              <p>Write real messages in server channels and earn <b>{m.reward} credits</b> each, up to <b>{m.cap} a day</b>.</p>
-              <div className="quest-bar big" title={`${m.earnedToday} of ${m.cap} today`}><i style={{ width: Math.min(100, (m.earnedToday / m.cap) * 100) + '%' }} /></div>
-              <div className="muted small">{m.earnedToday} of {m.cap} earned today · resets at midnight UTC</div>
+              {m.plus ? <>
+                <p>Write real messages in server channels. With Plus, your first <b>{m.plus.limit} a day</b> earn <b>{m.plus.rate} credits</b> each, then <b>{m.plus.after} credit</b> each until midnight UTC.</p>
+                <div className="quest-bar big" title={`${Math.min(m.plus.messagesToday, m.plus.limit)} of ${m.plus.limit} today`}><i style={{ width: Math.min(100, (m.plus.messagesToday / m.plus.limit) * 100) + '%' }} /></div>
+                <div className="muted small">{Math.min(m.plus.messagesToday, m.plus.limit)} of {m.plus.limit} messages at the Plus rate · {m.earnedToday} credits earned today · resets at midnight UTC</div>
+              </> : <>
+                <p>Write real messages in server channels and earn <b>{m.reward} credits</b> each, up to <b>{m.cap} a day</b>.</p>
+                <div className="quest-bar big" title={`${m.earnedToday} of ${m.cap} today`}><i style={{ width: Math.min(100, (m.earnedToday / m.cap) * 100) + '%' }} /></div>
+                <div className="muted small">{m.earnedToday} of {m.cap} earned today · resets at midnight UTC</div>
+              </>}
               <ul className="earn-rules muted small">
                 <li>Type it yourself. Pasted or auto-typed text earns nothing.</li>
                 <li>Say something. A full sentence, not “lol” or the same thing again; every message has to be different.</li>

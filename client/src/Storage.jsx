@@ -3,7 +3,8 @@ import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { askConfirm, toast } from './Dialogs.jsx';
 import { Checkout } from './Credits.jsx';
-import { homeCountry, priceFor } from './region.js';
+import { homeCountry } from './region.js';
+import PlusCard, { plusPerks } from './PlusCard.jsx';
 import { setStorageFullHandler, setPlusLimitHandler, sizeLabel } from './files.js';
 
 // The storage plan: a usage bar above the profile bar, the plan window, the cleanup window (when a plan's 10 GB is full) and the checkout.
@@ -143,6 +144,8 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
             <span>{s.uploadLimit > 0 && s.uploadLimit < s.limit ? `Upload limit ${fmt(s.uploadLimit)}` : `${fmt(Math.max(0, s.limit - s.used))} free`}</span>
           </div>
           <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${((s.currency === 'cad' ? s.plan.cadCents : s.plan.cents) / 100).toFixed(2)}${s.currency === 'cad' ? ' CAD' : ''}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files are yours alone and are never removed to make room for other people.</p>
+          <p className="st-head">Included with Aduna Plus</p>
+          <ul className="st-perks st-included">{plusPerks(s.plan.bytes).map((p) => <li key={p}>{p}</li>)}</ul>
           <p className="st-head">Upload limit <span>(optional)</span></p>
           <LimitForm current={s.uploadLimit} max={Math.round(s.limit / GB)} onSave={onSaveLimit} busy={busy} requireChange />
         </>
@@ -161,18 +164,7 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
               <p className="st-note">Free storage is shared by everyone. When it fills up, the oldest files are removed to make room, and old files expire after a while.</p>
             </>
           )}
-          <div className="st-offer">
-            <div className="st-offer-head">
-              <div><div className="st-offer-title">{fmt(s.plan.bytes)} of your own</div><div className="st-note">Just for you</div></div>
-              <div className="st-price">{priceFor(s.plan, s.regions ? homeCountry(s.regions.countries) : 'US').text}<small>/month{s.regions ? ' ' + priceFor(s.plan, homeCountry(s.regions.countries)).code : ''}</small></div>
-            </div>
-            <ul className="st-perks">
-              <li>Never removed or expired while you have it</li>
-              <li>You choose what to delete when it is full</li>
-              <li>Cancel any time</li>
-            </ul>
-            <button className="btn primary st-cta" onClick={onSubscribe} disabled={!s.purchases || busy}>{s.purchases ? 'Get storage' : s.paused ? 'Paused for now' : 'Not available yet'}</button>
-          </div>
+          <PlusCard plan={s.plan} country={s.regions ? homeCountry(s.regions.countries) : 'US'} regions={s.regions} purchases={s.purchases} paused={s.paused} busy={busy} onGet={onSubscribe} />
           {s.status === 'ended' && <p className="st-note">Your last plan ended{s.paidThrough ? ' on ' + day(s.paidThrough) : ''}. Files are kept for 14 days after that, then the normal clean-up applies again.</p>}
         </>
       )}
@@ -198,6 +190,7 @@ export function StorageDock({ storage, setStorage }) {
   const askRef = useRef(null); askRef.current = ask;
 
   const reload = useCallback(() => api('/storage').then(setStorage).catch(() => {}), [setStorage]);
+  useEffect(() => { const open = () => setModal('plan'); window.addEventListener('aduna:plus', open); return () => window.removeEventListener('aduna:plus', open); }, []);
   useEffect(() => { reload(); const f = () => reload(); window.addEventListener('focus', f); return () => window.removeEventListener('focus', f); }, [reload]);
 
   // an upload that does not fit asks for the cleanup window and waits for the answer

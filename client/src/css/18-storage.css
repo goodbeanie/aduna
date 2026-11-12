@@ -57,4 +57,18 @@ html[data-grad] .storage-bar { background: color-mix(in srgb, var(--bg3) 70%, tr
 .st-hint { margin: 0; font-size: 12px; color: var(--danger); }
 .st-limit > .btn { align-self: flex-start; margin-top: 4px; }
 .st-actions .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+/* Aduna Plus card. The logo is the supplied artwork split into layers: the body and the letters are masks filled with the text colour (so they work on dark themes), the star and the plus keep their own colours. */
+.pc-card { display: flex; flex-direction: column; gap: 16px; padding: 18px; margin: 16px 0 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg2); }
+.pc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pc-logo { --pc-h: 34px; display: inline-flex; align-items: center; gap: calc(var(--pc-h) * .5); color: var(--text, #14110d); }
+.pc-icon { position: relative; display: block; height: var(--pc-h); aspect-ratio: 300 / 264; }
+.pc-body { position: absolute; inset: 0; display: block; background-color: currentColor; -webkit-mask: url(/badges/pc-icon-body.png) center / 100% 100% no-repeat; mask: url(/badges/pc-icon-body.png) center / 100% 100% no-repeat; }
+.pc-star { position: absolute; left: 65.3%; top: 24.9%; width: 34.6%; height: 39.2%; display: block; }
+.pc-word { position: relative; display: block; height: calc(var(--pc-h) * .36); aspect-ratio: 360 / 74; margin-right: calc(var(--pc-h) * .1); }
+.pc-word i { position: absolute; inset: 0; display: block; background-color: currentColor; -webkit-mask: url(/badges/plus-wordmark.png) center / 100% 100% no-repeat; mask: url(/badges/plus-wordmark.png) center / 100% 100% no-repeat; }
+.pc-word b { position: absolute; left: 97.9%; top: -41.7%; width: 12.3%; aspect-ratio: 1; display: block;
+  background: linear-gradient(#eaa0f6, #eaa0f6) center / 100% 20% no-repeat, linear-gradient(#eaa0f6, #eaa0f6) center / 20% 100% no-repeat; }
+.pc-card .st-perks { gap: 9px; }
+.shop-plus { margin: 22px 0 8px; }
+.shop-plus .pc-card { margin-top: 10px; }
 @media (max-width: 600px) { .st-type { display: none; } .st-offer { flex-direction: column; align-items: stretch; } }

@@ -20,7 +20,7 @@ const GB = 1024 ** 3, DAY = 86_400_000;
 const FX = require('./fx');
 // cadCents: the price you set (Canadian dollars). cents: the US price when PayPal is off or the rate is unknown; with PayPal the US price is
 // cadCents converted at the live rate (REG.priceIn, server/fx.js).
-const PLAN = { id: 'storage10', name: 'Aduna Storage', cents: 559, cadCents: 769, currency: 'usd', bytes: 10 * GB };
+const PLAN = { id: 'storage10', name: 'Aduna Storage', cents: 399, cadCents: 559, currency: 'usd', bytes: 10 * GB };
 const GRACE_MS = 14 * DAY;       // after a plan ends its files are kept this long before the normal clean-up applies to them again
 const PAID_FOR_MS = 32 * DAY;    // one payment covers a month plus a little slack for a late webhook
 const SUB_ID = /^[A-Za-z0-9-]{8,40}$/;

@@ -5599,6 +5599,7 @@ credits.register(app, {
   notify: (uid, payload) => io.to('user:' + uid).emit('credits:update', payload),
   isDev: (u) => !!u.developer || isCreator(u), // may use the Halloween / Christmas test mode
   isCreator: (u) => isCreator(u),              // sees every badge in the shop, with its shop state
+  isPlus: (u) => storagePlan.isSubscriber(u, now()), // Plus pays more for messages and quests, and has the Plus-only quests
   featureOn: (id, u) => featureOn(id, u),      // feature releases: 'rewarded-ads' and 'sponsored-card' gate the sponsors on Quests and Shop
   userChanged: (u) => emitUserUpdate(u),       // an event badge was earned
   paypalEvent: (ev) => storagePlan.handleEvent(ev, db()),            // storage plan renewals / cancellations from PayPal's signed webhook
@@ -6041,7 +6042,7 @@ io.on('connection', (socket) => {
     };
     db().messages[msg.id] = msg;
     // Credits for real, typed, different messages (see credits.js). Checked before this message counts as "someone spoke".
-    const earned = credits.rewardMessage({ user: db().users[uid], content, proof: p.typing, server: f.server, channel: f.channel, humans: humanCount(f.server) });
+    const earned = credits.rewardMessage({ user: db().users[uid], content, proof: p.typing, server: f.server, channel: f.channel, humans: humanCount(f.server), plus: storagePlan.isSubscriber(db().users[uid], now()) });
     credits.noteChannelMessage(f.channel.id, uid);
     store.save();
     if (earned.ok) io.to('user:' + uid).emit('credits:update', { balance: earned.balance, delta: earned.amount, reason: 'message' });

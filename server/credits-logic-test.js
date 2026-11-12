@@ -138,6 +138,49 @@ assert.strictEqual(C.quality(C.normalize('<#0123456789abcdef> <#fedcba9876543210
   step('daily cap holds at 40 credits and resets at midnight UTC; ledger stays compact');
 }
 
+// ---- Aduna Plus ----
+{
+  fresh();
+  const u = user();
+  const syl = [...'bdgklmnp'].flatMap((c) => [...'aeiou'].map((v) => c + v));
+  const word = (n) => syl[n % 40] + syl[Math.floor(n / 40) % 40] + syl[(n * 13 + 5) % 40];
+  const sentence = (i) => [0, 1, 2, 3, 4].map((j) => word(i * 5 + j + 1)).join(' ');
+  const pays = [];
+  let at = T0;
+  for (let i = 0; i < 64; i++) {
+    at += 50_000;
+    C.noteChannelMessage(chan.id, 'u2', at);
+    const text = sentence(i);
+    const r = C.rewardMessage({ user: u, content: text, proof: good(C.normalize(text).length), server, channel: chan, plus: true, now: at });
+    assert.strictEqual(r.ok, true, 'message ' + i + ': ' + r.reason);
+    pays.push(r.amount);
+  }
+  assert.deepStrictEqual([pays[0], pays[59], pays[60], pays[63]], [3, 3, 1, 1], '3 credits for the first 60 messages, then 1');
+  assert.strictEqual(u.credits.balance, 60 * 3 + 4, 'no 40 credit cap for Plus');
+  assert.strictEqual(C.view(u, { users: {}, friendships: {}, servers: {}, emojis: {} }, { purchases: false, now: at, plus: true }).messaging.reward, 1);
+  const nextDay = sentence(70);
+  C.noteChannelMessage(chan.id, 'u2', at + 24 * 60 * MIN - MIN);
+  assert.strictEqual(C.rewardMessage({ user: u, content: nextDay, proof: good(C.normalize(nextDay).length), server, channel: chan, plus: true, now: at + 24 * 60 * MIN }).amount, 3, 'back to the Plus rate after the reset');
+  step('Plus messages pay 1.5x for 60 a day, then 1 credit each until the UTC reset');
+}
+{
+  fresh();
+  const u = user(), db = { users: { u1: u }, servers: { s1: { ...server, ownerId: 'u2' } }, emojis: {}, friendships: {}, payments: {} };
+  const list = (plus) => C.questList(u, db, T0, plus);
+  assert.strictEqual(list(false).find((x) => x.id === 'react').reward, 6);
+  assert.strictEqual(list(true).find((x) => x.id === 'react').reward, 9, 'Plus quests pay 1.5x');
+  assert.deepStrictEqual(list(false).filter((x) => x.plusOnly).map((x) => x.locked), [true, true, true]);
+  assert.deepStrictEqual(list(true).filter((x) => x.plusOnly).map((x) => x.locked), [false, false, false]);
+  for (const id of ['pluschat', 'plusreact', 'plusstreak']) assert.strictEqual(C.claimQuest(u, id, db, T0, false).status, 403, id + ' is closed without Plus');
+  assert.strictEqual(C.claimQuest(u, 'plusreact', db, T0, true).status, 400, 'with Plus it still has to be finished');
+  for (let i = 0; i < 8; i++) C.noteReaction(u, 'm' + i, 'u2', T0);
+  const r = C.claimQuest(u, 'plusreact', db, T0, true);
+  assert.deepStrictEqual([r.ok, r.amount], [true, 18], 'the Plus-only quest pays its reward times 1.5');
+  assert.strictEqual(C.claimQuest(u, 'plusreact', db, T0, true).status, 409);
+  assert.strictEqual(C.claimQuest(u, 'checkin', db, T0, true).amount, 15, 'check-in: 10 x 1.5');
+  step('Plus quests pay 1.5x; the Plus-only quests stay closed without Plus');
+}
+
 // ---- reactions + quests ----
 {
   fresh();
