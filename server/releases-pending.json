@@ -189,5 +189,16 @@
       { "title": "More credits with Plus", "text": "Plus members earn 1.5x the credits from quests. Messages pay 3 credits each for your first 60 a day, then 1 credit each until midnight UTC, with no daily cap." },
       { "title": "Plus-only quests", "text": "Three new quests are for Plus members: Keep it going, Spread the love and A week of Plus. Everyone can see them, but only Plus members can claim them." }
     ]
+  },
+  {
+    "id": "2026.11.12",
+    "date": "2026-11-12",
+    "title": "Plainer loading screen and Aduna Plus polish",
+    "items": [
+      { "title": "Simpler loading screen", "text": "The loading screen now shows just the Aduna logo and name. The rings and the progress bar are gone." },
+      { "title": "Checkout says Aduna Plus", "text": "Checkout and PayPal now call the monthly plan Aduna Plus instead of Aduna Storage." },
+      { "title": "Sharper Plus logo", "text": "The Aduna Plus logo on the Plus card is cleaner, and it uses a brighter color on dark themes." },
+      { "title": "Clearer Plus perks", "text": "The list of what Aduna Plus includes is reworded to be shorter and easier to read." }
+    ]
   }
 ]
