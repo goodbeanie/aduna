@@ -94,12 +94,15 @@ const referencedImages = () => new Set([
 const now = () => Date.now();
 const MAX_FILE = 20 * 1024 * 1024;          // largest file a person can attach
 const FILE_SLACK = 4096;                    // DM files are encrypted in the browser, which adds a few bytes
-// How long attachments are kept: files up to LARGE_ATTACHMENT_MB (default 10) for ATTACHMENT_TTL_DAYS (default 14),
-// bigger files for LARGE_ATTACHMENT_TTL_DAYS (default 5) so they don't fill the storage.
+// Attachments are NOT removed because of their age. They only go when space runs out (makeRoom in the upload route: the oldest files of
+// people without Aduna Plus make way for new ones, and a person over their free limit has to delete some). A server owner who wants an
+// age limit as well can still set ATTACHMENT_TTL_DAYS (files up to LARGE_ATTACHMENT_MB, default 10) and/or LARGE_ATTACHMENT_TTL_DAYS (bigger files).
 const posNum = (v, fallback) => (Number(v) > 0 ? Number(v) : fallback);
+const AGE_LIMIT_ON = posNum(process.env.ATTACHMENT_TTL_DAYS, 0) > 0 || posNum(process.env.LARGE_ATTACHMENT_TTL_DAYS, 0) > 0;
+const FOREVER = 100 * 365 * 24 * 3600 * 1000;
 const ATTACH_RULES = {
-  smallMs: posNum(process.env.ATTACHMENT_TTL_DAYS, 14) * 24 * 3600 * 1000,
-  largeMs: posNum(process.env.LARGE_ATTACHMENT_TTL_DAYS, 5) * 24 * 3600 * 1000,
+  smallMs: posNum(process.env.ATTACHMENT_TTL_DAYS, 0) * 24 * 3600 * 1000 || (AGE_LIMIT_ON ? posNum(process.env.LARGE_ATTACHMENT_TTL_DAYS, 0) * 24 * 3600 * 1000 : FOREVER),
+  largeMs: posNum(process.env.LARGE_ATTACHMENT_TTL_DAYS, 0) * 24 * 3600 * 1000 || (AGE_LIMIT_ON ? posNum(process.env.ATTACHMENT_TTL_DAYS, 0) * 24 * 3600 * 1000 : FOREVER),
   thresholdBytes: posNum(process.env.LARGE_ATTACHMENT_MB, 10) * 1024 * 1024,
 };
 const MAX_ATTACH = 4;
@@ -1920,7 +1923,7 @@ function fileScope(uid, kind, target) {
     const f = findChannel(target);
     return f && f.server.members.includes(uid) ? 'channel:' + f.channel.id : null;
   }
-  if (kind === 'dm') return db().users[target] && target !== uid && areFriends(uid, target) ? 'dm:' + convoKey(uid, target) : null;
+  if (kind === 'dm') return db().users[target] && target !== uid && canDm(uid, target) ? 'dm:' + convoKey(uid, target) : null;
   if (kind === 'group') { const g = groups.memberOf(target, uid); return g ? 'group:' + g.id : null; }
   return null;
 }
@@ -2022,6 +2025,16 @@ app.get('/api/users/:id', auth, (req, res) => {
 // db.friendships[convoKey(a, b)] = { from, to, status: 'pending' | 'friends', createdAt }
 const friendship = (a, b) => db().friendships[convoKey(a, b)];
 const areFriends = (a, b) => friendship(a, b)?.status === 'friends';
+// Who may send a 1:1 DM: friends, plus the site's creator accounts, who may message anyone without being friended (never a bot or a removed account).
+// The person they wrote to can answer, but only once a creator has started the conversation, so nobody else can message a creator out of the blue.
+// Blocking still wins (checked by the callers).
+const canDm = (a, b) => {
+  if (areFriends(a, b)) return true;
+  const A = db().users[a], B = db().users[b];
+  if (!A || !B || A.bot || B.bot || A.deleted || B.deleted) return false;
+  if (isCreator(A)) return true;
+  return isCreator(B) && store.dmsInConvo(convoKey(a, b)).some((m) => m.from === b);
+};
 const notifyFriends = (...ids) => ids.forEach((id) => io.to('user:' + id).emit('friends:changed'));
 
 function friendsView(uid) {
@@ -6048,7 +6061,7 @@ io.on('connection', (socket) => {
     const to = db().users[p?.to];
     if (!to || to.id === uid) return reply({ error: 'Cannot send' });
     if (blockedEither(uid, to.id)) return reply({ error: 'You cannot message this person' });
-    if (!areFriends(uid, to.id)) return reply({ error: 'You can only message friends' });
+    if (!canDm(uid, to.id)) return reply({ error: 'You can only message friends' });
     if (!to.publicKey) return reply({ error: 'They have not set up encryption yet' });
     if (typeof p.ciphertext !== 'string' || typeof p.iv !== 'string' || !p.ciphertext || p.ciphertext.length > maxCipher(db().users[uid]) || p.iv.length > 64)
       return reply({ error: 'Bad payload' });

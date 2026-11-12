@@ -22,6 +22,7 @@ import { can, canManageAny, roleColorOf, rankOf, heldRoles, memberGroups, isOwne
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
 import { useVoice, VoiceUI, VoicePanel, SHARE_FEATURE } from './Voice.jsx';
+import { useBackStack } from './useBackStack.js';
 import RulesView from './Rules.jsx';
 import TodoView from './Todo.jsx';
 import GoalsView from './Goals.jsx';
@@ -98,6 +99,29 @@ function BootSplash() {
 // The desktop and Android apps load this same page, so they get it too.
 const MIN_SPLASH_MS = 1800;
 const splashSeen = () => { try { return sessionStorage.getItem('aduna-splash') === '1'; } catch { return false; } };
+
+// "Voice Connected" panel for a voice channel: sits in the sidebar right above the storage bar (same look as the call panel).
+// Click it to go back to the voice channel; the phone button leaves. Mute and deafen stay in the user panel below.
+function VoiceDock({ voice, servers, onOpen }) {
+  const id = voice.state.channelId;
+  if (!id) return null;
+  const sv = servers.find((x) => x.channels.some((c) => c.id === id));
+  const ch = sv?.channels.find((c) => c.id === id);
+  if (!ch) return null;
+  const live = !voice.state.connecting;
+  return (
+    <div className="call-dock voice-dock-side" role="region" aria-label="Voice controls">
+      <div className="cd-row">
+        <span className={'signal' + (live ? ' live' : ' wait')}><Icon name="signal" size={18} /></span>
+        <button className="cd-who" title="Go to the voice channel" onClick={() => onOpen(sv, ch)}>
+          <b className={live ? '' : 'wait'}>{live ? 'Voice Connected' : 'Connecting…'}</b>
+          <span>{ch.name} / {sv.name}</span>
+        </button>
+        <button className="cd-btn hang" title="Leave voice" aria-label="Leave voice" onClick={voice.actions.leave}><Icon name="phone" size={18} style={{ transform: 'rotate(135deg)' }} /></button>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   const { t: tr } = useLang(); // redraws the whole app when the language changes
@@ -212,6 +236,12 @@ function Main({ me, setMe, privKey, openServerId }) {
     return () => window.removeEventListener('aduna:explore', open);
   }, []);
   const [membersOpen, setMembersOpen] = useState(false); // narrow screens: the member list is a slide-over
+  // Phones: Back closes a dialog, then the member list, then the chat (to the channel / DM list) instead of closing the app.
+  useBackStack([
+    { open: !showList, close: () => setShowList(true) },
+    { open: membersOpen, close: () => setMembersOpen(false) },
+    { open: !!modal, close: () => setModal(null) },
+  ]);
   const [membersHidden, setMembersHidden] = useState(() => { try { return localStorage.getItem('aduna.members') === 'off'; } catch { return false; } }); // wide screens: hide the member list to give chat more room
   const [, tick] = useState(0);
   const [memberQ, setMemberQ] = useState(''); // the search box at the top of the member list
@@ -1201,6 +1231,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           }}
           onFriend={() => { setView({ kind: 'dm', userId: null }); setShowList(false); setMembersOpen(false); }}
           onServer={() => setModal({ type: 'server' })} />
+        <VoiceDock voice={voice} servers={servers} onOpen={(sv, ch) => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }} />
         <StorageDock storage={storage} setStorage={setStorage} />
         <div className="user-panel">
           <button className="me" onClick={() => setModal({ type: 'user', id: me.id })}>
@@ -1266,7 +1297,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         <Chat title={dmUser.displayName} draftKey={'d:' + dmUser.id} loading={!loadedKeys['d:' + dmUser.id]} unreadCount={unread['d:' + dmUser.id] || 0} unreadExact subtitle="@" onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={false} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
           wordle={{ scopes: [{ id: 'global', label: 'Aduna daily' }] }}
-          files={{ scope: relationOf(dmUser.id) === 'friend' ? { kind: 'dm', target: dmUser.id, privKey, theirPublic: dmUser.publicKey } : null, dm: { privKey, theirPublic: dmUser.publicKey } }} gifEnabled={gifEnabled}
+          files={{ scope: relationOf(dmUser.id) === 'friend' || me.creator || dmUser.creator ? { kind: 'dm', target: dmUser.id, privKey, theirPublic: dmUser.publicKey } : null, dm: { privKey, theirPublic: dmUser.publicKey } }} gifEnabled={gifEnabled}
           placeholder={`Message @${dmUser.displayName}`} mentionables={[me, dmUser]}
           bell={{ muted: mutedIds.has(dmUser.id), title: 'Mute messages from this person', mutedTitle: 'Unmute messages (muted)', onClick: () => toggleMute(dmUser) }}
           readOnly={blockedIds.has(dmUser.id) ? <>You blocked {dmUser.displayName}. <button className="link-btn" onClick={() => unblockUser(dmUser)}>Unblock</button> to message them again.</> : null}
@@ -1276,7 +1307,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             <button className="icon-btn" title="Video call" disabled={relationOf(dmUser.id) !== 'friend' || call.call.phase !== 'idle' || inGroupCall(gcall.gcall)} onClick={() => call.actions.startCall(dmUser.id, true)}><Icon name="video" size={18} /></button>
             <button className="btn small-btn enc-chip" title="End-to-end encrypted" onClick={() => setModal({ type: 'safety' })}><Icon name="lock" size={14} className="inline-icon" /><span className="hide-sm"> End-to-end encrypted</span></button>
           </>}
-          notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && <><br />You aren’t friends with {dmUser.displayName}, so you can’t send new messages until you are.</>}</>} />
+          notice={<><Icon name="lock" size={14} className="inline-icon" /> Messages here are end-to-end encrypted. Only you and <b>{dmUser.displayName}</b> can read them.{relationOf(dmUser.id) !== 'friend' && !me.creator && !dmUser.creator && <><br />You aren’t friends with {dmUser.displayName}, so you can’t send new messages until you are.</>}</>} />
       )}
       {group && (
         <Chat title={groups.titleFor(group.id)} draftKey={'g:' + group.id} loading={!loadedKeys['g:' + group.id]} unreadCount={unread['g:' + group.id] || 0} unreadExact subtitle={<GroupIcon group={group} size={22} />} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
@@ -1325,7 +1356,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         </>
       )}
       <VoiceUI voice={voice} />
-      {voice.state.channelId && (!(channel?.id === voice.state.channelId) || eventsOpen) && (() => {
+      {voice.state.channelId && !showList && (!(channel?.id === voice.state.channelId) || eventsOpen) && (() => {
         const sv = servers.find((x) => x.channels.some((c) => c.id === voice.state.channelId)); const ch = sv?.channels.find((c) => c.id === voice.state.channelId);
         return ch && <div className="voice-dock"><Icon name="speaker" size={16} /><button className="link-btn" onClick={() => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }}>Voice connected · {ch.name}</button><button className="icon-btn" title={voice.state.muted ? 'Unmute' : 'Mute'} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={16} /></button><button className="icon-btn" title="Leave voice" onClick={voice.actions.leave}><Icon name="phone" size={16} /></button></div>;
       })()}
@@ -1383,7 +1414,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onDone={(sv) => { if (sv) setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); setModal(null); }} />
       )}
       {modal?.type === 'user' && users[modal.id] && (
-        <UserCard user={users[modal.id]} relation={relationOf(modal.id)} presence={statusOf(modal.id)} onClose={() => setModal(null)}
+        <UserCard user={users[modal.id]} relation={relationOf(modal.id)} canMessage={!!me.creator} presence={statusOf(modal.id)} onClose={() => setModal(null)}
           onMessage={() => openDm(users[modal.id])} onEdit={() => setModal({ type: 'edit' })}
           onShop={() => { setModal(null); setView({ kind: 'dm', userId: null, shop: true, shopArtist: modal.id }); setShowList(false); }}
           onAddFriend={() => requestFriend(users[modal.id].username).catch((e) => showToast(e.message, 'error'))} onAccept={() => acceptFriend(modal.id)} />

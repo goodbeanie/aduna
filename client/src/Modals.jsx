@@ -251,7 +251,7 @@ export function GameShelf({ games }) {
   );
 }
 
-export function UserCard({ user, presence, relation, onClose, onMessage, onEdit, onShop, onAddFriend, onAccept }) {
+export function UserCard({ user, presence, relation, canMessage = false, onClose, onMessage, onEdit, onShop, onAddFriend, onAccept }) {
   const th = useCardTheme(user);
   if (!user) return null;
   return (
@@ -283,7 +283,7 @@ export function UserCard({ user, presence, relation, onClose, onMessage, onEdit,
           <h4>MEMBER SINCE</h4>
           <p>{new Date(user.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}</p>
           {relation === 'self' && <button className="btn primary full" onClick={onEdit}>Edit profile</button>}
-          {!user.bot && relation === 'friend' && <button className="btn primary full" onClick={onMessage}><Icon name="lock" size={16} className="inline-icon" /> Send encrypted message</button>}
+          {!user.bot && (relation === 'friend' || (canMessage && relation !== 'self')) && <button className="btn primary full" onClick={onMessage}><Icon name="lock" size={16} className="inline-icon" /> Send encrypted message</button>}
           {!user.bot && relation === 'none' && <button className="btn primary full" onClick={onAddFriend}>Add friend</button>}
           {!user.bot && relation === 'outgoing' && <button className="btn full" disabled>Friend request sent</button>}
           {!user.bot && relation === 'incoming' && <button className="btn primary full" onClick={onAccept}>Accept friend request</button>}

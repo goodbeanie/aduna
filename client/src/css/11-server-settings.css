@@ -96,7 +96,7 @@
 .voice-controls { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
 .voice-controls .btn.on { background: var(--sel); box-shadow: inset 0 0 0 1px var(--line2); }
 .voice-error { max-width: 420px; }
-.voice-dock { position: fixed; left: 12px; bottom: 76px; z-index: 40; display: flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-radius: 999px; background: var(--raised); color: var(--green); box-shadow: 0 4px 18px rgba(0,0,0,.18), inset 0 0 0 1px var(--line); font-size: 14px; }
+.voice-dock { position: fixed; left: 12px; bottom: 76px; z-index: 40; display: none; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-radius: 999px; background: var(--raised); color: var(--green); box-shadow: 0 4px 18px rgba(0,0,0,.18), inset 0 0 0 1px var(--line); font-size: 14px; }
 .voice-dock .link-btn { color: var(--head); background: none; padding: 4px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .rules-body { flex: 1; overflow-y: auto; padding: 24px 16px; }
@@ -119,7 +119,7 @@
 .toast { position: fixed; top: 14px; right: 14px; z-index: 80; display: flex; gap: 10px; align-items: flex-start; max-width: min(360px, calc(100vw - 28px)); text-align: left; padding: 12px 14px; border-radius: 14px; background: var(--raised); color: var(--text); box-shadow: 0 8px 28px rgba(0,0,0,.22), inset 0 0 0 1px var(--line); font-size: 14px; }
 .toast b { color: var(--head); }
 .toast span { overflow-wrap: anywhere; }
-@media (max-width: 720px) { .voice-dock { bottom: 70px; } }
+@media (max-width: 720px) { .voice-dock { display: flex; bottom: 70px; } } /* phones: floating chip only while the sidebar is hidden; otherwise the dock above the storage bar is used */
 
 /* ---------- Reorder (drag and drop) and channel settings ---------- */
 .chan[draggable="true"], .cat-head[draggable="true"] { cursor: grab; }
