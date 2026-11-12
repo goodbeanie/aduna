@@ -60,7 +60,7 @@ html[data-grad] .storage-bar { background: color-mix(in srgb, var(--bg3) 70%, tr
 /* Aduna Plus card. The logo is the supplied artwork split into layers: the body and the letters are masks filled with the text colour (so they work on dark themes), the star and the plus keep their own colours. */
 .pc-card { display: flex; flex-direction: column; gap: 16px; padding: 18px; margin: 16px 0 6px; border: 1px solid var(--line); border-radius: 14px; background: var(--bg2); }
 .pc-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-.pc-logo { --pc-h: 34px; display: inline-flex; align-items: center; gap: calc(var(--pc-h) * .5); color: var(--text, #14110d); }
+.pc-logo { --pc-h: 34px; display: inline-flex; align-items: center; gap: calc(var(--pc-h) * .5); color: var(--head, var(--text, #14110d)); }
 .pc-icon { position: relative; display: block; height: var(--pc-h); aspect-ratio: 300 / 264; }
 .pc-body { position: absolute; inset: 0; display: block; background-color: currentColor; -webkit-mask: url(/badges/pc-icon-body.png) center / 100% 100% no-repeat; mask: url(/badges/pc-icon-body.png) center / 100% 100% no-repeat; }
 .pc-star { position: absolute; left: 65.3%; top: 24.9%; width: 34.6%; height: 39.2%; display: block; }
