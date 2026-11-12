@@ -261,7 +261,7 @@ export function StorageDock({ storage, setStorage }) {
   if (!storage) return null;
   const s = storage;
   const pct = s.limit ? Math.min(100, Math.round((s.used / s.limit) * 100)) : 0;
-  const plan = { ...s.plan, recurring: true, title: 'Aduna Storage', subtitle: `${fmt(s.plan.bytes)} of your own · billed monthly`, icon: 'bag' };
+  const plan = { ...s.plan, recurring: true, title: 'Aduna Plus', subtitle: `${fmt(s.plan.bytes)} of your own · billed monthly`, icon: 'bag' };
 
   const freePct = s.freeLimit ? Math.min(100, Math.round((s.used / s.freeLimit) * 100)) : 0;
 
