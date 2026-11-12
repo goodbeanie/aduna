@@ -162,5 +162,19 @@
     "items": [
       { "title": "Card form after switching country", "text": "Switching between Canada and the US at checkout could leave the card form stuck on an error. The card boxes now load for either country." }
     ]
+  },
+  {
+    "id": "2026.11.11.4",
+    "date": "2026-11-11",
+    "title": "Back button on phones and a voice bar above storage",
+    "desktop": "1.4.114",
+    "android": "2026.11.12.124",
+    "items": [
+      { "title": "Back works on phones", "text": "On a phone, Back now closes a window first, then the member list, then the chat, which takes you to the channel list. It no longer closes the app." },
+      { "title": "Voice bar above storage", "text": "While you are in a voice channel, a Voice Connected bar sits above the storage bar in the sidebar. Press it to go back to the channel, or press the phone button to leave. On phones the floating chip only shows while the sidebar is hidden." },
+      { "title": "Attachments stay until space runs out", "text": "Attachments are no longer deleted after a set number of days. They only go when space is needed: the oldest files of people without Aduna Plus make room for new uploads." },
+      { "title": "Creators can message anyone", "text": "Creator accounts can now start a direct message with people who are not their friends. The other person can reply once a creator has written first." },
+      { "title": "Reconnect notice fixed", "text": "The offline and reconnecting notice is now centered, and its Retry button stays inside the notice." }
+    ]
   }
 ]
