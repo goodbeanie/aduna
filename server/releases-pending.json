@@ -176,5 +176,18 @@
       { "title": "Creators can message anyone", "text": "Creator accounts can now start a direct message with people who are not their friends. The other person can reply once a creator has written first." },
       { "title": "Reconnect notice fixed", "text": "The offline and reconnecting notice is now centered, and its Retry button stays inside the notice." }
     ]
+  },
+  {
+    "id": "2026.11.11.5",
+    "date": "2026-11-11",
+    "title": "Aduna Plus card, lower price and more credits",
+    "desktop": "1.4.115",
+    "android": "2026.11.12.507",
+    "items": [
+      { "title": "Aduna Plus card", "text": "The Storage window and the bottom of the Shop now show everything Aduna Plus includes, with the price and a button to get it or manage your plan." },
+      { "title": "Lower price", "text": "Aduna Plus is now $5.59 a month in Canadian dollars, down from $7.69. The US price follows the exchange rate." },
+      { "title": "More credits with Plus", "text": "Plus members earn 1.5x the credits from quests. Messages pay 3 credits each for your first 60 a day, then 1 credit each until midnight UTC, with no daily cap." },
+      { "title": "Plus-only quests", "text": "Three new quests are for Plus members: Keep it going, Spread the love and A week of Plus. Everyone can see them, but only Plus members can claim them." }
+    ]
   }
 ]
