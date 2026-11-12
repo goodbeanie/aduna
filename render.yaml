@@ -97,6 +97,11 @@ services:
       # (The default onboarding@resend.dev can only send to your own Resend account's email.)
       - key: RESEND_API_KEY
         sync: false
+      # Cloudflare Turnstile on sign-up. Set both to turn it on (Cloudflare dashboard > Turnstile > add a widget for your domain).
+      - key: TURNSTILE_SITE_KEY
+        sync: false
+      - key: TURNSTILE_SECRET
+        sync: false
       # optional: Web Push signing keys for notifications while the app is closed. Leave unset: they are generated once and kept
       # (encrypted) in the database. Set both only if you want to supply your own.
       - key: VAPID_PUBLIC_KEY

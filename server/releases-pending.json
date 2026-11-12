@@ -200,5 +200,14 @@
       { "title": "Sharper Plus logo", "text": "The Aduna Plus logo on the Plus card is cleaner, and it uses a brighter color on dark themes." },
       { "title": "Clearer Plus perks", "text": "The list of what Aduna Plus includes is reworded to be shorter and easier to read." }
     ]
+  },
+  {
+    "id": "2026.11.12.2",
+    "date": "2026-11-12",
+    "title": "Email is optional at sign-up, two accounts per device",
+    "items": [
+      { "title": "Sign up without an email", "text": "You can now make an account without giving an email. If you skip it, email recovery is not available, and the sign-up page says so. Your recovery key is then the only way back in if you forget your password." },
+      { "title": "Two accounts per device", "text": "A browser can now make up to two accounts. If you try for a third, sign-up asks you to log in to one you already have. Deleting an account frees up a spot." }
+    ]
   }
 ]

@@ -34,7 +34,8 @@ export default function Auth({ onAuthed }) {
   const [info, setInfo] = useState('');
   const [mailOk, setMailOk] = useState(false);        // the server can send email, so email recovery can be offered at sign-up
   const [apply, setApply] = useState(false);          // joining needs an application (an admin approves it) instead of making an account at once
-  useEffect(() => { api('/auth-options').then((o) => { setMailOk(!!o.emailRecovery); setApply(!!o.applyToJoin); setGoogleOn(!!o.google); }).catch(() => {}); }, []);
+  const [turnstileKey, setTurnstileKey] = useState(''); // the Cloudflare check's site key; empty when the server has it off
+  useEffect(() => { api('/auth-options').then((o) => { setMailOk(!!o.emailRecovery); setApply(!!o.applyToJoin); setGoogleOn(!!o.google); setTurnstileKey(o.turnstile || ''); }).catch(() => {}); }, []);
   const [fresh, setFresh] = useState(null);     // just registered: { user, privateKey, key } until the recovery key is saved
   const [sent, setSent] = useState(null);       // just applied: { username, key } (key = the recovery key, shown once, or null) until they go back to log in
 
@@ -48,7 +49,7 @@ export default function Auth({ onAuthed }) {
       const ident = await createIdentity(form.password);
       const { user: made, applied } = await api('/register', {
         method: 'POST',
-        body: { username: form.username, email: form.email, password: form.password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, design: form.design, ...(form.google ? { google: form.google } : {}), ...(form.reason ? { reason: form.reason, source: form.source } : {}), ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail ? { emailRecovery: true } : {}) },
+        body: { username: form.username, email: form.email, password: form.password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, design: form.design, ...(form.google ? { google: form.google } : {}), ...(form.turnstile ? { turnstile: form.turnstile } : {}), ...(form.reason ? { reason: form.reason, source: form.source } : {}), ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail ? { emailRecovery: true } : {}) },
       });
       if (form.google) { clearGoogle(); setGprofile(null); setGid(''); } // used up: the account (or application) exists now
       if (applied) { // no account yet: an admin decides. The recovery key is shown now because it cannot be shown later.
@@ -192,7 +193,7 @@ export default function Auth({ onAuthed }) {
   );
   if (mode === 'register') return (
     <div className="auth-bg su-bg">
-      <SignupFlow mailOk={mailOk} apply={apply} onSubmit={register} onLogin={() => { setGprofile(null); switchMode('login'); }} google={gprofile} googleOn={googleOn} onGoogle={googleStart} />
+      <SignupFlow mailOk={mailOk} apply={apply} turnstileKey={turnstileKey} onSubmit={register} onLogin={() => { setGprofile(null); switchMode('login'); }} google={gprofile} googleOn={googleOn} onGoogle={googleStart} />
     </div>
   );
   // props for a field that can carry its own error, and the message under it

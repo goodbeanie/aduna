@@ -64,6 +64,10 @@
 .su-status.ok { color: var(--ok-fg); }
 .su-status.bad { color: var(--err-fg); }
 
+/* a heads-up that is not an error: the person can carry on, but should know what they are giving up */
+.su-warn { margin: 10px 0 0; padding: 10px 12px; border: 1px solid var(--gold, #a67c1f); border-radius: var(--r-md); background: color-mix(in srgb, var(--gold, #a67c1f) 10%, transparent); color: var(--text); font-size: 13px; line-height: 1.45; }
+.su-warn strong { font-weight: 600; }
+
 .su-swatches { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
 .su-sw { flex: none; width: 40px; height: 40px; padding: 0; border: 1px solid var(--line2); border-radius: var(--r-md); background-color: var(--bg2); cursor: pointer; }
 /* the picture colours. The class is "hue", not "dot": the app already has a global .dot (the online-status dot) that forces its own background and border. The colour arrives as --dot */
@@ -118,6 +122,7 @@
 .su-opt-text span { color: var(--muted); font-size: 14px; line-height: 1.45; }
 
 .su-actions { display: flex; gap: 12px; margin-top: 32px; }
+.ts-box { margin-top: 16px; min-height: 65px; }
 .su-actions .btn { flex: 1; min-height: 44px; padding: 12px; }
 .su-actions .btn.primary { flex: 2; }
 

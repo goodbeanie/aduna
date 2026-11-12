@@ -35,6 +35,10 @@ function cspFor(env) {
     put('script-src', 'https://*.paypal.com https://*.paypalobjects.com'); put('frame-src', 'https://*.paypal.com');
     put('connect-src', 'https://*.paypal.com https://*.paypalobjects.com' + geo); put('img-src', 'https://*.paypal.com https://*.paypalobjects.com');
   }
+  // Turnstile on the sign-up page: its script, its frame and its reporting calls.
+  if (env.TURNSTILE_SECRET && env.TURNSTILE_SITE_KEY) {
+    put('script-src', 'https://challenges.cloudflare.com'); put('frame-src', 'https://challenges.cloudflare.com'); put('connect-src', 'https://challenges.cloudflare.com');
+  }
   // Google AdSense (only when ADSENSE_CLIENT is a real publisher id): Google's script, its ad frames and its reporting calls.
   // If an ad ever fails to show, set CSP_MODE=report-only and read the browser console for the address that was blocked.
   if (/^ca-pub-\d{10,20}$/.test(String(env.ADSENSE_CLIENT || '').trim())) {
@@ -223,6 +227,19 @@ const clearedSessionCookies = ({ secure = false } = {}) => [
   `${COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Strict${secure ? '; Secure' : ''}`,
 ];
 
+// ---------- device cookie (limits how many accounts one person can make) ----------
+// A random token the browser keeps for two years, set the first time it signs up. Accounts and applications store only a hash of it, so the
+// database never holds a value that could be replayed. It is not a login and carries no identity: it only lets the server count how many
+// accounts were made from this browser. Clearing cookies or switching browser starts a new count, so this slows alts down; it does not make
+// them impossible (nothing short of ID checks does). Plain Lax rather than Strict so it is still sent on a link from another site.
+const DEVICE = 'aduna_device', DEVICE_HOST = '__Host-aduna_device';
+const DEVICE_RE = /^[A-Za-z0-9_-]{43}$/;
+const deviceCookieName = (secure) => (secure ? DEVICE_HOST : DEVICE);
+const newDeviceToken = () => nodeCrypto.randomBytes(32).toString('base64url');
+const readDeviceCookie = (headers, secure) => { const v = parseCookies((headers || {}).cookie)[deviceCookieName(secure)] || ''; return DEVICE_RE.test(v) ? v : ''; };
+const deviceCookie = (token, { secure = false } = {}) => `${deviceCookieName(secure)}=${token}; Path=/; Max-Age=${2 * 365 * 86400}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+const deviceKey = (token) => nodeCrypto.createHash('sha256').update('aduna-device:' + token).digest('hex');
+
 // A browser sends Origin on cross-site requests and on every WebSocket handshake. No Origin: not a browser, or a plain same-origin GET.
 function originAllowed(origin, host) {
   if (!origin) return true;
@@ -262,4 +279,5 @@ const resetLink = (origin, token) => `${origin}/reset#${token}`;
 
 module.exports = { CSP, securityHeaders, cleanEmail, emailKey, weakPassword, RateWindow, LoginGuard, createSessions,
   parseCookies, isSecure, readSessionCookie, hasSessionCookie, sessionCookie, clearedSessionCookies, originAllowed, csrfGuard,
-  newResetToken, validResetToken, resetTokenHash, siteOrigin, resetLink };
+  newResetToken, validResetToken, resetTokenHash, siteOrigin, resetLink,
+  newDeviceToken, readDeviceCookie, deviceCookie, deviceKey };

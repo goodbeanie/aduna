@@ -24,6 +24,7 @@ const security = require('./security');
 const totp = require('./totp');
 const devicelogin = require('./devicelogin');
 const googlelogin = require('./googlelogin'); // sign in / sign up with Google (see the file's header and the "Google" block below)
+const turnstile = require('./turnstile');
 const passkeys = require('./passkeys');
 const mailer = require('./mailer');
 const webpush = require('web-push');
@@ -315,12 +316,12 @@ const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person'
 const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()) });
 
 // ---------- email verification ----------
-// On when RESEND_API_KEY is set. New accounts (and accounts that change their email) get a 6-digit code by email and
-// are locked out of everything except the verification endpoints until they enter it. That includes accounts created
-// before verification existed (no `emailVerified` flag): they are asked at their next sign-in, and those with no email
-// on file are asked to add one. Only a hash of the code is stored.
+// On when RESEND_API_KEY is set. An email is optional. An account that gives one (at sign-up or later) gets a 6-digit code by email and
+// is locked out of everything except the verification endpoints until it enters it, and so is an account that changes its email.
+// Accounts created before verification existed (no `emailVerified` flag) are asked at their next sign-in. An account with no email is
+// never locked. Only a hash of the code is stored.
 const CODE_TTL_MS = 15 * 60_000, CODE_COOLDOWN_MS = 60_000, CODE_MAX_TRIES = 5;
-const needsVerify = (u) => mailer.enabled() && u.emailVerified !== true;
+const needsVerify = (u) => mailer.enabled() && !!u.email && u.emailVerified !== true;
 // Best-effort heads-up about a security change, only to an address that was verified. Never blocks or fails the request.
 function notifyByEmail(u, subject, text) {
   if (!mailer.enabled() || u.emailVerified !== true || !u.email) return;
@@ -516,7 +517,7 @@ app.get('/api/app-version', ah(async (req, res) => {
   appVersionCache = { at: Date.now(), data };
   res.json(data);
 }));
-app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled(), adunaServer: !!defaultServer(), applyToJoin: applicationsOn(), google: !!googlelogin.settings() })); // sign-up screen: can email recovery be offered (needs a mail provider)? does joining need an application? is "Continue with Google" set up?
+app.get('/api/auth-options', (_req, res) => res.json({ emailRecovery: mailer.enabled(), adunaServer: !!defaultServer(), applyToJoin: applicationsOn(), google: !!googlelogin.settings(), turnstile: turnstile.enabled() ? turnstile.siteKey() : '' })); // sign-up screen: can email recovery be offered (needs a mail provider)? does joining need an application? is "Continue with Google" set up?
 
 // Sign-up, step 1 (design your profile): nobody is signed in yet, so the free profile themes are served here, and the username box can ask
 // whether a name is free while the person types. Usernames are public anyway (register answers 409 for a taken one); the limit keeps it from being a scraper.
@@ -591,6 +592,17 @@ function defaultServer() {
 const signups = new security.RateWindow(posNum(process.env.SIGNUPS_PER_HOUR, 10), 3600_000); // new accounts per address per hour
 const loginGuard = new security.LoginGuard();
 
+// ----- at most two accounts per person -----
+// "A person" is a browser: the first sign-up sets a device cookie (security.js), and accounts and pending applications keep a hash of it.
+// MAX_ACCOUNTS_PER_PERSON (default 2) is how many may exist for one hash. Deleted accounts and denied applications do not count, so a person
+// can delete one account and make another. Creator addresses are exempt. Clearing cookies gets round it; the per-address hourly limit and
+// Turnstile still apply on top.
+const MAX_ACCOUNTS_PER_PERSON = posNum(process.env.MAX_ACCOUNTS_PER_PERSON, 2);
+const accountsOnDevice = (key) =>
+  Object.values(db().users).filter((u) => u.deviceKey === key && !u.bot && !u.deleted).length +
+  Object.values(db().applications || {}).filter((a) => a.deviceKey === key && a.status === 'pending').length;
+const ACCOUNT_LIMIT_MSG = `You already have ${MAX_ACCOUNTS_PER_PERSON} accounts on this device. Log in to one of them instead.`;
+
 // ----- rate limits survive restarts -----
 // The limits and the login lockout used to live only in memory, so every restart or redeploy (Render does both on its own) wiped them. The
 // five that guard accounts are now saved, sealed, in the meta table: shortly after they change (at most one write every 5 s), and once more
@@ -658,6 +670,7 @@ function newUserFromSignup(f) {
     publicKey: f.publicKey,
     encPrivKey: f.encPrivKey,
     ...(f.recovery ? { recovery: f.recovery } : {}),
+    ...(f.deviceKey ? { deviceKey: f.deviceKey } : {}), // hash of the browser's device cookie: only used to count accounts per person
     ...(f.emailRecovery === true && mailer.enabled() ? { emailRecovery: true } : {}), // chosen at sign-up; only takes effect once the address is verified (emailRecoveryPossible)
     // Signed up with Google: Google already proved the address, so there is no emailed code, and the creator address works with no mail provider.
     ...(f.googleSub ? { googleSub: f.googleSub, emailVerified: true, ...(isCreatorEmail(f.email) ? { developer: { at: now() } } : {}) } : {}),
@@ -679,10 +692,11 @@ app.post('/api/register', authLimiter, async (req, res) => {
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(username || '')) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
   const badName = appropriate.problem(username, 'username') || appropriate.problem(req.body?.design?.displayName, 'displayName');
   if (badName) return res.status(400).json({ error: badName });
-  const email = g ? g.profile.email : security.cleanEmail(req.body?.email);
-  if (!email) return res.status(400).json({ error: 'Enter a valid email address' });
+  const typedEmail = typeof req.body?.email === 'string' ? req.body.email.trim() : '';
+  const email = g ? g.profile.email : typedEmail ? security.cleanEmail(typedEmail) : null;
+  if (typedEmail && !email) return res.status(400).json({ error: 'Enter a valid email address' });
   if (typeof password !== 'string' || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  const weak = process.env.NODE_ENV === 'test' ? null : security.weakPassword(password, { username, email });
+  const weak = process.env.NODE_ENV === 'test' ? null : security.weakPassword(password, { username, email: email || '' });
   if (weak) return res.status(400).json({ error: weak });
   if (typeof publicKey !== 'string' || publicKey.length > 2000) return res.status(400).json({ error: 'Missing public key' });
   if (!validKeyBlob(encPrivKey)) return res.status(400).json({ error: 'Missing key backup' });
@@ -696,17 +710,28 @@ app.post('/api/register', authLimiter, async (req, res) => {
   // and uniqueness is decided when the address is verified. With it off nothing can be verified, so the check has to happen now.
   if (g) { // Google already vouched for the address: an account that has this Google identity or verified address means "log in", except for the creator address, which can back any number
     if (googleAccounts(g.profile).length && !isCreatorEmail(email)) return res.status(409).json({ error: 'This Google account already has an Aduna account. Log in with Google instead.', code: 'google_has_account' });
-  } else if (!mailer.enabled() && emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
+  } else if (email && !mailer.enabled() && emailTaken(email)) return res.status(409).json({ error: 'An account with this email already exists' });
+  if (!g) {
+    const human = await turnstile.verify(req.body?.turnstile, req.ip);
+    if (!human.ok) { console.warn('sign-up check failed:', human.reason); return res.status(400).json({ error: 'We could not confirm you are a person. Try again.', code: 'turnstile_failed' }); }
+  }
+  // At most MAX_ACCOUNTS_PER_PERSON accounts per browser (see above). A browser with no device cookie yet gets one now.
+  const secure = secureReq(req);
+  let deviceToken = security.readDeviceCookie(req.headers, secure);
+  if (!deviceToken) { deviceToken = security.newDeviceToken(); res.append('Set-Cookie', security.deviceCookie(deviceToken, { secure })); }
+  const devKey = security.deviceKey(deviceToken);
+  const overLimit = () => !isCreatorEmail(email) && accountsOnDevice(devKey) >= MAX_ACCOUNTS_PER_PERSON;
+  if (overLimit()) return res.status(403).json({ error: ACCOUNT_LIMIT_MSG, code: 'account_limit' });
   if (!isCreatorEmail(email) && !signups.allow(req.ip)) return res.status(429).json({ error: 'Too many accounts were created from this connection. Try again later.' });
 
   if (applying) {
-    const key = security.emailKey(email);
-    if (pendingApps().some((a) => security.emailKey(a.email) === key)) return res.status(409).json({ error: 'An application with this email is already waiting for review' });
+    const key = email && security.emailKey(email);
+    if (key && pendingApps().some((a) => a.email && security.emailKey(a.email) === key)) return res.status(409).json({ error: 'An application with this email is already waiting for review' });
     if (pendingApps().length >= MAX_PENDING_APPS) return res.status(503).json({ error: 'We have a lot of applications waiting right now. Please try again later.' });
     if (g) googleLogins.consume(gid); // used once, before the slow password hash, so two quick submits cannot both make an account
     const d = req.body?.design && typeof req.body.design === 'object' ? req.body.design : {};
     const a = {
-      id: store.id(), status: 'pending', username, email,
+      id: store.id(), status: 'pending', username, email, deviceKey: devKey,
       ...(g ? { googleSub: g.profile.sub } : {}), // approving it makes an account that is already verified, and linked to this Google identity
       passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey,
       ...(recovery ? { recovery } : {}),
@@ -720,13 +745,15 @@ app.post('/api/register', authLimiter, async (req, res) => {
       },
       reason, source: clip(req.body?.source, SOURCE_MAX).trim(), createdAt: now(),
     };
+    if (overLimit()) return res.status(403).json({ error: ACCOUNT_LIMIT_MSG, code: 'account_limit' }); // checked again: the password hash above is slow, so a second sign-up may have finished meanwhile
     db().applications[a.id] = a;
     store.save();
     return res.json({ applied: true });
   }
 
   if (g) googleLogins.consume(gid); // used once, before the slow password hash (see above)
-  const user = newUserFromSignup({ username, email, googleSub: g ? g.profile.sub : '', passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey, recovery, emailRecovery: req.body?.emailRecovery, lang: req.body?.lang, setup: req.body?.setup });
+  const user = newUserFromSignup({ username, email, googleSub: g ? g.profile.sub : '', passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey, recovery, emailRecovery: req.body?.emailRecovery, lang: req.body?.lang, setup: req.body?.setup, deviceKey: devKey });
+  if (overLimit()) return res.status(403).json({ error: ACCOUNT_LIMIT_MSG, code: 'account_limit' }); // checked again after the slow password hash
   db().users[user.id] = user;
 
   if (!needsVerify(user) && user.joinAduna !== false) joinDefaultServer(user);
@@ -4410,7 +4437,7 @@ function appTarget(req, res) {
 app.post('/api/admin/applications/:id/approve', auth, adminOnly, ah(async (req, res) => {
   const a = appTarget(req, res); if (!a) return;
   if (usernameTaken(a.username, a.id)) return res.status(409).json({ error: 'That username has since been taken. Deny this application and ask them to apply again with another one.' });
-  if (a.googleSub ? emailClaimed(a.email) : (!mailer.enabled() && emailTaken(a.email))) return res.status(409).json({ error: 'An account with this email already exists' });
+  if (a.email && (a.googleSub ? emailClaimed(a.email) : (!mailer.enabled() && emailTaken(a.email)))) return res.status(409).json({ error: 'An account with this email already exists' });
   const user = newUserFromSignup(a);
   const d = a.design || {};
   if (d.displayName) user.displayName = d.displayName;
@@ -4422,7 +4449,7 @@ app.post('/api/admin/applications/:id/approve', auth, adminOnly, ah(async (req, 
   if (!needsVerify(user) && user.joinAduna !== false) joinDefaultServer(user);
   store.save();
   if (needsVerify(user)) { try { await issueCode(user); } catch (e) { console.error('verification email failed:', e.message); } } // they can press "resend" when they log in
-  if (mailer.enabled()) mailer.sendApplicationResult(user.email, user.username, true).catch((e) => console.error('application email failed:', e.message));
+  if (mailer.enabled() && user.email) mailer.sendApplicationResult(user.email, user.username, true).catch((e) => console.error('application email failed:', e.message));
   adminLogAdd(req.user, 'approve application', user.username, '');
   res.json({ ok: true });
 }));
@@ -4431,7 +4458,7 @@ app.post('/api/admin/applications/:id/deny', auth, adminOnly, (req, res) => {
   const note = clip(req.body?.note, 300).trim();
   a.status = 'denied'; a.decidedAt = now(); a.decidedBy = req.user.username; a.note = note;
   store.save();
-  if (mailer.enabled()) mailer.sendApplicationResult(a.email, a.username, false, note).catch((e) => console.error('application email failed:', e.message));
+  if (mailer.enabled() && a.email) mailer.sendApplicationResult(a.email, a.username, false, note).catch((e) => console.error('application email failed:', e.message));
   adminLogAdd(req.user, 'deny application', a.username, note);
   res.json({ ok: true });
 });

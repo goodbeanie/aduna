@@ -58,7 +58,7 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual((await call('/friends', { token: a.token })).status, 403);
   assert.ok(lastCode('vera2@example.com')); step('changing email re-locks until verified');
 
-  // older accounts (no flag) are asked to verify at their next sign-in; one with no email must add one
+  // older accounts (no flag) are asked to verify at their next sign-in
   const old = Object.values(store.db.users).find((x) => x.username === 'walt'); delete old.emailVerified; delete old.verify;
   r = await call('/me', { token: b.token }); assert.strictEqual(r.user.emailVerified, false); assert.strictEqual(r.user.codeSent, false);
   assert.strictEqual((await call('/friends', { token: b.token })).status, 403);
@@ -66,9 +66,17 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual((await call('/me/verify-email', { method: 'POST', token: b.token, body: { code: lastCode('walt@example.com') } })).status, 200);
   assert.strictEqual((await call('/friends', { token: b.token })).status, 200); step('older accounts get a code and verify');
   const c2 = await reg('xena'); const xe = Object.values(store.db.users).find((x) => x.username === 'xena'); delete xe.email; delete xe.emailVerified; delete xe.verify;
-  assert.strictEqual((await call('/me/resend-verification', { method: 'POST', token: c2.token })).status, 400);
+  assert.strictEqual((await call('/friends', { token: c2.token })).status, 200); step('an account with no email is not locked');
   r = await call('/me', { method: 'PATCH', token: c2.token, body: { email: 'xena2@example.com' } });
-  assert.strictEqual(r.status, 200); assert.ok(lastCode('xena2@example.com')); step('older account with no email adds one and is sent a code');
+  assert.strictEqual(r.status, 200); assert.ok(lastCode('xena2@example.com')); step('an account with no email can add one later and is sent a code');
+
+  // email is optional at sign-up
+  const blank = { salt: 'a', iv: 'b', data: 'c' };
+  r = await call('/register', { method: 'POST', body: { username: 'nomail', password: 'password123', publicKey: 'k', encPrivKey: blank } });
+  assert.strictEqual(r.status, 200); assert.strictEqual(r.user.email, null); assert.strictEqual(r.user.emailVerified, true);
+  assert.strictEqual((await call('/friends', { token: r.token })).status, 200); step('sign-up with no email works and is not locked');
+  r = await call('/register', { method: 'POST', body: { username: 'badmail', email: 'not an email', password: 'password123', publicKey: 'k', encPrivKey: blank } });
+  assert.strictEqual(r.status, 400); step('an email that is typed must still be valid');
 
   // sign-up and email change must not reveal which addresses are registered
   {

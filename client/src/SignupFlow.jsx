@@ -7,6 +7,7 @@ import { Swatch } from './Appearance.jsx';
 import { THEMES, GRADIENT_THEMES, applyTheme, loadTheme, previewColors } from './themes.js';
 import { themeCardStyle, themeGradient } from './profilethemes.js';
 import FoundingBar from './FoundingBar.jsx';
+import Turnstile from './Turnstile.jsx';
 
 // Sign-up in three steps, so the person builds something before they are asked for anything:
 //   1  design your profile: username, picture, profile theme and the app theme, with a live card that follows every choice
@@ -77,7 +78,7 @@ function Card({ theme, who, name, username, row, compact, t }) {
   );
 }
 
-export default function SignupFlow({ mailOk, apply, onSubmit, onLogin, google, googleOn, onGoogle }) {
+export default function SignupFlow({ mailOk, apply, turnstileKey, onSubmit, onLogin, google, googleOn, onGoogle }) {
   const { lang, t } = useLang();
   const [draft] = useState(readDraft); // what the person had made before a refresh
   const root = useRef(null);
@@ -113,6 +114,10 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin, google, g
   const [useMail, setUseMail] = useState(false);
   const [err, setErr] = useState(null);              // { step, msg }
   const [busy, setBusy] = useState(false);
+  const [ts, setTs] = useState('');                  // the Cloudflare check's token for this sign-up
+  const [tsReset, setTsReset] = useState(0);
+  const needCheck = !!turnstileKey && !google;       // Google already vouches for the person
+  const mailAvail = mailOk && !!email.trim();        // email recovery needs an address to send to
 
   useEffect(() => {
     let dead = false;
@@ -139,7 +144,7 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin, google, g
     return () => { dead = true; clearTimeout(timer); };
   }, [trimmed, valid]);
 
-  useEffect(() => { root.current?.parentElement?.scrollTo?.(0, 0); }, [step]);
+  useEffect(() => { root.current?.parentElement?.scrollTo?.(0, 0); setTs(''); }, [step]);
 
   const theme = themes.find((x) => x.id === themeId) || null;
   const shownName = displayName.trim() || trimmed;
@@ -176,12 +181,15 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin, google, g
   async function finish(e) {
     e.preventDefault();
     setErr(null);
-    if (!useKey && !(useMail && mailOk)) { setErr({ step: 3, msg: 'Pick at least one way to get back into your account.' }); return; }
+    const mailUsable = useMail && mailAvail;
+    if (!useKey && !mailUsable) { setErr({ step: 3, msg: 'Pick at least one way to get back into your account.' }); return; }
+    if (needCheck && !ts) { setErr({ step: 3, msg: 'Finish the check above first.' }); return; }
     setBusy(true);
     try {
       await onSubmit({
-        username: trimmed, email: google ? google.email : email.trim(), password, useKey, useMail: useMail && mailOk,
+        username: trimmed, email: google ? google.email : email.trim(), password, useKey, useMail: mailUsable,
         ...(google ? { google: google.id } : {}),
+        ...(needCheck ? { turnstile: ts } : {}),
         ...(apply ? { reason: reason.trim(), source: source.trim() } : {}),
         design: { displayName: displayName.trim(), avatarLogo, avatarColor, profileTheme: theme ? theme.id : null },
       });
@@ -191,6 +199,7 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin, google, g
       const at = /username/i.test(msg) ? 1 : /email|password|why you want to join/i.test(msg) ? 2 : 3; // take them back to the step the problem belongs to
       setErr({ step: at, msg });
       setStep(at);
+      setTs(''); setTsReset((n) => n + 1); // a token works once
     } finally {
       setBusy(false);
     }
@@ -327,9 +336,12 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin, google, g
 
             <div className="su-main">
               <section className="su-sec">
-                <label htmlFor="su-email">{t('email')}</label>
-                <input id="su-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus={!google} required readOnly={!!google} autoComplete="email" maxLength={254} placeholder="you@example.com" />
+                <label htmlFor="su-email">{google ? t('email') : t('emailOptional')}</label>
+                <input id="su-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoFocus={!google} readOnly={!!google} autoComplete="email" maxLength={254} placeholder="you@example.com" />
                 <p className="hint">{google ? 'Verified by Google. No code to enter.' : t('emailHint')}</p>
+                {!google && mailOk && !email.trim() && (
+                  <p className="su-warn" role="status"><strong>No email, no email recovery.</strong> If you forget your password, your recovery key is the only way back into your account. You will get it on the last step. Lose both and the account cannot be recovered.</p>
+                )}
 
                 <label htmlFor="su-password">{t('password')}</label>
                 <div className="su-pw">
@@ -373,16 +385,18 @@ export default function SignupFlow({ mailOk, apply, onSubmit, onLogin, google, g
             <div className="su-main">
               <div className="su-opts">
                 <label className={'su-opt keep-case' + (useKey ? ' on' : '')}>
-                  <input type="checkbox" checked={useKey} onChange={(e) => { if (!e.target.checked && !(useMail && mailOk)) return; setUseKey(e.target.checked); setErr(null); }} />
+                  <input type="checkbox" checked={useKey} onChange={(e) => { if (!e.target.checked && !(useMail && mailAvail)) return; setUseKey(e.target.checked); setErr(null); }} />
                   <span className="su-opt-box" aria-hidden="true"><Tick /></span>
                   <span className="su-opt-text"><strong>{t('keyOptionB')}</strong><span>{lead(t('keyOptionT'))}</span></span>
                 </label>
-                <label className={'su-opt keep-case' + (useMail && mailOk ? ' on' : '') + (mailOk ? '' : ' off')}>
-                  <input type="checkbox" checked={useMail && mailOk} disabled={!mailOk} onChange={(e) => { if (!e.target.checked && !useKey) return; setUseMail(e.target.checked); setErr(null); }} />
+                <label className={'su-opt keep-case' + (useMail && mailAvail ? ' on' : '') + (mailAvail ? '' : ' off')}>
+                  <input type="checkbox" checked={useMail && mailAvail} disabled={!mailAvail} onChange={(e) => { if (!e.target.checked && !useKey) return; setUseMail(e.target.checked); setErr(null); }} />
                   <span className="su-opt-box" aria-hidden="true"><Tick /></span>
-                  <span className="su-opt-text"><strong>{t('mailOptionB')}</strong><span>{lead(t('mailOptionT'))}{!mailOk && t('mailUnavailable')}</span></span>
+                  <span className="su-opt-text"><strong>{t('mailOptionB')}</strong><span>{lead(t('mailOptionT'))}{!mailOk ? t('mailUnavailable') : !email.trim() ? ' Not available because you did not enter an email. Go back to add one.' : ''}</span></span>
                 </label>
               </div>
+
+              {needCheck && <Turnstile siteKey={turnstileKey} onToken={setTs} resetKey={tsReset} />}
 
               {problem}
               <div className="su-actions">
