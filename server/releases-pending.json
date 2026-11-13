@@ -236,5 +236,14 @@
       { "title": "Filter people by role", "text": "Admins can now filter the People tab by artists, admins or founders, and artists have an Artist tag." },
       { "title": "Remove an artist", "text": "Admins can take the artist role away from someone and give a reason. Their badge goes and their items come off sale, but people who already bought an item keep it. They can apply again after the usual wait." }
     ]
+  },
+  {
+    "id": "2026.11.12.6",
+    "date": "2026-11-12",
+    "title": "Remove shop items from the admin page",
+    "items": [
+      { "title": "Shop tab for admins", "text": "The admin page has a new Shop tab that lists every item for sale. An admin can remove one, which takes it off sale. People who already own it keep it." },
+      { "title": "Shop is view-only", "text": "The Pin, Daily shop, Edit and Take off sale buttons are gone from the shop itself." }
+    ]
   }
 ]
