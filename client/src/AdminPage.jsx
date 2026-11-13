@@ -7,7 +7,7 @@ import './admin.css';
 // non-admins with a 404; if /api/admin/me fails here anyway, the page sends the visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin' };
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
@@ -985,6 +985,49 @@ function Overview({ go }) {
   );
 }
 
+// ---------- shop ----------
+// Every item that has a price, with a Remove button. Remove takes the item off sale for good (people who already own it keep it). The shop itself
+// has no edit or remove controls any more; this is the only place. The server checks admin on every call, so this page is just the buttons.
+const SHOP_STATE = { live: 'On sale', resting: 'Resting today', ended: 'Ended', review: 'Awaiting review' };
+function ShopItems() {
+  const { say, run, ask } = useAdm();
+  const [data, setData] = useState(null);
+  const load = useCallback(() => api('/admin/shop').then(setData).catch((e) => { setData({ items: [] }); say(e.message, 'error'); }), [say]);
+  useEffect(() => { load(); }, [load]);
+  if (!data) return <p className="adm-muted">Loading…</p>;
+  const remove = async (i) => {
+    const ok = await ask({
+      title: `Remove ${i.name} from the shop?`,
+      body: i.owners > 0 ? `It is taken off sale and nobody can buy it. The ${i.owners} ${i.owners === 1 ? 'person' : 'people'} who own it keep it.` : 'It is taken off sale and nobody can buy it.',
+      confirmLabel: 'Remove from shop', danger: true,
+    });
+    if (ok) await run(() => api('/admin/shop/' + encodeURIComponent(i.id) + '/remove', { method: 'POST' }).then(setData), () => `${i.name} is off the shop`);
+  };
+  return (
+    <div className="adm-card">
+      <h3>In the shop ({data.items.length})</h3>
+      {!data.items.length && <p className="adm-muted">Nothing is for sale right now.</p>}
+      {data.items.map((i) => {
+        const src = imageUrl(i.image);
+        return (
+          <div className="adm-row adm-line" key={i.id}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+              <span className="adm-face" style={{ width: 40, height: 40, flex: 'none', background: src ? 'transparent' : i.color, fontSize: 20 }}>
+                {src ? <img src={src} alt="" /> : i.emoji || Array.from(i.name || '?')[0]}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <b>{i.name}</b> <span className="adm-muted">{i.kind === 'frame' ? 'frame' : i.kind === 'stickers' ? 'sticker pack' : 'badge'} · {i.price.toLocaleString()} credits · {SHOP_STATE[i.state] || i.state}{i.pinned ? ' · pinned' : ''}{i.daily ? ' · daily' : ''}</span>
+                <div className="adm-muted">{i.owners} owner{i.owners === 1 ? '' : 's'}{i.by ? ` · by ${i.by}` : ''}{i.ends ? ` · ends ${when(i.ends)}` : ''}</div>
+              </div>
+            </div>
+            <button type="button" className="adm-btn small danger" onClick={() => remove(i)}>Remove</button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ---------- the page ----------
 export default function AdminPage() {
   const [me, setMe] = useState(null);
@@ -1048,6 +1091,7 @@ export default function AdminPage() {
           {tab === 'overview' && <Overview go={go} />}
           {tab === 'applications' && <Applications />}
           {tab === 'artists' && <ArtistReview />}
+          {tab === 'shop' && <ShopItems />}
           {tab === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
           {tab === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
           {tab === 'releases' && <Releases />}

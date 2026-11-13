@@ -5022,6 +5022,30 @@ app.delete('/api/admin/links/:domain', auth, adminOnly, needCreator, (req, res) 
   res.json({ ok: true, ...linkAdminView() });
 });
 
+// ----- /admin > Shop (admin accounts only) -----
+// Every item that has a price, with its state (live, resting, ended, review) and how many people own it. "Remove" takes the item off sale for good:
+// its price is cleared, so nobody can buy it any more, and it is no longer pinned or daily. People who already own it keep it. The shop itself has no
+// edit or remove controls: this is the only place. The route answers non-admins with a 404 (adminOnly), and the server holds the truth, not the page.
+const shopAdminView = () => {
+  const owners = new Map();
+  for (const u of Object.values(db().users)) if (Array.isArray(u.badges)) for (const id of u.badges) owners.set(id, (owners.get(id) || 0) + 1);
+  return {
+    items: credits.shop.view({}, db().badges, { now: now(), all: true, users: db().users }).map((i) => ({
+      id: i.id, kind: i.kind, name: i.name, desc: i.desc, emoji: i.emoji, color: i.color, image: i.image, price: i.price,
+      pinned: i.pinned, daily: i.daily, ends: i.ends, state: i.state, by: i.by || null, owners: owners.get(i.id) || 0,
+    })),
+  };
+};
+app.get('/api/admin/shop', auth, adminOnly, (_req, res) => res.json(shopAdminView()));
+app.post('/api/admin/shop/:id/remove', auth, adminOnly, (req, res) => {
+  const b = badgeById(req.params.id);
+  if (!b || !Number.isInteger(b.price) || b.price <= 0) return res.status(404).json({ error: 'That item is not in the shop' });
+  b.price = null; b.pinned = false; b.daily = false; b.shopEnds = null; // off sale; owners keep it
+  store.save();
+  adminLogAdd(req.user, 'remove shop item', b.name, 'taken off sale');
+  res.json({ ok: true, ...shopAdminView() });
+});
+
 // ----- switches: turn a part of Aduna off for the public (creator accounts only; admins and creators are never closed out) -----
 app.get('/api/admin/sales', auth, adminOnly, needCreator, (_req, res) => res.json(salesReport.report(db())));
 app.get('/api/admin/switches', auth, adminOnly, needCreator, (_req, res) => res.json({ switches: switchesLib.list(db().switches) }));

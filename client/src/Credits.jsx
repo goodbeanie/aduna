@@ -3,8 +3,8 @@ import { Select } from './Controls.jsx';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { EmptyState, PanelSkeleton } from './ShellBits.jsx';
-import { askConfirm, toast } from './Dialogs.jsx';
-import { AddBadgeModal, BuyConfirm, Celebration, EditBadgeModal, ShopTile, useCountUp } from './Shop.jsx';
+import { toast } from './Dialogs.jsx';
+import { AddBadgeModal, BuyConfirm, Celebration, ShopTile, useCountUp } from './Shop.jsx';
 import PlusCard from './PlusCard.jsx';
 import { homeCountry, rememberCountry, priceFor, rateNote } from './region.js';
 
@@ -491,7 +491,6 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   const [confirm, setConfirm] = useState(null); // the badge the person is about to buy, or null
   const [won, setWon] = useState(null); // the badge just bought (the celebration), or null
   const [adding, setAdding] = useState(false); // a creator's "add a badge" window
-  const [editing, setEditing] = useState(null); // the shop badge a creator is editing, or null
   const [, setTick] = useState(0);
   const [checkout, setCheckout] = useState(null); // the pack being checked out, or null
   const [coErr, setCoErr] = useState('');
@@ -561,20 +560,7 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
     catch (e) { setErr(e.message); setConfirm(null); }
     setBusy('');
   }
-  async function takeOffSale(item) {
-    if (!(await askConfirm({ title: 'Take off sale', body: `Take the ${item.name} badge off sale? People who already have it keep it.`, confirmLabel: 'Take off sale' }))) return;
-    setErr(''); setNote('');
-    try { await api('/badges/' + item.id, { method: 'PATCH', body: { price: null } }); load(); setNote(`${item.name} is off sale.`); }
-    catch (e) { setErr(e.message); }
-  }
-  // A creator's quick controls on a shop tile. The server holds the truth; the page just reloads.
-  async function patchBadge(item, body, msg) {
-    setErr(''); setNote('');
-    try { await api('/badges/' + item.id, { method: 'PATCH', body }); load(); setNote(msg); }
-    catch (e) { setErr(e.message); }
-  }
-  const togglePin = (item) => patchBadge(item, { pinned: !item.pinned }, item.pinned ? `${item.name} is unpinned.` : `${item.name} is pinned to the top of the shop.`);
-  const toggleDaily = (item) => patchBadge(item, { daily: !item.daily }, item.daily ? `${item.name} is back in the regular shop.` : `${item.name} is now part of the daily shop.`);
+  // The shop is view-only. Removing items is done on the admin page (/admin > Shop), and the server only allows it for admin accounts.
   const timeLeft = (ms) => { const m = Math.max(1, Math.ceil(ms / 60_000)); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
 
   const seasonNote = (r, what) => (r.test
@@ -616,7 +602,6 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
         {confirm && d && <BuyConfirm item={confirm} balance={d.balance} busy={busy === confirm.id} onConfirm={() => buyItem(confirm)} onClose={() => setConfirm(null)} />}
         {won && <Celebration item={won} onClose={() => setWon(null)} />}
         {adding && <AddBadgeModal onClose={() => setAdding(false)} onAdded={(name) => { setAdding(false); load(); setNote(`${name} is in the shop.`); }} />}
-        {editing && <EditBadgeModal item={editing} onClose={() => setEditing(null)} onSaved={(name) => { setEditing(null); load(); setNote(`${name} is updated.`); }} />}
         {buying && d && (
           <Modal title="Buy credits" onClose={() => setBuying(false)}>
             <div className="credit-packs">
@@ -670,7 +655,7 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
             {shopItems.length === 0
               ? <EmptyState compact icon="bag" title={artistId ? 'Nothing for sale right now' : creator ? 'No badges for sale yet' : 'Nothing for sale right now'}>{artistId ? 'This artist has no items on sale at the moment.' : creator ? 'Add one with a picture and a price.' : 'Check back soon.'}</EmptyState>
               : (() => {
-                const tile = (it) => <ShopTile key={it.id} item={it} balance={d.balance} busy={busy} creator={creator} onOpen={setConfirm} onOffSale={takeOffSale} onPin={togglePin} onDaily={toggleDaily} onEdit={setEditing} />;
+                const tile = (it) => <ShopTile key={it.id} item={it} balance={d.balance} busy={busy} onOpen={setConfirm} />;
                 const regular = shopItems.filter((it) => !it.daily), daily = shopItems.filter((it) => it.daily);
                 const max = d.shopInfo?.dailyMax || 5;
                 return (
