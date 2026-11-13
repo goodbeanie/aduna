@@ -1,5 +1,6 @@
 import { t as tr } from './i18n.js';
 import { SOUND } from './soundboard.js';
+import { refuseExplicit, requireClean } from './nsfw.js';
 
 export const imageUrl = (id) => (id ? `/api/images/${id}` : null);
 
@@ -52,6 +53,7 @@ async function drawCover(file, w, h, crop) {
 
 export async function processImage(file, { w, h }, crop) {
   const canvas = await drawCover(file, w, h, crop);
+  await requireClean(canvas);
 
   // WebP keeps transparency and is small; some browsers (Safari) can't encode it, so fall back to JPEG.
   let blob = await toBlob(canvas, 'image/webp', 0.88);
@@ -123,6 +125,7 @@ export function removeBackground(canvas) {
 
 export async function processBadge(file, { w, h }) {
   const canvas = await drawCover(file, w, h);
+  await requireClean(canvas);
   removeBackground(canvas);
   const blob = await toBlob(canvas, 'image/png');
   if (!blob) throw new Error("Couldn't process that image");
@@ -190,6 +193,7 @@ export async function processFrame(file, adjust) {
   const w = bmp.width * scale, h = bmp.height * scale;
   ctx.drawImage(bmp, S / 2 + ox * S - w / 2, S / 2 + oy * S - h / 2, w, h);
   bmp.close?.();
+  await requireClean(canvas);
   const d = ctx.getImageData(0, 0, S, S).data;
   ctx.beginPath(); holePath(ctx, 0.96); // look at the avatar's shape, a hair smaller so a ring that touches its edge is fine
   let inside = 0, filledIn = 0, ring = 0;
@@ -218,6 +222,7 @@ export async function processSticker(file, L = STICKER) {
   const small = Math.min(bw, bh), big = Math.max(bw, bh);
   if (small < L.minSide) { bmp.close?.(); throw new Error(`Too small: a sticker is at least ${L.minSide}x${L.minSide} pixels`); }
   if (big / small > L.maxRatio) { bmp.close?.(); throw new Error('A sticker should be roughly square (no wider or taller than 2:1)'); }
+  try { await requireClean(bmp); } catch (e) { bmp.close?.(); throw e; }
   if (file.type === 'image/gif') {
     bmp.close?.();
     if (big > L.maxSide) throw new Error(`An animated sticker is at most ${L.maxSide}x${L.maxSide} pixels. Resize the GIF first: the app cannot shrink an animation.`);
@@ -259,6 +264,7 @@ export async function processPiece(file, maxSide = 1600) {
   let bmp;
   try { bmp = await createImageBitmap(file); }
   catch { throw new Error(tr('imgRead')); }
+  try { await refuseExplicit(bmp); } catch (e) { bmp.close?.(); throw e; }
   for (const side of [maxSide, Math.round(maxSide * 0.75), Math.round(maxSide * 0.55)]) { // a big, busy picture may need a smaller size to fit
     const scale = Math.min(1, side / Math.max(bmp.width, bmp.height));
     const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
@@ -287,6 +293,7 @@ export const ANIM_MAX_BYTES = 8 * 1024 * 1024; // the server's limit for the GIF
 export const canAnimate = (file) => !!file && file.type === 'image/gif' && file.size <= ANIM_MAX_BYTES;
 
 export async function uploadAnimated(kind, file, crop, base = '/api/me') {
+  await requireClean(file);
   const q = new URLSearchParams({ x: String(crop?.x ?? 0.5), y: String(crop?.y ?? 0.5), zoom: String(crop?.zoom ?? 1) });
   const res = await fetch(`${base}/${kind}/animated?${q}`, { method: 'PUT', headers: { 'Content-Type': 'image/gif' }, body: file });
   const data = await res.json().catch(() => ({}));

@@ -225,5 +225,16 @@
     "items": [
       { "title": "Plainer optional label", "text": "On the sign-up page the email label now reads \"Email (optional)\" in plain text instead of a badge." }
     ]
+  },
+  {
+    "id": "2026.11.12.5",
+    "date": "2026-11-12",
+    "title": "Server tags, a picture check and admin tools",
+    "items": [
+      { "title": "Server tags", "text": "Server owners can design a 4-character tag in Server settings > Server tag. Members of that server can choose to wear it next to their name from their profile editor. It shows in chat, the member list and on profile cards." },
+      { "title": "Explicit pictures are hidden", "text": "Pictures and videos are checked on your device before they are shown. Ones that look explicit are hidden, and ones that look suggestive are blurred until you click them. Explicit pictures can no longer be sent, or used as a profile picture, banner, emoji, sticker or badge. If you see a message to reload Aduna, do that once to get the update." },
+      { "title": "Filter people by role", "text": "Admins can now filter the People tab by artists, admins or founders, and artists have an Artist tag." },
+      { "title": "Remove an artist", "text": "Admins can take the artist role away from someone and give a reason. Their badge goes and their items come off sale, but people who already bought an item keep it. They can apply again after the usual wait." }
+    ]
   }
 ]

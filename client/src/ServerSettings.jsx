@@ -17,10 +17,12 @@ import { OnboardingTab } from './Onboarding.jsx';
 import { BotsTab } from './Bots.jsx';
 import { WebhooksTab } from './Webhooks.jsx';
 import { SoundboardTab } from './Soundboard.jsx';
+import { ServerTagTab } from './ServerTag.jsx';
 
 // [id, label, icon, who may open it]
 const TABS = [
   ['overview', 'Overview', 'users', (sv, uid) => can(sv, uid, 'manageServer')],
+  ['servertag', 'Server tag', 'shield', (sv, uid) => can(sv, uid, 'manageServer')],
   ['channels', 'Channels', 'hash', (sv, uid) => can(sv, uid, 'manageChannels')],
   ['roles', 'Roles', 'shield', (sv, uid) => can(sv, uid, 'manageRoles')],
   ['onboarding', 'Onboarding', 'hand', (sv, uid) => can(sv, uid, 'manageServer')],
@@ -253,6 +255,7 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
           )}
 
           {tab === 'channels' && <ChannelsTab server={server} onChange={onSaved} />}
+          {tab === 'servertag' && <ServerTagTab key={server.id} server={server} onChange={onSaved} />}
           {tab === 'roles' && <RolesTab server={server} me={me} onChange={onSaved} />}
           {tab === 'onboarding' && <OnboardingTab key={server.id} server={server} onChange={onSaved} />}
           {tab === 'bots' && <BotsTab key={server.id} server={server} me={me} onChange={onSaved} />}

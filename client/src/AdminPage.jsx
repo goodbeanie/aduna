@@ -333,6 +333,10 @@ function UserDetail({ id, onChanged, onClose }) {
     const r = await ask({ title: `Remove ${u.username} as admin?`, confirmLabel: 'Remove admin', danger: true });
     if (r && await run(() => api('/admin/admins/' + u.id, { method: 'DELETE' }), 'Admin removed')) after();
   };
+  const removeArtist = async () => {
+    const r = await ask({ title: `Remove ${u.username} as an artist?`, body: 'The Artist badge goes and their approved items come off sale. People who already own an item keep it, and anything still waiting for review is sent back. They see your reason and can apply again after the wait.', textarea: 'Reason (they see it)', required: true, confirmLabel: 'Remove artist', danger: true });
+    if (r && await run(() => api(`/admin/users/${u.id}/remove-artist`, { method: 'POST', body: { reason: r.text } }), 'Artist removed')) after();
+  };
   const resetStorage = async () => {
     const r = await ask({ title: 'Reset the storage plan for this test account?', body: 'This clears the plan record on Aduna, so Subscribe works again for another test payment. It does not touch PayPal: a card saved there stays, and nothing is refunded. Payment testing only.', confirmLabel: 'Reset plan', danger: true });
     if (r && await run(() => api(`/admin/users/${u.id}/storage-reset`, { method: 'POST' }), (x) => `Storage plan cleared (was ${x.was})`)) after();
@@ -358,6 +362,7 @@ function UserDetail({ id, onChanged, onClose }) {
       </div>
       <div className="adm-tags">
         {u.role && <span className="adm-tag">{ROLE[u.role]}</span>}
+        {u.artist && <span className="adm-tag">Artist</span>}
         {u.suspended && <span className="adm-tag bad">Suspended</span>}
         {m.mute && <span className="adm-tag warn">Muted</span>}
         {m.activeWarnings > 0 && <span className="adm-tag warn">{m.activeWarnings} warning{m.activeWarnings === 1 ? '' : 's'}</span>}
@@ -380,6 +385,7 @@ function UserDetail({ id, onChanged, onClose }) {
           <button className="adm-btn" onClick={warn}>Warn</button>
           {m.mute ? <button className="adm-btn" onClick={unmute}>Lift mute</button> : <button className="adm-btn" onClick={mute}>Mute</button>}
           {u.suspended ? <button className="adm-btn" onClick={unsuspend}>Lift suspension</button> : <button className="adm-btn" onClick={suspend}>Suspend</button>}
+          {u.artist && <button className="adm-btn" onClick={removeArtist}>Remove artist</button>}
           <button className="adm-btn danger" onClick={del}>Delete account</button>
           {me.canManageAdmins && (u.role === 'admin' ? <button className="adm-btn" onClick={dropAdmin}>Remove as admin</button> : !u.role && !u.suspended && <button className="adm-btn" onClick={makeAdmin}>Make admin</button>)}
         </div>
@@ -414,23 +420,29 @@ function UserDetail({ id, onChanged, onClose }) {
   );
 }
 
+const PEOPLE_FILTERS = [['', 'Everyone'], ['artist', 'Artists'], ['admin', 'Admins'], ['founder', 'Founders']];
+
 function People({ focusId, clearFocus, refresh }) {
   const { say } = useAdm();
   const [q, setQ] = useState('');
+  const [role, setRole] = useState('');
   const [rows, setRows] = useState(null);
   const [total, setTotal] = useState(0);
   const [sel, setSel] = useState(focusId || null);
   const [tick, setTick] = useState(0);
   useEffect(() => { if (focusId) { setSel(focusId); clearFocus(); } }, [focusId, clearFocus]);
   useEffect(() => {
-    const id = setTimeout(() => api('/admin/users?q=' + encodeURIComponent(q.trim())).then((r) => { setRows(r.users); setTotal(r.total); }).catch((e) => say(e.message, 'error')), q ? 250 : 0);
+    const id = setTimeout(() => api('/admin/users?q=' + encodeURIComponent(q.trim()) + (role ? '&role=' + role : '')).then((r) => { setRows(r.users); setTotal(r.total); }).catch((e) => say(e.message, 'error')), q ? 250 : 0);
     return () => clearTimeout(id);
-  }, [q, tick, say]);
+  }, [q, role, tick, say]);
   const changed = () => { setTick((t) => t + 1); refresh(); };
   return (
     <div className="adm-split">
       <div className="adm-card adm-list">
         <input className="adm-input" type="search" placeholder="Search by username, name or id" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search people" />
+        <div className="adm-subtabs" role="group" aria-label="Filter by role">
+          {PEOPLE_FILTERS.map(([id, name]) => <button key={id} className={'adm-chip' + (role === id ? ' on' : '')} aria-pressed={role === id} onClick={() => setRole(id)}>{name}</button>)}
+        </div>
         {!rows ? <p className="adm-muted">Loading…</p> : !rows.length ? <p className="adm-muted">No one matches.</p> : (
           <>
             <ul>
@@ -440,6 +452,7 @@ function People({ focusId, clearFocus, refresh }) {
                     <Face u={u} />
                     <span><b>{u.displayName}</b><small className="adm-muted"> @{u.username}</small></span>
                     {u.role && <span className="adm-tag">{u.role === 'creator' ? 'Founder' : 'Admin'}</span>}
+                    {u.artist && <span className="adm-tag">Artist</span>}
                     {u.suspended && <span className="adm-tag bad">Suspended</span>}
                     {u.muted && <span className="adm-tag warn">Muted</span>}
                     {u.reports > 0 && <span className="adm-tag warn">{u.reports}</span>}

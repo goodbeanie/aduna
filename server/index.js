@@ -48,6 +48,7 @@ const calllog = require('./calllog');
 const groupsLib = require('./groups');
 const gallery = require('./themegallery');
 const nameStyle = require('./namestyle'); // the font and gradient a display name is drawn in (see namestyle.js)
+const serverTagLib = require('./servertag'); // server tags: a 4-character badge a server designs and members choose to wear (see servertag.js)
 const loungeLib = require('./lounge'); // a server's info page: template, look and widgets, validated here (see lounge.js)
 const templatesLib = require('./templates'); // what a new server starts with: standard, business, community, chill (see templates.js)
 const todoLib = require('./todo'); // the to-do channel: tasks that roles can add, assign and tick off (see todo.js)
@@ -110,6 +111,11 @@ const MAX_ATTACH = 4;
 let storageApi = null; // set where the storage plan routes are registered (below)
 // Types the client may render inline (as <img>, <video>, <audio> from a blob). Everything else is a download.
 const INLINE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif', 'video/mp4', 'video/webm', 'audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/mp4', 'audio/webm']);
+const mediacheck = require('./mediacheck');
+// File uploads and downloads have to come from an app that runs the on-device picture check, which sends X-Aduna-Safety. A tab that was
+// opened before the check existed does not; it is told to reload. SAFETY_HEADER=on|off overrides (off in tests unless a test says on).
+const safetyHeaderOn = () => { const v = String(process.env.SAFETY_HEADER || '').trim().toLowerCase(); return v ? !['off', '0', 'false', 'no'].includes(v) : process.env.NODE_ENV !== 'test'; };
+const safetyHeader = (req, res, next) => (!safetyHeaderOn() || req.get('X-Aduna-Safety') === '1' ? next() : res.status(426).json({ error: 'Aduna was updated. Reload the page or restart the app, then try again.', code: 'update_required' }));
 const GIPHY_KEY = process.env.GIPHY_API_KEY || '';
 const isGifUrl = (u) => {
   try { const x = new URL(u); return x.protocol === 'https:' && /^(media\d*|i)\.giphy\.com$/.test(x.hostname) && String(u).length < 500; } catch { return false; }
@@ -281,6 +287,7 @@ function publicUser(u) {
     badges: badgeViews(u),
     plus: !u.bot && storagePlan.isSubscriber(u, now()), // has the paid storage plan (Aduna Plus): shows the Plus badge on the profile
     frame: wornFrame(u),
+    serverTag: serverTagLib.wornView(u, db().servers), // { serverId, name, text, bg, frame, fg } or null: the server tag this person wears, shown beside their name
     username: u.username,
     displayName: u.displayName,
     bio: u.bio,
@@ -313,7 +320,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()) });
+const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. An email is optional. An account that gives one (at sign-up or later) gets a 6-digit code by email and
@@ -390,6 +397,7 @@ function serverView(s) {
     visibility: s.visibility || null, // null = not published (the invite code still works, same as unlisted)
     description: s.description || '',
     tags: s.tags || [],
+    serverTag: serverTagLib.view(s), // { text, bg, frame, fg } or null: the 4-character tag members can wear (Server settings > Server tag)
     roles: s.roles || [],
     everyone: s.everyone || [],
     memberRoles: s.memberRoles || {},
@@ -1485,6 +1493,12 @@ app.patch('/api/me', authAny, async (req, res) => {
     else if (typeof b.frame === 'string' && ownsBadge(u, b.frame) && frameOf(b.frame)) newFrame = b.frame;
     else return res.status(400).json({ error: 'You can only wear a frame you own' });
   }
+  let newServerTag; // wear the tag of one of the servers the person is in (null or '' = wear none)
+  if (b.serverTag !== undefined) {
+    const t = serverTagLib.cleanWorn(b.serverTag, u, db().servers);
+    if (t.error) return res.status(400).json({ error: t.error });
+    newServerTag = t.value;
+  }
   let newTheme, newGradient; // a gradient profile theme: a free one, one the person bought, or their own custom gradient (undefined = unchanged, null = take it off)
   if (b.profileTheme !== undefined) {
     const copy = { profileThemes: u.profileThemes, profileGradient: u.profileGradient };
@@ -1534,6 +1548,7 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (newGradient) u.profileGradient = newGradient; // kept when they switch to a preset, so their own design is still there next time
   if (newHidden !== undefined) { if (newHidden.length) u.hiddenBadges = newHidden; else delete u.hiddenBadges; }
   if (newFrame !== undefined) { if (newFrame) u.frame = newFrame; else delete u.frame; }
+  if (newServerTag !== undefined) { if (newServerTag) u.serverTag = newServerTag; else delete u.serverTag; }
   if (b.avatarLogo !== undefined) u.avatarLogo = !!b.avatarLogo;
   if (b.displayName !== undefined) u.displayName = clip(b.displayName, 32).trim() || u.username;
   if (b.lang !== undefined && LANGS.includes(b.lang)) u.lang = b.lang;
@@ -1961,12 +1976,19 @@ function canReadScope(uid, scope) {
   if (kind === 'group') return !!groups.memberOf(rest, uid);
   return false;
 }
-app.post('/api/files', auth, fileLimiter, express.raw({ type: '*/*', limit: MAX_FILE + FILE_SLACK }), ah(async (req, res) => {
+app.post('/api/files', auth, safetyHeader, fileLimiter, express.raw({ type: '*/*', limit: MAX_FILE + FILE_SLACK }), ah(async (req, res) => {
   const buf = req.body;
   if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a file to send' });
   const scope = fileScope(req.user.id, req.query.kind, String(req.query.target || ''));
   if (!scope) return res.status(403).json({ error: 'You cannot send files here' });
   if (req.query.kind !== 'dm' && buf.length > MAX_FILE) return res.status(413).json({ error: 'File is too large (max 20 MB)' });
+  // A channel file is not encrypted, so it is looked at here (before anything is made room for). DM and group files are ciphertext:
+  // the sender's app checks those, and the readers' apps check them again.
+  let real = null;
+  if (req.query.kind === 'channel') {
+    real = mediacheck.sniff(buf);
+    await mediacheck.guardChat(buf);
+  }
   // Plus has the plan's 10 GB; a person may also set a smaller upload limit of their own (optional, nothing asks them).
   if (storagePlan.isSubscriber(req.user, now())) {
     const mine = storagePlan.plusLimitOf(req.user);
@@ -1990,11 +2012,11 @@ app.post('/api/files', auth, fileLimiter, express.raw({ type: '*/*', limit: MAX_
   const mime = /^[a-z0-9.+-]+\/[a-z0-9.+-]+$/i.test(String(req.query.mime || '')) ? String(req.query.mime).toLowerCase().slice(0, 100) : '';
   const ext = /^[a-z0-9]{1,10}$/i.test(String(req.query.ext || '')) ? String(req.query.ext).toLowerCase() : '';
   const fname = String(req.query.name || '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(-120);
-  const fid = await store.putFile(buf, { owner: req.user.id, scope, size: buf.length, mime, ext, fname });
+  const fid = await store.putFile(buf, { owner: req.user.id, scope, size: buf.length, mime, ext, fname, ...(real ? { kind: real.kind, real: real.mime } : {}) });
   if (storageApi) storageApi.push(req.user.id);
   res.json({ id: fid });
 }));
-app.get('/api/files/:id', auth, ah(async (req, res) => {
+app.get('/api/files/:id', auth, safetyHeader, ah(async (req, res) => {
   const meta = await store.fileMeta(req.params.id);
   if (!meta || !canReadScope(req.user.id, meta.scope) || (!meta.attached && meta.owner !== req.user.id)) return res.status(404).json({ error: 'Not found' });
   res.set({
@@ -2845,7 +2867,10 @@ app.post('/api/servers/:id/members/:uid/kick', auth, (req, res) => {
   if (s.joinedAt) delete s.joinedAt[uid];
   s.allowed = (s.allowed || []).filter((id) => id !== uid); // a kicked member of a private server must be added again to return
   forgetNotes(db().users[uid], s);
+  const kicked = db().users[uid];
+  if (kicked && kicked.serverTag === s.id) delete kicked.serverTag; // a kicked member stops wearing this server's tag
   store.save();
+  if (kicked && !kicked.bot) { io.to('server:' + s.id).emit('user:update', publicUser(kicked)); emitUserUpdate(kicked); }
   for (const sock of userSockets(uid)) {
     voiceLeave(uid, sock.id);
     sock.emit('server:removed', { serverId: s.id });
@@ -3102,6 +3127,7 @@ app.post('/api/servers/:id/leave', auth, (req, res) => {
   store.save();
   for (const sock of userSockets(req.user.id)) { voiceLeave(req.user.id, sock.id); sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id)); } // voiceLeave: someone who leaves must not stay in the server's voice call (kick already did this)
   io.to('server:' + s.id).emit('server:update', serverView(s));
+  if (req.user.serverTag === s.id) { delete req.user.serverTag; store.save(); io.to('server:' + s.id).emit('user:update', publicUser(req.user)); emitUserUpdate(req.user); } // they no longer wear this server's tag: the people still here and their own devices hear it
   res.json({ ok: true });
   dispatchBots(s, 'memberLeave', { user: req.user, reason: 'left' });
 });
@@ -4381,7 +4407,7 @@ function adminLogAdd(by, action, target, note) {
 }
 // The email address is private even from admins, so it is never part of these.
 const adminUserRow = (u) => ({
-  id: u.id, username: u.username, displayName: u.displayName || u.username, createdAt: u.createdAt || null, role: adminRole(u),
+  id: u.id, username: u.username, displayName: u.displayName || u.username, createdAt: u.createdAt || null, role: adminRole(u), artist: artistsLib.isArtist(artistRec(u.id)),
   suspended: u.suspended ? { at: u.suspended.at, reason: u.suspended.reason || '', until: u.suspended.until || null } : null, deleted: !!u.deleted,
   muted: moderation.muted(u, now()), warnings: moderation.activeWarnings(u, now()).length,
   reports: (u.reports || []).length, avatarImage: u.avatarImage || null, avatarColor: u.avatarColor || '#8c6b4f', avatarEmoji: u.avatarEmoji || '',
@@ -4464,9 +4490,16 @@ app.post('/api/admin/applications/:id/deny', auth, adminOnly, (req, res) => {
 });
 
 // find people by username, display name or id (newest accounts first when nothing is typed); at most 30 come back
+// `role` narrows the list to artists, admins or founders
+const ROLE_FILTERS = {
+  artist: (u) => artistsLib.isArtist(artistRec(u.id)),
+  admin: (u) => ['admin', 'config'].includes(adminRole(u)),
+  founder: (u) => adminRole(u) === 'creator',
+};
 app.get('/api/admin/users', auth, adminOnly, (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase().slice(0, 40);
-  const all = Object.values(db().users).filter((u) => !u.bot && !u.deleted);
+  const inRole = ROLE_FILTERS[String(req.query.role || '')];
+  const all = Object.values(db().users).filter((u) => !u.bot && !u.deleted && (!inRole || inRole(u)));
   const rank = (u) => (u.username.toLowerCase() === q ? 0 : u.username.toLowerCase().startsWith(q) ? 1 : 2);
   const rows = q
     ? all.filter((u) => u.username.toLowerCase().includes(q) || String(u.displayName || '').toLowerCase().includes(q) || u.id === q).sort((a, b) => rank(a) - rank(b) || a.username.localeCompare(b.username))
@@ -4508,6 +4541,22 @@ app.post('/api/admin/users/:id/unsuspend', auth, adminOnly, (req, res) => {
   delete u.suspended;
   store.save();
   adminLogAdd(req.user, 'unsuspend', u.username, '');
+  res.json({ ok: true, user: adminUserRow(u) });
+});
+
+// Takes the artist role away: the Artist badge goes, approved items come off sale (people who own one keep it) and pending ones are sent back.
+app.post('/api/admin/users/:id/remove-artist', auth, adminOnly, (req, res) => {
+  const u = modTarget(req, res); if (!u) return;
+  const reason = clip(req.body?.reason, 200).trim();
+  const r = artistsLib.revoke(artistRec(u.id), reason, req.user.id, now());
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  for (const b of myItems(u.id)) {
+    if (b.status === 'approved') b.price = null;
+    else if (b.status === 'pending') { b.status = 'rejected'; b.reviewNote = 'The artist role was removed'; }
+  }
+  store.save();
+  emitUserUpdate(u);
+  adminLogAdd(req.user, 'remove artist', u.username, reason);
   res.json({ ok: true, user: adminUserRow(u) });
 });
 
@@ -5327,6 +5376,41 @@ app.patch('/api/servers/:id', auth, (req, res) => {
   res.json({ server: broadcastServer(s) });
 });
 
+// ----- server tag (Manage server): the 4-character badge members can choose to wear (server/servertag.js) -----
+// Everyone who wears it is told straight away, so a changed colour or text shows on their names without a reload.
+function refreshTagWearers(s) {
+  for (const id of s.members) {
+    const m = db().users[id];
+    if (!m || m.bot) continue;
+    if (m.serverTag === s.id) emitUserUpdate(m); // they wear it: everyone who sees them hears about the new look
+    else io.to('user:' + m.id).emit('user:update', { ...selfView(m), tagChoices: serverTagLib.choicesFor(m, db().servers) }); // everyone else: only their own devices, so their picker lists the new tag
+  }
+}
+app.put('/api/servers/:id/tag', auth, (req, res) => {
+  const s = ownedServer(req, res);
+  if (!s) return;
+  const t = serverTagLib.clean(req.body);
+  if (t.error) return res.status(400).json({ error: t.error });
+  if (t.value) {
+    const bad = appropriate.problem(t.value.text, 'serverTag');
+    if (bad) return res.status(400).json({ error: bad });
+    s.serverTag = t.value;
+  } else delete s.serverTag;
+  store.save();
+  const view = broadcastServer(s);
+  refreshTagWearers(s);
+  res.json({ server: view });
+});
+app.delete('/api/servers/:id/tag', auth, (req, res) => {
+  const s = ownedServer(req, res);
+  if (!s) return;
+  delete s.serverTag;
+  store.save();
+  const view = broadcastServer(s);
+  refreshTagWearers(s); // they no longer show a tag (the check in wornView), and their own pickers drop it
+  res.json({ server: view });
+});
+
 // A new (or removed) still picture also drops the animated copy of the old one, like setProfileImage does for people.
 async function setServerImage(s, field, buf) {
   const old = s[field];
@@ -5769,6 +5853,7 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // JSON errors instead of Express's default HTML page (oversized uploads, malformed JSON, ...)
 app.use((err, req, res, _next) => {
+  if (err.code === 'MEDIA_REFUSED') return res.status(422).json({ error: err.message, code: 'media_refused' });
   if (err.type === 'entity.too.large') return res.status(413).json({ error: req.path.startsWith('/api/emoji') ? 'Emoji is too large (max 256 KB)' : 'File is too large (max 20 MB, or 1 MB for profile pictures)' });
   if (err.code === 'STORAGE_FULL') return res.status(507).json({ error: 'Uploads are paused: the storage limit has been reached. Try again later.' });
   if (err.status && err.status < 500) return res.status(err.status).json({ error: 'Bad request' });
@@ -5880,7 +5965,7 @@ function broadcastPresence(uid) {
 // The audience sees the public profile (Invisible shows as offline); the person's own devices get the real status.
 function emitUserUpdate(u) {
   toAudience(u.id).except('user:' + u.id).emit('user:update', publicUser(u));
-  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), showActivity: u.showActivity !== false, nameWarning: nameWarningView(u), modState: moderation.view(u, now()) }); // their own devices also learn which badges they own and wear, whether their game is shown, and whether a name warning, a moderator warning or a mute is open
+  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), showActivity: u.showActivity !== false, nameWarning: nameWarningView(u), modState: moderation.view(u, now()) }); // their own devices also learn which badges they own and wear, whether their game is shown, and whether a name warning, a moderator warning or a mute is open
 }
 // Two people just became able to see each other (friend request, joining a server): each learns the other's current presence.
 function introduce(a, b) {
@@ -6023,7 +6108,9 @@ io.on('connection', (socket) => {
       const meta = typeof a?.id === 'string' && !used.has(a.id) && await store.fileMeta(a.id);
       if (!meta || meta.owner !== who || meta.scope !== scope || meta.attached) return null;
       used.add(a.id);
-      out.push({ id: a.id, name: clip(a.name, 120) || 'file', size: meta.size, type: INLINE_TYPES.has(a.type) ? a.type : 'application/octet-stream', w: dim(a.w), h: dim(a.h) });
+      const claimed = INLINE_TYPES.has(a.type) ? a.type : 'application/octet-stream';
+      const type = meta.kind ? mediacheck.settleType(claimed, { kind: meta.kind, mime: meta.real }) : claimed; // uploads from before the check have no real type saved
+      out.push({ id: a.id, name: clip(a.name, 120) || 'file', size: meta.size, type: INLINE_TYPES.has(type) ? type : 'application/octet-stream', w: dim(a.w), h: dim(a.h) });
     }
     return out;
   };

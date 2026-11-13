@@ -4,7 +4,7 @@ import { TileSkeleton } from './ShellBits.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
 import { api } from './api.js';
 import { useEmoji } from './Emoji.jsx';
-import { isVoice, keepDays, kindOf, loadBlob, safeGif, saveAttachment, sizeLabel, voiceSecs } from './files.js';
+import { isVoice, keepDays, kindOf, loadBlob, loadChecked, safeGif, saveAttachment, sizeLabel, voiceSecs } from './files.js';
 
 function fit(w, h, maxW = 380, maxH = 320) {
   if (!w || !h) return null;
@@ -12,16 +12,36 @@ function fit(w, h, maxW = 380, maxH = 320) {
   return { width: Math.round(w * s), height: Math.round(h * s) };
 }
 
+// A picture is checked on this device before it is shown (nsfw.js): 'block' is never shown, 'blur' is blurred until the reader taps it.
 function useBlobUrl(att, dm, enabled) {
-  const [state, setState] = useState({ url: null, err: false, expired: false });
+  const [state, setState] = useState({ url: null, err: false, expired: false, verdict: 'ok' });
   useEffect(() => {
     if (!enabled) return undefined;
     let url, dead = false;
-    loadBlob(att, dm).then((b) => { if (!dead) { url = URL.createObjectURL(b); setState({ url, err: false, expired: false }); } })
-      .catch((e) => !dead && setState({ url: null, err: true, expired: !!e?.expired }));
+    loadChecked(att, dm).then(({ blob, verdict }) => {
+      if (dead) return;
+      if (verdict !== 'block') url = URL.createObjectURL(blob);
+      setState({ url: url || null, err: false, expired: false, verdict });
+    }).catch((e) => !dead && setState({ url: null, err: true, expired: !!e?.expired, verdict: 'ok' }));
     return () => { dead = true; if (url) URL.revokeObjectURL(url); };
   }, [att.id, enabled]); // eslint-disable-line react-hooks/exhaustive-deps
   return state;
+}
+
+// pictures the reader chose to show, until the app is closed
+const revealed = new Set();
+const useReveal = (id) => {
+  const [, again] = useState(0);
+  return [revealed.has(id), () => { revealed.add(id); again((n) => n + 1); }];
+};
+
+function Hidden({ what = 'Image' }) {
+  return (
+    <div className="att-file att-expired" title="Checked on your device before it was shown">
+      <Icon name="shield" size={26} />
+      <div className="att-meta"><div className="att-name">{what} hidden</div><div className="muted small">It may contain nudity or explicit content</div></div>
+    </div>
+  );
 }
 
 function Expired({ att }) {
@@ -34,12 +54,20 @@ function Expired({ att }) {
 }
 
 function ImageAtt({ att, dm, onOpen }) {
-  const { url, err, expired } = useBlobUrl(att, dm, true);
+  const { url, err, expired, verdict } = useBlobUrl(att, dm, true);
+  const [shown, show] = useReveal(att.id);
   if (expired) return <Expired att={att} />;
+  if (verdict === 'block') return <Hidden />;
+  const veiled = (verdict === 'blur' || verdict === 'unknown') && !shown;
   const box = fit(att.w, att.h) || { width: 300, height: 180 };
+  const click = () => {
+    if (!url) return;
+    if (veiled) show(); else onOpen({ url, name: att.name, att });
+  };
   return (
-    <button className="att-img" style={url && !att.w ? undefined : box} onClick={() => url && onOpen({ url, name: att.name, att })} title={att.name}>
-      {url ? <img src={url} alt={att.name} draggable={false} /> : <span className="att-wait">{err ? 'Could not load image' : 'Loading…'}</span>}
+    <button className={'att-img' + (veiled ? ' sensitive' : '')} style={url && !att.w ? undefined : box} onClick={click} title={veiled ? (verdict === 'unknown' ? 'Not checked' : 'Sensitive image') : att.name}>
+      {url ? <img src={url} alt={veiled ? '' : att.name} draggable={false} /> : <span className="att-wait">{err ? 'Could not load image' : 'Loading…'}</span>}
+      {veiled && <span className="att-veil">{verdict === 'unknown' ? "Couldn't check this image. Click to show" : 'Sensitive image. Click to show'}</span>}
     </button>
   );
 }
@@ -288,10 +316,13 @@ function AudioAtt({ att, dm, url }) {
 }
 
 function MediaAtt({ att, dm, kind }) {
-  const { url, err, expired } = useBlobUrl(att, dm, true);
+  const { url, err, expired, verdict } = useBlobUrl(att, dm, true);
+  const [shown, show] = useReveal(att.id);
   if (expired) return <Expired att={att} />;
+  if (verdict === 'block') return <Hidden what="Video" />;
   if (err) return <div className="att-file muted">Could not load {att.name}</div>;
   if (!url) return <div className="att-file muted">Loading {att.name}…</div>;
+  if ((verdict === 'blur' || verdict === 'unknown') && !shown) return <button className="att-file att-veil-file" onClick={show}><Icon name="shield" size={26} /><span>{verdict === 'unknown' ? "Couldn't check this video. Click to show" : 'Sensitive video. Click to show'}</span></button>;
   return kind === 'video'
     ? <VideoAtt att={att} dm={dm} url={url} />
     : isVoice(att) ? <VoiceAtt att={att} url={url} />
@@ -347,7 +378,10 @@ export function Attachments({ atts, dm, onOpen }) {
 
 // One slide of the lightbox. A picture sent as a file is fetched (and decrypted) here; a GIF already has its address.
 function BlobSlide({ item, dm }) {
-  const { url, err, expired } = useBlobUrl(item.att, dm, true);
+  const { url, err, expired, verdict } = useBlobUrl(item.att, dm, true);
+  const [shown, show] = useReveal(item.att.id);
+  if (verdict === 'block') return <span className="lb-wait">This image may contain nudity or explicit content</span>;
+  if (url && (verdict === 'blur' || verdict === 'unknown') && !shown) return <button className="lb-wait" onClick={show}>{verdict === 'unknown' ? "Couldn't check this image. Click to show" : 'Sensitive image. Click to show'}</button>;
   if (url) return <img src={url} alt={item.name} draggable={false} />;
   return <span className="lb-wait">{expired ? 'This image has expired' : err ? 'Could not load image' : 'Loading…'}</span>;
 }
@@ -395,7 +429,7 @@ export function Lightbox({ view, onClose }) {
       <div className="lightbox-bar">
         <span>{item.name}</span>
         {many && <span className="lb-count" aria-live="polite">{i + 1} / {items.length}</span>}
-        {item.att && <button className="icon-btn" title="Download" onClick={() => saveAttachment(item.att, view.dm)}><Icon name="download" size={18} /></button>}
+        {item.att && <button className="icon-btn" title="Download" onClick={() => saveAttachment(item.att, view.dm).catch(() => {})}><Icon name="download" size={18} /></button>}
         <button className="icon-btn" title="Close" onClick={onClose}><Icon name="close" size={18} /></button>
       </div>
     </div>

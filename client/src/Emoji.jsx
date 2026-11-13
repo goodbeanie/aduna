@@ -5,6 +5,7 @@ import { askConfirm, toast } from './Dialogs.jsx';
 import { ChannelMention, EveryoneMention, Mention } from './Mentions.jsx';
 import { renderMarkdown } from './Markdown.jsx';
 import { SafeLink, guardedLink } from './LinkGuard.jsx';
+import { scanImage } from './nsfw.js';
 
 // ---------- links + custom emoji inside message text ----------
 const URL_RE = /(https?:\/\/[^\s<]+[^\s<.,;:!?)"'\]])/g;
@@ -79,6 +80,8 @@ export async function prepareEmoji(file) {
     if (!blob || blob.type !== 'image/webp') blob = await toBlob(c, 'image/png');
     note = 'Resized and re-encoded; photo metadata is removed. Use a GIF for animation.';
   }
+  const verdict = await scanImage(bmp);
+  const appropriate = verdict === 'ok';
   bmp.close?.();
   const dimOk = Math.min(w, h) >= EMOJI_RULES.min && (file.type !== 'image/gif' || Math.max(w, h) <= EMOJI_RULES.max);
   checks.push({ ok: dimOk, label: `At least ${EMOJI_RULES.min} px, GIFs up to ${EMOJI_RULES.max} px (yours: ${w}×${h})` });
@@ -86,6 +89,7 @@ export async function prepareEmoji(file) {
   checks.push({ ok: ratioOk, label: 'Roughly square (no wider than 2:1)' });
   const sizeOk = !!blob && blob.size <= EMOJI_RULES.bytes;
   checks.push({ ok: sizeOk, label: `Under 256 KB (yours: ${blob ? kb(blob.size) : '?'})` });
+  checks.push({ ok: appropriate, label: verdict === 'unknown' ? "The picture check couldn't run. Try again in a moment" : 'No nudity or explicit content' });
   return { checks, blob, w: cw, h: ch, note, ok: checks.every((c) => c.ok) };
 }
 

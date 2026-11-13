@@ -16,6 +16,7 @@ import { canTrim } from './soundtrim.js';
 import { safetyNumber } from './crypto.js';
 import { inviteLink, codeFromInput } from './Invite.jsx';
 import { BotTag } from './Bots.jsx';
+import { ServerTagChip, ServerTagPicker } from './ServerTag.jsx';
 import { useLang } from './i18n.js';
 import { PlayingLine } from './Activity.jsx';
 import { TEMPLATES, DEFAULT_TEMPLATE } from './templates.js';
@@ -262,7 +263,7 @@ export function UserCard({ user, presence, relation, canMessage = false, onClose
         <div className="card-avatar"><Avatar user={user} size={80} presence={presence} play /></div>
         {user.plus && <PlusBadge />}
         <div className="card-body">
-          <h3><span {...nameProps(user)}>{user.displayName}</span>{user.bot && <> <BotTag /></>} <BadgeIcons user={user} size={20} /></h3>
+          <h3><span {...nameProps(user)}>{user.displayName}</span>{user.bot && <> <BotTag /></>}<ServerTagChip tag={user.serverTag} /> <BadgeIcons user={user} size={20} /></h3>
           <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username}${user.pronouns ? ` · ${user.pronouns}` : ''} · ${STATUS_LABEL[presence || 'offline']}`}</div>
           {user.bio && (<><h4>ABOUT ME</h4><p className="bio">{user.bio}</p></>)}
           {/* the game they are playing right now; the server only sends it when they are online and have it switched on */}
@@ -378,6 +379,10 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
   const ownedFrames = Array.isArray(me.ownedFrames) ? me.ownedFrames : [];
   const [frameId, setFrameId] = useState(() => (ownedFrames.find((x) => x.worn) || {}).id || '');
 
+  // Server tag: the tag of one server the person is in, worn beside their name ('' = none). Saved with "Save changes".
+  const tagChoices = Array.isArray(me.tagChoices) ? me.tagChoices : [];
+  const [tagId, setTagId] = useState(() => (me.serverTag && tagChoices.some((c) => c.serverId === me.serverTag.serverId) ? me.serverTag.serverId : ''));
+
   // Username can be changed once every 7 days (the server enforces this; this just explains it).
   const unlockAt = me.usernameChangedAt ? me.usernameChangedAt + USERNAME_COOLDOWN_MS : 0;
   const locked = unlockAt > Date.now();
@@ -487,7 +492,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     : { id: me.song.id, title: songTitle.trim() || me.song.title };
 
   // Unsaved changes: compare everything the form holds with how it looked when it opened. Save stays off until something changed.
-  const snapshot = JSON.stringify([f, mode, nameFont, gradOn, gradOn ? nameG : null, theme, theme === CUSTOM_THEME_ID ? customG : null, [...hidden].sort(), frameId,
+  const snapshot = JSON.stringify([f, mode, nameFont, gradOn, gradOn ? nameG : null, theme, theme === CUSTOM_THEME_ID ? customG : null, [...hidden].sort(), frameId, tagId,
     staged.avatar === undefined ? 0 : staged.avatar === null ? 'x' : staged.avatar.url, staged.banner === undefined ? 0 : staged.banner === null ? 'x' : staged.banner.url,
     songTitle, songStage === undefined ? 0 : songStage === null ? 'x' : songStage.track ? 't' + songStage.track.tid : songStage.url, shownTrack ? [section.start, section.end] : 0]);
   const openSnapshot = useRef(null);
@@ -505,6 +510,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
     username: me.username,
     frame: null, framePreview: frameId ? imageUrl((ownedFrames.find((x) => x.id === frameId) || {}).image) : null, // the card shows the frame that is chosen
     profileTheme: theme,
+    serverTag: tagChoices.find((c) => c.serverId === tagId) || null, // the card shows the tag that is chosen
     nameFont: nameFont === 'aduna' ? null : nameFont,
     nameGradient: gradOn ? nameG : null,
     profileGradient: theme === CUSTOM_THEME_ID ? customG : null,
@@ -525,6 +531,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
       if (renaming) body.username = f.username.trim().replace(/^@/, ''); else delete body.username;
       if (ownedBadges.length) body.hiddenBadges = [...hidden];
       if (ownedFrames.length) body.frame = frameId || null;
+      if (tagChoices.length || me.serverTag) body.serverTag = tagId || null;
       if (songStage === undefined && me.song && songTitle.trim() && songTitle.trim() !== me.song.title) body.songTitle = songTitle.trim(); // a saved song renamed
       let { user } = await api('/me', { method: 'PATCH', body });
       // Choosing the letter or the logo drops any saved picture; choosing "image" applies the staged upload.
@@ -652,6 +659,11 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
             onUse={(cut) => stageSong(cut, songTrim.file, songTrim.fits)} onCancel={() => setSongTrim(null)} />}
           <input ref={songInput} type="file" accept="audio/*,.mp3,.m4a,.ogg,.wav,.webm" hidden onChange={pickSong} />
           <p className="muted small hint">Upload a song (MP3, M4A, OGG, WAV or WebM, up to 25 MB) and pick any {SONG.secs} seconds of the full song to use; it plays on your card muted until someone presses the speaker. Or search for a song to give your card a play button with a 30 second preview (the search can only give that preview, not the full song), plus links to find it on Spotify and YouTube Music.</p>
+          </section>
+
+          <section className="ed-sec" aria-labelledby="pe-stag">
+          <EdHead id="pe-stag" title="Server tag" note="Wear the tag of one of your servers beside your name." />
+          <ServerTagPicker choices={tagChoices} value={tagId} onChange={setTagId} />
           </section>
 
           <section className="ed-sec" aria-labelledby="pe-look">

@@ -78,6 +78,14 @@ const fill = (rec, n = 4) => { for (let i = 0; i < n; i++) rec.pieces[i] = 'img'
   assert.strictEqual(A.view(rec2, T0).reviewNote, 'Lovely work');
   assert.strictEqual(A.open(rec2, 'u2', T0).status, 409, 'an artist does not reapply');
   step('approval makes an artist');
+
+  // removing an artist
+  assert.strictEqual(A.revoke(rec, 'x', 'm1', T0).status, 404, 'a person who is not an artist cannot be removed');
+  assert.strictEqual(A.revoke(rec2, '', 'm1', T0 + 5).status, 400, 'a reason is needed');
+  assert.strictEqual(A.revoke(rec2, 'Sold art that was not theirs', 'm1', T0 + 5).ok, true);
+  assert.strictEqual(A.isArtist(rec2), false); assert.strictEqual(rec2.status, 'rejected'); assert.strictEqual(rec2.retryAt, T0 + 5 + A.COOLDOWN_MS);
+  assert.strictEqual(A.open(rec2, 'u2', T0 + DAY).status, 429, 'a removed artist waits before applying again');
+  step('revoke: needs a reason, ends the artist role and starts the cooldown');
 }
 
 // ---- items ----

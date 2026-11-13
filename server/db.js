@@ -26,6 +26,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { Pool, types } = require('pg');
+const mediacheck = require('./mediacheck');
 
 types.setTypeParser(20, (v) => Number(v)); // BIGINT (timestamps) -> number
 
@@ -410,7 +411,9 @@ async function dropBlobs(keys) {
 
 // ---------- images ----------
 const imageId = () => crypto.randomBytes(16).toString('hex'); // unguessable: the id is the access token for the URL
+// Everything anybody can see goes through here, so this is where the nudity check sits (server/mediacheck.js). Throws MEDIA_REFUSED (a 422).
 async function putImage(buf) {
+  await mediacheck.guardPublic(buf);
   const iid = imageId();
   const sealed = seal(buf, `images:${iid}`);
   await checkRoom(sealed.length);

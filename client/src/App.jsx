@@ -15,6 +15,7 @@ import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, User
 import { api, connectSocket, emitAck, markSignedIn, endSession, adoptLegacyToken } from './api.js';
 import { SettingsScreen } from './Settings.jsx';
 import { BotTag } from './Bots.jsx';
+import { ServerTagChip } from './ServerTag.jsx';
 import { InviteContext, INVITE_CODE_RE, InvitePage } from './Invite.jsx';
 import * as np from './notifprefs.js';
 import { ServerNotifications } from './ServerNotifications.jsx';
@@ -1046,6 +1047,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       <span {...nameProps(users[u.id] || u, server && roleColorOf(server, u.id))}>{(users[u.id] || u).displayName}</span>
       <BadgeIcons user={users[u.id] || u} size={16} />
       {(users[u.id] || u).bot && <BotTag />}
+      <ServerTagChip tag={(users[u.id] || u).serverTag} />
       {server?.ownerId === u.id && <span className="owner" title="Server owner"><Icon name="crown" size={15} /></span>}{isCoOwner(server, u.id) && <span className="owner" title="Server co-owner"><Icon name="crown" size={15} /></span>}
     </button>
   );

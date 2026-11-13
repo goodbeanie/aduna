@@ -40,7 +40,7 @@ function flagged(value, kind = 'name') {
   return null;
 }
 
-const LABEL = { username: 'username', displayName: 'display name', bio: 'bio', server: 'server name', channel: 'channel name', category: 'category name', role: 'role name' };
+const LABEL = { username: 'username', displayName: 'display name', bio: 'bio', server: 'server name', serverTag: 'server tag', channel: 'channel name', category: 'category name', role: 'role name' };
 // null when fine, else a sentence for the person. `what` is one of the LABEL keys.
 function problem(value, what = 'displayName') {
   const kind = what === 'bio' ? 'text' : 'name';

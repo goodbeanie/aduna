@@ -2,6 +2,12 @@
 import { encryptBytesFor, decryptBytesFrom, encryptBytesWithKey, decryptBytesWithKey } from './crypto.js';
 import { STICKER_LABEL, stickerIdOf } from './stickers.js';
 import { shrinkImage } from './imageShrink.js';
+import { EXPLICIT_MSG, refuseExplicit, scanImage, settleType, sniffType } from './nsfw.js';
+
+// The server only takes uploads and downloads from an app that runs the on-device check, and asks for this header to know it does.
+// A tab opened before that change does not send it and gets 'update_required' back until it is reloaded.
+const SAFETY = { 'X-Aduna-Safety': '1' };
+const RELOAD_MSG = 'Aduna was updated. Reload the page or restart the app, then try again.';
 
 export const MAX_FILE = 20 * 1024 * 1024;
 // The server deletes attachments after FILE_DAYS days, or LARGE_FILE_DAYS for files over LARGE_FILE_BYTES (see server/index.js).
@@ -48,6 +54,8 @@ export const setPlusLimitHandler = (fn) => { plusLimitHandler = fn; };
 //        or { kind: 'group', target: groupId, key, epoch } (key = the current epoch's AES key; the epoch is stored in the attachment)
 export async function uploadFile(file, scope, onProgress) {
   file = await shrinkImage(file); // photos are compressed before anything else (imageShrink.js), so they also count smaller against the size limit
+  await refuseExplicit(file); // looks at the bytes, not the name: pictures and videos are checked, anything else passes
+  const type = settleType(file.type, await sniffType(file));
   if (file.size > MAX_FILE) throw new Error(`${file.name} is larger than 20 MB`);
   if (!file.size) throw new Error(`${file.name} is empty`);
   let body = await file.arrayBuffer();
@@ -55,8 +63,9 @@ export async function uploadFile(file, scope, onProgress) {
   else if (scope.kind === 'group') body = await encryptBytesWithKey(scope.key, body);
   const send = () => new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
-    x.open('POST', `/api/files?kind=${scope.kind}&target=${encodeURIComponent(scope.target)}&mime=${encodeURIComponent((file.type || '').toLowerCase())}&ext=${encodeURIComponent((String(file.name || '').match(/\.([a-z0-9]{1,10})$/i) || [])[1] || '')}&name=${encodeURIComponent(String(file.name || '').slice(-120))}`);
+    x.open('POST', `/api/files?kind=${scope.kind}&target=${encodeURIComponent(scope.target)}&mime=${encodeURIComponent(type.toLowerCase())}&ext=${encodeURIComponent((String(file.name || '').match(/\.([a-z0-9]{1,10})$/i) || [])[1] || '')}&name=${encodeURIComponent(String(file.name || '').slice(-120))}`);
     x.setRequestHeader('Content-Type', 'application/octet-stream');
+    x.setRequestHeader('X-Aduna-Safety', SAFETY['X-Aduna-Safety']);
     x.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded / e.total);
     x.onload = () => {
       let d = {}; try { d = JSON.parse(x.responseText); } catch {}
@@ -78,7 +87,7 @@ export async function uploadFile(file, scope, onProgress) {
       if (!(await storageFullHandler({ needed: e.needed, used: e.used, limit: e.limit, fileName: file.name, readOnly: e.readOnly, freeLimitMB: e.freeLimitMB, canUpgrade: e.canUpgrade, selfSet: e.selfSet }))) throw new Error(e.readOnly ? 'Attachments are read-only until you free up space or get Plus, so the file was not sent' : e.selfSet ? 'You reached the storage limit you set, so the file was not sent' : 'Your storage is full, so the file was not sent');
     }
   }
-  return { id, name: file.name || 'file', type: file.type || 'application/octet-stream', size: file.size, ...(scope.kind === 'group' ? { epoch: scope.epoch } : {}), ...(await imageSize(file)) };
+  return { id, name: file.name || 'file', type, size: file.size, ...(scope.kind === 'group' ? { epoch: scope.epoch } : {}), ...(await imageSize(file)) };
 }
 
 export const discardUpload = (id) => fetch('/api/files/' + id, { method: 'DELETE' }).catch(() => {});
@@ -89,8 +98,9 @@ const cache = new Map();
 export function loadBlob(att, dm) {
   if (!cache.has(att.id)) {
     cache.set(att.id, (async () => {
-      const res = await fetch('/api/files/' + att.id);
+      const res = await fetch('/api/files/' + att.id, { headers: SAFETY });
       if (res.status === 404) throw Object.assign(new Error('This file has expired'), { expired: true }); // removed by the cleanup
+      if (res.status === 426) throw Object.assign(new Error(RELOAD_MSG), { code: 'update_required' });
       if (!res.ok) throw new Error('Could not load file');
       let buf = await res.arrayBuffer();
       if (dm?.group) {
@@ -104,8 +114,17 @@ export function loadBlob(att, dm) {
   return cache.get(att.id);
 }
 
+// The file plus what the on-device check made of it ('ok', 'blur', 'block' or 'unknown', see nsfw.js). The check goes by the bytes, so a file
+// that says it is something else is still looked at; only pictures and videos are checked.
+export async function loadChecked(att, dm) {
+  const blob = await loadBlob(att, dm);
+  return { blob, verdict: await scanImage(blob) };
+}
+
 export async function saveAttachment(att, dm) {
-  const url = URL.createObjectURL(await loadBlob(att, dm));
+  const blob = await loadBlob(att, dm);
+  if ((await scanImage(blob)) === 'block') throw new Error(EXPLICIT_MSG); // a renamed picture or video is not saved to the device either
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = att.name || 'file';
   document.body.appendChild(a); a.click(); a.remove();

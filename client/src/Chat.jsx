@@ -15,6 +15,7 @@ const ClipEmbed = CLIPS_ENABLED ? React.lazy(() => import('./ClipEmbed.jsx').the
 import { MentionMenu, fromChannelTokens, fromMentionTokens, mentionPreview, toChannelTokens, toMentionTokens, useMentionComplete } from './Mentions.jsx';
 import { useTypingProof } from './typing.js';
 import { BotTag } from './Bots.jsx';
+import { ServerTagChip } from './ServerTag.jsx';
 import { PollCard, PollModal } from './Polls.jsx';
 import { WordleModal, WordleShareCard, parseWordleShare } from './Wordle.jsx';
 import { ContextoModal, ContextoShareCard, parseContextoShare } from './Contexto.jsx';
@@ -249,6 +250,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
             <div className="msg-head">
               <button className="name" {...nameProps(author, roleColors?.[m.authorId])} onClick={openAuthor} onContextMenu={authorMenu}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
               {(author?.bot || m.bot) && <BotTag />}
+              <ServerTagChip tag={author?.serverTag} />
               <span className="time">{timeLabel(m.createdAt)}</span>
             </div>
           )}

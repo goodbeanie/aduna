@@ -93,6 +93,16 @@ function view(rec, now = Date.now()) {
 }
 const isArtist = (rec) => !!rec && rec.status === 'approved';
 
+// A moderator takes the artist role away. It ends like a rejection: the Artist badge goes, and the person waits out the cooldown before applying again.
+function revoke(rec, note, by, now = Date.now(), cooldownMs = COOLDOWN_MS) {
+  if (!isArtist(rec)) return { status: 404, error: 'That person is not an artist' };
+  const n = text(note, LIMITS.review);
+  if (!n) return { status: 400, error: 'Say why, so the person knows' };
+  rec.status = 'rejected'; rec.badge = false; rec.retryAt = now + cooldownMs;
+  rec.reviewNote = n; rec.reviewedAt = now; rec.reviewedBy = by;
+  return { ok: true };
+}
+
 // ---------- items ----------
 // An item is a badge in db().badges with an artistId. Only approved ones are for sale.
 const isItem = (b) => !!b && typeof b.artistId === 'string' && b.artistId.length > 0;
@@ -186,6 +196,6 @@ const itemRoom = (items) => items.length < LIMITS.items;
 
 module.exports = {
   LIMITS, CUT_PERCENT, COOLDOWN_MS, cutFor,
-  blank, pieceIds, filled, validSlot, cooldownLeft, open, submit, decide, view, isArtist,
+  blank, pieceIds, filled, validSlot, cooldownLeft, open, submit, decide, view, isArtist, revoke,
   isItem, listed, KINDS, FRAME, kindOf, isFrame, isStickers, cleanItem, editItem, applyEdit, submitItem, decideItem, ownIt, itemRoom,
 };
