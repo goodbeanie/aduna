@@ -245,5 +245,17 @@
       { "title": "Shop tab for admins", "text": "The admin page has a new Shop tab that lists every item for sale. An admin can remove one, which takes it off sale. People who already own it keep it." },
       { "title": "Shop is view-only", "text": "The Pin, Daily shop, Edit and Take off sale buttons are gone from the shop itself." }
     ]
+  },
+  {
+    "id": "2026.11.13",
+    "date": "2026-11-13",
+    "title": "Aduna has a new address",
+    "desktop": "1.4.116",
+    "android": "2026.11.14.123",
+    "items": [
+      { "title": "New web address", "text": "Aduna is now at aduna.dpdns.org, and the web app is at aduna.dpdns.org/app. The old aduna.onrender.com address is no longer used." },
+      { "title": "Update the desktop and Android apps", "text": "The new desktop and Android versions open the new address. Older versions still point at the old one, so install the new version to keep using the app." },
+      { "title": "Links to the new address work", "text": "Invite links and links to Aduna that use the new address are now recognized as Aduna links inside the app." }
+    ]
   }
 ]
