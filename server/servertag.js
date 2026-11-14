@@ -7,8 +7,12 @@
 //   server.serverTag = { text, bg, frame }   frame is a hex colour, or null for no frame
 //   user.serverTag   = a server id           the tag that person wears
 // A worn tag is checked every time it is shown (see wornView): leaving or being removed from the server, the managers clearing the tag,
-// or the server being deleted all simply make it stop showing, so nothing has to be cleaned up by hand.
+// the server being deleted, no longer being public or the tag text being flagged by the appropriateness checker all simply make it stop
+// showing, so nothing has to be cleaned up by hand.
+// Only public servers can have a tag that members wear. The design is kept when a server goes private, so it comes back if it is made public again.
 // (Not to be confused with server.tags, the discovery tags a public server is searched by.)
+
+const appropriate = require('./appropriate');
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 const MAX_LEN = 4;
@@ -47,21 +51,24 @@ function view(s) {
 
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const memberOf = (s, uid) => !!s && Array.isArray(s.members) && s.members.includes(uid);
+const isPublic = (s) => !!s && s.visibility === 'public';
+const blocked = (s) => !!appropriate.flaggedTag(s && s.serverTag && s.serverTag.text);
+const wearable = (s) => isPublic(s) && !blocked(s);
 
-// The tag a person is wearing right now, or null: it must still exist, and they must still be in that server.
+// The tag a person is wearing right now, or null: it must still exist, the server must still be public, and they must still be in it.
 function wornView(u, servers) {
   if (!u || u.bot || !u.serverTag) return null;
   const s = servers && has(servers, u.serverTag) ? servers[u.serverTag] : null;
-  if (!memberOf(s, u.id)) return null;
+  if (!memberOf(s, u.id) || !wearable(s)) return null;
   const v = view(s);
   return v ? { serverId: s.id, name: s.name, ...v } : null;
 }
 
-// Every tag the person could wear (one per server they are in that has a tag), for the picker in their profile.
+// Every tag the person could wear (one per public server they are in that has a tag), for the picker in their profile.
 function choicesFor(u, servers) {
   const out = [];
   for (const s of Object.values(servers || {})) {
-    if (!memberOf(s, u.id)) continue;
+    if (!memberOf(s, u.id) || !wearable(s)) continue;
     const v = view(s);
     if (v) out.push({ serverId: s.id, name: s.name, ...v, worn: u.serverTag === s.id });
   }
@@ -74,8 +81,10 @@ function cleanWorn(id, u, servers) {
   if (typeof id !== 'string') return { error: 'Pick one of your servers' };
   const s = has(servers, id) ? servers[id] : null;
   if (!memberOf(s, u.id)) return { error: 'You can only wear the tag of a server you are in' };
+  if (!isPublic(s)) return { error: 'Only public servers have tags you can wear' };
   if (!view(s)) return { error: 'That server has no tag yet' };
+  if (blocked(s)) return { error: 'That server tag is not allowed on Aduna' };
   return { value: s.id };
 }
 
-module.exports = { MAX_LEN, clean, view, wornView, choicesFor, cleanWorn, textColorOn };
+module.exports = { MAX_LEN, clean, view, isPublic, wornView, choicesFor, cleanWorn, textColorOn };

@@ -24,6 +24,29 @@ assert.ok(/username/.test(A.problem('nazi_boy', 'username')));
 assert.ok(/channel name/.test(A.problem('porn-chat', 'channel')));
 step('text and messages');
 
+// server tags: four characters, so short forms are compared whole
+assert.strictEqual(A.problem('ADUN', 'serverTag'), null);
+assert.strictEqual(A.problem('GG', 'serverTag'), null);
+assert.ok(/server tag/.test(A.problem('KKK', 'serverTag')), 'a word on the list');
+assert.ok(A.problem('FUCK', 'serverTag'));
+assert.ok(A.problem('nig', 'serverTag'), 'cut-down slur');
+assert.ok(A.problem('fck', 'serverTag'), 'cut-down swear word');
+assert.ok(A.problem('xxx', 'serverTag'));
+assert.ok(A.problem('kys', 'serverTag'), 'an abbreviation already on the list');
+assert.ok(A.problem('KYS', 'serverTag'), 'in capitals');
+assert.ok(A.problem('cp', 'serverTag'), 'abbreviations are compared whole');
+assert.ok(A.problem('CP', 'serverTag'));
+assert.ok(A.problem('kms', 'serverTag'));
+assert.ok(A.flagged('kys', 'name'), 'a username that is only kys');
+assert.ok(A.flagged('cp', 'name'), 'cp as a name');
+assert.ok(A.flagged('CP', 'name'), 'in capitals');
+assert.strictEqual(A.flagged('cpu_fan', 'name'), null, 'a short word only matches whole');
+assert.strictEqual(A.flagged('Marcpolo', 'name'), null);
+assert.ok(A.problem('n1g', 'serverTag'), 'look-alike characters');
+assert.strictEqual(A.flaggedTag(undefined), null);
+assert.strictEqual(A.flagged('nig', 'name'), null, 'only tags get the whole-text list, so names like Nigel are untouched');
+step('server tags');
+
 // scan
 const user = (o) => ({ id: 'u', username: 'maya', displayName: 'maya', bio: '', createdAt: 1, ...o });
 assert.deepStrictEqual(A.scan(user({})), []);

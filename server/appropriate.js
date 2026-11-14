@@ -12,7 +12,7 @@ const WARN_MS = WARN_DAYS * 24 * 3600 * 1000;
 
 // Short words only match a whole word, longer ones (5+ letters) match anywhere inside a name. Extend with NAME_BLOCKED_WORDS=a,b,c
 // (EMOJI_BLOCKED_WORDS keeps working too: one list for emoji, names and listings).
-const BASE = ['nazi', 'hitler', 'heil', 'swastika', 'kkk', 'porn', 'nsfw', 'hentai', 'rape', 'rapist', 'nude', 'nudes', 'cum', 'dick', 'cock', 'pussy', 'whore', 'slut', 'fag', 'faggot', 'nigger', 'nigga', 'retard', 'kys', 'killyourself', 'suicide'];
+const BASE = ['nazi', 'hitler', 'heil', 'swastika', 'kkk', 'porn', 'nsfw', 'hentai', 'rape', 'rapist', 'nude', 'nudes', 'cum', 'dick', 'cock', 'pussy', 'whore', 'slut', 'fag', 'faggot', 'nigger', 'nigga', 'retard', 'kys', 'cp', 'killyourself', 'suicide'];
 const EXTRA = ['fuck', 'fucker', 'fucking', 'motherfucker', 'shit', 'bitch', 'cunt', 'twat', 'asshole', 'dildo', 'penis', 'vagina', 'blowjob', 'handjob', 'cumshot', 'orgasm', 'bukkake', 'milf', 'boobs', 'titties',
   'incest', 'pedo', 'paedo', 'pedophile', 'paedophile', 'molest', 'raping', 'kike', 'chink', 'spic', 'gook', 'tranny', 'dyke', 'wetback', 'beaner', 'whitepower', 'gaschambers', 'killallniggers'];
 const fromEnv = (v) => String(v || '').toLowerCase().split(',').map((w) => w.trim()).filter(Boolean);
@@ -41,10 +41,16 @@ function flagged(value, kind = 'name') {
 }
 
 const LABEL = { username: 'username', displayName: 'display name', bio: 'bio', server: 'server name', serverTag: 'server tag', channel: 'channel name', category: 'category name', role: 'role name' };
+
+// A tag is at most 4 characters, so cut-down swear words and slurs slip past the word list. A tag is also compared whole against these.
+const TAG_BLOCKED = ['nig', 'nigg', 'fck', 'fuk', 'fuc', 'xxx', 'cp', 'kms'];
+const flaggedTag = (value) => flagged(value, 'name') || (TAG_BLOCKED.includes(fold(value).replace(/[^a-z0-9]+/g, '')) ? 'tag' : null);
+
 // null when fine, else a sentence for the person. `what` is one of the LABEL keys.
 function problem(value, what = 'displayName') {
   const kind = what === 'bio' ? 'text' : 'name';
-  return flagged(value, kind) ? `That ${LABEL[what] || 'name'} is not allowed on Aduna. Please choose something else.` : null;
+  const hit = what === 'serverTag' ? flaggedTag(value) : flagged(value, kind);
+  return hit ? `That ${LABEL[what] || 'name'} is not allowed on Aduna. Please choose something else.` : null;
 }
 
 // What is wrong with one account right now: [{ field, value, serverId? }]. Bots and deleted shells are never flagged. `servers` are the
@@ -92,4 +98,4 @@ function view(user, servers, now) {
   return { items: items.map((i) => ({ ...i, label: LABEL[i.field] })), seenAt: w.seenAt || null, deadline, daysLeft: deadline ? Math.max(0, Math.ceil((deadline - now) / 86400000)) : WARN_DAYS, days: WARN_DAYS };
 }
 
-module.exports = { WORDS, WARN_DAYS, WARN_MS, flagged, problem, scan, plan, view, deadlineOf, due };
+module.exports = { WORDS, WARN_DAYS, WARN_MS, flagged, flaggedTag, problem, scan, plan, view, deadlineOf, due };

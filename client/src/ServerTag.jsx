@@ -58,6 +58,18 @@ export function ServerTagTab({ server, onChange }) {
     if (await run(() => api(`/servers/${server.id}/tag`, { method: 'DELETE' }))) { setText(''); setFrameOn(false); setDone('The tag was removed. People who wore it no longer show one.'); }
   };
 
+  if (server.visibility !== 'public') {
+    return (
+      <>
+        <h1>Server tag</h1>
+        <p className="muted">Server tags are only for public servers. The owner can make {server.name} public in Server settings, under Publish, and then design a tag here.</p>
+        {saved && <p className="muted small hint">The tag you made is kept, but nobody wears it while the server is not public.</p>}
+        {err && <div className="error">{err}</div>}
+        {saved && <div className="settings-foot"><button className="btn" disabled={busy} onClick={remove}>Remove tag</button></div>}
+      </>
+    );
+  }
+
   return (
     <>
       <h1>Server tag</h1>
@@ -105,7 +117,7 @@ export function ServerTagTab({ server, onChange }) {
 
 // Settings > Profile > Server tag: pick which one tag you wear. choices = me.tagChoices; value = a server id or ''.
 export function ServerTagPicker({ choices, value, onChange }) {
-  if (!choices.length) return <p className="muted small hint">None of your servers have a tag yet. When a server you are in creates one, you can wear it here.</p>;
+  if (!choices.length) return <p className="muted small hint">None of your servers have a tag yet. When a public server you are in creates one, you can wear it here.</p>;
   return (
     <div className="stag-picker" role="radiogroup" aria-label="Server tag">
       <button type="button" role="radio" aria-checked={!value} className={'stag-opt' + (!value ? ' on' : '')} onClick={() => onChange('')}>

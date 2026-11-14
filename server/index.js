@@ -2730,6 +2730,7 @@ app.put('/api/servers/:id/publish', auth, (req, res) => {
   }
   store.save();
   io.to('server:' + s.id).emit('server:update', serverView(s));
+  refreshTagWearers(s); // going private or public changes whether the tag shows
   res.json({ publish: publishView(s), server: serverView(s) });
 });
 app.post('/api/servers/:id/publish/allowed', auth, (req, res) => {
@@ -3402,6 +3403,7 @@ app.post('/api/admin/servers/:id/listing', auth, reviewOnly, (req, res) => {
   store.save();
   adminLogAdd(req.user, action + ' server reports', s.name, '');
   io.to('server:' + s.id).emit('server:update', serverView(s));
+  if (action === 'remove') refreshTagWearers(s);
   res.json({ ok: true, hold: s.listingHold || null });
 });
 
@@ -5531,6 +5533,7 @@ app.put('/api/servers/:id/tag', auth, (req, res) => {
   const t = serverTagLib.clean(req.body);
   if (t.error) return res.status(400).json({ error: t.error });
   if (t.value) {
+    if (!serverTagLib.isPublic(s)) return res.status(400).json({ error: 'Only public servers can have a server tag. Make the server public first.' });
     const bad = appropriate.problem(t.value.text, 'serverTag');
     if (bad) return res.status(400).json({ error: bad });
     s.serverTag = t.value;

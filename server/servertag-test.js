@@ -33,9 +33,11 @@ step('text colour');
 
 // ---- wearing a tag ----
 const servers = {
-  s1: { id: 's1', name: 'Alpha', members: ['ann', 'bob'], serverTag: { text: 'ALPH', bg: '#ff0000', frame: '#ffffff' } },
-  s2: { id: 's2', name: 'Beta', members: ['ann'], serverTag: { text: 'BT', bg: '#ffffff', frame: null } },
-  s3: { id: 's3', name: 'NoTag', members: ['ann'] },
+  s1: { id: 's1', name: 'Alpha', visibility: 'public', members: ['ann', 'bob'], serverTag: { text: 'ALPH', bg: '#ff0000', frame: '#ffffff' } },
+  s2: { id: 's2', name: 'Beta', visibility: 'public', members: ['ann'], serverTag: { text: 'BT', bg: '#ffffff', frame: null } },
+  s3: { id: 's3', name: 'NoTag', visibility: 'public', members: ['ann'] },
+  s4: { id: 's4', name: 'Hidden', visibility: 'unlisted', members: ['ann'], serverTag: { text: 'HID', bg: '#00ff00', frame: null } },
+  s5: { id: 's5', name: 'Private', members: ['ann'], serverTag: { text: 'PRIV', bg: '#0000ff', frame: null } },
 };
 const ann = { id: 'ann', serverTag: 's1' };
 
@@ -48,10 +50,16 @@ assert.strictEqual(T.wornView({ id: 'ann', serverTag: 'gone' }, servers), null, 
 assert.strictEqual(T.wornView({ id: 'ann', serverTag: 's3' }, servers), null, 'the server removed its tag');
 assert.strictEqual(T.wornView({ id: 'ann', serverTag: '__proto__' }, servers), null, 'odd ids are not looked up on the prototype');
 assert.strictEqual(T.wornView({ id: 'bot', bot: true, serverTag: 's1' }, servers), null, 'bots wear none');
+assert.strictEqual(T.wornView({ id: 'ann', serverTag: 's4' }, servers), null, 'an unlisted server does not show its tag');
+assert.strictEqual(T.wornView({ id: 'ann', serverTag: 's5' }, servers), null, 'a server that is not published does not show its tag');
+const flaggedServers = { s6: { id: 's6', name: 'Rude', visibility: 'public', members: ['ann'], serverTag: { text: 'FUCK', bg: '#000000', frame: null } } };
+assert.strictEqual(T.wornView({ id: 'ann', serverTag: 's6' }, flaggedServers), null, 'a tag the appropriateness checker flags does not show');
+assert.deepStrictEqual(T.choicesFor(ann, flaggedServers), [], 'and is not offered in the picker');
+assert.ok(T.cleanWorn('s6', ann, flaggedServers).error, 'and cannot be equipped');
 step('a tag that stops being valid stops showing');
 
 // ---- choosing which tag to wear ----
-assert.deepStrictEqual(T.choicesFor(ann, servers).map((c) => [c.serverId, c.worn]), [['s1', true], ['s2', false]], 'only servers I am in that have a tag, A to Z, with the worn one marked');
+assert.deepStrictEqual(T.choicesFor(ann, servers).map((c) => [c.serverId, c.worn]), [['s1', true], ['s2', false]], 'only public servers I am in that have a tag, A to Z, with the worn one marked');
 assert.deepStrictEqual(T.choicesFor({ id: 'bob' }, servers).map((c) => c.serverId), ['s1']);
 assert.deepStrictEqual(T.choicesFor({ id: 'zed' }, servers), []);
 step('choices');
@@ -61,6 +69,8 @@ assert.deepStrictEqual(T.cleanWorn('', ann, servers), { value: null });
 assert.deepStrictEqual(T.cleanWorn(null, ann, servers), { value: null });
 assert.ok(T.cleanWorn('s1', { id: 'cy' }, servers).error, 'cannot wear the tag of a server you are not in');
 assert.ok(T.cleanWorn('s3', ann, servers).error, 'cannot wear a tag that does not exist');
+assert.ok(T.cleanWorn('s4', ann, servers).error, 'cannot wear the tag of an unlisted server');
+assert.ok(T.cleanWorn('s5', ann, servers).error, 'cannot wear the tag of a private server');
 assert.ok(T.cleanWorn('nope', ann, servers).error, 'unknown server');
 assert.ok(T.cleanWorn(7, ann, servers).error, 'must be a server id');
 step('equipping is checked');
