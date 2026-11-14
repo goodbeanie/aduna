@@ -279,5 +279,15 @@
       { "title": "Waiting for the server", "text": "If Aduna can’t reach its server, the desktop and Android apps now show a “Waiting for the Aduna server” screen instead of a browser error. It checks every few seconds, opens Aduna by itself when the server is back, and has a Try now button." },
       { "title": "Offline notice", "text": "If your device has no internet, the same screen says so." }
     ]
+  },
+  {
+    "id": "2026.11.14.2",
+    "date": "2026-11-14",
+    "title": "Server tags are for public servers",
+    "items": [
+      { "title": "Server tags need a public server", "text": "Only public servers can have a server tag that members wear. If a server goes private, the tag it made is kept but stops showing, and it comes back when the server is made public again. The Server tag tab explains this to owners." },
+      { "title": "Tags are checked for bad words", "text": "Server tags go through the same name check as everything else, plus a list of short forms that slip past a normal word list. A tag that is not allowed can’t be saved, and one that was already saved stops showing." },
+      { "title": "“cp” is blocked in names", "text": "“cp” is now on the blocked list for usernames, display names and server names, when it stands alone." }
+    ]
   }
 ]
