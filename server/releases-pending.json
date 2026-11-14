@@ -289,5 +289,16 @@
       { "title": "Tags are checked for bad words", "text": "Server tags go through the same name check as everything else, plus a list of short forms that slip past a normal word list. A tag that is not allowed can’t be saved, and one that was already saved stops showing." },
       { "title": "“cp” is blocked in names", "text": "“cp” is now on the blocked list for usernames, display names and server names, when it stands alone." }
     ]
+  },
+  {
+    "id": "2026.11.14.3",
+    "date": "2026-11-14",
+    "title": "Profile frames can cover the picture",
+    "items": [
+      { "title": "Art over the profile picture", "text": "A profile frame no longer has to leave the middle empty. Artists can draw inside the profile picture area too, and it shows over the picture." },
+      { "title": "Remove the background", "text": "When an artist picks a picture for a frame, Aduna asks if the plain background should be removed. A picture that is already see-through is left as it is." },
+      { "title": "Sample picture in the position window", "text": "The window where you move and zoom a frame now has a sample profile picture under the art, so you can see how it fits. You can turn it off." },
+      { "title": "Add the picture before you create the frame", "text": "In Settings > Artist, a new frame can get its picture before you press Create. It uploads as soon as the frame is made." }
+    ]
   }
 ]
