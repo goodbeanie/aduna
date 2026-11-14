@@ -319,5 +319,13 @@
       { "title": "Feature checklist fixed", "text": "In /admin > Releases, the feature checkboxes in Edit notes showed up as long empty bars with the names pushed to the side. They are normal checkboxes again." },
       { "title": "Test works on any release", "text": "Test no longer needs features ticked first, and it is available on published releases too, not only drafts. With no features ticked you just get what is already live." }
     ]
+  },
+  {
+    "id": "2026.11.14.6",
+    "date": "2026-11-14",
+    "title": "Moderator badge",
+    "items": [
+      { "title": "Moderator badge", "text": "Moderators now wear a blue shield badge next to their name. It shows up when an admin makes someone a moderator and goes away when they are removed. Like other badges, it can be hidden in Settings > Profile." }
+    ]
   }
 ]

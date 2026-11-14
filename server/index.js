@@ -230,11 +230,15 @@ const CREATOR_BADGE = { id: 'creator', name: 'Founder', builtin: true, image: nu
 // The Artist badge: automatic once an artist's first item has been approved (db().artists[id].badge, see the artists block). The client draws it
 // from /badges/artist.png as a mask in the surrounding text colour (`glyph`), so it is white on dark themes and dark on light ones.
 const ARTIST_BADGE = { id: 'artist', name: 'Artist', glyph: 'artist', image: null, emoji: '', color: '' };
+// Moderator badge: worn by anyone an admin made a moderator (u.moderator), gone when they are removed. Fixed picture in /badges, drawn through `src`
+// like Founding Member. Admins and creators don't get it.
+const MODERATOR_BADGE = { id: 'moderator', name: 'Moderator', src: '/badges/moderator.png', image: null, emoji: '', color: '' };
 // Every badge a person owns (the Creator badge, the Artist badge, ones a creator gave, event badges and shop badges).
 function allBadgeViews(u) {
   const out = [];
   if (isCreator(u)) out.push(CREATOR_BADGE);
   if (!u.bot && artistsLib.isArtist(db().artists && db().artists[u.id])) out.push(ARTIST_BADGE); // an approved artist wears the Artist badge
+  if (!u.bot && !u.deleted && !u.suspended && u.moderator && !isAdmin(u)) out.push(MODERATOR_BADGE);
   out.push(...foundingLib.badgeViews(u)); // Founding Member: one of the first 1,000 people to join (u.founding, set when the account is made)
   for (const id of Array.isArray(u.badges) ? u.badges : []) {
     const b = db().badges && db().badges[id];
