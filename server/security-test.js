@@ -175,23 +175,23 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual(S.readSessionCookie({ cookie: '__Host-aduna_session=x' }, false), '');
   assert.strictEqual(S.readSessionCookie({}, true), '');
   // origin
-  assert.strictEqual(S.originAllowed(undefined, 'aduna.onrender.com'), true, 'no Origin: not a browser cross-site request');
-  assert.strictEqual(S.originAllowed('https://aduna.onrender.com', 'aduna.onrender.com'), true);
+  assert.strictEqual(S.originAllowed(undefined, 'aduna.dpdns.org'), true, 'no Origin: not a browser cross-site request');
+  assert.strictEqual(S.originAllowed('https://aduna.dpdns.org', 'aduna.dpdns.org'), true);
   assert.strictEqual(S.originAllowed('http://localhost:3000', 'localhost:3000'), true, 'ports count and match');
-  for (const bad of ['https://evil.example', 'https://aduna.onrender.com.evil.example', 'https://evil.example/aduna.onrender.com', 'null', 'garbage', 'https://aduna.onrender.com:8443'])
-    assert.strictEqual(S.originAllowed(bad, 'aduna.onrender.com'), false, bad);
-  assert.strictEqual(S.originAllowed('https://aduna.onrender.com', ''), false, 'no host to compare with');
+  for (const bad of ['https://evil.example', 'https://aduna.dpdns.org.evil.example', 'https://evil.example/aduna.dpdns.org', 'null', 'garbage', 'https://aduna.dpdns.org:8443'])
+    assert.strictEqual(S.originAllowed(bad, 'aduna.dpdns.org'), false, bad);
+  assert.strictEqual(S.originAllowed('https://aduna.dpdns.org', ''), false, 'no host to compare with');
   // csrf guard
   const run = (req) => { let out = 'next', code; const res = { status(n) { code = n; return this; }, json() { out = 'blocked'; } }; S.csrfGuard()({ method: 'POST', headers: {}, ...req }, res, () => {}); return out === 'blocked' ? code : 'ok'; };
-  const jar = { cookie: '__Host-aduna_session=t', host: 'aduna.onrender.com' };
-  assert.strictEqual(run({ headers: { ...jar, origin: 'https://aduna.onrender.com' } }), 'ok', 'same-site browser request');
+  const jar = { cookie: '__Host-aduna_session=t', host: 'aduna.dpdns.org' };
+  assert.strictEqual(run({ headers: { ...jar, origin: 'https://aduna.dpdns.org' } }), 'ok', 'same-site browser request');
   assert.strictEqual(run({ headers: { ...jar, origin: 'https://evil.example' } }), 403, 'cross-site POST with the cookie is refused');
   assert.strictEqual(run({ headers: { ...jar, origin: 'null' } }), 403, 'sandboxed-frame Origin: null is refused');
   assert.strictEqual(run({ headers: { ...jar, 'sec-fetch-site': 'cross-site' } }), 403, 'Sec-Fetch-Site says cross-site');
-  assert.strictEqual(run({ headers: { ...jar, origin: 'https://aduna.onrender.com', 'sec-fetch-site': 'same-origin' } }), 'ok');
+  assert.strictEqual(run({ headers: { ...jar, origin: 'https://aduna.dpdns.org', 'sec-fetch-site': 'same-origin' } }), 'ok');
   assert.strictEqual(run({ headers: { ...jar } }), 'ok', 'no Origin (not a browser): allowed');
   assert.strictEqual(run({ method: 'GET', headers: { ...jar, origin: 'https://evil.example' } }), 'ok', 'reads are not guarded (nothing changes)');
-  assert.strictEqual(run({ headers: { host: 'aduna.onrender.com', origin: 'https://evil.example', authorization: 'Bearer x' } }), 'ok', 'no cookie (Stripe webhook, scripts, header logins): nothing to forge');
+  assert.strictEqual(run({ headers: { host: 'aduna.dpdns.org', origin: 'https://evil.example', authorization: 'Bearer x' } }), 'ok', 'no cookie (Stripe webhook, scripts, header logins): nothing to forge');
   step('session cookie: httpOnly + SameSite=Strict + __Host- over https, ignores planted plain cookie; Origin/CSRF guard refuses cross-site writes');
 }
 // ---- rate limits survive a restart (dump / restore) ----
@@ -264,8 +264,8 @@ const step = (m) => console.log('✓', m);
   const so = (env, req) => S.siteOrigin({ env, ...req });
   assert.strictEqual(so({ PUBLIC_URL: 'https://chat.example.com/' }, { host: 'evil.test' }), 'https://chat.example.com', 'PUBLIC_URL wins, trailing slash dropped');
   assert.strictEqual(so({ RENDER_EXTERNAL_URL: 'https://aduna-x.onrender.com' }, { host: 'evil.test' }), 'https://aduna-x.onrender.com');
-  assert.strictEqual(so({ NODE_ENV: 'production' }, { protocol: 'https', host: 'evil.test' }), 'https://aduna.onrender.com', 'in production a forged Host header is never used');
-  assert.strictEqual(so({ NODE_ENV: 'production', PUBLIC_URL: 'javascript:alert(1)' }, { host: 'evil.test' }), 'https://aduna.onrender.com', 'junk PUBLIC_URL ignored');
+  assert.strictEqual(so({ NODE_ENV: 'production' }, { protocol: 'https', host: 'evil.test' }), 'https://aduna.dpdns.org', 'in production a forged Host header is never used');
+  assert.strictEqual(so({ NODE_ENV: 'production', PUBLIC_URL: 'javascript:alert(1)' }, { host: 'evil.test' }), 'https://aduna.dpdns.org', 'junk PUBLIC_URL ignored');
   assert.strictEqual(so({ PUBLIC_URL: 'https://a.example/path?x=1' }, { host: 'h' }), 'http://h', 'a PUBLIC_URL with a path is not a bare origin: ignored (outside production the request is used)');
   assert.strictEqual(so({ NODE_ENV: 'test' }, { protocol: 'http', host: '127.0.0.1:3000' }), 'http://127.0.0.1:3000', 'local dev / tests use the request');
   step('reset links point at PUBLIC_URL / RENDER_EXTERNAL_URL, never at a forged Host header in production');

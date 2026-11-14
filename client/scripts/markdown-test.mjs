@@ -29,15 +29,15 @@ const has = (input, part) => { assert.ok(html(input).includes(part), JSON.string
 const no = (input, part) => { assert.ok(!html(input).includes(part), JSON.stringify(input) + ' -> ' + html(input) + ' should not contain ' + part); n++; };
 
 // ---- links: the case from the screenshot, a bare domain, now links like the https one
-is('aduna.onrender.com', A('https://aduna.onrender.com', 'aduna.onrender.com'));
+is('aduna.dpdns.org', A('https://aduna.dpdns.org', 'aduna.dpdns.org'));
 is('https://www.youtube.com/shorts/Ghw2EYjkkrw', A('https://www.youtube.com/shorts/Ghw2EYjkkrw'));
-is('see aduna.onrender.com.', 'see ' + A('https://aduna.onrender.com', 'aduna.onrender.com') + '.');
+is('see aduna.dpdns.org.', 'see ' + A('https://aduna.dpdns.org', 'aduna.dpdns.org') + '.');
 is('www.example.com/a?b=1#c', A('https://www.example.com/a?b=1#c', 'www.example.com/a?b=1#c'));
 is('(https://x.com/a_(b))', '(' + A('https://x.com/a_(b)') + ')');
 is('<https://x.com/a>', A('https://x.com/a'));
 is('youtu.be/abc123', A('https://youtu.be/abc123', 'youtu.be/abc123'));
 is('http://localhost:3000/app', A('http://localhost:3000/app'));
-has('aduna.onrender.com/app', 'href="https://aduna.onrender.com/app"');
+has('aduna.dpdns.org/app', 'href="https://aduna.dpdns.org/app"');
 // ordinary text that only looks a bit like an address stays text
 for (const t of ['install.sh', 'Node.js and e.g. this', 'done.No problem', 'main.cc', 'a.b', 'v1.2.3', 'me@example.com', 'file.md']) no(t, '<a ');
 no('javascript:alert(1)', '<a ');

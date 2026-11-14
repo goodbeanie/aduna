@@ -334,8 +334,8 @@ const sign = (body, t, secret = SECRET) => `t=${t},v1=${crypto.createHmac('sha25
   assert.strictEqual(sent.has('customer_email'), false, 'no email on file: nothing pre-filled');
   u.email = 'buyer@example.com'; await run('POST /api/credits/checkout', { body: { packId: 'p500' } });
   assert.strictEqual(new URLSearchParams(calls.at(-1).init.body).get('customer_email'), 'buyer@example.com', 'the email from signup pre-fills Stripe checkout and receipts'); delete u.email;
-  process.env.PUBLIC_URL = 'https://aduna.onrender.com/'; await run('POST /api/credits/checkout', { body: { packId: 'p500' } });
-  assert.strictEqual(new URLSearchParams(calls.at(-1).init.body).get('cancel_url'), 'https://aduna.onrender.com/app?credits=cancelled'); delete process.env.PUBLIC_URL;
+  process.env.PUBLIC_URL = 'https://aduna.dpdns.org/'; await run('POST /api/credits/checkout', { body: { packId: 'p500' } });
+  assert.strictEqual(new URLSearchParams(calls.at(-1).init.body).get('cancel_url'), 'https://aduna.dpdns.org/app?credits=cancelled'); delete process.env.PUBLIC_URL;
   for (let i = 0; i < 5; i++) await run('POST /api/credits/checkout', { body: { packId: 'p500' } });
   assert.strictEqual((await run('POST /api/credits/checkout', { body: { packId: 'p500' } })).status, 429, 'checkout is rate limited');
 

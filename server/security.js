@@ -272,7 +272,7 @@ const resetTokenHash = (t) => nodeCrypto.createHash('sha256').update('aduna-rese
 function siteOrigin({ env = process.env, protocol = 'http', host = 'localhost' } = {}) {
   const fixed = String(env.PUBLIC_URL || env.RENDER_EXTERNAL_URL || '').trim().replace(/\/+$/, '');
   if (/^https?:\/\/[^\s/]+$/i.test(fixed)) return fixed;
-  if (env.NODE_ENV === 'production') return 'https://aduna.onrender.com';
+  if (env.NODE_ENV === 'production') return 'https://aduna.dpdns.org';
   return `${protocol}://${host}`;
 }
 const resetLink = (origin, token) => `${origin}/reset#${token}`;

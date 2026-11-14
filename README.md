@@ -10,7 +10,7 @@ The source is visible for reading only. See [LICENSE](LICENSE).
 
 ## Using Aduna
 
-- **In the browser:** [aduna.onrender.com](https://aduna.onrender.com). In Chrome or Edge you can also install it as an app from the address bar.
+- **In the browser:** [aduna.dpdns.org](https://aduna.dpdns.org). In Chrome or Edge you can also install it as an app from the address bar.
 - **Windows and Android:** the installer and the APK are on the [releases page](https://github.com/goodbeanie/aduna/releases). The Windows installer is not code-signed, so Windows may warn you before it runs.
 
 ## What it does

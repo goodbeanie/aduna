@@ -5790,7 +5790,7 @@ const push = createPush({
   sender: (sub, body, opts) => {
     if (sub.fcm) return fcm.send(sub.fcm, body, { ...opts, callUi: !!sub.callUi, cardUi: !!sub.cardUi }); // an Android app device
     if (!vapidReady) {
-      webpush.setVapidDetails(process.env.VAPID_SUBJECT || (/^https:/.test(process.env.PUBLIC_URL || '') ? process.env.PUBLIC_URL : 'https://aduna.onrender.com'), store.vapid.publicKey, store.vapid.privateKey);
+      webpush.setVapidDetails(process.env.VAPID_SUBJECT || (/^https:/.test(process.env.PUBLIC_URL || '') ? process.env.PUBLIC_URL : 'https://aduna.dpdns.org'), store.vapid.publicKey, store.vapid.privateKey);
       vapidReady = true;
     }
     return webpush.sendNotification(sub, body, opts);

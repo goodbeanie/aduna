@@ -4,9 +4,9 @@
   "webDir": "www",
   "backgroundColor": "#fffbef",
   "server": {
-    "url": "https://aduna.onrender.com/app",
+    "url": "https://aduna.dpdns.org/app",
     "androidScheme": "https",
-    "allowNavigation": ["aduna.onrender.com"],
+    "allowNavigation": ["aduna.dpdns.org"],
     "errorPath": "offline.html"
   },
   "android": {

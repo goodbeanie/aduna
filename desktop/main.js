@@ -1,6 +1,6 @@
-// Aduna desktop app: a window that opens https://aduna.onrender.com/app and nothing else.
+// Aduna desktop app: a window that opens https://aduna.dpdns.org/app and nothing else.
 // All secrets and settings live on the server, so nothing sensitive is stored in this app.
-// Updates are fetched from https://aduna.onrender.com/updates/ (see the publish setting in package.json).
+// Updates are fetched from https://aduna.dpdns.org/updates/ (see the publish setting in package.json).
 const { app, BrowserWindow, WebContentsView, Menu, Tray, nativeImage, nativeTheme, screen, shell, session, ipcMain, Notification, desktopCapturer, globalShortcut } = require('electron');
 const { execFile } = require('child_process');
 const { autoUpdater } = require('electron-updater');
@@ -9,7 +9,7 @@ const fs = require('fs');
 const games = require('./games');
 const zoomLib = require('./zoom'); // screen-share zoom: hotkey, cursor and scroll wheel (the picture itself is zoomed by the page)
 
-const ORIGIN = 'https://aduna.onrender.com';
+const ORIGIN = 'https://aduna.dpdns.org';
 const APP_URL = ORIGIN + '/app';
 // The logo is black, which disappears on a dark taskbar / tray. So the window (taskbar) icon, the tray icon and notification icon switch to
 // the white logo when Windows is in dark mode, and back again live when the person changes it. (The .exe / pinned-shortcut icon is fixed by Windows.)

@@ -1,6 +1,6 @@
 # Aduna for Android
 
-A small native shell (Capacitor) that opens the live site at `https://aduna.onrender.com/app` and adds what the web version could not do reliably: **native push notifications through Firebase Cloud Messaging (FCM)**. Android draws the notifications itself, so they no longer depend on Chrome's Web Push, the service worker, or the page being alive.
+A small native shell (Capacitor) that opens the live site at `https://aduna.dpdns.org/app` and adds what the web version could not do reliably: **native push notifications through Firebase Cloud Messaging (FCM)**. Android draws the notifications itself, so they no longer depend on Chrome's Web Push, the service worker, or the page being alive.
 
 Because the shell loads the live site, **web updates reach the app immediately**. You only rebuild the app when this folder changes (icon, permissions, version).
 

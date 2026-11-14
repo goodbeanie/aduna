@@ -100,7 +100,7 @@ const BRANDS = {
   coinbase: ['coinbase.com'],
   binance: ['binance.com'],
   epicgames: ['epicgames.com'],
-  aduna: ['aduna.onrender.com'],
+  aduna: ['aduna.dpdns.org'],
 };
 const BAIT = new Set(['login', 'log-in', 'signin', 'verify', 'verification', 'secure', 'security', 'gift', 'gifts', 'nitro', 'free', 'claim', 'account', 'accounts', 'support', 'wallet', 'airdrop', 'giveaway', 'promo', 'auth', 'update', 'help', 'billing', 'confirm', 'recover', 'unlock', 'reward', 'rewards', 'bonus', 'drop', 'robux', 'vbucks']);
 const RISKY_TLD = new Set(['xyz', 'top', 'click', 'site', 'online', 'gift', 'icu', 'cyou', 'buzz', 'tk', 'ml', 'ga', 'cf', 'gq', 'work', 'support', 'rest', 'fit', 'monster', 'cfd', 'sbs']);

@@ -60,7 +60,7 @@ export function ServerModal({ onClose, onDone }) {
           </div>
         </>)}
         {tab === 'create' ? (<><label htmlFor="srv-name">SERVER NAME</label><input id="srv-name" ref={fieldRef} autoFocus value={name} onChange={(e) => { setName(e.target.value); setErr(''); }} maxLength={40} required placeholder="My awesome server" aria-invalid={err ? 'true' : undefined} aria-describedby={err ? 'srv-err' : undefined} /></>)
-          : (<><label htmlFor="srv-code">INVITE LINK OR CODE</label><input id="srv-code" ref={fieldRef} autoFocus value={code} onChange={(e) => { setCode(e.target.value); setErr(''); }} required placeholder="aduna.onrender.com/invite/aduna" aria-invalid={err ? 'true' : undefined} aria-describedby={err ? 'srv-err' : undefined} /></>)}
+          : (<><label htmlFor="srv-code">INVITE LINK OR CODE</label><input id="srv-code" ref={fieldRef} autoFocus value={code} onChange={(e) => { setCode(e.target.value); setErr(''); }} required placeholder="aduna.dpdns.org/invite/aduna" aria-invalid={err ? 'true' : undefined} aria-describedby={err ? 'srv-err' : undefined} /></>)}
         {err && <p className="error-text field-error" id="srv-err" role="alert">{err}</p>}
         <div className="modal-foot"><button type="button" className="btn" onClick={onClose}>Cancel</button><button className="btn primary">{tab === 'create' ? 'Create' : 'Join'}</button></div>
       </form>

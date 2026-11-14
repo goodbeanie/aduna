@@ -117,7 +117,7 @@ services:
         sync: false
       - key: CF_TURN_API_TOKEN
         sync: false
-      # your site's address, e.g. https://aduna.onrender.com (no trailing slash): Stripe return links and the emailed password-reset link (<PUBLIC_URL>/reset#token).
+      # your site's address, e.g. https://aduna.dpdns.org (no trailing slash): Stripe return links and the emailed password-reset link (<PUBLIC_URL>/reset#token).
       # On Render, RENDER_EXTERNAL_URL is used when this is unset.
       - key: PUBLIC_URL
         sync: false

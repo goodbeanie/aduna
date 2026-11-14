@@ -16,7 +16,7 @@ ok('punycode is decoded the way a person would read it');
 
 // ---- ordinary links are left alone
 for (const u of [
-  'https://github.com/owner/repo', 'https://aduna.onrender.com/app', 'https://accounts.google.com/signin', 'https://www.youtube.com/watch?v=abc',
+  'https://github.com/owner/repo', 'https://aduna.dpdns.org/app', 'https://accounts.google.com/signin', 'https://www.youtube.com/watch?v=abc',
   'https://steamcommunity.com/id/someone', 'https://discord.com/channels/1/2', 'https://discord.gg/abc', 'http://localhost:3000/app',
   'https://my-discord-bot.onrender.com', 'https://example.com/readme.txt', 'https://example.com/photo.png', 'https://\u4f8b\u3048.jp/',
   'https://en.wikipedia.org/wiki/Link_(rel)',

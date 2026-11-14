@@ -6,7 +6,7 @@ const LINK_RE = /https?:\/\/([^\s/<>]+)\/clips\/([a-f0-9]{16})(?![A-Za-z0-9_-])/
 export function clipIdsIn(text) {
   const out = [];
   if (!text) return out;
-  const hosts = new Set([location.host.toLowerCase(), 'aduna.onrender.com']);
+  const hosts = new Set([location.host.toLowerCase(), 'aduna.dpdns.org']);
   for (const m of String(text).matchAll(LINK_RE)) {
     if (!hosts.has(m[1].toLowerCase())) continue;
     const id = m[2].toLowerCase();

@@ -10,7 +10,7 @@ export const InviteContext = createContext({ servers: [], onJoined: () => {}, on
 
 export const INVITE_CODE_RE = /^[a-z0-9_-]{3,32}$/i;
 
-// An invite is a link: https://aduna.onrender.com/invite/aduna (whatever host the app is served from).
+// An invite is a link: https://aduna.dpdns.org/invite/aduna (whatever host the app is served from).
 export const inviteLink = (code) => location.origin + '/invite/' + code;
 
 const LINK_RE = /https?:\/\/([^\s/<>]+)\/invite\/([a-z0-9_-]{3,32})(?![a-z0-9_-])/gi;
@@ -19,7 +19,7 @@ const LINK_RE = /https?:\/\/([^\s/<>]+)\/invite\/([a-z0-9_-]{3,32})(?![a-z0-9_-]
 export function inviteCodesIn(text) {
   const out = [];
   if (!text) return out;
-  const hosts = new Set([location.host.toLowerCase(), 'aduna.onrender.com']);
+  const hosts = new Set([location.host.toLowerCase(), 'aduna.dpdns.org']);
   for (const m of String(text).matchAll(LINK_RE)) {
     if (!hosts.has(m[1].toLowerCase())) continue;
     const c = m[2].toLowerCase();
