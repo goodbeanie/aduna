@@ -310,5 +310,14 @@
       { "title": "People tab for moderators", "text": "Moderators can search for someone and open a short profile with their reports, warnings and mute. They can’t see servers, clips, bots or storage details." },
       { "title": "Limits on what they can undo", "text": "A moderator can only take back warnings they gave and lift mutes they set. They can’t act on admins or other moderators, and the warning that would suspend someone is left to an admin." }
     ]
+  },
+  {
+    "id": "2026.11.14.5",
+    "date": "2026-11-14",
+    "title": "Releases tab fixes",
+    "items": [
+      { "title": "Feature checklist fixed", "text": "In /admin > Releases, the feature checkboxes in Edit notes showed up as long empty bars with the names pushed to the side. They are normal checkboxes again." },
+      { "title": "Test works on any release", "text": "Test no longer needs features ticked first, and it is available on published releases too, not only drafts. With no features ticked you just get what is already live." }
+    ]
   }
 ]

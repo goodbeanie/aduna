@@ -701,8 +701,8 @@ function Releases() {
   };
   // Test: this creator's account gets what everybody will have once the release is published, and none of the other unreleased features.
   const test = async (r, on) => {
-    if (on && !r.features.length) { say('Tick the features this release contains first (Edit notes), so there is something to test.', 'error'); return; }
-    await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/${on ? 'test' : 'untest'}`, { method: 'POST' }).then(apply), () => (on ? 'Testing this release on your account' : 'Stopped testing'));
+    const msg = on ? (r.features.length ? 'Testing this release on your account' : 'Testing this release. It lists no features, so you only have what is already live.') : 'Stopped testing';
+    await run(() => api(`/admin/releases/${encodeURIComponent(r.id)}/${on ? 'test' : 'untest'}`, { method: 'POST' }).then(apply), () => msg);
   };
 
   return (
@@ -712,7 +712,7 @@ function Releases() {
         <ul className="adm-lines">
           <li>Every release is added here by itself, as a <b>draft</b>. A draft is private: only creator accounts can see it.</li>
           <li>Edit the release and tick the <b>features</b> it contains. While it is a draft, those features work for creator accounts only, so you can test them on the real site. Anyone else cannot use them.</li>
-          <li>Press <b>Test</b> on a draft to try it the way everybody will get it: your account then has the features this release lists, and none of the other unreleased ones. Press <b>Stop testing</b> to get all of them back. It only changes your own account.</li>
+          <li>Press <b>Test</b> on any release to try it the way everybody will get it: your account then has the features this release lists, and none of the other unreleased ones. A release with no features ticked works too, you just get what is already live. Press <b>Stop testing</b> to get all of them back. It only changes your own account.</li>
           <li>Check the notes, then <b>Publish</b>. Only then does the release appear in What’s new, and its features switch on for everyone.</li>
           <li>You can pull a published release back to a draft, and its features go back to creator accounts only. Everything is written to the Log.</li>
         </ul>
@@ -727,9 +727,9 @@ function Releases() {
             </div>
             <div className="adm-actions">
               {edit?.id !== r.id && <button className="adm-btn small" onClick={() => startEdit(r)}>Edit notes</button>}
-              {r.status === 'draft' && (testing === r.id
+              {testing === r.id
                 ? <button className="adm-btn small" onClick={() => test(r, false)}>Stop testing</button>
-                : <button className="adm-btn small" onClick={() => test(r, true)}>Test</button>)}
+                : <button className="adm-btn small" onClick={() => test(r, true)}>Test</button>}
               {r.status === 'draft' && <button className="adm-btn small primary" onClick={() => publish(r)}>Publish</button>}
               {r.status === 'public' && <button className="adm-btn small danger" onClick={() => unpublish(r)}>Back to draft</button>}
             </div>

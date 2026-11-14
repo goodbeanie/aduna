@@ -52,13 +52,14 @@
 .adm-btn:disabled { opacity: .45; cursor: not-allowed; }
 .adm-btn:focus-visible, .adm-tab:focus-visible, .adm-chip:focus-visible, .adm-person:focus-visible, .adm-stat:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 .adm-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
-.adm-input, .adm-field input, .adm-field textarea { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit; }
-.adm-input:focus, .adm-field input:focus, .adm-field textarea:focus { outline: none; border-color: var(--link); }
+.adm-input, .adm-field input:not([type="checkbox"]), .adm-field textarea { width: 100%; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--field); color: var(--text); font: inherit; }
+.adm-input:focus, .adm-field input:not([type="checkbox"]):focus, .adm-field textarea:focus { outline: none; border-color: var(--link); }
 .adm-field { display: flex; flex-direction: column; gap: 6px; }
 .adm-field span { font-size: 13px; color: var(--muted); }
 .adm-field span b { color: var(--text); }
 .adm-check { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
-.adm-check input { margin-top: 3px; }
+.adm-check input { margin-top: 3px; flex: none; width: auto; }
+.adm-check > span { flex: 1; min-width: 0; }
 .adm-subtabs { display: flex; gap: 8px; flex-wrap: wrap; }
 .adm-chip { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg2); }
 .adm-chip.on { background: var(--bg3); border-color: var(--line2); font-weight: 600; }
