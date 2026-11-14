@@ -66,6 +66,25 @@ assert.deepStrictEqual([B.botView(bot, 'u2', users).about, B.botView(bot, 'u2', 
 assert.deepStrictEqual(B.exploreBots([mk('b6', 'Zeta', { about: 'see https://example.com' }), mk('b7', 'Eta', { about: 'fine' })], { words: WORDS }).page.map((b) => b.id), ['b7'], 'a listed bot whose long description breaks the rules is left out');
 step('long description and banner: cleaned, limited, checked on public bots, shown in views');
 
+// prefix and commands (the chat box popup)
+assert.strictEqual(B.botView(bot, 'u2', users).prefix, '/', 'the prefix defaults to /');
+assert.deepStrictEqual(B.botView(bot, 'u2', users).commands, [], 'no commands by default');
+assert.strictEqual(B.checkBot({ prefix: '!' }, { current: cur, words: WORDS }).value.prefix, '!');
+assert.strictEqual(B.checkBot({ prefix: '  ' }, { current: cur, words: WORDS }).value.prefix, '/', 'a blank prefix falls back to /');
+assert.strictEqual(B.checkBot({ prefix: '!!' }, { current: cur, words: WORDS }).value.prefix, '!!');
+for (const bad of ['a', '1', 'ab', '!!!!', '@', '#', ':', '<', '>', '! !']) assert.ok(B.checkBot({ prefix: bad }, { current: cur, words: WORDS }).error, 'prefix refused: ' + JSON.stringify(bad));
+assert.ok(!('prefix' in B.checkBot({ description: 'x' }, { current: cur, words: WORDS }).value), 'an edit that does not send it leaves it alone');
+r = B.checkBot({ commands: [{ name: '/Roll', description: '  Roll   a die  ' }, { name: 'help', description: '' }] }, { current: cur, words: WORDS });
+assert.deepStrictEqual(r.value.commands, [{ name: 'roll', description: 'Roll a die' }, { name: 'help', description: '' }], 'names lose the prefix and are lower-cased, descriptions become one line');
+assert.ok(B.checkBot({ commands: [{ name: 'a b', description: '' }] }, { current: cur }).error, 'a command name has no spaces');
+assert.ok(B.checkBot({ commands: [{ name: 'roll' }, { name: 'ROLL' }] }, { current: cur }).error, 'duplicates refused');
+assert.ok(B.checkBot({ commands: 'roll' }, { current: cur }).error, 'commands must be a list');
+assert.ok(B.checkBot({ commands: Array.from({ length: B.LIMITS.commands + 1 }, (_, i) => ({ name: 'c' + i, description: '' })) }, { current: cur }).error, 'too many commands');
+assert.strictEqual(B.checkBot({ commands: [{ name: 'x', description: 'y'.repeat(300) }] }, { current: cur }).value.commands[0].description.length, B.LIMITS.commandDesc, 'descriptions are cut to their limit');
+assert.ok(B.checkBot({ commands: [{ name: 'roll', description: 'see https://example.com' }] }, { current: { ...cur, visibility: 'public' }, words: WORDS }).error, 'links refused in the commands of a public bot');
+assert.ok(!B.checkBot({ commands: [{ name: 'roll', description: 'see https://example.com' }] }, { current: cur, words: WORDS }).error, 'a private bot is not text-checked');
+step('prefix and commands: defaults, cleaning, limits, checked on public bots');
+
 // explore: public only, not held, search + sort
 const mk = (id, name, extra = {}) => ({ id, name, description: 'does things', tags: [], visibility: 'public', installs: [], createdAt: Number(id.slice(1)), ...extra });
 const all = [mk('b1', 'Alpha', { installs: ['x'] }), mk('b2', 'Beta', { installs: ['x', 'y', 'z'], tags: ['music'] }), mk('b3', 'Gamma', { visibility: 'private' }), mk('b4', 'Delta', { listingHold: { state: 'hidden' } }), mk('b5', 'Porn bot')];

@@ -68,10 +68,15 @@ function getModel() {
   if (model) return Promise.resolve(model);
   if (!loading) {
     loading = (async () => {
-      const [{ load }, { MobileNetV2Model }] = await Promise.all([import('nsfwjs/core'), import('nsfwjs/models/mobilenet_v2')]);
+      // nsfwjs/core brings no backend of its own: without one registered, every check fails with "No backend found" and the file counts as
+      // unchecked. So tfjs is loaded here, WebGL first and plain JavaScript if the device has no WebGL.
+      const [tf, { load }, { MobileNetV2Model }] = await Promise.all([import('@tensorflow/tfjs'), import('nsfwjs/core'), import('nsfwjs/models/mobilenet_v2')]);
+      try { await tf.setBackend('webgl'); } catch { /* no WebGL */ }
+      if (tf.getBackend() !== 'webgl') { try { await tf.setBackend('cpu'); } catch { /* the default stays */ } }
+      await tf.ready();
       model = await load('MobileNetV2', { modelDefinitions: [MobileNetV2Model], size: 224 });
       return model;
-    })().catch((e) => { loading = null; throw e; });
+    })().catch((e) => { loading = null; console.warn('picture model could not load:', e?.message || e); throw e; });
   }
   return loading;
 }
@@ -125,17 +130,26 @@ async function look(src) {
 }
 
 // Looks at each spot in turn and stops at the first 'block'. grab(i) returns a canvas for spot i.
+// A spot that cannot be read is skipped, and a slow device stops after BUDGET_MS: whatever was seen by then counts. Only when nothing at all
+// could be looked at is the answer 'unknown'. A model that cannot load is not skipped past: that one is thrown.
+const BUDGET_MS = 12000;
 async function lookSpots(count, grab) {
-  let worst = 'ok';
+  let worst = 'ok', seen = 0, lastError = null;
+  const started = Date.now();
   for (let i = 0; i < count; i++) {
-    const v = await classify(await grab(i));
+    if (seen && Date.now() - started > BUDGET_MS) break;
+    let canvas;
+    try { canvas = await grab(i); } catch (e) { lastError = e; continue; }
+    const v = await classify(canvas);
+    seen++;
     if (RANK[v] > RANK[worst]) worst = v;
     if (worst === 'block') break;
   }
+  if (!seen) throw lastError || new Error('nothing could be looked at');
   return worst;
 }
 
-function once(el, event, ms = 8000) {
+function once(el, event, ms = 20000) {
   return new Promise((resolve, reject) => {
     const off = () => { clearTimeout(timer); el.removeEventListener(event, ok); el.removeEventListener('error', bad); };
     const ok = () => { off(); resolve(); };
@@ -150,17 +164,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function lookVideo(blob) {
   const url = URL.createObjectURL(blob);
   const v = document.createElement('video');
+  // kept on the page, out of sight: some mobile browsers do not decode a video that is not in the document
+  v.style.cssText = 'position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
   try {
     v.muted = true; v.playsInline = true; v.preload = 'auto';
+    v.setAttribute('playsinline', ''); v.setAttribute('muted', '');
+    document.body.appendChild(v);
     const ready = once(v, 'loadeddata');
     v.src = url;
+    v.load();
+    // phones often ignore preload until the video is asked to play; muted and inline, that is allowed without a tap
+    try { const p = v.play(); if (p && p.catch) p.catch(() => {}); } catch { /* not allowed here: loading may still work */ }
     await ready;
+    try { v.pause(); } catch { /* ignore */ }
     if (!v.videoWidth || !v.videoHeight) return 'ok'; // sound only
     const len = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 0; // a recorded webm can report no length
     const spots = len ? Math.max(MIN_SPOTS, Math.min(MAX_SPOTS, Math.ceil(len))) : 1;
     return await lookSpots(spots, async (i) => {
       if (len) {
-        const seeked = once(v, 'seeked');
+        const seeked = once(v, 'seeked', 10000);
         v.currentTime = (len * (i + 0.5)) / spots;
         await seeked;
       }
@@ -170,6 +192,7 @@ async function lookVideo(blob) {
     console.warn('video check could not run:', e?.message || e);
     return 'unknown';
   } finally {
+    v.remove();
     v.removeAttribute('src');
     v.load();
     URL.revokeObjectURL(url);
@@ -242,17 +265,18 @@ export async function scanImage(src) {
   return inLine(() => look(src));
 }
 
-// Chat: nudity and explicit files are not sent, and neither is one that could not be checked. A suggestive one is sent and shown blurred to whoever opens the chat.
+// Chat: nudity and explicit files are not sent. A file the check could not run on IS sent: refusing it made uploads fail on every device where the
+// model or the video decoder had a problem. It is not unprotected: the server looks at every channel file itself (server/mediacheck.js), and the
+// readers' apps check DM and group files again when they open them, where an unchecked file is shown blurred. A suggestive file is sent and shown blurred.
 export async function refuseExplicit(src) {
   const v = await scanImage(src);
   if (v === 'block') throw new Error(EXPLICIT_MSG);
-  if (v === 'unknown') throw new Error(UNCHECKED_MSG);
 }
 
 // Pictures that show up all over (profile, banner, server icon, emoji, badges): a picture there cannot be blurred, so both answers are refused.
+// 'unknown' passes here for the same reason as above: the server checks every one of these pictures before it saves it (putImage in server/db.js).
 export async function requireClean(src) {
   const v = await scanImage(src);
   if (v === 'block') throw new Error(EXPLICIT_MSG);
   if (v === 'blur') throw new Error(SUGGESTIVE_MSG);
-  if (v === 'unknown') throw new Error(UNCHECKED_MSG);
 }

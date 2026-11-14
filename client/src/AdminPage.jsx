@@ -3,13 +3,15 @@ import { api } from './api.js';
 import { imageUrl } from './image.js';
 import './admin.css';
 
-// /admin: for admins only. The server already redirects anyone else to the home page before this loads, and every /api/admin route answers
-// non-admins with a 404; if /api/admin/me fails here anyway, the page sends the visitor to the home page itself.
+// /admin: for admins, and for moderators (who only get Overview and Reports). The server already redirects anyone else to the home page before
+// this loads, and every /api/admin route answers people without the role with a 404; if /api/admin/me fails here anyway, the page sends the
+// visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
 const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
-const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin' };
+const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin', moderator: 'Moderator' };
+const MOD_TABS = ['overview', 'reports']; // a moderator reads and reviews reports and nothing else
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
 // "for how long" choices (hours; the server's limits are in server/moderation.js)
 const MUTE_FOR = [[1, '1 hour'], [6, '6 hours'], [24, '1 day'], [72, '3 days'], [168, '7 days'], [720, '30 days']];
@@ -79,7 +81,7 @@ function Dialog({ d, onDone }) {
 
 // ---------- reports ----------
 function ReportItems({ list, onChanged }) {
-  const { ask, run } = useAdm();
+  const { me, ask, run } = useAdm();
   const dropMessage = async (id) => {
     const r = await ask({ title: 'Delete this message?', body: 'It is removed for everyone in the channel. The report stays until you dismiss it.', confirmLabel: 'Delete message', danger: true });
     if (r && await run(() => api(`/admin/messages/${id}/delete`, { method: 'POST' }), 'Message deleted')) onChanged();
@@ -94,7 +96,7 @@ function ReportItems({ list, onChanged }) {
             <blockquote>
               <small className="adm-muted">#{r.message.channel} in {r.message.server} · {when(r.message.sentAt)}</small>
               <p>{r.message.content || '(no text)'}{r.message.attachments > 0 && <span className="adm-muted"> · {r.message.attachments} attachment{r.message.attachments === 1 ? '' : 's'}</span>}</p>
-              <button className="adm-btn small danger" onClick={() => dropMessage(r.message.id)}>Delete message</button>
+              {me.role !== 'moderator' && <button className="adm-btn small danger" onClick={() => dropMessage(r.message.id)}>Delete message</button>}
             </blockquote>
           )}
         </li>
@@ -106,7 +108,7 @@ function ReportItems({ list, onChanged }) {
 function Empty({ text }) { return <div className="adm-card"><p className="adm-muted">{text}</p></div>; }
 
 function UserReports({ openUser }) {
-  const { say, run, ask, refresh } = useAdm();
+  const { me, say, run, ask, refresh } = useAdm();
   const [rows, setRows] = useState(null);
   const load = useCallback(() => api('/admin/user-reports').then((r) => setRows(r.users)).catch((e) => { setRows([]); say(e.message, 'error'); }), [say]);
   useEffect(() => { load(); }, [load]);
@@ -122,7 +124,7 @@ function UserReports({ openUser }) {
       <div className="adm-row">
         <div><h3>{u.displayName || u.username} <span className="adm-muted">@{u.username}</span></h3><span className="adm-muted">{u.reports.length} report{u.reports.length === 1 ? '' : 's'}</span></div>
         <div className="adm-actions">
-          <button className="adm-btn small" onClick={() => openUser(u.userId)}>Open person</button>
+          {me.role !== 'moderator' && <button className="adm-btn small" onClick={() => openUser(u.userId)}>Open person</button>}
           <button className="adm-btn small" onClick={() => dismiss(u)}>Dismiss</button>
         </div>
       </div>
@@ -160,7 +162,8 @@ function ServerSearch({ onChanged }) {
 }
 
 function ServerReports() {
-  const { say, run, ask, refresh } = useAdm();
+  const { me, say, run, ask, refresh } = useAdm();
+  const isMod = me.role === 'moderator';
   const [data, setData] = useState(null);
   const load = useCallback(() => api('/admin/listing-reports').then(setData).catch((e) => { setData({ servers: [], toHide: 0 }); say(e.message, 'error'); }), [say]);
   useEffect(() => { load(); }, [load]);
@@ -183,20 +186,20 @@ function ServerReports() {
             <div className="adm-actions">
               {s.hold && <button className="adm-btn small" onClick={() => listing(s, 'restore', 'Listing restored')}>Restore listing</button>}
               <button className="adm-btn small" onClick={() => listing(s, 'dismiss', 'Reports dismissed')}>Dismiss</button>
-              {s.visibility === 'public' && <button className="adm-btn small" onClick={() => listing(s, 'remove', 'Taken off the explorer')}>Unlist</button>}
-              <button className="adm-btn small danger" onClick={() => remove(s)}>Delete server</button>
+              {!isMod && s.visibility === 'public' && <button className="adm-btn small" onClick={() => listing(s, 'remove', 'Taken off the explorer')}>Unlist</button>}
+              {!isMod && <button className="adm-btn small danger" onClick={() => remove(s)}>Delete server</button>}
             </div>
           </div>
           {s.reports.length > 0 && <ReportItems list={s.reports} onChanged={changed} />}
         </div>
       ))}
-      <ServerSearch onChanged={changed} />
+      {!isMod && <ServerSearch onChanged={changed} />}
     </>
   );
 }
 
 function BotReports() {
-  const { say, run, refresh } = useAdm();
+  const { me, say, run, refresh } = useAdm();
   const [data, setData] = useState(null);
   const load = useCallback(() => api('/admin/bot-reports').then(setData).catch((e) => { setData({ bots: [], toHide: 0 }); say(e.message, 'error'); }), [say]);
   useEffect(() => { load(); }, [load]);
@@ -215,7 +218,7 @@ function BotReports() {
         <div className="adm-actions">
           {b.hold && <button className="adm-btn small" onClick={() => act(b, 'restore', 'Bot restored')}>Restore</button>}
           <button className="adm-btn small" onClick={() => act(b, 'dismiss', 'Reports dismissed')}>Dismiss</button>
-          <button className="adm-btn small danger" onClick={() => act(b, 'remove', 'Bot removed from every server')}>Remove bot</button>
+          {me.role !== 'moderator' && <button className="adm-btn small danger" onClick={() => act(b, 'remove', 'Bot removed from every server')}>Remove bot</button>}
         </div>
       </div>
       {b.reports.length > 0 && <ReportItems list={b.reports} onChanged={changed} />}
@@ -224,7 +227,7 @@ function BotReports() {
 }
 
 function ClipReports() {
-  const { say, run, ask, refresh } = useAdm();
+  const { me, say, run, ask, refresh } = useAdm();
   const [data, setData] = useState(null);
   const load = useCallback(() => api('/admin/clips').then(setData).catch((e) => { setData(e.status === 503 ? { off: true, clips: [] } : { clips: [] }); if (e.status !== 503) say(e.message, 'error'); }), [say]);
   useEffect(() => { load(); }, [load]);
@@ -252,7 +255,7 @@ function ClipReports() {
         <div className="adm-actions">
           {c.state === 'hidden' && <button className="adm-btn small" onClick={() => act(c, 'restore', 'Clip restored')}>Restore</button>}
           <button className="adm-btn small" onClick={() => act(c, 'dismiss', 'Reports dismissed')}>Dismiss</button>
-          <button className="adm-btn small danger" onClick={() => remove(c)}>Remove</button>
+          {me.role !== 'moderator' && <button className="adm-btn small danger" onClick={() => remove(c)}>Remove</button>}
         </div>
       </div>
       {c.reports.length > 0 && <ReportItems list={c.reports} onChanged={changed} />}
@@ -477,8 +480,10 @@ function Admins({ openUser }) {
   const [list, setList] = useState(null);
   const [q, setQ] = useState('');
   const [found, setFound] = useState(null);
+  const [mods, setMods] = useState(null);
   const load = useCallback(() => api('/admin/admins').then((r) => setList(r.admins)).catch((e) => say(e.message, 'error')), [say]);
-  useEffect(() => { load(); }, [load]);
+  const loadMods = useCallback(() => api('/admin/moderators').then((r) => setMods(r.moderators)).catch((e) => say(e.message, 'error')), [say]);
+  useEffect(() => { load(); loadMods(); }, [load, loadMods]);
   useEffect(() => {
     if (!q.trim()) { setFound(null); return undefined; }
     const id = setTimeout(() => api('/admin/users?q=' + encodeURIComponent(q.trim())).then((r) => setFound(r.users)).catch((e) => say(e.message, 'error')), 250);
@@ -486,7 +491,15 @@ function Admins({ openUser }) {
   }, [q, say]);
   const add = async (u) => {
     const r = await ask({ title: `Make ${u.username} an admin?`, body: 'They can open this page, read every report, suspend or delete accounts, and delete servers. They cannot act on creators or other admins.', confirmLabel: 'Make admin' });
-    if (r && await run(() => api('/admin/admins', { method: 'POST', body: { userId: u.id } }), `${u.username} is now an admin`)) { setQ(''); load(); refresh(); }
+    if (r && await run(() => api('/admin/admins', { method: 'POST', body: { userId: u.id } }), `${u.username} is now an admin`)) { setQ(''); load(); loadMods(); refresh(); }
+  };
+  const addMod = async (u) => {
+    const r = await ask({ title: `Make ${u.username} a moderator?`, body: 'They can open this page, read every report and dismiss or restore what was reported. They cannot warn, mute, suspend, delete or take anything down for good, and they see nothing else here.', confirmLabel: 'Make moderator' });
+    if (r && await run(() => api('/admin/moderators', { method: 'POST', body: { userId: u.id } }), `${u.username} is now a moderator`)) { setQ(''); loadMods(); }
+  };
+  const dropMod = async (u) => {
+    const r = await ask({ title: `Remove ${u.username} as moderator?`, body: 'They lose access to this page right away.', confirmLabel: 'Remove moderator', danger: true });
+    if (r && await run(() => api('/admin/moderators/' + u.id, { method: 'DELETE' }), 'Moderator removed')) loadMods();
   };
   const drop = async (u) => {
     const r = await ask({ title: `Remove ${u.username} as admin?`, body: 'They lose access to this page right away.', confirmLabel: 'Remove admin', danger: true });
@@ -494,19 +507,36 @@ function Admins({ openUser }) {
   };
   return (
     <>
-      {me.canManageAdmins ? (
-        <div className="adm-card">
-          <h3>Add an admin</h3>
+      <div className="adm-card">
+          <h3>Add an admin or moderator</h3>
           <input className="adm-input" type="search" placeholder="Search for the person by username" value={q} onChange={(e) => setQ(e.target.value)} />
           {found && !found.length && <p className="adm-muted">No one matches.</p>}
           {found && found.map((u) => (
             <div className="adm-row adm-line" key={u.id}>
               <div className="adm-who"><Face u={u} /><div><b>{u.displayName}</b> <span className="adm-muted">@{u.username}</span></div></div>
-              {u.role ? <span className="adm-tag">{ROLE[u.role]}</span> : u.suspended ? <span className="adm-tag bad">Suspended</span> : <button className="adm-btn small primary" onClick={() => add(u)}>Make admin</button>}
+              {u.role ? <span className="adm-tag">{ROLE[u.role]}</span> : u.suspended ? <span className="adm-tag bad">Suspended</span> : (
+                <div className="adm-actions">
+                  {u.moderator ? <span className="adm-tag">{ROLE.moderator}</span> : <button className="adm-btn small" onClick={() => addMod(u)}>Make moderator</button>}
+                  {me.canManageAdmins && <button className="adm-btn small primary" onClick={() => add(u)}>Make admin</button>}
+                </div>
+              )}
             </div>
           ))}
-        </div>
-      ) : <div className="adm-card"><p className="adm-muted">Only a creator account can add or remove admins.</p></div>}
+          {!me.canManageAdmins && <p className="adm-muted">Only a creator account can make admins. You can make moderators.</p>}
+      </div>
+      <div className="adm-card">
+        <h3>Moderators</h3>
+        <p className="adm-muted">They can read every report and dismiss or restore what was reported. Nothing else.</p>
+        {!mods ? <p className="adm-muted">Loading…</p> : !mods.length ? <p className="adm-muted">No moderators yet.</p> : mods.map((u) => (
+          <div className="adm-row adm-line" key={u.id}>
+            <div className="adm-who"><Face u={u} /><div><b>{u.displayName}</b> <span className="adm-muted">@{u.username}</span><div className="adm-muted">{u.since ? `since ${when(u.since)}` : ''}{u.addedBy ? ` · added by ${u.addedBy}` : ''}</div></div></div>
+            <div className="adm-actions">
+              <button className="adm-btn small" onClick={() => openUser(u.id)}>Open</button>
+              <button className="adm-btn small danger" onClick={() => dropMod(u)}>Remove</button>
+            </div>
+          </div>
+        ))}
+      </div>
       <div className="adm-card">
         <h3>Everyone with access</h3>
         {!list ? <p className="adm-muted">Loading…</p> : list.map((u) => (
@@ -960,17 +990,29 @@ function Overview({ go }) {
   if (!summary) return <p className="adm-muted">Loading…</p>;
   const r = summary.reports;
   const open = (sub) => go('reports', sub);
+  const mod = summary.users === undefined; // moderators get the report counts only
   return (
     <>
       <div className="adm-stats">
-        <button className={'adm-stat' + (summary.applications ? ' hot' : '')} onClick={() => go('applications')}><b>{summary.applications || 0}</b><span>Applications waiting</span></button>
-        <button className="adm-stat" onClick={() => go('people')}><b>{summary.users}</b><span>People</span></button>
-        <button className="adm-stat" onClick={() => go('people')}><b>{summary.suspended}</b><span>Suspended</span></button>
+        {!mod && <button className={'adm-stat' + (summary.applications ? ' hot' : '')} onClick={() => go('applications')}><b>{summary.applications || 0}</b><span>Applications waiting</span></button>}
+        {!mod && <button className="adm-stat" onClick={() => go('people')}><b>{summary.users}</b><span>People</span></button>}
+        {!mod && <button className="adm-stat" onClick={() => go('people')}><b>{summary.suspended}</b><span>Suspended</span></button>}
         <button className={'adm-stat' + (r.users ? ' hot' : '')} onClick={() => open('users')}><b>{r.users}</b><span>People and messages reported</span></button>
         <button className={'adm-stat' + (r.servers ? ' hot' : '')} onClick={() => open('servers')}><b>{r.servers}</b><span>Servers reported</span></button>
         <button className={'adm-stat' + (r.bots ? ' hot' : '')} onClick={() => open('bots')}><b>{r.bots}</b><span>Bots reported</span></button>
         <button className={'adm-stat' + (r.clips ? ' hot' : '')} onClick={() => open('clips')}><b>{r.clips}</b><span>Clips reported or hidden</span></button>
       </div>
+      {mod ? (
+        <div className="adm-card">
+          <h3>How this works</h3>
+          <ul className="adm-lines">
+            <li><b>Dismiss</b> clears the reports about something and changes nothing else.</li>
+            <li><b>Restore</b> puts a hidden listing, bot or clip back where it was and clears its reports.</li>
+            <li>If something needs a warning, a takedown or a delete, tell an admin.</li>
+            <li>Reports never tell the person who reported them.</li>
+          </ul>
+        </div>
+      ) : (
       <div className="adm-card">
         <h3>How this works</h3>
         <ul className="adm-lines">
@@ -981,6 +1023,7 @@ function Overview({ go }) {
           <li>Reports never tell the person who reported them. Everything you do here is recorded in the Log.</li>
         </ul>
       </div>
+      )}
     </>
   );
 }
@@ -1070,15 +1113,17 @@ export default function AdminPage() {
   if (!me) return <div className="adm"><p className="adm-muted adm-pad">Checking access…</p></div>;
   const ctx = { me, summary, say, ask, run, refresh };
   const reportCount = summary ? Object.values(summary.reports).reduce((a, b) => a + b, 0) : 0;
+  const modOnly = me.role === 'moderator';
+  const cur = modOnly && !MOD_TABS.includes(tab) ? 'overview' : tab;
 
   return (
     <Ctx.Provider value={ctx}>
       <div className="adm">
         <header className="adm-top">
-          <a className="adm-logo" href="/admin" onClick={(e) => { e.preventDefault(); go('overview'); }}>Aduna <small>Admin</small></a>
+          <a className="adm-logo" href="/admin" onClick={(e) => { e.preventDefault(); go('overview'); }}>Aduna <small>{modOnly ? 'Moderation' : 'Admin'}</small></a>
           <nav className="adm-nav" aria-label="Admin pages">
-            {TABS.filter(([id]) => (id !== 'releases' && id !== 'switches' && id !== 'sales' && id !== 'links' && id !== 'ipbans') || me.canManageFeatures).map(([id, name]) => (
-              <button key={id} className={'adm-tab' + (tab === id ? ' on' : '')} aria-current={tab === id ? 'page' : undefined} onClick={() => go(id)}>
+            {TABS.filter(([id]) => (!modOnly || MOD_TABS.includes(id)) && ((id !== 'releases' && id !== 'switches' && id !== 'sales' && id !== 'links' && id !== 'ipbans') || me.canManageFeatures)).map(([id, name]) => (
+              <button key={id} className={'adm-tab' + (cur === id ? ' on' : '')} aria-current={cur === id ? 'page' : undefined} onClick={() => go(id)}>
                 {name}{id === 'reports' && reportCount > 0 && <b>{reportCount}</b>}{id === 'applications' && summary && summary.applications > 0 && <b>{summary.applications}</b>}
               </button>
             ))}
@@ -1087,20 +1132,20 @@ export default function AdminPage() {
           <a className="adm-btn small" href="/app">Back to Aduna</a>
         </header>
         <main className="adm-main">
-          <h1>{TABS.find((t) => t[0] === tab)[1]}</h1>
-          {tab === 'overview' && <Overview go={go} />}
-          {tab === 'applications' && <Applications />}
-          {tab === 'artists' && <ArtistReview />}
-          {tab === 'shop' && <ShopItems />}
-          {tab === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
-          {tab === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
-          {tab === 'releases' && <Releases />}
-          {tab === 'switches' && <Switches />}
-{tab === 'sales' && <Sales />}
-          {tab === 'links' && <Links />}
-          {tab === 'ipbans' && <IpBans />}
-          {tab === 'admins' && <Admins openUser={openUser} />}
-          {tab === 'log' && <Log />}
+          <h1>{TABS.find((t) => t[0] === cur)[1]}</h1>
+          {cur === 'overview' && <Overview go={go} />}
+          {cur === 'applications' && <Applications />}
+          {cur === 'artists' && <ArtistReview />}
+          {cur === 'shop' && <ShopItems />}
+          {cur === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
+          {cur === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
+          {cur === 'releases' && <Releases />}
+          {cur === 'switches' && <Switches />}
+{cur === 'sales' && <Sales />}
+          {cur === 'links' && <Links />}
+          {cur === 'ipbans' && <IpBans />}
+          {cur === 'admins' && <Admins openUser={openUser} />}
+          {cur === 'log' && <Log />}
         </main>
         {dlg && <Dialog d={dlg.d} onDone={(v) => { dlg.resolve(v); setDlg(null); }} />}
         <div className="adm-toasts" role="status" aria-live="polite">

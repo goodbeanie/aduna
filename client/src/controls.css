@@ -27,7 +27,6 @@
 .note-chan-head .cx-select { width: auto; max-width: 52%; padding: 0 8px; margin: 0; font-size: 13px; }
 @media (max-width: 720px) { .note-chan-head .cx-select { max-width: 100%; flex: 1 1 100%; order: 3; } }
 .bot-test-row .cx-select { width: auto; flex: none; }
-.ai-controls .cx-select { width: auto; max-width: 100%; }
 .gallery-filters .cx-select { width: auto; margin: 0; flex: 1 1 120px; min-width: 0; }
 .explore-sort .cx-select { margin: 0; padding: 0 12px; background: var(--bg3); }
 

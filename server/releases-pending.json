@@ -257,5 +257,16 @@
       { "title": "Update the desktop and Android apps", "text": "The new desktop and Android versions open the new address. Older versions still point at the old one, so install the new version to keep using the app." },
       { "title": "Links to the new address work", "text": "Invite links and links to Aduna that use the new address are now recognized as Aduna links inside the app." }
     ]
+  },
+  {
+    "id": "2026.11.13.2",
+    "date": "2026-11-13",
+    "title": "Moderators, server automod and bot commands",
+    "items": [
+      { "title": "Moderator role", "text": "Admins can make someone a moderator on the admin page. A moderator can open the page, read every report and dismiss or restore what was reported. They can't warn, mute, suspend, delete or remove anything, and they don't see the other tabs." },
+      { "title": "Automod for servers", "text": "Server managers can turn on automod in the server settings. It can block banned words, links, invites, too many capitals, mention floods and repeated messages. Each rule either just refuses the message or adds a strike, and strikes can lead to a timeout or a kick. Roles and channels can be left out." },
+      { "title": "Bot commands in the message box", "text": "Type a bot's prefix, usually /, at the start of a message to see the commands of the bots in that server. Pick one to put it in the message box." },
+      { "title": "AI bot builder removed", "text": "The “Build with AI on this PC” panel is gone from the bot editor in the desktop app." }
+    ]
   }
 ]

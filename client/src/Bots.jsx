@@ -5,7 +5,6 @@ import { Avatar, Icon, Modal } from './ui.jsx';
 import { PanelSkeleton, EmptyState } from './ShellBits.jsx';
 import { can } from './perms.js';
 import BotSim from './BotSim.jsx';
-import AiBuilder, { hasAiBuilder } from './AiBuilder.jsx';
 import { BotPictures } from './BotPages.jsx';
 
 // Bots on the client: Settings > Developer (write, test and publish bots), Server settings > Bots (add, scope and remove them),
@@ -14,9 +13,9 @@ import { BotPictures } from './BotPages.jsx';
 export const BotTag = () => <span className="bot-tag" title="This is a bot">BOT</span>;
 
 const STARTER = `// Your code is the body of a function that receives \`bot\`.
-// Reply when someone types !ping:
+// Reply when someone types /ping (the prefix and the command list are set above):
 bot.on('message', (m) => {
-  if (m.text === '!ping') bot.reply(m, 'pong <@' + m.author.id + '>');
+  if (m.text === '/ping') bot.reply(m, 'pong <@' + m.author.id + '>');
 });
 
 // Greet people who join (the bot may write in these channels):
@@ -24,6 +23,7 @@ bot.on('memberJoin', (e) => {
   if (e.channels.length) bot.send(e.channels[0].id, 'Welcome <@' + e.user.id + '>!');
 });
 `;
+const STARTER_COMMANDS = [{ name: 'ping', description: 'Reply with pong' }];
 
 const when = (t) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 const tagsOf = (s) => s.split(/[,\s]+/).map((t) => t.trim()).filter(Boolean);
@@ -40,26 +40,18 @@ function StatusChips({ bot }) {
 }
 
 // ---------- Settings > Developer ----------
-// aiFocus: the desktop app's tray item, title bar button or menu sent the person here to use the AI panel (desktop app only).
-export function DeveloperSettings({ me, onSaved, aiFocus }) {
+export function DeveloperSettings({ me, onSaved }) {
   const [state, setState] = useState('loading'); // loading | ready | error
   const [dev, setDev] = useState(null);
   const [err, setErr] = useState('');
   const [editing, setEditing] = useState(null); // null = list, 'new' or a bot
   const editKey = useRef(0); // bumps when another bot is opened, so saving a new bot does not reset the editor
-  const aiOpen = useRef(false); // the editor was opened to use the AI panel: show it open
-  const open = (x, ai) => { editKey.current += 1; aiOpen.current = !!ai; setEditing(x); };
+  const open = (x) => { editKey.current += 1; setEditing(x); };
   const [accept, setAccept] = useState(false);
   const [busy, setBusy] = useState(false);
-  const jumped = useRef(false);
 
   const load = useCallback(() => api('/developer').then((r) => { setDev(r); setState('ready'); }).catch((e) => { setErr(e.message); setState('error'); }), []);
   useEffect(() => { load(); }, [load]);
-  // sent here by the desktop app: go straight to the editor, with the AI panel open
-  useEffect(() => {
-    if (!aiFocus || jumped.current || state !== 'ready' || !dev?.developer || !hasAiBuilder()) return;
-    jumped.current = true; open('new', true);
-  }, [aiFocus, state, dev]); // eslint-disable-line react-hooks/exhaustive-deps
   // the server tells the developer live when a listing is held, removed or restored, or a bot gets paused
   useEffect(() => {
     const h = (e) => setDev((d) => (d ? { ...d, bots: d.bots.map((b) => (b.id === e.detail.id ? { ...b, ...e.detail } : b)) } : d));
@@ -94,7 +86,7 @@ export function DeveloperSettings({ me, onSaved, aiFocus }) {
     );
   }
   if (editing) {
-    return <BotEditor key={editKey.current} bot={editing === 'new' ? null : editing} aiOpen={aiOpen.current} limits={dev.limits} fetchHosts={dev.fetchHosts} onSaved={(b) => { upsert(b); setEditing(b); }} onDeleted={(id) => { drop(id); open(null); }} onBack={() => open(null)} />;
+    return <BotEditor key={editKey.current} bot={editing === 'new' ? null : editing} limits={dev.limits} fetchHosts={dev.fetchHosts} onSaved={(b) => { upsert(b); setEditing(b); }} onDeleted={(id) => { drop(id); open(null); }} onBack={() => open(null)} />;
   }
   const full = dev.bots.length >= dev.limits.perDeveloper;
   return (
@@ -108,7 +100,6 @@ export function DeveloperSettings({ me, onSaved, aiFocus }) {
         </button>
       ))}
       {dev.bots.length > 0 && <button className="btn primary" disabled={full} onClick={() => open('new')}><Icon name="plus" size={16} className="inline-icon" /> New bot</button>}
-      {hasAiBuilder() && <button className="btn" disabled={full} onClick={() => open('new', true)}>Build a bot with AI</button>}
       {full && <p className="muted small hint">You have reached the limit. Delete a bot to make a new one.</p>}
       <SeasonTest me={me} onSaved={onSaved} />
     </div>
@@ -146,12 +137,41 @@ function SeasonTest({ me, onSaved }) {
   );
 }
 
-function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack }) {
+const cmdKey = (list) => JSON.stringify((list || []).map((c) => [c.name.trim().replace(/^\W+/, '').toLowerCase(), c.description.trim()]));
+
+// The command list the chat box popup shows: a prefix (what people type first) and commands { name, description }. The bot's code still does
+// its own parsing; this only tells the popup what to offer.
+function CommandsEditor({ prefix, setPrefix, commands, setCommands, limits, disabled }) {
+  const max = limits.commands || 25;
+  const set = (i, patch) => setCommands(commands.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  return (
+    <section className="bot-panel bot-commands">
+      <h3>Commands</h3>
+      <p className="muted small hint">When someone types the prefix at the start of a message, the chat box lists these commands with the bot&rsquo;s name beside each. Picking one only types it in; your code answers it as usual.</p>
+      <label>PREFIX</label>
+      <input className="bot-prefix" value={prefix} maxLength={limits.prefix || 3} onChange={(e) => setPrefix(e.target.value.replace(/\s/g, ''))} aria-label="Command prefix" placeholder="/" disabled={disabled} />
+      {commands.map((c, i) => (
+        <div key={i} className="cmd-row">
+          <span className="cmd-pre muted">{prefix || '/'}</span>
+          <input className="cmd-name" value={c.name} maxLength={limits.commandName || 32} onChange={(e) => set(i, { name: e.target.value.replace(/[^a-zA-Z0-9_-]/g, '') })} aria-label={`Command ${i + 1} name`} placeholder="roll" disabled={disabled} />
+          <input className="cmd-desc" value={c.description} maxLength={limits.commandDesc || 100} onChange={(e) => set(i, { description: e.target.value })} aria-label={`Command ${i + 1} description`} placeholder="What it does" disabled={disabled} />
+          <button type="button" className="btn small-btn danger" disabled={disabled} onClick={() => setCommands(commands.filter((_, j) => j !== i))} aria-label={`Remove command ${i + 1}`}>Remove</button>
+        </div>
+      ))}
+      <button type="button" className="btn small-btn" disabled={disabled || commands.length >= max} onClick={() => setCommands([...commands, { name: '', description: '' }])}><Icon name="plus" size={14} className="inline-icon" /> Add command</button>
+      {commands.length >= max && <p className="muted small hint">A bot can list up to {max} commands.</p>}
+    </section>
+  );
+}
+
+function BotEditor({ bot, limits, fetchHosts, onSaved, onDeleted, onBack }) {
   const [name, setName] = useState(bot?.name || '');
   const [description, setDescription] = useState(bot?.description || '');
   const [about, setAbout] = useState(bot?.about || '');
   const [tags, setTags] = useState((bot?.tags || []).join(', '));
   const [visibility, setVisibility] = useState(bot?.visibility || 'private');
+  const [prefix, setPrefix] = useState(bot?.prefix || '/');
+  const [commands, setCommands] = useState(bot ? (bot.commands || []).map((c) => ({ ...c })) : STARTER_COMMANDS.map((c) => ({ ...c })));
   const [code, setCode] = useState(bot?.code ?? STARTER);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
@@ -159,12 +179,13 @@ function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack
   const [confirmDel, setConfirmDel] = useState(false);
   const held = !!bot?.review; // a listing under review or removed cannot be edited by its developer
   const removed = bot?.review === 'removed';
-  const dirty = !bot || name !== bot.name || description !== bot.description || about !== (bot.about || '') || tags !== (bot.tags || []).join(', ') || visibility !== bot.visibility || code !== bot.code;
+  const dirty = !bot || name !== bot.name || description !== bot.description || about !== (bot.about || '') || tags !== (bot.tags || []).join(', ') || visibility !== bot.visibility || code !== bot.code
+    || (prefix.trim() || '/') !== (bot.prefix || '/') || cmdKey(commands) !== cmdKey(bot.commands);
 
   async function save() {
     setErr(''); setNote(''); setBusy(true);
     try {
-      const body = { name, description, about, tags: tagsOf(tags), visibility, code };
+      const body = { name, description, about, tags: tagsOf(tags), visibility, code, prefix: prefix.trim() || '/', commands: commands.filter((c) => c.name.trim()) };
       const r = bot ? await api(`/bots/${bot.id}`, { method: 'PATCH', body }) : await api('/bots', { method: 'POST', body });
       onSaved(r.bot);
       setNote('Saved.');
@@ -175,11 +196,6 @@ function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack
     try { await api(`/bots/${bot.id}`, { method: 'DELETE' }); onDeleted(bot.id); }
     catch (e) { setErr(e.message); setConfirmDel(false); setBusy(false); }
   }
-  // "Use this bot" in the AI panel: its name, description and code go into the editor. Nothing is saved until the person saves.
-  const useAi = (b) => {
-    setName(b.name); setDescription(b.description); setCode(b.code); setErr('');
-    setNote(`Filled in by the AI${b.finished ? '' : ' (not finished)'}. Look it over, try it in the chat simulator below, then press ${bot ? 'Save changes' : 'Create bot'}.`);
-  };
   const onTab = (e) => { // Tab inserts two spaces in the code box instead of leaving it (Escape then Tab leaves)
     if (e.key !== 'Tab' || e.shiftKey || e.ctrlKey || e.metaKey) return;
     e.preventDefault();
@@ -198,8 +214,6 @@ function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack
       {bot?.review && !removed && <div className="error">This bot&rsquo;s public listing is under review after reports. You can edit it again once moderators have decided.</div>}
       {bot?.pausedUntil && <div className="error">This bot is paused because its code kept running out of time. Save new code to resume it.</div>}
 
-      {hasAiBuilder() && !held && <AiBuilder fetchHosts={fetchHosts} defaultOpen={aiOpen} onUse={useAi} />}
-
       <label>NAME</label>
       <input value={name} maxLength={limits.name} onChange={(e) => setName(e.target.value)} aria-label="Bot name" disabled={held} />
       <label>DESCRIPTION</label>
@@ -216,6 +230,8 @@ function BotEditor({ bot, aiOpen, limits, fetchHosts, onSaved, onDeleted, onBack
         <option value="public">Anyone, listed on the Bots tab (public)</option>
       </Select>
       {visibility === 'public' && <p className="muted small hint">Public bots are checked like public servers (no links or blocked words in the name, description or tags) and can be reported. Making a public bot private again removes it from servers you do not manage.</p>}
+
+      <CommandsEditor prefix={prefix} setPrefix={setPrefix} commands={commands} setCommands={setCommands} limits={limits} disabled={held} />
 
       <label>CODE</label>
       <textarea className="code-box" rows={16} value={code} spellCheck={false} autoCapitalize="off" autoCorrect="off" onKeyDown={onTab} onChange={(e) => setCode(e.target.value)} aria-label="Bot code" disabled={held} />

@@ -120,7 +120,7 @@
 /* Bree Serif has one weight: a 600/700 rule only produces a smeared fake bold. Hierarchy comes from size, colour and letter-spacing instead. */
 .credit-num, .pack-amt, .checkout-line.total, .quest-main b, .reward, .shop-main b, .shop-tile-main b, .shop-price, .shop-chip,
 .addbadge label, .event-test, .door-n, .door.ready .door-r, .door.opened .door-r, .credit-count, .credit-chip, .credit-gain,
-.co-total, .bot-help summary, .ai-panel > summary, .ai-ev.ai-head, .ai-ev.ai-end, .sim-mention, .bot-tag, .explore-tab.on,
+.co-total, .bot-help summary, .sim-mention, .bot-tag, .explore-tab.on,
 .mode-pick button.on, .jump-btn.fresh, .voice-rate, .rec-time, .who-name, .ch-head .ch-name, .live-tag, .badge.at, .badge-art { font-weight: 400; }
 .credit-num, .co-total { letter-spacing: .01em; }
 .shop-price, .shop-chip, .event-test, .bot-tag { letter-spacing: .04em; }

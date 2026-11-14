@@ -6,12 +6,14 @@
 // DM or group attachment: those are encrypted in the browser, so the server only holds ciphertext. The two apps check those on the device.
 //
 // How: ffmpeg decodes the file (any picture or video format, so a renamed file is judged by what it really is) into 224x224 frames, the model
-// scores each one, and the worst frame counts. Frames are taken about once a second (at most MEDIA_CHECK_FRAMES, default 40, spread over the
-// whole length). If the model or ffmpeg cannot run, the answer is "unavailable" and the caller REFUSES the file (set MEDIA_CHECK_FAIL=open to
-// let files through instead, e.g. on a small test server).
+// scores each one, and the worst frame counts. Frames are taken about once a second (at most MEDIA_CHECK_FRAMES, default 16, spread over the
+// whole length), and after MEDIA_CHECK_BUDGET_S (default 20) the frames already looked at decide, so a long GIF or video cannot run past the
+// proxy's time limit. If the model or ffmpeg cannot run, the answer is "unavailable": a PUBLIC picture is then REFUSED (set MEDIA_CHECK_FAIL=open
+// to let those through too), but a channel ATTACHMENT is saved unchecked (set MEDIA_CHECK_FAIL=closed to refuse those as well). The sender's app and
+// the readers' apps still check it on their devices, and the server logs every time this happens ("media check could not run").
 //
 // Switches: MEDIA_CHECK=on|off (default on; off when NODE_ENV=test unless a test says on), MEDIA_CHECK_FAIL=closed|open, MEDIA_CHECK_FRAMES,
-// MEDIA_CHECK_TIMEOUT_S, FFMPEG_PATH.
+// MEDIA_CHECK_TIMEOUT_S, MEDIA_CHECK_BUDGET_S, FFMPEG_PATH.
 const { execFile } = require('child_process');
 const fs = require('fs');
 const os = require('os');
@@ -34,12 +36,18 @@ const ANIMATED_WEBP_MSG = "Animated WebP files can't be checked yet. Send it as 
 function settings(env = process.env) {
   const test = env.NODE_ENV === 'test';
   const mode = String(env.MEDIA_CHECK || '').trim().toLowerCase();
+  const fail = String(env.MEDIA_CHECK_FAIL || '').trim().toLowerCase();
   const num = (v, d, lo, hi) => { const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? n : d; };
   return {
     on: mode ? !['off', '0', 'false', 'no'].includes(mode) : !test,
-    failOpen: String(env.MEDIA_CHECK_FAIL || '').trim().toLowerCase() === 'open',
-    frames: Math.round(num(env.MEDIA_CHECK_FRAMES, 40, 3, 120)),
+    // failOpen: for public pictures (profile, banner, icon...), only when MEDIA_CHECK_FAIL=open.
+    // chatFailOpen: for channel attachments, on by default (MEDIA_CHECK_FAIL=closed turns it off): when the check itself cannot run (no ffmpeg, the model
+    // will not load, too slow) the file is still saved, because refusing it made every upload fail. A file the check ran on and found explicit is always refused.
+    failOpen: fail === 'open',
+    chatFailOpen: fail !== 'closed',
+    frames: Math.round(num(env.MEDIA_CHECK_FRAMES, 16, 3, 120)),
     timeoutMs: num(env.MEDIA_CHECK_TIMEOUT_S, 45, 5, 300) * 1000,
+    budgetMs: num(env.MEDIA_CHECK_BUDGET_S, 20, 3, 120) * 1000, // after this long on the model, the frames already looked at decide
     maxQueue: 12, // checks waiting for their turn (the model runs one at a time); more than this and the upload is told to try again
     idleMs: 15 * 60_000, // the model is let go after this long without a check, so an idle server does not keep it in memory
     ffmpeg: String(env.FFMPEG_PATH || '').trim(),
@@ -91,6 +99,7 @@ function run(bin, args, { timeoutMs, binaryOut = false }) {
   return new Promise((resolve, reject) => {
     execFile(bin, args, { timeout: timeoutMs, maxBuffer: 256 * 1024 * 1024, windowsHide: true, encoding: binaryOut ? 'buffer' : 'utf8' }, (err, stdout, stderr) => {
       if (err && err.code === 'ENOENT') return reject(Object.assign(new Error('ffmpeg is not installed'), { code: 'UNAVAILABLE' }));
+      if (err && typeof err.code === 'string') return reject(Object.assign(new Error('ffmpeg could not be started (' + err.code + ')'), { code: 'UNAVAILABLE' })); // EACCES, ENOEXEC...: a binary that cannot run is the server's problem, not the file's
       if (err && err.killed) return reject(Object.assign(new Error('ffmpeg took too long'), { code: 'UNAVAILABLE' }));
       resolve({ code: err ? (typeof err.code === 'number' ? err.code : 1) : 0, stdout, stderr: String(stderr || '') });
     });
@@ -181,16 +190,20 @@ function verdictOf(predictions) {
   return 'ok';
 }
 
-async function classifyFrames(raw, classifyFn) {
-  let worst = 'ok';
-  const n = raw.length / FRAME_BYTES;
+async function classifyFrames(raw, classifyFn, budgetMs = Infinity) {
+  let worst = 'ok', looked = 0;
+  const n = raw.length / FRAME_BYTES, started = Date.now();
   for (let i = 0; i < n; i++) {
+    // the plain JS backend takes about a second a frame: a long GIF or video would run past the proxy's time limit and the upload would fail,
+    // so after the budget the frames already looked at decide (the sampling is spread over the whole length, so they cover all of it)
+    if (looked && Date.now() - started > budgetMs) break;
     const v = await classifyFn(raw.subarray(i * FRAME_BYTES, (i + 1) * FRAME_BYTES));
+    looked++;
     if (RANK[v] > RANK[worst]) worst = v;
     if (worst === 'block') break;
     await new Promise((resolve) => setImmediate(resolve)); // the plain JS backend holds the process for about a second a frame: let requests in between
   }
-  return { verdict: worst, frames: n };
+  return { verdict: worst, frames: n, looked };
 }
 async function modelClassify(frame) {
   const net = await getModel();
@@ -228,12 +241,12 @@ async function check(buf, { cfg = settings(), deps = {} } = {}) {
       if (e.code === 'NOT_MEDIA') return { verdict: 'skipped', kind: 'other' }; // ffmpeg opened it and there is no picture in it
       if (e.code === 'UNREADABLE') {
         if (s.animated) throw Object.assign(new Error(ANIMATED_WEBP_MSG), { code: 'UNSUPPORTED', detail: e.message }); // ffmpeg's WebP decoder does not do animation
-        if (s.kind === 'video' || s.kind === 'image') throw Object.assign(new Error(UNAVAILABLE_MSG), { code: 'UNAVAILABLE', detail: e.message }); // looks like media but cannot be read: not let through
+        if (s.kind === 'video' || s.kind === 'image') throw Object.assign(new Error(UNAVAILABLE_MSG), { code: 'UNAVAILABLE', unreadable: true, detail: e.message }); // looks like media but cannot be read: never let through, not even when the check itself is down (a crafted file a browser can show but ffmpeg cannot read would get around it)
         return { verdict: 'skipped', kind: 'other' };
       }
       throw e;
     }
-    const got = await classifyFrames(raw, d.classify);
+    const got = await classifyFrames(raw, d.classify, cfg.budgetMs);
     touchIdle(cfg);
     return { ...got, kind: s.kind === 'unknown' ? 'video' : s.kind, mime: s.mime };
   }, cfg);
@@ -246,7 +259,9 @@ async function guard(buf, { strict, cfg = settings(), deps } = {}) {
   let r;
   try { r = await check(buf, { cfg, deps }); }
   catch (e) {
-    if (cfg.failOpen) { console.warn('media check skipped (MEDIA_CHECK_FAIL=open):', e.message); return { verdict: 'skipped' }; }
+    // 'BUSY', an animated WebP (UNSUPPORTED: only the apps can look inside it) and a file that could not be read (e.unreadable) are never let through. Everything else means the check itself could not run.
+    const open = e.code !== 'BUSY' && e.code !== 'UNSUPPORTED' && !e.unreadable && (strict ? cfg.failOpen : cfg.chatFailOpen);
+    if (open) { console.warn('media check could not run, file saved unchecked (' + (strict ? 'MEDIA_CHECK_FAIL=open' : 'chat attachment; MEDIA_CHECK_FAIL=closed to refuse') + '):', e.detail || e.message); return { verdict: 'skipped' }; }
     console.error('media check failed:', e.detail || e.message);
     throw refuse(e.code === 'BUSY' ? BUSY_MSG : e.code === 'UNSUPPORTED' ? e.message : UNAVAILABLE_MSG, e.message);
   }

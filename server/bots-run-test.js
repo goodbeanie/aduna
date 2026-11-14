@@ -72,7 +72,7 @@ const T = (u) => u.token;
   assert.strictEqual(r.status, 200, JSON.stringify(r));
   const botUser = r.server.members.find((m) => m.bot);
   assert.ok(botUser && botUser.displayName === 'Pinger' && /^bot-[0-9a-f]{12}$/.test(botUser.username), 'the bot is a member with a BOT flag and a dash-name nobody can register');
-  assert.deepStrictEqual(r.server.bots, [{ botId: pinger.id, userId: botUser.id, channels: null }]);
+  assert.deepStrictEqual(r.server.bots, [{ botId: pinger.id, userId: botUser.id, channels: null, prefix: '/', commands: [] }]);
   assert.ok(!('passHash' in botUser) && !('email' in botUser));
   assert.strictEqual((await call(`/servers/${sv.id}/bots`, { method: 'POST', body: { botId: pinger.id }, token: T(owner) })).status, 400, 'twice is refused');
   assert.strictEqual((await call('/register', { method: 'POST', body: { username: 'bot-' + botUser.id.slice(0, 12), email: 'x@example.com', password: 'password123', publicKey: 'k', encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } })).status, 400, 'a person cannot register a dash-name');

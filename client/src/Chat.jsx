@@ -13,6 +13,7 @@ import { PLUS_CHARS, charLimit } from './msgLimit.js';
 // the clip card (and the whole Clips player behind it) is only loaded when Clips are switched on; otherwise a clip link is just a link
 const ClipEmbed = CLIPS_ENABLED ? React.lazy(() => import('./ClipEmbed.jsx').then((m) => ({ default: m.ClipEmbed }))) : null;
 import { MentionMenu, fromChannelTokens, fromMentionTokens, mentionPreview, toChannelTokens, toMentionTokens, useMentionComplete } from './Mentions.jsx';
+import { CommandMenu, useCommandComplete } from './BotCommands.jsx';
 import { useTypingProof } from './typing.js';
 import { BotTag } from './Bots.jsx';
 import { ServerTagChip } from './ServerTag.jsx';
@@ -293,7 +294,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, channels, onChannel, draftKey, unreadCount, unreadExact }) {
+export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, botCommands, channels, onChannel, draftKey, unreadCount, unreadExact }) {
   const convoKey = draftKey || title; // which conversation this composer belongs to (titles can repeat, so App passes a real key)
   const limit = charLimit(me); // 2,000 characters, 4,000 with Aduna Plus
   const [text, setText] = useState(() => getDraft(convoKey));
@@ -346,6 +347,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const lastTyping = useRef(0);
   const inputRef = useRef(null);
   const mc = useMentionComplete({ text, setText, inputRef, people, everyone: canEveryone, channels });
+  const cc = useCommandComplete({ text, setText, inputRef, commands: botCommands }); // "/" at the start of the message lists the commands of the server's bots
   const typed = useTypingProof(inputRef, !!readOnly); // how this message was written, sent along so the server can decide if it earns credits
 
   const byId = Object.fromEntries(messages.map((m) => [m.id, m]));
@@ -584,6 +586,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
 
   function onKey(e) {
     if (mc.onKeyDown(e)) return;
+    if (cc.onKeyDown(e)) return;
     if (e.key === 'Tab' && suggestions.length && !e.shiftKey) { e.preventDefault(); pickSuggestion(suggestions[0]); return; }
     // on a touch screen Enter adds a new line and the send button sends
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent?.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) { e.preventDefault(); submit(); }
@@ -605,6 +608,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   function onChange(e) {
     setText(e.target.value);
     mc.track(e);
+    cc.track(e);
     const t = Date.now();
     if (t - lastTyping.current > 2500) { lastTyping.current = t; onTyping?.(); }
   }
@@ -693,6 +697,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           </div>
         )}
         <MentionMenu mc={mc} />
+        <CommandMenu cc={cc} />
         {suggestions.length > 0 && (
           <div className="suggest">
             {suggestions.map((e, i) => (
@@ -738,7 +743,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           </div>
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
           <input ref={camInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
-          <textarea ref={inputRef} className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={limit} {...mc.bind}
+          <textarea ref={inputRef} className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={limit} onSelect={(e) => { mc.track(e); cc.track(e); }} onKeyUp={(e) => { mc.track(e); cc.track(e); }}
             onFocus={() => { if (!window.matchMedia('(max-width: 720px)').matches) return; stick.current = true; [120, 320, 600].forEach((ms) => setTimeout(() => { const el = scroller.current; if (el && document.activeElement === inputRef.current) el.scrollTop = el.scrollHeight; }, ms)); }}
             onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }} />
           <div className="comp-tools">

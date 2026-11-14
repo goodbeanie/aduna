@@ -15,6 +15,7 @@ import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, User
 import { api, connectSocket, emitAck, markSignedIn, endSession, adoptLegacyToken } from './api.js';
 import { SettingsScreen } from './Settings.jsx';
 import { BotTag } from './Bots.jsx';
+import { commandsFor } from './BotCommands.jsx';
 import { ServerTagChip } from './ServerTag.jsx';
 import { InviteContext, INVITE_CODE_RE, InvitePage } from './Invite.jsx';
 import * as np from './notifprefs.js';
@@ -699,7 +700,6 @@ function Main({ me, setMe, privKey, openServerId }) {
       if (groupsRef.current.byId[a]) openGroup(a);
       else if (!groupsRef.current.ready) pendingGroup.current = a; // the app has just opened: open it as soon as the group list is here
     } else if (kind === 'f') { setView({ kind: 'dm', userId: null }); setShowList(false); }
-    else if (kind === 'ai' && window.adunaDesktop?.ai) setModal({ type: 'edit', tab: 'developer', ai: Date.now() }); // desktop app: AI Coder (tray, title bar, menu, "your bot is ready")
   };
   openTargetRef.current = openTarget;
   useEffect(() => {
@@ -1287,6 +1287,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           bell={{ muted: np.effective(notePrefs[server.id], channel.id, Date.now()).muted, onClick: () => setModal({ type: 'notes', channelId: channel.id }) }} roleColors={roleColors} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
           mentionables={server.members} canEveryone={can(server, me.id, 'mentionEveryone') && channel.type !== 'announcements'}
+          botCommands={!channel.type || channel.type === 'text' ? commandsFor(server, channel) : undefined}
           channels={server.channels} onChannel={(id) => { const c = server.channels.find((x) => x.id === id); if (c) openChannel(c); }}
           placeholder={channel.type === 'announcements' ? `Announce to everyone in ${server.name}` : `Message #${channel.name}`}
           notice={channel.type === 'announcements' ? <><Icon name="megaphone" size={14} className="inline-icon" /> Everyone in this server is notified when the owner posts here.</> : null}
@@ -1420,7 +1421,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onShop={() => { setModal(null); setView({ kind: 'dm', userId: null, shop: true, shopArtist: modal.id }); setShowList(false); }}
           onAddFriend={() => requestFriend(users[modal.id].username).catch((e) => showToast(e.message, 'error'))} onAccept={() => acceptFriend(modal.id)} />
       )}
-      {modal?.type === 'edit' && <SettingsScreen key={modal.ai || 0} initialTab={modal.tab} aiFocus={modal.ai} me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} getSocketId={() => socketRef.current?.id} />}
+      {modal?.type === 'edit' && <SettingsScreen initialTab={modal.tab} me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} getSocketId={() => socketRef.current?.id} />}
       <DialogHost />
     </div>
     </InviteContext.Provider>

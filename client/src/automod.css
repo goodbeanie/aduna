@@ -1,0 +1,10 @@
+/* Server settings > Automod (Automod.jsx). The checkboxes reuse .sb-check from soundboard.css. */
+
+.automod-rule { padding: 8px 0; border-bottom: 1px solid var(--line2); }
+.automod-rule p { margin: 0 0 0 26px; }
+.automod-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; margin: 4px 0 0 26px; }
+.automod-opts input[type=number], .automod-step input[type=number] { width: 72px; }
+.automod-step { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.automod-log { padding: 6px 0; border-bottom: 1px solid var(--line2); }
+.automod-log:last-child { border-bottom: 0; }
+.automod-log .muted { overflow-wrap: anywhere; }

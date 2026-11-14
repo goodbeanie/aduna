@@ -50,6 +50,7 @@ const gallery = require('./themegallery');
 const nameStyle = require('./namestyle'); // the font and gradient a display name is drawn in (see namestyle.js)
 const serverTagLib = require('./servertag'); // server tags: a 4-character badge a server designs and members choose to wear (see servertag.js)
 const loungeLib = require('./lounge'); // a server's info page: template, look and widgets, validated here (see lounge.js)
+const automodLib = require('./automod'); // per-server word bans, link/invite/caps/mention/repeat rules, and the strikes and timeouts they lead to (see automod.js)
 const templatesLib = require('./templates'); // what a new server starts with: standard, business, community, chill (see templates.js)
 const todoLib = require('./todo'); // the to-do channel: tasks that roles can add, assign and tick off (see todo.js)
 const goalsLib = require('./goals'); // the goals channel: goals the owner writes and updates by hand (see goals.js)
@@ -405,7 +406,7 @@ function serverView(s) {
     ...gatheringsLib.view(s, now()), // events: gatherings: [{ id, title, desc, startsAt, endsAt, channelId, by, yes: [userId], maybe: [userId] }], soonest first
     onboarding: s.onboarding || null,
     lounge: s.lounge || null, // the info page (server/lounge.js); while lounge.enabled is off the app only shows it to people who manage the server
-    bots: (s.installedBots || []).map((i) => ({ botId: i.botId, userId: i.userId, channels: Array.isArray(i.channels) ? i.channels : null })),
+    bots: (s.installedBots || []).map((i) => { const bt = db().bots[i.botId]; return { botId: i.botId, userId: i.userId, channels: Array.isArray(i.channels) ? i.channels : null, prefix: (bt && bt.prefix) || botsLib.DEFAULT_PREFIX, commands: bt && Array.isArray(bt.commands) ? bt.commands : [] }; }), // prefix + commands feed the chat box popup
     channels: s.channels,
     members: s.members.map((m) => db().users[m]).filter(Boolean).map(publicUser),
   };
@@ -1040,12 +1041,15 @@ app.post('/api/auth/google/start', authLimiter, (req, res) => {
 });
 // Google sends the browser back here. Nothing secret is shown or put in the address: the web app is sent back to /app and finds its result by polling
 // with its secret id, and the apps show a plain page (their own window is the one polling).
+const openAppLink = (html) => html
+  .replace('</head>', '<meta http-equiv="refresh" content="0;url=aduna://signin"></head>')
+  .replace('</body>', '<p style="text-align:center"><a href="aduna://signin">Open Aduna</a></p></body>'); // no secret in the link: the app is already polling, this only brings it forward
 app.get('/api/auth/google/callback', ah(async (req, res) => {
   const cfg = googlelogin.settings();
   const r = cfg ? await googleLogins.finish({ state: req.query.state, code: req.query.code, error: req.query.error }, cfg, googleRedirectUri(req)) : null;
   res.set({ 'Referrer-Policy': 'no-referrer', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'" });
   if (!r) return res.redirect(302, '/app'); // not a sign-in this server started (or already used): nothing to say
-  if (r.native) return res.type('html').send(googleDonePage(r.status === 'ready', r.status === 'ready' ? 'Go back to Aduna to finish.' : r.error));
+  if (r.native) return res.type('html').send(openAppLink(googleDonePage(r.status === 'ready', r.status === 'ready' ? 'Go back to Aduna to finish.' : r.error)));
   res.redirect(302, '/app?google=1');
 }));
 // The page asks how its sign-in went. 'ready' carries the accounts that match (none, one or several) so the page can choose what to show.
@@ -2851,21 +2855,14 @@ app.put('/api/servers/:id/members/:uid/roles', auth, (req, res) => {
   pushServer(s, res);
 });
 
-app.post('/api/servers/:id/members/:uid/kick', auth, (req, res) => {
-  const s = db().servers[req.params.id];
-  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
-  if (!can(s, req.user.id, 'kickMembers')) return res.status(403).json({ error: 'You need the Kick members permission to do that' });
-  const uid = req.params.uid;
-  if (!s.members.includes(uid)) return res.status(404).json({ error: 'Not a member' });
-  if (db().users[uid]?.bot) return res.status(400).json({ error: 'That is a bot. Remove it from Server settings > Bots.' });
-  if (isOwner(s, uid)) return res.status(400).json({ error: uid === s.ownerId ? 'The owner cannot be kicked' : 'A co-owner cannot be kicked. The owner can remove them as a co-owner first.' });
-  if (uid === req.user.id) return res.status(400).json({ error: 'Use Leave server to leave' });
-  if (!isOwner(s, req.user.id) && rankOf(s, uid) <= rankOf(s, req.user.id)) return res.status(403).json({ error: 'That member is at or above your own role' });
+// Takes someone out of a server (a kick by a person, or by automod). The caller saves, broadcasts the server and tells bots.
+function removeMember(s, uid) {
   s.members = s.members.filter((m) => m !== uid);
   if (s.memberRoles) delete s.memberRoles[uid];
   if (s.onboarded) delete s.onboarded[uid];
   if (s.joinedAt) delete s.joinedAt[uid];
   s.allowed = (s.allowed || []).filter((id) => id !== uid); // a kicked member of a private server must be added again to return
+  automodLib.forgive(s, uid);
   forgetNotes(db().users[uid], s);
   const kicked = db().users[uid];
   if (kicked && kicked.serverTag === s.id) delete kicked.serverTag; // a kicked member stops wearing this server's tag
@@ -2876,6 +2873,19 @@ app.post('/api/servers/:id/members/:uid/kick', auth, (req, res) => {
     sock.emit('server:removed', { serverId: s.id });
     sock.leave('server:' + s.id); s.channels.forEach((c) => sock.leave('channel:' + c.id));
   }
+}
+
+app.post('/api/servers/:id/members/:uid/kick', auth, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
+  if (!can(s, req.user.id, 'kickMembers')) return res.status(403).json({ error: 'You need the Kick members permission to do that' });
+  const uid = req.params.uid;
+  if (!s.members.includes(uid)) return res.status(404).json({ error: 'Not a member' });
+  if (db().users[uid]?.bot) return res.status(400).json({ error: 'That is a bot. Remove it from Server settings > Bots.' });
+  if (isOwner(s, uid)) return res.status(400).json({ error: uid === s.ownerId ? 'The owner cannot be kicked' : 'A co-owner cannot be kicked. The owner can remove them as a co-owner first.' });
+  if (uid === req.user.id) return res.status(400).json({ error: 'Use Leave server to leave' });
+  if (!isOwner(s, req.user.id) && rankOf(s, uid) <= rankOf(s, req.user.id)) return res.status(403).json({ error: 'That member is at or above your own role' });
+  removeMember(s, uid);
   pushServer(s, res);
   if (db().users[uid]) dispatchBots(s, 'memberLeave', { user: db().users[uid], reason: 'kicked' });
 });
@@ -3034,6 +3044,66 @@ app.put('/api/servers/:id/lounge', auth, (req, res) => {
   if (r.error) return res.status(400).json({ error: r.error });
   s.lounge = r.value;
   pushServer(s, res);
+});
+
+// Server automod (server/automod.js). automodGate runs before a channel message is stored or edited and returns a sentence for the sender when the
+// message is refused, or null when it may go on. Owners, anyone with Manage messages, exempt roles and exempt channels are never checked.
+// names are the file names and GIF titles on the message; they are read against the banned words.
+const AUTOMOD_HOOK = { id: 'automod', name: 'Automod', kind: 'automod' };
+const attachmentNames = (list) => (Array.isArray(list) ? list : []).map((a) => (a?.gif ? clip(a.title, 80) : clip(a?.name, 120)).trim()).filter(Boolean);
+function automodAnnounce(server, channel, uid, entry, step) {
+  const target = server.automod.logChannel && server.channels.find((c) => c.id === server.automod.logChannel);
+  if (target) postHookMessage(server, target, AUTOMOD_HOOK, automodLib.logText(entry, automodNames(uid), channel.name, step));
+}
+function automodGate(server, channel, uid, content, names = []) {
+  const cfg = server.automod;
+  if (!cfg || !cfg.enabled || db().users[uid]?.bot) return null;
+  if (can(server, uid, 'manageMessages') || cfg.exemptChannels.includes(channel.id)) return null;
+  if (heldRoleIds(server, uid).some((id) => cfg.exemptRoles.includes(id))) return null;
+  const t = now();
+  const timedOut = automodLib.timeoutLeft(server, uid, t);
+  if (timedOut) return automodLib.timeoutNotice(timedOut);
+  const textHit = automodLib.screen(cfg, content, { inviteCode: server.inviteCode, key: server.id + ':' + uid, now: t });
+  const hit = textHit || automodLib.screenNames(cfg, names);
+  if (!hit) return null;
+  const entry = { at: t, userId: uid, channelId: channel.id, rule: hit.rule, what: hit.what, preview: textHit ? content : names.join(', ') };
+  if (!hit.warn) {
+    const logged = { ...entry, action: 'blocked', count: 0 };
+    automodLib.record(server, logged);
+    automodAnnounce(server, channel, uid, logged, null);
+    store.save();
+    return automodLib.notice(hit, null);
+  }
+  const r = automodLib.strike(server, uid, hit, t);
+  if (r.step && r.step.action === 'timeout') automodLib.timeoutUser(server, uid, r.step.minutes, t);
+  const logged = { ...entry, action: r.step ? r.step.action : 'warned', count: r.count };
+  automodLib.record(server, logged);
+  automodAnnounce(server, channel, uid, logged, r.step);
+  if (r.step && r.step.action === 'kick') {
+    removeMember(server, uid);
+    broadcastServer(server);
+    if (db().users[uid]) dispatchBots(server, 'memberLeave', { user: db().users[uid], reason: 'kicked' });
+  } else store.save();
+  return automodLib.notice(hit, r);
+}
+const automodNames = (id) => db().users[id]?.displayName || db().users[id]?.username || 'Unknown';
+app.get('/api/servers/:id/automod', auth, (req, res) => {
+  const s = ownedServer(req, res); if (!s) return;
+  res.json(automodLib.view(s, now(), automodNames));
+});
+app.put('/api/servers/:id/automod', auth, (req, res) => {
+  const s = ownedServer(req, res); if (!s) return;
+  const r = automodLib.clean(req.body, s);
+  if (r.error) return res.status(400).json({ error: r.error });
+  s.automod = r.value;
+  store.save();
+  res.json(automodLib.view(s, now(), automodNames));
+});
+app.delete('/api/servers/:id/automod/strikes/:uid', auth, (req, res) => {
+  const s = ownedServer(req, res); if (!s) return;
+  automodLib.forgive(s, req.params.uid);
+  store.save();
+  res.json(automodLib.view(s, now(), automodNames));
 });
 
 // the member's answers: { answers: { questionId: [optionId] } } or { skip: true }
@@ -3284,6 +3354,10 @@ const ADMINS = new Set(String(process.env.ADMIN_USERNAMES || '').toLowerCase().s
 // An admin is a creator account, a name in ADMIN_USERNAMES, or an account a creator made an admin on the /admin page (u.admin = { at, by }).
 const isEnvAdmin = (u) => !!u && ADMINS.has(String(u.username).toLowerCase());
 const isAdmin = (u) => !!u && !u.bot && !u.deleted && !u.suspended && (isEnvAdmin(u) || !!u.admin || isCreator(u));
+// A moderator (u.moderator = { at, by }, set by an admin on the /admin page) can open the page, read every report and dismiss or restore what was
+// reported. Nothing else: no removals, warnings, mutes, suspensions, deletes or the other tabs. An admin who is also marked moderator is just an admin.
+const isModerator = (u) => !!u && !u.bot && !u.deleted && !u.suspended && !!u.moderator && !isAdmin(u);
+const canReview = (u) => isAdmin(u) || isModerator(u);
 
 app.post('/api/servers/:id/report', auth, (req, res) => {
   const s = db().servers[req.params.id];
@@ -3305,7 +3379,10 @@ app.post('/api/servers/:id/report', auth, (req, res) => {
 });
 
 function adminOnly(req, res, next) { if (!isAdmin(req.user)) return res.status(404).json({ error: 'Not found' }); next(); }
-app.get('/api/admin/listing-reports', auth, adminOnly, (_req, res) => {
+function reviewOnly(req, res, next) { if (!canReview(req.user)) return res.status(404).json({ error: 'Not found' }); next(); }
+// restore and dismiss are open to moderators; taking something down for good is for admins
+const onlyAdminRemoves = (req, res, action) => { if (action === 'remove' && !isAdmin(req.user)) { res.status(403).json({ error: 'Only an admin can remove something for good' }); return true; } return false; };
+app.get('/api/admin/listing-reports', auth, reviewOnly, (_req, res) => {
   const rows = Object.values(db().servers).filter((s) => (s.reports || []).length || s.listingHold).map((s) => ({
     serverId: s.id, name: s.name, description: s.description || '', tags: s.tags || [], visibility: s.visibility || null, members: humanCount(s),
     owner: db().users[s.ownerId]?.username || null, hold: s.listingHold || null, counted: listing.countedReports(s.reports, db().users, now()),
@@ -3314,14 +3391,16 @@ app.get('/api/admin/listing-reports', auth, adminOnly, (_req, res) => {
   res.json({ servers: rows, toHide: REPORTS_TO_HIDE });
 });
 // restore = put it back in the explorer and clear the reports; dismiss = clear the reports only; remove = take it off the public listing for good
-app.post('/api/admin/servers/:id/listing', auth, adminOnly, (req, res) => {
+app.post('/api/admin/servers/:id/listing', auth, reviewOnly, (req, res) => {
   const s = db().servers[req.params.id];
   if (!s) return res.status(404).json({ error: 'Not found' });
   const action = req.body?.action;
+  if (onlyAdminRemoves(req, res, action)) return;
   if (action === 'restore' || action === 'dismiss') { delete s.listingHold; s.reports = []; }
   else if (action === 'remove') { s.listingHold = { state: 'removed', at: now() }; if (s.visibility === 'public') delete s.visibility; }
   else return res.status(400).json({ error: 'action must be restore, dismiss or remove' });
   store.save();
+  adminLogAdd(req.user, action + ' server reports', s.name, '');
   io.to('server:' + s.id).emit('server:update', serverView(s));
   res.json({ ok: true, hold: s.listingHold || null });
 });
@@ -3702,8 +3781,8 @@ app.delete('/api/clips/:id', auth, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// moderators: what is reported or hidden, how full the storage is, and what to do about it
-app.get('/api/admin/clips', auth, adminOnly, ah(async (_req, res) => {
+// what is reported or hidden, how full the storage is, and what to do about it (admins and moderators; removing is for admins)
+app.get('/api/admin/clips', auth, reviewOnly, ah(async (_req, res) => {
   const cfg = clipsLib.settings(), all = clipList(), users = db().users;
   const other = store.usingR2 ? await store.r2BytesUsed() : 0, otherMax = store.storageLimitBytes();
   const rows = all.filter((c) => (c.reports || []).length || c.state === 'hidden').sort((a, b) => (b.reports || []).length - (a.reports || []).length).map((c) => ({
@@ -3719,15 +3798,17 @@ app.get('/api/admin/clips', auth, adminOnly, ah(async (_req, res) => {
   });
 }));
 // restore = back in the feed, reports cleared; dismiss = clear the reports only; remove = delete the video for good (the numbers stay)
-app.post('/api/admin/clips/:id', auth, adminOnly, ah(async (req, res) => {
+app.post('/api/admin/clips/:id', auth, reviewOnly, ah(async (req, res) => {
   const c = db().clips[req.params.id];
   if (!c) return res.status(404).json({ error: 'Not found' });
   const action = req.body?.action;
+  if (onlyAdminRemoves(req, res, action)) return;
   if (action === 'restore') { if (c.state === 'hidden' && !c.purgedAt) { c.state = 'live'; if (!c.liveAt) c.liveAt = now(); } delete c.hold; c.reports = []; } // a clip held by screening has no liveAt yet
   else if (action === 'dismiss') c.reports = [];
   else if (action === 'remove') { if (c.state === 'pending') refundClip(c); if (!c.purgedAt) { c.takedown = { at: now(), by: 'moderator' }; await endClip(c, 'removed', 'Removed by a moderator'); } } // takedown: the screening refuses a re-post of it
   else return res.status(400).json({ error: 'action must be restore, dismiss or remove' });
   store.save();
+  adminLogAdd(req.user, action + ' clip reports', c.caption ? String(c.caption).slice(0, 60) : c.id, '');
   res.json({ ok: true, state: c.state });
 }));
 
@@ -3766,18 +3847,23 @@ app.get('/api/bots/:id', auth, (req, res) => {
 app.patch('/api/bots/:id', auth, developerOnly, (req, res) => {
   const b = db().bots[req.params.id];
   if (!b || b.ownerId !== req.user.id) return res.status(404).json({ error: 'Bot not found' });
-  if (b.listingHold && (req.body?.visibility === 'public' || (b.visibility === 'public' && ['name', 'description', 'about', 'tags'].some((k) => req.body?.[k] !== undefined)))) {
+  if (b.listingHold && (req.body?.visibility === 'public' || (b.visibility === 'public' && ['name', 'description', 'about', 'tags', 'commands'].some((k) => req.body?.[k] !== undefined)))) {
     return res.status(400).json({ error: b.listingHold.state === 'removed' ? 'This bot was removed from the public listing after reports.' : 'This bot\'s public listing is under review after reports. It cannot be changed until the review is done.' });
   }
   if (!botSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving bots too fast. Try again later.' });
   const r = botsLib.checkBot(req.body, { current: b, words: BLOCKED_WORDS });
   if (r.error) return res.status(400).json({ error: r.error });
   const wasPublic = b.visibility === 'public';
+  const popupBefore = JSON.stringify([b.prefix || null, b.commands || []]);
   Object.assign(b, r.value, { updatedAt: now() });
   if (r.value.code !== undefined) guard.resume(b.id); // new code lifts a pause
   syncBotUser(b);
   // a bot that goes private only stays where its developer manages the server: strangers installed it while it was public
   if (wasPublic && b.visibility === 'private') removeEverywhere(b, (sv) => can(sv, b.ownerId, 'manageServer'));
+  // the prefix and commands are part of each server's view (the chat box popup reads them): tell the servers that still have the bot
+  if (popupBefore !== JSON.stringify([b.prefix || null, b.commands || []])) {
+    for (const sid of b.installs || []) { const sv = db().servers[sid]; if (sv && installOf(sv, b.id)) io.to('server:' + sv.id).emit('server:update', serverView(sv)); }
+  }
   store.save();
   res.json({ bot: ownBotView(b, req.user.id) });
 });
@@ -4299,7 +4385,7 @@ app.post('/api/bots/:id/report', auth, (req, res) => {
   store.save();
   res.json({ ok: true });
 });
-app.get('/api/admin/bot-reports', auth, adminOnly, (_req, res) => {
+app.get('/api/admin/bot-reports', auth, reviewOnly, (_req, res) => {
   const rows = Object.values(db().bots).filter((b) => (b.reports || []).length || b.listingHold).map((b) => ({
     botId: b.id, name: b.name, description: b.description || '', tags: b.tags || [], visibility: b.visibility, installs: (b.installs || []).length,
     developer: db().users[b.ownerId]?.username || null, hold: b.listingHold || null, counted: listing.countedReports(b.reports, db().users, now()),
@@ -4307,14 +4393,16 @@ app.get('/api/admin/bot-reports', auth, adminOnly, (_req, res) => {
   })).sort((a, b) => b.reports.length - a.reports.length);
   res.json({ bots: rows, toHide: REPORTS_TO_HIDE });
 });
-app.post('/api/admin/bots/:id/listing', auth, adminOnly, (req, res) => {
+app.post('/api/admin/bots/:id/listing', auth, reviewOnly, (req, res) => {
   const b = db().bots[req.params.id];
   if (!b) return res.status(404).json({ error: 'Not found' });
   const action = req.body?.action;
+  if (onlyAdminRemoves(req, res, action)) return;
   if (action === 'restore' || action === 'dismiss') { delete b.listingHold; b.reports = []; }
   else if (action === 'remove') { b.listingHold = { state: 'removed', at: now() }; b.visibility = 'private'; removeEverywhere(b); } // removed for good: it stops running and leaves every server
   else return res.status(400).json({ error: 'action must be restore, dismiss or remove' });
   store.save();
+  adminLogAdd(req.user, action + ' bot reports', b.name, '');
   tellDeveloper(b);
   res.json({ ok: true, hold: b.listingHold || null });
 });
@@ -4371,19 +4459,20 @@ app.post('/api/messages/:id/report', auth, (req, res) => {
   store.save();
   res.json({ ok: true });
 });
-app.get('/api/admin/user-reports', auth, adminOnly, (_req, res) => {
+app.get('/api/admin/user-reports', auth, reviewOnly, (_req, res) => {
   const rows = Object.values(db().users).filter((u) => (u.reports || []).length).map((u) => ({
     userId: u.id, username: u.username, displayName: u.displayName, createdAt: u.createdAt,
     reports: u.reports.map((r) => ({ by: db().users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at, about: r.about || 'account', message: r.message || null })),
   })).sort((a, b) => b.reports.length - a.reports.length);
   res.json({ users: rows });
 });
-app.post('/api/admin/users/:id/reports', auth, adminOnly, (req, res) => {
+app.post('/api/admin/users/:id/reports', auth, reviewOnly, (req, res) => {
   const u = db().users[req.params.id];
   if (!u) return res.status(404).json({ error: 'Not found' });
   if (req.body?.action !== 'dismiss') return res.status(400).json({ error: 'action must be dismiss' });
   u.reports = [];
   store.save();
+  adminLogAdd(req.user, 'dismiss reports', u.username, '');
   res.json({ ok: true });
 });
 
@@ -4392,6 +4481,7 @@ app.post('/api/admin/users/:id/reports', auth, adminOnly, (req, res) => {
 // Only a creator adds or removes admins. Admins read every report and act on it, suspend or delete accounts, and delete servers or messages, but
 // cannot act on a creator or on another admin. Everything they do is written to a short log (meta "adminlog", the newest 300 entries).
 // Anyone who is not an admin gets a plain 404 from every route here, so the routes cannot be used to find out who is.
+// Moderators (isModerator, above) get in to read reports and dismiss or restore them, and to nothing else.
 const adminRole = (u) => (isCreator(u) ? 'creator' : isEnvAdmin(u) ? 'config' : u.admin ? 'admin' : null);
 const needCreator = (req, res, next) => (isCreator(req.user) ? next() : res.status(403).json({ error: 'Only a creator account can do that' }));
 let adminLogChain = Promise.resolve();
@@ -4407,7 +4497,7 @@ function adminLogAdd(by, action, target, note) {
 }
 // The email address is private even from admins, so it is never part of these.
 const adminUserRow = (u) => ({
-  id: u.id, username: u.username, displayName: u.displayName || u.username, createdAt: u.createdAt || null, role: adminRole(u), artist: artistsLib.isArtist(artistRec(u.id)),
+  id: u.id, username: u.username, displayName: u.displayName || u.username, createdAt: u.createdAt || null, role: adminRole(u), moderator: !!u.moderator, artist: artistsLib.isArtist(artistRec(u.id)),
   suspended: u.suspended ? { at: u.suspended.at, reason: u.suspended.reason || '', until: u.suspended.until || null } : null, deleted: !!u.deleted,
   muted: moderation.muted(u, now()), warnings: moderation.activeWarnings(u, now()).length,
   reports: (u.reports || []).length, avatarImage: u.avatarImage || null, avatarColor: u.avatarColor || '#8c6b4f', avatarEmoji: u.avatarEmoji || '',
@@ -4423,20 +4513,18 @@ function modTarget(req, res) {
   return u;
 }
 
-app.get('/api/admin/me', auth, adminOnly, (req, res) => res.json({ username: req.user.username, role: adminRole(req.user), canManageAdmins: isCreator(req.user), canManageFeatures: isCreator(req.user) }));
+app.get('/api/admin/me', auth, reviewOnly, (req, res) => res.json({ username: req.user.username, role: adminRole(req.user) || 'moderator', canManageAdmins: isCreator(req.user), canManageFeatures: isCreator(req.user) }));
 
-app.get('/api/admin/summary', auth, adminOnly, (_req, res) => {
+app.get('/api/admin/summary', auth, reviewOnly, (req, res) => {
   const people = Object.values(db().users).filter((u) => !u.bot);
-  res.json({
-    users: people.filter((u) => !u.deleted).length, suspended: people.filter((u) => u.suspended).length,
-    applications: pendingApps().length,
-    reports: {
-      users: people.filter((u) => (u.reports || []).length).length,
-      servers: Object.values(db().servers).filter((s) => (s.reports || []).length || s.listingHold).length,
-      bots: Object.values(db().bots).filter((b) => (b.reports || []).length || b.listingHold).length,
-      clips: clipList().filter((c) => (c.reports || []).length || c.state === 'hidden').length,
-    },
-  });
+  const reports = {
+    users: people.filter((u) => (u.reports || []).length).length,
+    servers: Object.values(db().servers).filter((s) => (s.reports || []).length || s.listingHold).length,
+    bots: Object.values(db().bots).filter((b) => (b.reports || []).length || b.listingHold).length,
+    clips: clipList().filter((c) => (c.reports || []).length || c.state === 'hidden').length,
+  };
+  if (!isAdmin(req.user)) return res.json({ reports }); // a moderator sees the reports and nothing about accounts or applications
+  res.json({ users: people.filter((u) => !u.deleted).length, suspended: people.filter((u) => u.suspended).length, applications: pendingApps().length, reports });
 });
 
 // ----- applications to join (see "applying to join" near sign-up) -----
@@ -4884,6 +4972,33 @@ app.delete('/api/admin/admins/:id', auth, adminOnly, needCreator, (req, res) => 
   delete u.admin;
   store.save();
   adminLogAdd(req.user, 'remove admin', u.username, '');
+  res.json({ ok: true });
+});
+
+// moderators: any admin adds or removes them (they cannot add anyone). A moderator who is later made an admin is simply an admin.
+app.get('/api/admin/moderators', auth, adminOnly, (_req, res) => {
+  const rows = Object.values(db().users).filter((u) => !u.bot && !u.deleted && u.moderator)
+    .map((u) => ({ ...adminUserRow(u), since: u.moderator.at || null, addedBy: db().users[u.moderator.by]?.username || null }))
+    .sort((a, b) => a.username.localeCompare(b.username));
+  res.json({ moderators: rows });
+});
+app.post('/api/admin/moderators', auth, adminOnly, (req, res) => {
+  const u = db().users[String(req.body?.userId || '')];
+  if (!u || u.bot || u.deleted) return res.status(404).json({ error: 'Not found' });
+  if (u.suspended) return res.status(400).json({ error: 'That account is suspended' });
+  if (adminRole(u)) return res.status(400).json({ error: 'They are already an admin' });
+  if (u.moderator) return res.status(400).json({ error: 'They are already a moderator' });
+  u.moderator = { at: now(), by: req.user.id };
+  store.save();
+  adminLogAdd(req.user, 'add moderator', u.username, '');
+  res.json({ ok: true, moderator: adminUserRow(u) });
+});
+app.delete('/api/admin/moderators/:id', auth, adminOnly, (req, res) => {
+  const u = db().users[req.params.id];
+  if (!u || !u.moderator) return res.status(404).json({ error: 'That account is not a moderator' });
+  delete u.moderator;
+  store.save();
+  adminLogAdd(req.user, 'remove moderator', u.username, '');
   res.json({ ok: true });
 });
 
@@ -5895,7 +6010,7 @@ if (fs.existsSync(dist)) {
   // The page checks again through /api/admin/me, and every admin route refuses non-admins on its own.
   app.get(/^\/admin\/?$/, (req, res, next) => {
     const me = userFromToken(security.readSessionCookie(req.headers, secureReq(req)));
-    if (!isAdmin(me) || needsVerify(me)) return res.redirect(302, '/');
+    if (!canReview(me) || needsVerify(me)) return res.redirect(302, '/');
     res.set('Cache-Control', 'no-store');
     next();
   });
@@ -6157,6 +6272,8 @@ io.on('connection', (socket) => {
     const kind = typeOf(f.channel);
     if (kind === 'voice' || kind === 'rules' || kind === 'todo' || kind === 'goals') return reply({ error: 'You cannot send messages in this channel' });
     if (kind === 'announcements' && !can(f.server, uid, 'postAnnouncements')) return reply({ error: 'You do not have permission to post announcements' });
+    const held = automodGate(f.server, f.channel, uid, content, attachmentNames(p?.attachments));
+    if (held) return reply({ error: held });
     let atts;
     try { atts = await buildAttachments(p.attachments, uid, 'channel:' + f.channel.id); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
     if (atts === null) return reply({ error: 'Bad attachment' });
@@ -6293,6 +6410,7 @@ io.on('connection', (socket) => {
       if (!f || !f.server.members.includes(uid) || msg.authorId !== uid) return reply({ error: 'Forbidden' });
       const content = clip(p.content, maxChars(db().users[uid])).trim();
       if (!content && !msg.attachments?.length && !msg.poll) return reply({ error: 'Message cannot be empty' });
+      if (content !== msg.content) { const held = automodGate(f.server, f.channel, uid, content); if (held) return reply({ error: held }); }
       if (content !== msg.content) { const stkErr = stickerProblem(uid, content, { hasAtts: !!msg.attachments?.length, hasPoll: !!msg.poll }); if (stkErr) return reply({ error: stkErr }); }
       msg.content = content;
       Object.assign(msg, parseMentions(content, f.server, uid)); // an edit refreshes the highlight but never pings again

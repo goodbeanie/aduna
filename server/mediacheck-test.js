@@ -86,7 +86,14 @@ async function logic() {
   const broken = { frames: async () => { throw Object.assign(new Error('ffmpeg is not installed'), { code: 'UNAVAILABLE' }); }, classify: seq('ok') };
   await assert.rejects(() => mc.guardPublic(png, { cfg, deps: broken }), (e) => e.code === 'MEDIA_REFUSED' && e.message === mc.UNAVAILABLE_MSG, 'no check, no file');
   assert.strictEqual((await mc.guardPublic(png, { cfg: { ...cfg, failOpen: true }, deps: broken })).verdict, 'skipped', 'MEDIA_CHECK_FAIL=open lets it through');
-  step('guards: explicit refused, suggestive refused for public pictures only, fail closed');
+  assert.strictEqual((await mc.guardChat(png, { cfg, deps: broken })).verdict, 'skipped', 'a channel attachment is saved when the check cannot run');
+  await assert.rejects(() => mc.guardChat(png, { cfg: { ...cfg, chatFailOpen: false }, deps: broken }), (e) => e.code === 'MEDIA_REFUSED' && e.message === mc.UNAVAILABLE_MSG, 'MEDIA_CHECK_FAIL=closed refuses it');
+  assert.strictEqual(mc.settings({}).chatFailOpen, true);
+  assert.strictEqual(mc.settings({ MEDIA_CHECK_FAIL: 'closed' }).chatFailOpen, false);
+  const busy = { frames: async () => { throw Object.assign(new Error('busy'), { code: 'BUSY' }); }, classify: seq('ok') };
+  await assert.rejects(() => mc.guardChat(png, { cfg, deps: busy }), (e) => e.code === 'MEDIA_REFUSED' && e.message === mc.BUSY_MSG, 'a busy server never lets files through unchecked');
+  await assert.rejects(() => mc.guardChat(png, { cfg, deps: deps(seq('ok'), unreadable) }), (e) => e.code === 'MEDIA_REFUSED' && e.message === mc.UNAVAILABLE_MSG, 'a picture ffmpeg cannot read is refused even in a chat, so a crafted file cannot get around the check');
+  step('guards: explicit refused, suggestive refused for public pictures only, public pictures fail closed, chat attachments fail open');
 }
 
 function ffmpegPath() {
@@ -156,7 +163,7 @@ async function routes() {
     const r = await fetch(base + '/api' + p, { method, headers: { 'Content-Type': type, Authorization: 'Bearer ' + token, ...extra }, body: bytes });
     return { status: r.status, ...(await r.json().catch(() => ({}))) };
   };
-  const saved = { check: process.env.MEDIA_CHECK, ffmpeg: process.env.FFMPEG_PATH };
+  const saved = { check: process.env.MEDIA_CHECK, ffmpeg: process.env.FFMPEG_PATH, fail: process.env.MEDIA_CHECK_FAIL };
   try {
     process.env.MEDIA_CHECK = 'on';
     const u = await call('/register', { method: 'POST', body: { username: 'mc_user', email: 'mc@example.com', password: 'password123', publicKey: 'k', encPrivKey: { salt: 'a', iv: 'b', data: 'c' } } });
@@ -191,11 +198,15 @@ async function routes() {
     r = await send('/me/avatar', 'PUT', u.token, makePng(41, 41), 'image/png');
     assert.deepStrictEqual([r.status, r.code, r.error], [422, 'media_refused', mc.UNAVAILABLE_MSG], 'without a working check the avatar is not saved');
     r = await up(makePng(33, 33));
-    assert.strictEqual(r.status, 422, 'same for a channel picture');
-    step('putImage and the channel upload fail closed with a 422');
+    assert.strictEqual(r.status, 200, 'a channel picture is saved when the check cannot run (chat attachments fail open): ' + JSON.stringify(r));
+    process.env.MEDIA_CHECK_FAIL = 'closed';
+    r = await up(makePng(34, 34));
+    assert.strictEqual(r.status, 422, 'MEDIA_CHECK_FAIL=closed refuses it again');
+    step('putImage fails closed with a 422; the channel upload fails open unless MEDIA_CHECK_FAIL=closed');
   } finally {
     if (saved.check === undefined) delete process.env.MEDIA_CHECK; else process.env.MEDIA_CHECK = saved.check;
     if (saved.ffmpeg === undefined) delete process.env.FFMPEG_PATH; else process.env.FFMPEG_PATH = saved.ffmpeg;
+    if (saved.fail === undefined) delete process.env.MEDIA_CHECK_FAIL; else process.env.MEDIA_CHECK_FAIL = saved.fail;
     await cleanup();
   }
 }

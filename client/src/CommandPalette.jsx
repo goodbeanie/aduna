@@ -12,7 +12,7 @@ const SETTINGS = [
   ['voice', 'Voice & Video', 'mic', 'microphone camera input output'],
   ['security', 'Security', 'lock', 'password two factor sessions'],
   ['whatsnew', "What's new", 'bulb', 'updates changelog'],
-  ['developer', 'Developer', 'code', 'bots api ai'],
+  ['developer', 'Developer', 'code', 'bots api'],
   ['artist', 'Artist', 'palette', 'badges frames shop'],
 ];
 const CH_ICON = { voice: 'speaker', rules: 'rules', announcements: 'megaphone', todo: 'todo', goals: 'goal' };

@@ -24,7 +24,7 @@ export default function BotSim({ code, fetchHosts }) {
   const [answers, setAnswers] = useState({}); // pretend answer text, by request name
   const [last, setLast] = useState(null); // the last run: { label, res }
   const [as, setAs] = useState('me');
-  const [text, setText] = useState('!ping');
+  const [text, setText] = useState('/ping');
   const [mention, setMention] = useState(false);
   const [editing, setEditing] = useState(null); // id of the message being edited
   const [busy, setBusy] = useState(false);
@@ -104,7 +104,7 @@ export default function BotSim({ code, fetchHosts }) {
   };
 
   function reset() {
-    setLog([]); setState(EMPTY); setPending([]); setAnswers({}); setLast(null); setErr(''); setEditing(null); setMention(false); setText('!ping'); setAs('me');
+    setLog([]); setState(EMPTY); setPending([]); setAnswers({}); setLast(null); setErr(''); setEditing(null); setMention(false); setText('/ping'); setAs('me');
     setHookSource('generic'); setHookName(''); setHookText(HOOK_SAMPLE);
   }
 
@@ -122,7 +122,7 @@ export default function BotSim({ code, fetchHosts }) {
       <p className="muted small hint">A pretend channel. It runs the code above, saved or not, in the same sandbox as the real thing, one step at a time. Saved data and timers carry over from step to step. Nothing is posted, stored or requested for real.</p>
 
       <div className="sim-chat" ref={box} role="log" aria-live="polite" aria-label="Test conversation">
-        {idle && <div className="muted small sim-empty">Say something below to see your bot answer. Try <b>!ping</b>, or make someone join the server.</div>}
+        {idle && <div className="muted small sim-empty">Say something below to see your bot answer. Try <b>/ping</b>, or make someone join the server.</div>}
         {log.map((m) => {
           if (m.note) return <div key={m.id} className="sim-note">{m.note}</div>;
           const re = m.replyTo ? byId.get(m.replyTo) : null;

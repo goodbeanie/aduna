@@ -26,14 +26,13 @@ const KEYWORDS = {
   voice: 'microphone mic camera audio input output zoom screen share shortcut hotkey keybind',
   security: 'password two factor 2fa sessions login email',
   whatsnew: 'updates changelog release',
-  developer: 'bots api token ai coder',
+  developer: 'bots api token',
   artist: 'shop sell art',
   badges: 'creator shop',
 };
 
 // Full-screen settings: a section list on the left (a tab bar on phones) and the chosen section on the right.
-// aiFocus: opened by the desktop app's AI Coder button/menu/notification: show Developer with the AI panel.
-export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, onSaved, onPrefs, onLogout, getSocketId }) {
+export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, onPrefs, onLogout, getSocketId }) {
   const { t } = useLang();
   const [tab, setTab] = useState(initialTab);
   const [q, setQ] = useState('');
@@ -86,7 +85,7 @@ export function SettingsScreen({ me, initialTab = 'profile', aiFocus, onClose, o
           {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings me={me} /></>}
           {tab === 'security' && <><h1>{t('tabSecurity')}</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
           {tab === 'whatsnew' && <><h1>{t('tabWhatsNew')}</h1><WhatsNewSettings /></>}
-          {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} aiFocus={aiFocus} /></>}
+          {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} /></>}
           {tab === 'badges' && me.creator && <><h1>{t('tabBadges')}</h1><BadgeSettings /></>}
           {tab === 'artist' && <><h1>{t('tabArtist')}</h1><ArtistSettings me={me} /></>}
           {tab === 'appearance' && <><h1>{t('tabAppearance')}</h1><AppearancePicker /></>}

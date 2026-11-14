@@ -41,6 +41,12 @@ span.mention { cursor: default; }
 .mention-menu button { width: 100%; text-align: left; }
 .mention-menu button.on { background: var(--hover); border-color: var(--line2); }
 .mention-menu .mm-key { margin-left: auto; }
+/* bot command popup (BotCommands.jsx): command, one-line description, then the bot it belongs to */
+.cmd-menu .cm-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-menu .cm-bot { display: inline-flex; align-items: center; gap: 5px; flex: none; max-width: 40%; }
+.cmd-menu .cm-bot > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-menu button > b { flex: none; }
+.cmd-menu .mm-key { margin-left: 0; }
 .mention-menu .mm-ico { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 50%; background: color-mix(in srgb, var(--gold) 38%, transparent); }
 .edit-box .suggest { border-radius: 12px; margin-bottom: 6px; }
 @media (hover: none) { .mention-menu .mm-key { display: none; } .mention-menu button { padding: 8px 10px; } }
