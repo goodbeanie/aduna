@@ -24,7 +24,7 @@ The source is visible for reading only. See [LICENSE](LICENSE).
 - Credits you can earn by chatting and finishing quests (or buy), spent on profile badges
 - Bots written in JavaScript that run in a sandbox, and webhooks (for example from GitHub) that post into a channel
 - English, French and Spanish
-- Moderation tools: reports, warnings, mutes and suspensions, and unsafe link protection
+- Moderation tools: reports, a moderator role that can review them, warnings, mutes and suspensions, unsafe link protection, and automod for servers (banned words, link and invite filters, spam rules with strikes)
 
 ## What is private, and what isn't
 
@@ -72,6 +72,7 @@ server/security.js       browser headers, login lockout, password and email rule
 server/groups.js         group chats
 server/linksafe.js       link blocklist and Safe Browsing lookup
 server/moderation.js     warnings, mutes, suspensions, IP bans
+server/automod.js        per-server automod rules and strikes
 server/credits.js        credits and quests
 server/bots*.js, sandbox*.js, webhooks.js    bots and webhooks
 client/src/crypto.js     all of the end-to-end encryption
