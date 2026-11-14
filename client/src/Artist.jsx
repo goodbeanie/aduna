@@ -1,19 +1,19 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Select } from './Controls.jsx';
 import { api } from './api.js';
 import { BadgeArt } from './Shop.jsx';
 import { Avatar, Icon } from './ui.jsx';
 import { StickerImg } from './Stickers.jsx';
 import { PanelSkeleton } from './ShellBits.jsx';
-import { askConfirm } from './Dialogs.jsx';
+import { askConfirm, toast } from './Dialogs.jsx';
 import FrameAdjust from './FrameAdjust.jsx';
-import { ACCEPT_ATTR, imageUrl, makeFrameTemplate, processBadge, processPiece, processSticker, uploadImage, uploadSticker } from './image.js';
+import { ACCEPT_ATTR, cutBackground, imageUrl, makeFrameTemplate, processBadge, processPiece, processSticker, uploadImage, uploadSticker } from './image.js';
 
 // Settings > Artist. Anyone can apply to sell their own badges in the credits shop: send exactly 4 pieces of your art and an optional note.
 // Moderators (creator accounts and the usernames in ADMIN_USERNAMES) review the applications and every item on the admin page (Artist review tab).
 // Creator accounts need no review: theirs are approved when they are sent. Once approved, an artist
 // makes shop items (a picture, a name, a description and a price), which also go through review, and earns a share of each sale.
-// An item is a badge (worn next to a name) or a profile frame (a ring drawn around the avatar; the artist downloads a template for its shape).
+// An item is a badge (worn next to a name) or a profile frame (art drawn around and over the avatar; the artist downloads a template for its shape).
 // The rules live in server/artists.js; this file is only what it draws.
 const BADGE_PX = { w: 128, h: 128 };
 const KIND_LABEL = { badge: 'Badge', frame: 'Profile frame', stickers: 'Sticker pack' };
@@ -35,6 +35,15 @@ async function downloadTemplate(onError) {
   } catch (e) { onError(e.message); }
 }
 const day = (ms) => new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+// A frame picture was chosen: ask whether to cut out its background first. The file that comes back is what the position window opens with.
+// Closing the question counts as "keep it".
+async function askAboutBackground(picked) {
+  const remove = await askConfirm({ title: 'Remove the background?', body: 'If your picture sits on a plain background, it can be cut out so only the art is left. A picture that is already see-through is not changed.', confirmLabel: 'Remove background', cancelLabel: 'Keep it' });
+  if (!remove) return picked;
+  const r = await cutBackground(picked);
+  if (!r.cut) toast('There was no plain background to remove, so the picture is kept as it is.');
+  return r.file;
+}
 const STATUS = { draft: 'Draft', pending: 'In review', approved: 'In the shop', rejected: 'Needs changes' };
 
 export function ArtistSettings() {
@@ -155,13 +164,23 @@ function Items({ d, onChange, onError }) {
   const L = d.limits;
   const [draft, setDraft] = useState({ kind: 'badge', name: '', desc: '', price: '' });
   const [busy, setBusy] = useState(false);
+  const [pic, setPic] = useState(null); // a frame picture chosen before the item exists: the finished PNG, uploaded right after Create
+  const [adjust, setAdjust] = useState(null); // the file in the position window
+  const picFile = useRef(null);
+  const picUrl = useMemo(() => (pic ? URL.createObjectURL(pic) : null), [pic]);
+  useEffect(() => () => { if (picUrl) URL.revokeObjectURL(picUrl); }, [picUrl]);
   const replace = (item) => onChange(d.items.map((x) => (x.id === item.id ? item : x)));
 
   async function create(e) {
     e.preventDefault(); onError(''); setBusy(true);
     try {
       const r = await api('/artists/items', { method: 'POST', body: { kind: draft.kind, name: draft.name, desc: draft.desc, price: Number(draft.price) } });
-      onChange([...d.items, r.item]); setDraft({ kind: draft.kind, name: '', desc: '', price: '' });
+      let item = r.item;
+      if (draft.kind === 'frame' && pic) {
+        try { item = (await uploadImage('image', pic, '/api/artists/items/' + item.id)).item; }
+        catch (u) { onError('The frame was made, but its picture did not upload: ' + u.message + ' Add it from the item below.'); }
+      }
+      onChange([...d.items, item]); setDraft({ kind: draft.kind, name: '', desc: '', price: '' }); setPic(null);
     } catch (x) { onError(x.message); } finally { setBusy(false); }
   }
 
@@ -169,7 +188,7 @@ function Items({ d, onChange, onError }) {
     <>
       <div className="badge-card">
         <b>You are an artist</b>
-        <p className="muted small">Make badges, profile frames and sticker packs for the shop. A badge shows next to a name; a frame is a ring around the profile picture; a sticker pack is a set of big pictures people send in chats. Add a picture (or stickers), a name and a price, then send it for review. You earn {L.cutPercent}% of each sale, rounded down. Once an item is approved its picture, name and description are locked (people may already be wearing it); you can still change its price or take it off sale. Your first approved item earns you the Artist badge.</p>
+        <p className="muted small">Make badges, profile frames and sticker packs for the shop. A badge shows next to a name; a frame is art around the profile picture, and it can cover part of it too; a sticker pack is a set of big pictures people send in chats. Add a picture (or stickers), a name and a price, then send it for review. You earn {L.cutPercent}% of each sale, rounded down. Once an item is approved its picture, name and description are locked (people may already be wearing it); you can still change its price or take it off sale. Your first approved item earns you the Artist badge.</p>
       </div>
       {d.items.length < L.items && (
         <form className="badge-card" onSubmit={create}>
@@ -190,12 +209,25 @@ function Items({ d, onChange, onError }) {
           )}
           {draft.kind === 'frame' && (
             <div className="artist-note">
-              <p>A frame is a 512 x 512 PNG with a see-through middle. The profile picture sits in the rounded square in the centre, and your ring goes in the band around it.</p>
-              <button type="button" className="btn" onClick={() => downloadTemplate(onError)}>Download template</button>
+              <p>A frame is a 512 x 512 PNG on a see-through background. The profile picture sits in the rounded square in the centre. Your ring goes in the band around it, and anything you draw inside the square shows over the profile picture. You can add the picture now or after you create the frame. You are asked about the background, then you move and zoom it to fit.</p>
+              <div className="row" style={{ alignItems: 'center' }}>
+                <input ref={picFile} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => {
+                  const picked = e.target.files?.[0]; e.target.value = '';
+                  if (!picked) return;
+                  onError('');
+                  askAboutBackground(picked).then(setAdjust).catch((x) => onError(x.message));
+                }} />
+                {picUrl && <span style={{ display: 'inline-block', margin: 8, flex: 'none' }}><Avatar user={{ displayName: 'A', avatarColor: '#8c6b4f', framePreview: picUrl }} size={48} /></span>}
+                <button type="button" className="btn" disabled={busy} onClick={() => picFile.current?.click()}>{pic ? 'Change picture' : 'Add picture'}</button>
+                {pic && <button type="button" className="btn" disabled={busy} onClick={() => setPic(null)}>Remove picture</button>}
+                {pic && <span className="muted small">Picture ready. It uploads when you press Create.</span>}
+                <button type="button" className="btn" onClick={() => downloadTemplate(onError)}>Download template</button>
+              </div>
             </div>
           )}
         </form>
       )}
+      {adjust && <FrameAdjust file={adjust} onCancel={() => setAdjust(null)} onApply={(blob) => { setAdjust(null); setPic(blob); }} />}
       {d.items.length === 0 && <p className="muted">No items yet.</p>}
       {d.items.map((it) => <ItemCard key={it.id} item={it} limits={L} onChange={replace} onDeleted={() => onChange(d.items.filter((x) => x.id !== it.id))} onError={onError} />)}
     </>
@@ -242,7 +274,7 @@ function ItemCard({ item, limits, onChange, onDeleted, onError }) {
         <div className="row">
           {!isPack && <input ref={file} type="file" accept={ACCEPT_ATTR} hidden onChange={(e) => {
             const picked = e.target.files?.[0]; e.target.value = '';
-            if (picked && item.kind === 'frame') setAdjust(picked); // a frame is positioned and zoomed first (FrameAdjust), then uploaded below
+            if (picked && item.kind === 'frame') run(async () => setAdjust(await askAboutBackground(picked))); // a frame: background question, then positioned and zoomed (FrameAdjust), then uploaded below
             else if (picked) run(async () => { const blob = await processBadge(picked, BADGE_PX); onChange((await uploadImage('image', blob, '/api/artists/items/' + item.id)).item); });
           }} />}
           {!isPack && <button className="btn" onClick={() => file.current?.click()}>{item.image ? 'Change picture' : 'Add picture'}</button>}

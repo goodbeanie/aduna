@@ -5,9 +5,10 @@ import { useLang } from './i18n.js';
 import './cropper.css';
 
 // Position and zoom a profile frame picture before it is uploaded (Settings > Artist, a frame item).
-// The window is the 512 x 512 frame. The dashed rounded square is where the profile picture sits (it has to stay empty); the blue band around it is
-// where the ring goes. Drag to move, slider / mouse wheel / + and - keys to zoom, arrow keys to nudge. Zoom 1 fits the whole picture in the square.
-// Nothing is uploaded here: onApply gets the finished 512px PNG (the same checks as before run in processFrame, so a filled-in middle is explained here).
+// The window is the 512 x 512 frame. The dashed rounded square is where the profile picture sits (art drawn there shows over it); the blue band around it is
+// where the ring goes. A sample profile picture sits under the art so the fit can be judged. Drag to move, slider / mouse wheel / + and - keys to zoom,
+// arrow keys to nudge. Zoom 1 fits the whole picture in the square.
+// Nothing is uploaded here: onApply gets the finished 512px PNG (processFrame only refuses a picture with almost nothing in it).
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
 
 export default function FrameAdjust({ file, onApply, onCancel }) {
@@ -20,6 +21,7 @@ export default function FrameAdjust({ file, onApply, onCancel }) {
   const [zoom, setZoom] = useState(1);
   const [pos, setPos] = useState({ x: 0, y: 0 }); // the picture's middle, as a share of the square (0 = centred)
   const [busy, setBusy] = useState(false);
+  const [sample, setSample] = useState(true); // a stand-in profile picture under the art
   const [err, setErr] = useState('');
   const drag = useRef(null);
   const box = useRef(null);
@@ -86,7 +88,7 @@ export default function FrameAdjust({ file, onApply, onCancel }) {
   return (
     <Modal title="Position your frame" onClose={onCancel}>
       <div className="crop">
-        <p className="muted small">Drag to move the picture and use the slider (or the mouse wheel) to zoom. Your ring goes in the blue band. The dashed square is where the profile picture sits, so keep it empty.</p>
+        <p className="muted small">Drag to move the picture and use the slider (or the mouse wheel) to zoom. Your ring goes in the blue band. The dashed square is where the profile picture sits, and art drawn inside it shows over the picture.</p>
         <div
           ref={box}
           className="crop-window frame-window"
@@ -96,6 +98,7 @@ export default function FrameAdjust({ file, onApply, onCancel }) {
           aria-label={t('cropArea')}
           onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up} onKeyDown={key}
         >
+          {sample && <span className="frame-sample" aria-hidden="true">A</span>}
           <img
             src={url} alt="" draggable={false}
             onLoad={(e) => setNat({ w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight })}
@@ -107,6 +110,10 @@ export default function FrameAdjust({ file, onApply, onCancel }) {
         <label className="crop-zoom">
           <span className="muted small">{t('cropZoom')}</span>
           <input type="range" min={FRAME_ZOOM.min} max={FRAME_ZOOM.max} step="0.01" value={zoom} onChange={(e) => setZoom(Number(e.target.value))} aria-label={t('cropZoom')} />
+        </label>
+        <label className="row small" style={{ alignItems: 'center', gap: 8, alignSelf: 'flex-start', cursor: 'pointer' }}>
+          <input type="checkbox" checked={sample} onChange={(e) => setSample(e.target.checked)} />
+          <span>Show a sample profile picture</span>
         </label>
         {err && <p className="error-text" role="alert">{err}</p>}
         <div className="modal-foot">

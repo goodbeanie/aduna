@@ -111,7 +111,7 @@ export function BuyConfirm({ item, balance, busy, onConfirm, onClose }) {
           <span>Price</span><b className="minus">−{item.price.toLocaleString()}</b>
           <span className="sum">After</span><b className="sum">{(balance - item.price).toLocaleString()}</b>
         </div>
-        <p className="muted small">{item.kind === 'frame' ? 'It is a ring around your profile picture. Wear it from Settings, Profile, and it is yours to keep.' : item.kind === 'stickers' ? 'Send these stickers in any chat from the sticker button next to the emoji button. The pack is yours to keep.' : 'It shows next to your name everywhere in Aduna, and it is yours to keep.'}</p>
+        <p className="muted small">{item.kind === 'frame' ? 'It is drawn around your profile picture, and can sit over it too. Wear it from Settings, Profile, and it is yours to keep.' : item.kind === 'stickers' ? 'Send these stickers in any chat from the sticker button next to the emoji button. The pack is yours to keep.' : 'It shows next to your name everywhere in Aduna, and it is yours to keep.'}</p>
       </div>
       <div className="modal-foot">
         <button className="btn" onClick={onClose}>Not now</button>

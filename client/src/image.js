@@ -133,8 +133,8 @@ export async function processBadge(file, { w, h }) {
   return blob;
 }
 
-// Profile frames (an artist's ring around the avatar). The picture is a 512px square PNG; the avatar fills a 384px circle in the middle of it
-// (the same numbers as FRAME in server/artists.js), so the artist draws the ring in the 64px band around that circle. The middle must be see-through.
+// Profile frames (an artist's art around and over the avatar). The picture is a 512px square PNG; the avatar fills a 384px rounded square in the middle of it
+// (the same numbers as FRAME in server/artists.js). The ring goes in the 64px band around it, and anything drawn inside the square shows over the profile picture.
 export const FRAME = { side: 512, hole: 384, corner: 0.26 }; // the avatar is a rounded square (corner = radius as a share of its side, as in .avatar in redesign.css)
 export const FRAME_ZOOM = { min: 0.25, max: 3 }; // how far the artist can zoom a frame picture in the adjust window (1 = fitted inside the square)
 
@@ -147,8 +147,8 @@ function holePath(ctx, shrink = 1) {
   ctx.closePath();
 }
 
-// The template an artist downloads: a 512px square with guides. Draw the ring in the blue band, keep the rounded square in the middle empty.
-// Put it on a layer under your art and hide it before you export a PNG (the Settings page checks the picture before uploading).
+// The template an artist downloads: a 512px square with guides. The ring goes in the blue band; art inside the rounded square shows over the profile picture.
+// Put it on a layer under your art and hide it before you export a PNG.
 export async function makeFrameTemplate() {
   const S = FRAME.side, c = S / 2;
   const canvas = document.createElement('canvas');
@@ -159,11 +159,11 @@ export async function makeFrameTemplate() {
   ctx.beginPath(); ctx.rect(0, 0, S, S); holePath(ctx); ctx.fill('evenodd');
   ctx.strokeStyle = 'rgba(70,140,255,0.9)'; ctx.lineWidth = 2; ctx.setLineDash([]);
   ctx.strokeRect(1, 1, S - 2, S - 2);
-  ctx.strokeStyle = 'rgba(235,60,60,0.95)'; ctx.setLineDash([10, 8]); ctx.lineWidth = 3; // the avatar: keep everything inside it empty
+  ctx.strokeStyle = 'rgba(235,60,60,0.95)'; ctx.setLineDash([10, 8]); ctx.lineWidth = 3; // the avatar: art inside it shows over the profile picture
   ctx.beginPath(); holePath(ctx); ctx.stroke();
   ctx.setLineDash([]); ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(235,60,60,0.95)'; ctx.font = '600 20px sans-serif';
-  ctx.fillText('Profile picture goes here', c, c - 4);
-  ctx.font = '16px sans-serif'; ctx.fillText('keep this square empty', c, c + 20);
+  ctx.fillText('Profile picture sits here', c, c - 4);
+  ctx.font = '16px sans-serif'; ctx.fillText('art in this square shows over it', c, c + 20);
   ctx.fillStyle = 'rgba(40,100,220,0.95)'; ctx.font = '600 15px sans-serif';
   ctx.fillText('Draw your ring in the blue band', c, 30);
   ctx.font = '13px sans-serif'; ctx.fillText('512 x 512 PNG. Keep this on its own layer and hide it before you export.', c, 50);
@@ -173,7 +173,7 @@ export async function makeFrameTemplate() {
 }
 
 // A frame picture from the artist's file: fitted (not cropped) into the 512px square, kept as a PNG so the see-through parts stay see-through.
-// Refuses a picture whose middle is filled in, because it would cover the profile picture, and one that has no ring at all.
+// Refuses a picture that has almost nothing in it. Art may sit in the ring and over the avatar's square alike: the frame is drawn on top of the profile picture.
 // `adjust` is optional: { zoom, x, y } as set in the adjust window (FrameAdjust.jsx). zoom 1 fits the whole picture inside the square; x and y move
 // the middle of the picture, as a share of the square (0 = centred). Without it the picture is just fitted and centred.
 export async function processFrame(file, adjust) {
@@ -195,18 +195,32 @@ export async function processFrame(file, adjust) {
   bmp.close?.();
   await requireClean(canvas);
   const d = ctx.getImageData(0, 0, S, S).data;
-  ctx.beginPath(); holePath(ctx, 0.96); // look at the avatar's shape, a hair smaller so a ring that touches its edge is fine
-  let inside = 0, filledIn = 0, ring = 0;
-  for (let y = 0; y < S; y += 2) for (let x = 0; x < S; x += 2) {
-    const a = d[(y * S + x) * 4 + 3];
-    if (ctx.isPointInPath(x + 0.5, y + 0.5)) { inside++; if (a > 40) filledIn++; } else if (a > 40) ring++;
-  }
-  if (filledIn > inside * 0.04) throw new Error('The middle of a frame has to be see-through, so the profile picture shows. Download the template: the dashed square is where the picture goes.');
-  if (ring < 200) throw new Error('There is nothing drawn around the middle. Draw your ring in the blue band of the template.');
+  let drawn = 0;
+  for (let y = 0; y < S; y += 2) for (let x = 0; x < S; x += 2) if (d[(y * S + x) * 4 + 3] > 40) drawn++;
+  if (drawn < 200) throw new Error('There is almost nothing in this picture. Draw your frame on a see-through background, in the ring and over the profile picture if you like.');
   const blob = await toBlob(canvas, 'image/png');
   if (!blob) throw new Error("Couldn't process that image");
   if (blob.size > 1024 * 1024) throw new Error('That image is still too large after resizing, try a simpler one');
   return blob;
+}
+
+// Cuts a plain background out of a picture file, by the same rule as badges (removeBackground). Returns { file, cut }: a PNG when something was
+// cut, otherwise the original file and cut = false (a photo, or a picture that is already see-through). Used before a frame is positioned.
+export async function cutBackground(file) {
+  if (!ACCEPT.includes(file.type)) throw new Error(tr('imgType'));
+  if (file.size > MAX_INPUT) throw new Error(tr('imgBig'));
+  let bmp;
+  try { bmp = await createImageBitmap(file); }
+  catch { throw new Error(tr('imgRead')); }
+  const scale = Math.min(1, 1024 / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bmp.width * scale)); canvas.height = Math.max(1, Math.round(bmp.height * scale));
+  canvas.getContext('2d', { willReadFrequently: true }).drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close?.();
+  if (!removeBackground(canvas)) return { file, cut: false };
+  const blob = await toBlob(canvas, 'image/png');
+  if (!blob) throw new Error("Couldn't process that image");
+  return { file: blob, cut: true };
 }
 
 // Stickers (an artist's pack): scaled down to fit 512px, never cropped, kept see-through. The numbers are LIMITS in server/stickers.js, which checks them again.

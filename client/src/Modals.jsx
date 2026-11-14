@@ -816,7 +816,7 @@ export function ProfileEditor({ me, onClose, onSaved, onLogout }) {
                   );
                 })}
               </div>
-              <p className="muted small hint">A frame is a ring around your profile picture. You wear one at a time.</p>
+              <p className="muted small hint">A frame is drawn around your profile picture, and can sit over it too. You wear one at a time.</p>
             </>
           )}
           </section>

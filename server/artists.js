@@ -107,14 +107,14 @@ function revoke(rec, note, by, now = Date.now(), cooldownMs = COOLDOWN_MS) {
 // An item is a badge in db().badges with an artistId. Only approved ones are for sale.
 const isItem = (b) => !!b && typeof b.artistId === 'string' && b.artistId.length > 0;
 const listed = (b) => !isItem(b) || b.status === 'approved';
-// An item is a badge (worn next to a name), a profile frame (a ring drawn around the avatar) or a sticker pack (see stickers.js).
+// An item is a badge (worn next to a name), a profile frame (art drawn around and over the avatar) or a sticker pack (see stickers.js).
 // Older items have no `kind` and are badges.
 const KINDS = ['badge', 'frame', 'stickers'];
 const kindOf = (b) => (b && (b.kind === 'frame' || b.kind === 'stickers') ? b.kind : 'badge');
 const isFrame = (b) => kindOf(b) === 'frame';
 const isStickers = (b) => kindOf(b) === 'stickers';
-// A frame picture is a square PNG, JPEG or WebP; the middle of it (the avatar hole) has to be see-through. The browser checks the hole, the server the shape.
-const FRAME = { side: 512, hole: 384, minSide: 128 }; // the template: 512px square, the avatar sits in a 384px circle in the middle (75%)
+// A frame picture is a square PNG, JPEG or WebP. Art may sit in the ring and over the avatar's square alike (the frame is drawn on top of the profile picture), so only the shape is checked.
+const FRAME = { side: 512, hole: 384, minSide: 128 }; // the template: 512px square, the avatar sits in a 384px rounded square in the middle (75%)
 
 // Checks the fields of a new item (partial = false: name and price are required) or of an edit (partial = true: only what is sent).
 // A price of null is returned as null; editItem decides whether that is allowed.
