@@ -11,7 +11,7 @@ import './admin.css';
 const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin', moderator: 'Moderator' };
-const MOD_TABS = ['overview', 'reports']; // a moderator reads and reviews reports and nothing else
+const MOD_TABS = ['overview', 'reports', 'people']; // a moderator reads and reviews reports, looks people up, and warns or mutes
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
 // "for how long" choices (hours; the server's limits are in server/moderation.js)
 const MUTE_FOR = [[1, '1 hour'], [6, '6 hours'], [24, '1 day'], [72, '3 days'], [168, '7 days'], [720, '30 days']];
@@ -124,7 +124,7 @@ function UserReports({ openUser }) {
       <div className="adm-row">
         <div><h3>{u.displayName || u.username} <span className="adm-muted">@{u.username}</span></h3><span className="adm-muted">{u.reports.length} report{u.reports.length === 1 ? '' : 's'}</span></div>
         <div className="adm-actions">
-          {me.role !== 'moderator' && <button className="adm-btn small" onClick={() => openUser(u.userId)}>Open person</button>}
+          <button className="adm-btn small" onClick={() => openUser(u.userId)}>Open person</button>
           <button className="adm-btn small" onClick={() => dismiss(u)}>Dismiss</button>
         </div>
       </div>
@@ -291,6 +291,7 @@ function UserDetail({ id, onChanged, onClose }) {
   if (err) return <div className="adm-card"><p className="adm-muted">{err}</p></div>;
   if (!d) return <div className="adm-card"><p className="adm-muted">Loading…</p></div>;
   const u = d.user;
+  const isMod = me.role === 'moderator';
   const after = () => { load(); onChanged(); };
 
   const suspend = async () => {
@@ -300,13 +301,13 @@ function UserDetail({ id, onChanged, onClose }) {
   const unsuspend = async () => { if (await run(() => api(`/admin/users/${u.id}/unsuspend`, { method: 'POST' }), 'Suspension lifted')) after(); };
   const m = u.moderation || { warnings: [], activeWarnings: 0, mute: null, suspendedUntil: null };
   const warn = async () => {
-    const r = await ask({ title: `Warn ${u.username}?`, body: 'Next time they open Aduna they see this and must press “I understand” before they can send anything. A warning counts for 90 days: the 3rd is a 24 hour mute and the 5th a 7 day suspension, automatically.', textarea: 'What is it for? (they read this)', required: true, confirmLabel: 'Send warning' });
+    const r = await ask({ title: `Warn ${u.username}?`, body: 'Next time they open Aduna they see this and must press “I understand” before they can send anything. A warning counts for 90 days: the 3rd is a 24 hour mute' + (isMod ? ' automatically. The 5th suspends the account, so an admin has to give that one.' : ' and the 5th a 7 day suspension, automatically.'), textarea: 'What is it for? (they read this)', required: true, confirmLabel: 'Send warning' });
     if (!r) return;
     await run(() => api(`/admin/users/${u.id}/warn`, { method: 'POST', body: { reason: r.text } }).then((x) => { after(); return x; }),
       (x) => (x.escalation ? `Warning sent. That was warning ${x.moderation.activeWarnings}, so they are now ${x.escalation.type === 'mute' ? 'muted for 24 hours' : 'suspended for 7 days'}.` : 'Warning sent'));
   };
   const mute = async () => {
-    const r = await ask({ title: `Mute ${u.username}?`, body: 'They cannot send messages in channels, DMs or groups until it ends. They can still read, and see the reason.', textarea: 'Reason (they see it)', required: true, duration: { label: 'For how long', options: MUTE_FOR, value: 24 }, confirmLabel: 'Mute' });
+    const r = await ask({ title: `Mute ${u.username}?`, body: 'They cannot send messages in channels, DMs or groups until it ends. They can still read, and see the reason.', textarea: 'Reason (they see it)', required: true, duration: { label: 'For how long', options: isMod ? MUTE_FOR.filter(([h]) => h <= 24) : MUTE_FOR, value: 24 }, confirmLabel: 'Mute' });
     if (r && await run(() => api(`/admin/users/${u.id}/mute`, { method: 'POST', body: { reason: r.text, hours: Number(r.hours) } }), 'Muted')) after();
   };
   const unmute = async () => { if (await run(() => api(`/admin/users/${u.id}/unmute`, { method: 'POST' }), 'Mute lifted')) after(); };
@@ -375,9 +376,9 @@ function UserDetail({ id, onChanged, onClose }) {
       {u.bio && <p className="adm-details">{u.bio}</p>}
       <dl className="adm-facts">
         <div><dt>Joined</dt><dd>{when(u.createdAt)}</dd></div>
-        <div><dt>Servers</dt><dd>{u.servers} ({u.owned.length} owned)</dd></div>
-        <div><dt>Clips</dt><dd>{u.clips} ({u.liveClips} live)</dd></div>
-        <div><dt>Bots</dt><dd>{u.bots}</dd></div>
+        {!u.limited && <div><dt>Servers</dt><dd>{u.servers} ({u.owned.length} owned)</dd></div>}
+        {!u.limited && <div><dt>Clips</dt><dd>{u.clips} ({u.liveClips} live)</dd></div>}
+        {!u.limited && <div><dt>Bots</dt><dd>{u.bots}</dd></div>}
         <div><dt>Reports</dt><dd>{u.reports}</dd></div>
         <div><dt>User id</dt><dd className="adm-mono">{u.id}</dd></div>
       </dl>
@@ -386,14 +387,14 @@ function UserDetail({ id, onChanged, onClose }) {
       {u.canModerate ? (
         <div className="adm-actions">
           <button className="adm-btn" onClick={warn}>Warn</button>
-          {m.mute ? <button className="adm-btn" onClick={unmute}>Lift mute</button> : <button className="adm-btn" onClick={mute}>Mute</button>}
-          {u.suspended ? <button className="adm-btn" onClick={unsuspend}>Lift suspension</button> : <button className="adm-btn" onClick={suspend}>Suspend</button>}
-          {u.artist && <button className="adm-btn" onClick={removeArtist}>Remove artist</button>}
-          <button className="adm-btn danger" onClick={del}>Delete account</button>
-          {me.canManageAdmins && (u.role === 'admin' ? <button className="adm-btn" onClick={dropAdmin}>Remove as admin</button> : !u.role && !u.suspended && <button className="adm-btn" onClick={makeAdmin}>Make admin</button>)}
+          {m.mute ? (!isMod || m.mute.by === me.username) && <button className="adm-btn" onClick={unmute}>Lift mute</button> : <button className="adm-btn" onClick={mute}>Mute</button>}
+          {!isMod && (u.suspended ? <button className="adm-btn" onClick={unsuspend}>Lift suspension</button> : <button className="adm-btn" onClick={suspend}>Suspend</button>)}
+          {!isMod && u.artist && <button className="adm-btn" onClick={removeArtist}>Remove artist</button>}
+          {!isMod && <button className="adm-btn danger" onClick={del}>Delete account</button>}
+          {!isMod && me.canManageAdmins && (u.role === 'admin' ? <button className="adm-btn" onClick={dropAdmin}>Remove as admin</button> : !u.role && !u.suspended && <button className="adm-btn" onClick={makeAdmin}>Make admin</button>)}
         </div>
       ) : (
-        <p className="adm-muted">{u.id === me.id ? 'This is you.' : u.role === 'creator' ? 'Founder accounts cannot be moderated here.' : 'Only a founder can act on an admin.'}</p>
+        <p className="adm-muted">{u.id === me.id ? 'This is you.' : u.role === 'creator' ? 'Founder accounts cannot be moderated here.' : u.moderator && isMod ? 'Only an admin can act on a moderator.' : 'Only a founder can act on an admin.'}</p>
       )}
       {u.ownsOfficialServer && <p className="adm-muted">This account owns the official Aduna server, so it cannot be deleted until that is transferred.</p>}
       {u.canResetStorage && (
@@ -411,7 +412,7 @@ function UserDetail({ id, onChanged, onClose }) {
             <li key={w.id}>
               <div><b>{w.counts ? 'Counts' : 'Over 90 days old'}</b> <span className="adm-muted">{w.by ? `by ${w.by}` : 'automatic'} · {when(w.at)} · {w.seenAt ? `read ${when(w.seenAt)}` : 'not read yet'}</span></div>
               <p className="adm-details">{w.reason}</p>
-              {u.canModerate && <button className="adm-btn small" onClick={() => retract(w)}>Take back</button>}
+              {u.canModerate && (!isMod || w.by === me.username) && <button className="adm-btn small" onClick={() => retract(w)}>Take back</button>}
             </li>
           ))}
         </ul>
@@ -494,7 +495,7 @@ function Admins({ openUser }) {
     if (r && await run(() => api('/admin/admins', { method: 'POST', body: { userId: u.id } }), `${u.username} is now an admin`)) { setQ(''); load(); loadMods(); refresh(); }
   };
   const addMod = async (u) => {
-    const r = await ask({ title: `Make ${u.username} a moderator?`, body: 'They can open this page, read every report and dismiss or restore what was reported. They cannot warn, mute, suspend, delete or take anything down for good, and they see nothing else here.', confirmLabel: 'Make moderator' });
+    const r = await ask({ title: `Make ${u.username} a moderator?`, body: 'They can open this page, read every report and dismiss or restore what was reported, look people up, and warn them or mute them for up to a day. They cannot suspend, delete or take anything down for good, cannot act on admins or other moderators, and see nothing else here.', confirmLabel: 'Make moderator' });
     if (r && await run(() => api('/admin/moderators', { method: 'POST', body: { userId: u.id } }), `${u.username} is now a moderator`)) { setQ(''); loadMods(); }
   };
   const dropMod = async (u) => {

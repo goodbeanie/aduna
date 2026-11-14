@@ -3356,7 +3356,8 @@ const ADMINS = new Set(String(process.env.ADMIN_USERNAMES || '').toLowerCase().s
 const isEnvAdmin = (u) => !!u && ADMINS.has(String(u.username).toLowerCase());
 const isAdmin = (u) => !!u && !u.bot && !u.deleted && !u.suspended && (isEnvAdmin(u) || !!u.admin || isCreator(u));
 // A moderator (u.moderator = { at, by }, set by an admin on the /admin page) can open the page, read every report and dismiss or restore what was
-// reported. Nothing else: no removals, warnings, mutes, suspensions, deletes or the other tabs. An admin who is also marked moderator is just an admin.
+// reported, look people up, and warn or mute them (and take back only what they gave themselves). Nothing else: no removals, suspensions, deletes, account
+// actions or the other tabs, and never anything done to a creator, an admin or another moderator. An admin who is also marked moderator is just an admin.
 const isModerator = (u) => !!u && !u.bot && !u.deleted && !u.suspended && !!u.moderator && !isAdmin(u);
 const canReview = (u) => isAdmin(u) || isModerator(u);
 
@@ -4483,7 +4484,7 @@ app.post('/api/admin/users/:id/reports', auth, reviewOnly, (req, res) => {
 // Only a creator adds or removes admins. Admins read every report and act on it, suspend or delete accounts, and delete servers or messages, but
 // cannot act on a creator or on another admin. Everything they do is written to a short log (meta "adminlog", the newest 300 entries).
 // Anyone who is not an admin gets a plain 404 from every route here, so the routes cannot be used to find out who is.
-// Moderators (isModerator, above) get in to read reports and dismiss or restore them, and to nothing else.
+// Moderators (isModerator, above) get in to read reports and dismiss or restore them, to look people up, and to warn or mute (not suspend, delete or remove).
 const adminRole = (u) => (isCreator(u) ? 'creator' : isEnvAdmin(u) ? 'config' : u.admin ? 'admin' : null);
 const needCreator = (req, res, next) => (isCreator(req.user) ? next() : res.status(403).json({ error: 'Only a creator account can do that' }));
 let adminLogChain = Promise.resolve();
@@ -4512,8 +4513,11 @@ function modTarget(req, res) {
   if (u.id === req.user.id) { res.status(400).json({ error: 'You cannot do that to your own account' }); return null; }
   if (isCreator(u)) { res.status(403).json({ error: 'Creator accounts cannot be moderated here' }); return null; }
   if (adminRole(u) && !isCreator(req.user)) { res.status(403).json({ error: 'Only a creator can do that to an admin' }); return null; }
+  if (u.moderator && !isAdmin(req.user)) { res.status(403).json({ error: 'Only an admin can do that to a moderator' }); return null; }
   return u;
 }
+// Whether `actor` may warn or mute `u` (same rules as modTarget, without sending a refusal): not yourself, never a creator, admins only by a creator, moderators only by an admin.
+const canActOn = (actor, u) => !!u && !u.bot && !u.deleted && u.id !== actor.id && !isCreator(u) && (!adminRole(u) || isCreator(actor)) && (!u.moderator || isAdmin(actor));
 
 app.get('/api/admin/me', auth, reviewOnly, (req, res) => res.json({ username: req.user.username, role: adminRole(req.user) || 'moderator', canManageAdmins: isCreator(req.user), canManageFeatures: isCreator(req.user) }));
 
@@ -4586,7 +4590,7 @@ const ROLE_FILTERS = {
   admin: (u) => ['admin', 'config'].includes(adminRole(u)),
   founder: (u) => adminRole(u) === 'creator',
 };
-app.get('/api/admin/users', auth, adminOnly, (req, res) => {
+app.get('/api/admin/users', auth, reviewOnly, (req, res) => {
   const q = String(req.query.q || '').trim().toLowerCase().slice(0, 40);
   const inRole = ROLE_FILTERS[String(req.query.role || '')];
   const all = Object.values(db().users).filter((u) => !u.bot && !u.deleted && (!inRole || inRole(u)));
@@ -4597,9 +4601,19 @@ app.get('/api/admin/users', auth, adminOnly, (req, res) => {
   res.json({ users: rows.slice(0, 30).map(adminUserRow), total: rows.length });
 });
 
-app.get('/api/admin/users/:id', auth, adminOnly, (req, res) => {
+app.get('/api/admin/users/:id', auth, reviewOnly, (req, res) => {
   const u = db().users[req.params.id];
   if (!u || u.bot || u.deleted) return res.status(404).json({ error: 'Not found' });
+  if (!isAdmin(req.user)) { // a moderator sees who they are, what has been reported and the warnings and mute, and nothing about servers, clips, bots, storage or plans
+    return res.json({
+      user: {
+        ...adminUserRow(u), bio: u.bio || '', servers: 0, owned: [], clips: 0, liveClips: 0, bots: 0, ownsOfficialServer: false, limited: true,
+        canModerate: canActOn(req.user, u),
+        moderation: moderation.adminView(u, now(), (id) => db().users[id]?.username || null),
+      },
+      reports: adminReportRows(u.reports),
+    });
+  }
   const mine = myServers(u.id), clips = clipList().filter((c) => c.owner === u.id);
   res.json({
     user: {
@@ -4694,8 +4708,10 @@ app.post('/api/admin/users/:id/storage-renew', auth, adminOnly, ah(async (req, r
 const modView = (u) => moderation.adminView(u, now(), (id) => db().users[id]?.username || null);
 const modReply = (u, extra) => ({ ok: true, user: adminUserRow(u), moderation: modView(u), ...extra });
 const hoursText = (h) => (h % 24 === 0 ? `${h / 24} day${h === 24 ? '' : 's'}` : `${h} hour${h === 1 ? '' : 's'}`);
-app.post('/api/admin/users/:id/warn', auth, adminOnly, ah(async (req, res) => {
+app.post('/api/admin/users/:id/warn', auth, reviewOnly, ah(async (req, res) => {
   const u = modTarget(req, res); if (!u) return;
+  // the 5th warning suspends automatically, and suspending is for admins: a moderator hands that one to an admin
+  if (!isAdmin(req.user) && moderation.wouldSuspend(u, now())) return res.status(403).json({ error: 'This would be their 5th warning, which suspends the account. Ask an admin to handle it.' });
   const r = moderation.warn(u, { by: req.user.id, reason: req.body?.reason, now: now() });
   if (r.error) return res.status(400).json({ error: r.error });
   let applied = null;
@@ -4712,16 +4728,20 @@ app.post('/api/admin/users/:id/warn', auth, adminOnly, ah(async (req, res) => {
   if (applied) adminLogAdd({ username: 'moderation' }, applied === 'mute' ? 'mute' : 'suspend', u.username, e.reason);
   res.json(modReply(u, { escalation: applied ? { type: applied, hours: e.hours } : null }));
 }));
-app.delete('/api/admin/users/:id/warnings/:wid', auth, adminOnly, (req, res) => {
+app.delete('/api/admin/users/:id/warnings/:wid', auth, reviewOnly, (req, res) => {
   const u = modTarget(req, res); if (!u) return;
+  const w = moderation.warningsOf(u).find((x) => x.id === String(req.params.wid));
+  if (w && !isAdmin(req.user) && w.by !== req.user.id) return res.status(403).json({ error: 'A moderator can only take back a warning they gave' });
   if (!moderation.retractWarning(u, String(req.params.wid))) return res.status(404).json({ error: 'That warning is gone' });
   store.save();
   emitUserUpdate(u); // an unread warning that is taken back leaves their screen
   adminLogAdd(req.user, 'retract warning', u.username, '');
   res.json(modReply(u));
 });
-app.post('/api/admin/users/:id/mute', auth, adminOnly, (req, res) => {
+app.post('/api/admin/users/:id/mute', auth, reviewOnly, (req, res) => {
   const u = modTarget(req, res); if (!u) return;
+  if (!isAdmin(req.user) && u.mute && u.mute.until > now() && u.mute.by !== req.user.id) return res.status(403).json({ error: 'They are already muted by someone else. Only an admin can change that.' }); // a moderator never shortens or replaces another person's mute
+  if (!isAdmin(req.user) && !(Number(req.body?.hours) <= moderation.LIMITS.modMuteHours)) return res.status(400).json({ error: `A moderator can mute for up to ${hoursText(moderation.LIMITS.modMuteHours)}. Longer is for an admin.` });
   const r = moderation.setMute(u, { by: req.user.id, reason: req.body?.reason, hours: req.body?.hours, now: now() });
   if (r.error) return res.status(400).json({ error: r.error });
   store.save();
@@ -4729,8 +4749,9 @@ app.post('/api/admin/users/:id/mute', auth, adminOnly, (req, res) => {
   adminLogAdd(req.user, 'mute', u.username, `${r.mute.reason} (until ${new Date(r.mute.until).toISOString().slice(0, 16)}Z)`);
   res.json(modReply(u));
 });
-app.post('/api/admin/users/:id/unmute', auth, adminOnly, (req, res) => {
+app.post('/api/admin/users/:id/unmute', auth, reviewOnly, (req, res) => {
   const u = modTarget(req, res); if (!u) return;
+  if (!isAdmin(req.user) && u.mute && u.mute.by !== req.user.id) return res.status(403).json({ error: 'A moderator can only lift a mute they set' });
   delete u.mute;
   store.save();
   emitUserUpdate(u);

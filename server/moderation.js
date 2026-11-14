@@ -13,7 +13,7 @@ const crypto = require('crypto');
 const HOUR = 3600_000, DAY = 24 * HOUR;
 const LIMITS = {
   reason: 300, keep: 50, windowDays: 90,
-  maxMuteHours: 24 * 30, maxSuspendHours: 24 * 365,
+  maxMuteHours: 24 * 30, maxSuspendHours: 24 * 365, modMuteHours: 24, // a moderator (not an admin) can mute for up to modMuteHours
   maxIpBanHours: 24 * 365 * 5, defaultIpBanHours: 24 * 30, maxIpBans: 500,
   largeRange: 16, smallestRange: 8, // a range wider than /16 needs a second confirmation; wider than /8 is never allowed
 };
@@ -50,6 +50,11 @@ function warn(u, { by, reason, now }) {
   const count = activeWarnings(u, now).length;
   const rule = ESCALATION.find((r) => r.warnings === count);
   return { warning: w, count, escalation: rule ? { type: rule.type, hours: rule.hours, reason: `Automatic: ${count} warnings in ${LIMITS.windowDays} days` } : null };
+}
+// True when one more warning would be the one that suspends the account. A moderator cannot suspend, so they cannot give that warning.
+function wouldSuspend(u, now) {
+  const next = activeWarnings(u, now).length + 1;
+  return ESCALATION.some((r) => r.type === 'suspend' && r.warnings === next);
 }
 function retractWarning(u, id) {
   const before = warningsOf(u).length;
@@ -217,7 +222,7 @@ function createIpBans(list) {
 
 module.exports = {
   LIMITS, ESCALATION, clean, left,
-  warningsOf, activeWarnings, pendingWarnings, warn, retractWarning, acknowledge,
+  warningsOf, activeWarnings, pendingWarnings, warn, wouldSuspend, retractWarning, acknowledge,
   muted, suspendedNow, setMute, setSuspension, expired, sendBlock, view, adminView,
   normalizeIp, parseRule, ruleMatches, createIpBans,
 };

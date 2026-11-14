@@ -300,5 +300,15 @@
       { "title": "Sample picture in the position window", "text": "The window where you move and zoom a frame now has a sample profile picture under the art, so you can see how it fits. You can turn it off." },
       { "title": "Add the picture before you create the frame", "text": "In Settings > Artist, a new frame can get its picture before you press Create. It uploads as soon as the frame is made." }
     ]
+  },
+  {
+    "id": "2026.11.14.4",
+    "date": "2026-11-14",
+    "title": "Moderators can warn and mute",
+    "items": [
+      { "title": "Warn and mute", "text": "Moderators can now warn people and mute them for up to a day, on top of reviewing reports. Suspending, deleting and removing things for good stay with admins." },
+      { "title": "People tab for moderators", "text": "Moderators can search for someone and open a short profile with their reports, warnings and mute. They can’t see servers, clips, bots or storage details." },
+      { "title": "Limits on what they can undo", "text": "A moderator can only take back warnings they gave and lift mutes they set. They can’t act on admins or other moderators, and the warning that would suspend someone is left to an admin." }
+    ]
   }
 ]
