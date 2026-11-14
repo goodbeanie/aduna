@@ -24,7 +24,6 @@ const startHidden = process.argv.includes('--hidden'); // started by Windows at 
 const nativeToasts = new Map();       // fallback only: tag -> native Windows notification
 let theme = {};                       // latest colours from the page, forwarded to the title bar
 let upd = { phase: 'idle' };          // update status shown in the server bar: idle | checking | none | downloading | ready | installing | error
-let ai = null;                        // the AI bot builder (ai/ai-service.js): runs in the background, its panel is in Settings > Developer
 let zoom = null;                      // screen-share zoom (zoom.js), created with the screen-share handlers
 
 function openExternal(url) { try { if (/^https?:$/.test(new URL(url).protocol)) shell.openExternal(url); } catch { /* ignore */ } }
@@ -90,6 +89,10 @@ function createWindow() {
   wc.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
     if (isMainFrame && code !== -3) wc.loadFile(path.join(__dirname, 'offline.html'));
   });
+  // A tunnel or proxy error (Cloudflare 530, 502 and so on) is a normal page load, so did-fail-load never fires for it.
+  wc.on('did-navigate', (_e, url, code) => {
+    if (code >= 500 && url.startsWith(ORIGIN)) wc.loadFile(path.join(__dirname, 'offline.html'));
+  });
   wc.on('did-start-loading', () => { if (zoom) zoom.end(); }); // a reload ends any share, so the hotkey and the scroll listener must not outlive it
   wc.on('did-finish-load', () => { pushUpd(); sendPresence(); });
   wc.loadURL(APP_URL);
@@ -105,7 +108,6 @@ ipcMain.on('bar-action', (e, action) => {
   else if (action === 'max') { if (win.isMaximized()) win.unmaximize(); else win.maximize(); }
   else if (action === 'close') win.close();
   else if (action === 'check') runCheck(true);
-  else if (action === 'ai') openAiPanel();
 });
 
 // ----- notifications: the page says what to show; the app draws it as a small card in the bottom-right corner of the screen,
@@ -135,27 +137,6 @@ function showWindow() {
   // Windows can refuse to raise a window that was hidden in the tray; flicking always-on-top reliably brings it to the front.
   try { win.setAlwaysOnTop(true); win.focus(); win.setAlwaysOnTop(false); } catch { win.focus(); }
   if (alive(page)) page.webContents.focus();
-}
-
-// The tray item, the title bar button and the menu all lead to the same place: Settings > Developer, where the AI panel is.
-// The page does the navigating (it has the login and the settings screen); it hears this as a click on an "ai" notification.
-function openAiPanel() {
-  const fresh = !win;                                  // the window was closed to nothing: wait for the page to load first
-  showWindow();
-  const go = () => { if (alive(page)) page.webContents.send('notif-click', 'ai'); };
-  if (fresh) setTimeout(go, 4000); else go();
-}
-
-// The AI builder is a bonus: if it cannot start, Aduna still opens.
-function startAi() {
-  try {
-    const aiService = require('./ai/ai-service');
-    ai = aiService.create({
-      ipcMain, dataDir: app.getPath('userData'), ollama: require('./ai/ollama').create(),
-      send: (ch, d) => { if (alive(page)) page.webContents.send(ch, d); },
-      isTrusted: fromPage, notify: showToast, windowActive: isActive, openExternal,
-    });
-  } catch (e) { console.error('AI builder did not start:', e && e.message); }
 }
 
 function ensureToastWin() {
@@ -341,7 +322,6 @@ function buildTray() {
   }
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Aduna', click: showWindow },
-    { label: 'AI Coder\u2026', click: openAiPanel },
     { label: 'Check for updates\u2026', click: () => { showWindow(); runCheck(true); } },
     { type: 'separator' },
     { label: 'Start with Windows', type: 'checkbox', checked: startsWithWindows(), enabled: app.isPackaged, click: (item) => setStartsWithWindows(item.checked) },
@@ -423,7 +403,7 @@ app.setAppUserModelId('app.aduna.desktop'); // same as build.appId: Windows need
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', showWindow);
-  app.on('before-quit', () => { quitting = true; if (zoom) zoom.end(); if (ai) ai.shutdown().catch(() => {}); }); // lets the update installer and "Quit" really close the window; a running AI build stops after its last saved attempt
+  app.on('before-quit', () => { quitting = true; if (zoom) zoom.end(); }); // lets the update installer and "Quit" really close the window
   app.whenReady().then(() => {
     // Calls need the microphone and camera; mentions need notifications. Allowed only for the Aduna server.
     const ok = (wc, perm) => ['media', 'notifications', 'fullscreen', 'clipboard-sanitized-write'].includes(perm) && !!wc && wc.getURL().startsWith(ORIGIN);
@@ -432,14 +412,14 @@ else {
     setupScreenShare();
     // No visible menu any more (the window is frameless), but the shortcuts still work.
     Menu.setApplicationMenu(Menu.buildFromTemplate([
-      { label: 'Aduna', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => page && page.webContents.loadURL(APP_URL) }, { label: 'Check for updates\u2026', accelerator: 'CmdOrCtrl+Shift+U', click: () => runCheck(true) }, { label: 'AI Coder\u2026', accelerator: 'CmdOrCtrl+Shift+A', click: openAiPanel }, { type: 'separator' }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }] },
+      { label: 'Aduna', submenu: [{ label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => page && page.webContents.loadURL(APP_URL) }, { label: 'Check for updates\u2026', accelerator: 'CmdOrCtrl+Shift+U', click: () => runCheck(true) }, { type: 'separator' }, { label: 'Quit', click: () => { quitting = true; app.quit(); } }] },
       { label: 'Edit', submenu: [{ role: 'undo' }, { role: 'redo' }, { type: 'separator' }, { role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' }] },
       { label: 'View', submenu: [{ role: 'togglefullscreen' }, { role: 'zoomIn' }, { role: 'zoomOut' }, { role: 'resetZoom' }] },
     ]));
     // First run of an installed copy: start with Windows (hidden in the tray) so notifications work after a reboot. The tray menu turns it off.
     const p = readPrefs();
     if (app.isPackaged && !p.autostartHandled) { p.autostartHandled = true; writePrefs(p); try { app.setLoginItemSettings({ openAtLogin: true, args: ['--hidden'] }); } catch { /* ignore */ } }
-    startAi();
+    if (app.isPackaged) app.setAsDefaultProtocolClient('aduna'); // the browser page after Google sign-in opens aduna:// to bring the app forward (second-instance below shows the window)
     createWindow();
     buildTray();
     applyIcons(); // correct the first guess with the real taskbar mode

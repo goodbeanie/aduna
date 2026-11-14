@@ -5,19 +5,80 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Aduna</title>
 <style>
+  :root{--bg:#fffbef;--text:#111112;--muted:#6d675a;--line:#ddd4bd}
   html,body{height:100%;margin:0}
-  body{display:flex;align-items:center;justify-content:center;background:#fffbef;color:#111112;font-family:Georgia,serif;text-align:center;padding:24px;box-sizing:border-box}
+  body{display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text);font-family:Georgia,serif;text-align:center;padding:24px;box-sizing:border-box}
   main{max-width:340px}
+  .brand{font-size:22px;letter-spacing:.02em;margin:0 0 28px}
+  .spin{width:34px;height:34px;margin:0 auto 22px;border:3px solid var(--line);border-top-color:var(--text);border-radius:50%;animation:spin 1s linear infinite}
   h1{font-weight:400;font-size:28px;margin:0 0 10px}
-  p{color:#6d675a;font-size:18px;line-height:1.4;margin:0 0 22px}
-  button{font:inherit;font-size:19px;height:50px;padding:0 30px;border-radius:30px;border:2px solid #111112;background:#111112;color:#fffbef}
+  p{color:var(--muted);font-size:18px;line-height:1.4;margin:0 0 18px}
+  #status{font-size:16px;min-height:22px}
+  button{font:inherit;font-size:19px;height:50px;padding:0 30px;border-radius:30px;border:2px solid var(--text);background:var(--text);color:var(--bg)}
+  button:disabled{opacity:.5}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){.spin{animation-duration:3s}}
 </style>
 </head>
 <body>
 <main>
-  <h1>Can’t reach Aduna</h1>
-  <p>Check your connection and try again. If the server was asleep it can take a minute to wake up.</p>
-  <button onclick="location.replace('https://aduna.dpdns.org/app')">Try again</button>
+  <div class="brand">Aduna</div>
+  <div class="spin" role="progressbar" aria-label="Waiting for the server"></div>
+  <h1>Waiting for the Aduna server</h1>
+  <p id="why">The server is offline or restarting. Aduna will open on its own as soon as it is back.</p>
+  <p id="status" aria-live="polite">Checking…</p>
+  <button id="now" type="button">Try now</button>
 </main>
+<script>
+(function () {
+  var APP = 'https://aduna.dpdns.org/app';
+  var CHECK = 'https://aduna.dpdns.org/healthz';
+  var why = document.getElementById('why'), status = document.getElementById('status'), now = document.getElementById('now');
+  var busy = false, tries = 0, timer = null;
+
+  function isUp() {
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var stop = ctl ? setTimeout(function () { ctl.abort(); }, 6000) : null;
+    return fetch(CHECK + '?t=' + Date.now(), { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { return r.ok ? r.text() : ''; })
+      .then(function (t) { return t.trim() === 'ok'; })
+      .catch(function () { return false; })
+      .then(function (up) { if (stop) clearTimeout(stop); return up; });
+  }
+
+  function wait() {
+    var secs = tries < 10 ? 4 : 10;
+    var left = secs;
+    status.textContent = 'Not back yet. Trying again in ' + left + 's.';
+    clearInterval(timer);
+    timer = setInterval(function () {
+      left -= 1;
+      if (left <= 0) { clearInterval(timer); check(); return; }
+      status.textContent = 'Not back yet. Trying again in ' + left + 's.';
+    }, 1000);
+  }
+
+  function check() {
+    if (busy) return;
+    busy = true;
+    clearInterval(timer);
+    now.disabled = true;
+    status.textContent = 'Checking…';
+    if (navigator.onLine === false) why.textContent = 'You are offline. Check your internet connection.';
+    isUp().then(function (up) {
+      busy = false;
+      now.disabled = false;
+      if (up) { status.textContent = 'Connected. Opening Aduna…'; location.replace(APP); return; }
+      tries += 1;
+      if (navigator.onLine !== false) why.textContent = 'The server is offline or restarting. Aduna will open on its own as soon as it is back.';
+      wait();
+    });
+  }
+
+  now.addEventListener('click', check);
+  window.addEventListener('online', check);
+  check();
+})();
+</script>
 </body>
 </html>

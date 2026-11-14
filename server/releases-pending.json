@@ -268,5 +268,16 @@
       { "title": "Bot commands in the message box", "text": "Type a bot's prefix, usually /, at the start of a message to see the commands of the bots in that server. Pick one to put it in the message box." },
       { "title": "AI bot builder removed", "text": "The “Build with AI on this PC” panel is gone from the bot editor in the desktop app." }
     ]
+  },
+  {
+    "id": "2026.11.14",
+    "date": "2026-11-14",
+    "title": "A waiting screen when the server is down",
+    "desktop": "1.4.117",
+    "android": "2026.11.14.710",
+    "items": [
+      { "title": "Waiting for the server", "text": "If Aduna can’t reach its server, the desktop and Android apps now show a “Waiting for the Aduna server” screen instead of a browser error. It checks every few seconds, opens Aduna by itself when the server is back, and has a Try now button." },
+      { "title": "Offline notice", "text": "If your device has no internet, the same screen says so." }
+    ]
   }
 ]

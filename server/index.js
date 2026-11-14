@@ -424,7 +424,7 @@ if (TRUST_PROXY) app.set('trust proxy', 1);
 app.disable('x-powered-by');
 app.use(security.securityHeaders()); // CSP, clickjacking, nosniff, referrer, permissions, HSTS over HTTPS (see security.js)
 app.use('/api', security.csrfGuard()); // a request from another site that carries the login cookie is refused (see security.js)
-app.get('/healthz', (_req, res) => res.type('text').send('ok')); // for Render's health check
+app.get('/healthz', (_req, res) => { res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }); res.type('text').send('ok'); }); // for Render's health check; the apps' "waiting for the server" screen polls it, so it allows any origin
 
 // ----- IP bans (server/moderation.js; the creator manages the list on the /admin page) -----
 // A banned address gets a plain 403 on every page and API call, and cannot open a live connection. The list lives in meta "ipbans" and is loaded in start().

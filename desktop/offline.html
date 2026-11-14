@@ -1,10 +1,85 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Aduna</title>
 <style>
+  :root{--bg:#ebe4d4;--text:#111112;--muted:#6d675a;--line:#c9c0aa}
+  @media (prefers-color-scheme: dark){:root{--bg:#141917;--text:#e8ece9;--muted:#8fa097;--line:#33403a}}
   html,body{height:100%;margin:0}
-  body{display:flex;align-items:center;justify-content:center;background:#141917;color:#e8ece9;font:16px system-ui,sans-serif;text-align:center}
-  p{color:#8fa097;margin:8px 0 0}
+  body{display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text);font-family:Georgia,serif;text-align:center;padding:24px;box-sizing:border-box}
+  main{max-width:380px}
+  .brand{font-size:22px;letter-spacing:.02em;margin:0 0 28px}
+  .spin{width:34px;height:34px;margin:0 auto 22px;border:3px solid var(--line);border-top-color:var(--text);border-radius:50%;animation:spin 1s linear infinite}
+  h1{font-weight:400;font-size:28px;margin:0 0 10px}
+  p{color:var(--muted);font-size:17px;line-height:1.45;margin:0 0 18px}
+  #status{font-size:15px;min-height:22px}
+  button{font:inherit;font-size:17px;height:44px;padding:0 26px;border-radius:30px;border:2px solid var(--text);background:transparent;color:var(--text);cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){.spin{animation-duration:3s}}
 </style>
-<div><h2>Can’t reach Aduna</h2><p>Check your internet connection. Retrying…</p></div>
-<script>setTimeout(function(){ location.href = 'https://aduna.dpdns.org/app'; }, 5000);</script>
+</head>
+<body>
+<main>
+  <div class="brand">Aduna</div>
+  <div class="spin" role="progressbar" aria-label="Waiting for the server"></div>
+  <h1>Waiting for the Aduna server</h1>
+  <p id="why">The server is offline or restarting. Aduna will open on its own as soon as it is back.</p>
+  <p id="status" aria-live="polite">Checking…</p>
+  <button id="now" type="button">Try now</button>
+</main>
+<script>
+(function () {
+  var APP = 'https://aduna.dpdns.org/app';
+  var CHECK = 'https://aduna.dpdns.org/healthz';
+  var why = document.getElementById('why'), status = document.getElementById('status'), now = document.getElementById('now');
+  var busy = false, tries = 0, timer = null;
+
+  function isUp() {
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var stop = ctl ? setTimeout(function () { ctl.abort(); }, 6000) : null;
+    return fetch(CHECK + '?t=' + Date.now(), { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      .then(function (r) { return r.ok ? r.text() : ''; })
+      .then(function (t) { return t.trim() === 'ok'; })
+      .catch(function () { return false; })
+      .then(function (up) { if (stop) clearTimeout(stop); return up; });
+  }
+
+  function wait() {
+    var secs = tries < 10 ? 4 : 10;
+    var left = secs;
+    status.textContent = 'Not back yet. Trying again in ' + left + 's.';
+    clearInterval(timer);
+    timer = setInterval(function () {
+      left -= 1;
+      if (left <= 0) { clearInterval(timer); check(); return; }
+      status.textContent = 'Not back yet. Trying again in ' + left + 's.';
+    }, 1000);
+  }
+
+  function check() {
+    if (busy) return;
+    busy = true;
+    clearInterval(timer);
+    now.disabled = true;
+    status.textContent = 'Checking…';
+    if (navigator.onLine === false) why.textContent = 'You are offline. Check your internet connection.';
+    isUp().then(function (up) {
+      busy = false;
+      now.disabled = false;
+      if (up) { status.textContent = 'Connected. Opening Aduna…'; location.replace(APP); return; }
+      tries += 1;
+      if (navigator.onLine !== false) why.textContent = 'The server is offline or restarting. Aduna will open on its own as soon as it is back.';
+      wait();
+    });
+  }
+
+  now.addEventListener('click', check);
+  window.addEventListener('online', check);
+  check();
+})();
+</script>
+</body>
+</html>

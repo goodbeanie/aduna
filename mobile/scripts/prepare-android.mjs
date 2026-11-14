@@ -638,6 +638,25 @@ if (!m.includes('<!-- aduna -->')) {
   writeFileSync(manifestPath, mm);
 }
 
+// aduna:// links: the browser page after Google sign-in opens one to bring the app back. MainActivity is singleTask, so it comes forward and
+// onNewIntent runs. Added separately so projects made by an earlier version get it too.
+{
+  let mm = readFileSync(manifestPath, 'utf8');
+  if (!mm.includes('android:scheme="aduna"')) {
+    const filter = `            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="aduna" />
+            </intent-filter>
+`;
+    const open = /<activity\s[^>]*android:name="\.MainActivity"[^>]*>\n?/;
+    if (!open.test(mm)) { console.error('Could not find MainActivity in AndroidManifest.xml; not adding the aduna:// link.'); process.exit(1); }
+    mm = mm.replace(open, (tag) => (tag.endsWith('\n') ? tag : tag + '\n') + filter);
+    writeFileSync(manifestPath, mm);
+  }
+}
+
 // 4. version + release signing, appended to the module's build.gradle (a second android {} block merges with the first)
 const gradlePath = join(app, 'build.gradle');
 let g = readFileSync(gradlePath, 'utf8');
