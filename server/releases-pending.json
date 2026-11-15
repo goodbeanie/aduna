@@ -338,5 +338,14 @@
       { "title": "Card surcharge line", "text": "Where a card processing surcharge applies, checkout lists it as its own line and includes it in the total before you pay." },
       { "title": "Verified bots", "text": "Public bots now show a Verified label once an admin has reviewed their code. Bots that haven’t been reviewed show a warning, and you are asked to confirm before adding one to a server." }
     ]
+  },
+  {
+    "id": "2026.11.14.8",
+    "date": "2026-11-14",
+    "title": "Move, scale and rotate profile frames",
+    "items": [
+      { "title": "See the whole picture", "text": "The window where you position a frame now shows a bit more around the frame. The part outside the frame is dimmed, because that part gets cut off." },
+      { "title": "Position, scale and rotation", "text": "You can type exact values for the position, scale and rotation of the picture, or use the sliders. Rotation goes from -180 to 180 degrees, and the [ and ] keys turn it a step at a time. The saved frame matches what you see." }
+    ]
   }
 ]
