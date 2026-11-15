@@ -114,7 +114,7 @@ const kindOf = (b) => (b && (b.kind === 'frame' || b.kind === 'stickers') ? b.ki
 const isFrame = (b) => kindOf(b) === 'frame';
 const isStickers = (b) => kindOf(b) === 'stickers';
 // A frame picture is a square PNG, JPEG or WebP. Art may sit in the ring and over the avatar's square alike (the frame is drawn on top of the profile picture), so only the shape is checked.
-const FRAME = { side: 512, hole: 384, minSide: 128, maxSide: 768 }; // the template: 512px square, the avatar sits in a 384px rounded square in the middle (75%); the app saves a frame on a canvas up to 768px so art past the square is kept
+const FRAME = { side: 512, hole: 384, minSide: 128, maxSide: 2560 }; // the template: 512px square, the avatar sits in a 384px rounded square in the middle (75%); the app saves a frame on a canvas up to 2560px (5 squares) so art past the square is kept
 
 // Checks the fields of a new item (partial = false: name and price are required) or of an edit (partial = true: only what is sent).
 // A price of null is returned as null; editItem decides whether that is allowed.

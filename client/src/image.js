@@ -135,12 +135,24 @@ export async function processBadge(file, { w, h }) {
 
 // Profile frames (an artist's art around and over the avatar). The avatar fills a 384px rounded square in the middle of the picture (the same numbers as FRAME in
 // server/artists.js). The ring goes in the 64px band around it, and anything drawn inside the square shows over the profile picture.
-// The template is 512px, but a frame made in the adjust window is saved on a bigger canvas (FRAME_VIEW times the template) with the hole still 384px in the middle,
-// so art that sticks out past the template square is kept. Older frames are plain 512px pictures; the app reads each picture's own width (see Avatar in ui.jsx).
+// The template is 512px, but a frame made in the adjust window is saved on a bigger canvas, wide enough for the whole picture wherever it was put, with the hole
+// still 384px in the middle. Older frames are plain 512px pictures; the app reads each picture's own width (see Avatar in ui.jsx).
 export const FRAME = { side: 512, hole: 384, corner: 0.26 }; // the avatar is a rounded square (corner = radius as a share of its side, as in .avatar in redesign.css)
-export const FRAME_VIEW = 1.5;
-export const FRAME_CANVAS = Math.round(FRAME.side * FRAME_VIEW);
+export const FRAME_VIEW = { min: 1.5, max: 5, step: 0.5 }; // the saved canvas is this many template squares wide (so 768px up to 2560px, the limit FRAME.maxSide in server/artists.js)
 export const FRAME_ZOOM = { min: 0.25, max: 3 }; // how far the artist can zoom a frame picture in the adjust window (1 = fitted inside the square)
+
+// How many template squares wide the canvas has to be to hold the whole picture as the artist placed it (`adjust` as in processFrame), in steps of FRAME_VIEW.step.
+export function frameViewFor(width, height, adjust) {
+  const zoom = Math.min(FRAME_ZOOM.max, Math.max(FRAME_ZOOM.min, Number(adjust?.zoom) || 1));
+  const ox = Math.min(0.5, Math.max(-0.5, Number(adjust?.x) || 0)), oy = Math.min(0.5, Math.max(-0.5, Number(adjust?.y) || 0));
+  const turn = ((Number(adjust?.rotate) || 0) * Math.PI) / 180;
+  const k = zoom / Math.max(width, height); // picture pixels to template squares
+  const w = width * k, h = height * k;
+  const halfX = (Math.abs(w * Math.cos(turn)) + Math.abs(h * Math.sin(turn))) / 2;
+  const halfY = (Math.abs(w * Math.sin(turn)) + Math.abs(h * Math.cos(turn))) / 2;
+  const need = 2 * Math.max(0.5, Math.abs(ox) + halfX, Math.abs(oy) + halfY);
+  return Math.min(FRAME_VIEW.max, Math.max(FRAME_VIEW.min, Math.ceil(need / FRAME_VIEW.step - 1e-6) * FRAME_VIEW.step));
+}
 
 // The avatar's shape inside the frame: a rounded square `hole` wide, centred. `shrink` makes it a little smaller (1 = exact).
 function holePath(ctx, shrink = 1) {
@@ -177,7 +189,7 @@ export async function makeFrameTemplate() {
 }
 
 // A frame picture from the artist's file: fitted (not cropped) into the template square, kept as a PNG so the see-through parts stay see-through.
-// It is drawn on a canvas FRAME_VIEW times wider than the square, so whatever sticks out past the square is kept too.
+// It is drawn on a canvas wide enough for the whole picture (see frameViewFor), so whatever sticks out past the square is kept too.
 // Refuses a picture that has almost nothing in it. Art may sit in the ring and over the avatar's square alike: the frame is drawn on top of the profile picture.
 // `adjust` is optional: { zoom, x, y, rotate } as set in the adjust window (FrameAdjust.jsx). zoom 1 fits the whole picture inside the square; x and y move
 // the middle of the picture, as a share of the square (0 = centred); rotate is degrees, turned about the middle of the picture. Without it the picture is just fitted and centred.
@@ -187,7 +199,7 @@ export async function processFrame(file, adjust) {
   let bmp;
   try { bmp = await createImageBitmap(file); }
   catch { throw new Error(tr('imgRead')); }
-  const Q = FRAME.side, S = FRAME_CANVAS;
+  const Q = FRAME.side, S = Math.round(Q * frameViewFor(bmp.width, bmp.height, adjust));
   const canvas = document.createElement('canvas');
   canvas.width = S; canvas.height = S;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
