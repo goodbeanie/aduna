@@ -417,5 +417,16 @@
       { "title": "New credit pack prices", "text": "Credit packs now cost $2.39, $3.99, $7.59 and $10.69 in Canadian dollars, and $1.99, $2.99, $5.69 and $7.99 in US dollars. The card processing fee is part of the price, so checkout shows one price and no extra fee line." },
       { "title": "Report window layout", "text": "The reasons in the Report window now line up, with normal capital letters and proper radio buttons." }
     ]
+  },
+  {
+    "id": "2026.11.15.3",
+    "date": "2026-11-15",
+    "title": "Safer log out and uploads",
+    "items": [
+      { "title": "Log out ends the session", "text": "Logging out now ends that login on the server too. Before, a copy of your session could still be used for up to 30 days. Sessions from before this update can only be ended with Log out everywhere." },
+      { "title": "Invite lookups are limited", "text": "Looking up invite codes is limited to 30 per connection every 15 minutes, so codes cannot be guessed one by one." },
+      { "title": "Cleaner uploaded pictures", "text": "Anything hidden after the end of a PNG, JPEG or WebP is now removed when you upload a picture, and old pictures are served without it." },
+      { "title": "Game search", "text": "Searching for a game shows no results instead of an error when Steam refuses the search. If Steam is busy it asks you to try again in a minute." }
+    ]
   }
 ]
