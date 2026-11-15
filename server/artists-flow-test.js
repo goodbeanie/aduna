@@ -107,7 +107,9 @@ function makePng(w, h) { // a different picture every time (the marker), so no t
   r = await call('/artists/items', { method: 'POST', token: T(ada), body: { name: 'Cat Splash', desc: 'A cat in paint', price: 101 } });
   assert.strictEqual(r.status, 200, JSON.stringify(r)); const item = r.item;
   assert.deepStrictEqual([item.status, item.price, item.image], ['draft', 101, null]);
-  assert.strictEqual((await call('/artists/items', { method: 'POST', token: T(ada), body: { name: 'cat splash', price: 50 } })).status, 409, 'names are unique');
+  r = await call('/artists/items', { method: 'POST', token: T(ada), body: { name: 'cat splash', price: 50 } });
+  assert.strictEqual(r.status, 200, 'the same name is allowed');
+  assert.strictEqual((await call('/artists/items/' + r.item.id, { method: 'DELETE', token: T(ada) })).status, 200);
   assert.strictEqual((await call('/artists/items/' + item.id + '/submit', { method: 'POST', token: T(ada) })).status, 400, 'a picture is needed');
   assert.strictEqual((await call('/artists/items/' + item.id, { method: 'PATCH', token: T(bob), body: { price: 20 } })).status, 403, 'only artists');
   const bobArtist = await call('/artists/items/' + item.id, { method: 'PATCH', token: T(mod), body: { price: 20 } });

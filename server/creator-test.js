@@ -61,9 +61,9 @@ const CREATOR = 'test.creator@gmail.com';
   // make a badge and give it away
   r = await call('/badges', { method: 'POST', token: c2.token, body: { name: 'Tester', emoji: '🧪', color: '#112233' } });
   assert.strictEqual(r.status, 200, JSON.stringify(r)); const id = r.badge.id;
-  assert.strictEqual((await call('/badges', { method: 'POST', token: c2.token, body: { name: 'tester' } })).status, 409);
+  assert.strictEqual((await call('/badges', { method: 'POST', token: c2.token, body: { name: 'tester' } })).status, 200, 'the same name is allowed');
   assert.strictEqual((await call('/badges', { method: 'POST', token: c2.token, body: { name: 'Creator' } })).status, 409);
-  step('a creator makes a badge; duplicate names and "Creator" are refused');
+  step('a creator makes a badge; the same name is allowed, "Creator" is refused');
 
   assert.strictEqual((await call('/badges/' + id + '/give', { method: 'POST', token: c1.token, body: { username: 'nobody_here' } })).status, 404);
   r = await call('/badges/' + id + '/give', { method: 'POST', token: c1.token, body: { username: '@normal_nina' } });

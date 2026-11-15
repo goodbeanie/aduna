@@ -3998,14 +3998,14 @@ function cleanBadgeFields(body, partial) {
   if (body.daily !== undefined) out.daily = body.daily === true;
   return { out };
 }
-const badgeNameTaken = (name, exceptId) => ['creator', 'founder', 'artist'].includes(name.toLowerCase()) || Object.values(db().badges).some((b) => b.id !== exceptId && b.name.toLowerCase() === name.toLowerCase());
+const badgeNameReserved = (name) => ['creator', 'founder', 'artist'].includes(name.toLowerCase());
 const tellHolders = (id) => { for (const u of Object.values(db().users)) if (Array.isArray(u.badges) && u.badges.includes(id)) emitUserUpdate(u); };
 app.get('/api/badges', auth, creatorOnly, (_req, res) => res.json({ badges: Object.values(db().badges).map(badgeOwnView), limits: BADGE_LIMITS }));
 app.post('/api/badges', auth, creatorOnly, (req, res) => {
   if (Object.keys(db().badges).length >= BADGE_LIMITS.total) return res.status(400).json({ error: `At most ${BADGE_LIMITS.total} badges` });
   const { out, error } = cleanBadgeFields(req.body || {}, false);
   if (error) return res.status(400).json({ error });
-  if (badgeNameTaken(out.name)) return res.status(409).json({ error: 'A badge with that name already exists' });
+  if (badgeNameReserved(out.name)) return res.status(409).json({ error: 'That name is reserved' });
   const b = { id: store.id(), name: out.name, emoji: out.emoji || '', color: out.color || '#8c6b4f', image: null, desc: out.desc || '', price: out.price ?? null, shopEnds: out.shopEnds ?? null, pinned: out.pinned === true, daily: out.daily === true, createdBy: req.user.id, createdAt: now() };
   db().badges[b.id] = b; store.save();
   res.json({ badge: badgeOwnView(b) });
@@ -4014,7 +4014,7 @@ app.patch('/api/badges/:id', auth, creatorOnly, (req, res) => {
   const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
   const { out, error } = cleanBadgeFields(req.body || {}, true);
   if (error) return res.status(400).json({ error });
-  if (out.name && badgeNameTaken(out.name, b.id)) return res.status(409).json({ error: 'A badge with that name already exists' });
+  if (out.name && badgeNameReserved(out.name)) return res.status(409).json({ error: 'That name is reserved' });
   Object.assign(b, out); store.save(); tellHolders(b.id);
   res.json({ badge: badgeOwnView(b) });
 });
@@ -4173,7 +4173,7 @@ app.post('/api/artists/items', auth, artistOnly, (req, res) => {
   if (Object.keys(db().badges).length >= BADGE_LIMITS.total) return res.status(400).json({ error: 'The shop is full right now' });
   const { out, error } = artistsLib.cleanItem(req.body, false);
   if (error) return res.status(400).json({ error });
-  if (badgeNameTaken(out.name)) return res.status(409).json({ error: 'A badge with that name already exists' });
+  if (badgeNameReserved(out.name)) return res.status(409).json({ error: 'That name is reserved' });
   if (!artistSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving too fast. Try again later.' });
   const b = { id: store.id(), kind: out.kind, name: out.name, emoji: '', color: '#8c6b4f', image: null, desc: out.desc || '', price: out.price, shopEnds: null, pinned: false, daily: false, artistId: req.user.id, status: 'draft', createdBy: req.user.id, createdAt: now() };
   db().badges[b.id] = b; store.save();
@@ -4183,7 +4183,7 @@ app.patch('/api/artists/items/:id', auth, artistOnly, (req, res) => {
   const b = ownItem(req, res); if (!b) return;
   const r = artistsLib.editItem(b, req.body);
   if (!r.ok) return res.status(r.status).json({ error: r.error });
-  if (r.out.name && badgeNameTaken(r.out.name, b.id)) return res.status(409).json({ error: 'A badge with that name already exists' });
+  if (r.out.name && badgeNameReserved(r.out.name)) return res.status(409).json({ error: 'That name is reserved' });
   if (!artistSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving too fast. Try again later.' });
   artistsLib.applyEdit(b, r.out); store.save();
   res.json({ item: itemView(b) });
