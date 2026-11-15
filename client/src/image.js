@@ -174,8 +174,8 @@ export async function makeFrameTemplate() {
 
 // A frame picture from the artist's file: fitted (not cropped) into the 512px square, kept as a PNG so the see-through parts stay see-through.
 // Refuses a picture that has almost nothing in it. Art may sit in the ring and over the avatar's square alike: the frame is drawn on top of the profile picture.
-// `adjust` is optional: { zoom, x, y } as set in the adjust window (FrameAdjust.jsx). zoom 1 fits the whole picture inside the square; x and y move
-// the middle of the picture, as a share of the square (0 = centred). Without it the picture is just fitted and centred.
+// `adjust` is optional: { zoom, x, y, rotate } as set in the adjust window (FrameAdjust.jsx). zoom 1 fits the whole picture inside the square; x and y move
+// the middle of the picture, as a share of the square (0 = centred); rotate is degrees, turned about the middle of the picture. Without it the picture is just fitted and centred.
 export async function processFrame(file, adjust) {
   if (!ACCEPT.includes(file.type)) throw new Error(tr('imgType'));
   if (file.size > MAX_INPUT) throw new Error(tr('imgBig'));
@@ -191,7 +191,12 @@ export async function processFrame(file, adjust) {
   const ox = Math.min(0.5, Math.max(-0.5, Number(adjust?.x) || 0)), oy = Math.min(0.5, Math.max(-0.5, Number(adjust?.y) || 0));
   const scale = Math.min(S / bmp.width, S / bmp.height) * zoom;
   const w = bmp.width * scale, h = bmp.height * scale;
-  ctx.drawImage(bmp, S / 2 + ox * S - w / 2, S / 2 + oy * S - h / 2, w, h);
+  const turn = ((Number(adjust?.rotate) || 0) * Math.PI) / 180;
+  ctx.save();
+  ctx.translate(S / 2 + ox * S, S / 2 + oy * S);
+  ctx.rotate(turn);
+  ctx.drawImage(bmp, -w / 2, -h / 2, w, h);
+  ctx.restore();
   bmp.close?.();
   await requireClean(canvas);
   const d = ctx.getImageData(0, 0, S, S).data;
