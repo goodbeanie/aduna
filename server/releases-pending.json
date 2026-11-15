@@ -327,5 +327,16 @@
     "items": [
       { "title": "Moderator badge", "text": "Moderators now wear a blue shield badge next to their name. It shows up when an admin makes someone a moderator and goes away when they are removed. Like other badges, it can be hidden in Settings > Profile." }
     ]
+  },
+  {
+    "id": "2026.11.14.7",
+    "date": "2026-11-14",
+    "title": "Payments now go through Stripe",
+    "items": [
+      { "title": "Stripe checkout", "text": "Credits and Aduna Plus are now paid for through Stripe instead of PayPal. You enter your card on Stripe’s page, and Aduna never sees it." },
+      { "title": "Billing button for Plus", "text": "Aduna Plus members get a Billing button in Storage and on the Payments page. It opens Stripe’s page where you can change your card or cancel." },
+      { "title": "Card surcharge line", "text": "Where a card processing surcharge applies, checkout lists it as its own line and includes it in the total before you pay." },
+      { "title": "Verified bots", "text": "Public bots now show a Verified label once an admin has reviewed their code. Bots that haven’t been reviewed show a warning, and you are asked to confirm before adding one to a server." }
+    ]
   }
 ]
