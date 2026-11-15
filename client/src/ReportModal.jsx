@@ -45,7 +45,7 @@ export default function ReportModal({ info, path, kind = 'listing', onClose }) {
           <p className="muted small">{message ? `What is wrong with this message from ${info.name}?` : 'What is wrong with this listing?'}</p>
           <div className="report-reasons">
             {REASONS[kind].map(([id, label, hint]) => (
-              <label key={id} className={'report-reason' + (reason === id ? ' on' : '')}>
+              <label key={id} className={'report-reason keep-case' + (reason === id ? ' on' : '')}>
                 <input type="radio" name="report-reason" checked={reason === id} disabled={busy} onChange={() => setReason(id)} />
                 <span><b>{label}</b><span className="muted small"> {hint}</span></span>
               </label>
