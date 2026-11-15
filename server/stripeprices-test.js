@@ -14,8 +14,8 @@ const price = (id, name, cents, cur = 'cad', recurring = false) => ({
   ...(recurring ? { recurring: { interval: 'month', interval_count: 1 } } : {}), product: prod(name),
 });
 const PRICES = [
-  price('price_cad500aaa', '500 Credits', 199), price('price_cad1000aa', '1000 Credits', 349),
-  price('price_cad2500aa', '2500 Credits', 699), price('price_cad5000aa', '5000 Credits', 999),
+  price('price_cad500aaa', '500 Credits', 239), price('price_cad1000aa', '1000 Credits', 399),
+  price('price_cad2500aa', '2500 Credits', 759), price('price_cad5000aa', '5000 Credits', 1069),
   price('price_cadplusaa', 'Aduna PLUS', 499, 'cad', true),
 ];
 
@@ -44,7 +44,7 @@ const pack = (id) => credits.PACKS.find((p) => p.id === id);
   let f = fakeStripe();
   await credits.createCheckout({ user, pack: pack('p500'), origin: 'https://x.test', buyer: ca, fetchImpl: f.fetchImpl });
   assert.strictEqual(f.calls.filter((c) => c.method === 'GET').length, 0, 'no Stripe lookups unless you attach products');
-  assert.strictEqual(f.sessions()[0].get('line_items[0][price_data][unit_amount]'), '199');
+  assert.strictEqual(f.sessions()[0].get('line_items[0][price_data][unit_amount]'), '239');
   assert.strictEqual(f.sessions()[0].has('line_items[0][price]'), false);
   console.log('ok: off by default, inline price as before');
 
@@ -82,7 +82,7 @@ const pack = (id) => credits.PACKS.find((p) => p.id === id);
   s = f.sessions()[0];
   assert.strictEqual(s.has('line_items[0][price]'), false);
   assert.strictEqual(s.get('line_items[0][price_data][currency]'), 'usd');
-  assert.strictEqual(s.get('line_items[0][price_data][unit_amount]'), '149');
+  assert.strictEqual(s.get('line_items[0][price_data][unit_amount]'), '199');
   console.log('ok: USD buyers fall back to an inline price');
 
   // ---- a Stripe price with the WRONG amount is never used ----
@@ -90,7 +90,7 @@ const pack = (id) => credits.PACKS.find((p) => p.id === id);
   await credits.createCheckout({ user, pack: pack('p500'), origin: 'https://x.test', buyer: ca, fetchImpl: f.fetchImpl });
   s = f.sessions()[0];
   assert.strictEqual(s.has('line_items[0][price]'), false, 'wrong amount: not used');
-  assert.strictEqual(s.get('line_items[0][price_data][unit_amount]'), '199', 'the buyer pays Aduna\'s price');
+  assert.strictEqual(s.get('line_items[0][price_data][unit_amount]'), '239', 'the buyer pays Aduna\'s price');
   // a one-time price is not taken for the monthly plan
   P._reset(); f = fakeStripe([price('price_cadplusaa', 'Aduna PLUS', 499, 'cad', false)]);
   await storage.createCheckout({ user, buyer: ca, origin: 'https://x.test', fetchImpl: f.fetchImpl });

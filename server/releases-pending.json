@@ -408,5 +408,14 @@
     "items": [
       { "title": "Report message", "text": "Right-click a message in a server channel (or tap More, or long-press on a phone) and pick Report message. Moderators see the message and your reason. The person who wrote it is not told who reported. Messages in DMs and group chats cannot be reported yet." }
     ]
+  },
+  {
+    "id": "2026.11.15.2",
+    "date": "2026-11-15",
+    "title": "Credit prices include card fees",
+    "items": [
+      { "title": "New credit pack prices", "text": "Credit packs now cost $2.39, $3.99, $7.59 and $10.69 in Canadian dollars, and $1.99, $2.99, $5.69 and $7.99 in US dollars. The card processing fee is part of the price, so checkout shows one price and no extra fee line." },
+      { "title": "Report window layout", "text": "The reasons in the Report window now line up, with normal capital letters and proper radio buttons." }
+    ]
   }
 ]

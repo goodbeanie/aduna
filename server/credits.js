@@ -39,14 +39,18 @@ const EARN = {
   minJitterMs: 8,                  // ...the gaps between them must vary by at least this (robots type evenly)
 };
 
-// Prices: cadCents is what a Canadian buyer pays in CAD, cents is what a US buyer pays in USD. Both are fixed; checkout adds a card fee on top only when CARD_FEE_PERCENT / CARD_FEE_FIXED_CENTS is set (server/fees.js).
+// Prices: cadCents is what a Canadian buyer pays in CAD, cents is what a US buyer pays in USD. Both are fixed, and checkout adds no fee line:
+// they already include what Stripe takes, rounded up to a .x9 price. CAD covers a Canadian card (2.9% + 30 cents); USD covers a US card,
+// which Stripe charges more for (about 5.4% + 30 cents: 2.9% + international card + currency conversion; check the rates on your Stripe Pricing page).
+// prevCents / prevCadCents are the prices before that change;
+// they only let a checkout that was opened at the old price still be credited (see handleStripeEvent), and can be dropped once none is left.
 // A pack's id is its credit amount. Older payments keep the pack id they were bought under
 // (their own record says how many credits they gave).
 const PACKS = [
-  { id: 'p500', credits: 500, cents: 149, cadCents: 199 },
-  { id: 'p1000', credits: 1000, cents: 249, cadCents: 349 },
-  { id: 'p2500', credits: 2500, cents: 499, cadCents: 699 },
-  { id: 'p5000', credits: 5000, cents: 719, cadCents: 999 },
+  { id: 'p500', credits: 500, cents: 199, cadCents: 239, prevCents: 149, prevCadCents: 199 },
+  { id: 'p1000', credits: 1000, cents: 299, cadCents: 399, prevCents: 249, prevCadCents: 349 },
+  { id: 'p2500', credits: 2500, cents: 569, cadCents: 759, prevCents: 499, prevCadCents: 699 },
+  { id: 'p5000', credits: 5000, cents: 799, cadCents: 1069, prevCents: 719, prevCadCents: 999 },
 ];
 // The packs sold before the price changes. Not offered any more; only so a payment that was started before it still finishes and is credited.
 const LEGACY_PACKS = [
@@ -374,7 +378,6 @@ const stripeEnabled = () => !!(stripeKey() && stripeHook());
 
 const purchasesEnabled = stripeEnabled;
 const REG = require('./regions'); // where Aduna sells and in which currency (server/regions.js)
-const FEES = require('./fees'); // the card fee: a surcharge line where one is allowed, otherwise put into the price (server/fees.js; off unless CARD_FEE_PERCENT / CARD_FEE_FIXED_CENTS is set)
 const PRICES = require('./stripeprices'); // attaches the products you made in the Stripe dashboard (off unless STRIPE_PRODUCTS or STRIPE_PRICES is set)
 
 // Stripe asks for the billing address on its own page and adds the tax for it. Needs Stripe Tax switched on in the dashboard.
@@ -419,14 +422,10 @@ async function createCheckout({ user, pack, origin, buyer = {}, fetchImpl = fetc
   const base = REG.priceIn(pack, where.currency);
   if (!base) throw Object.assign(new Error('This pack is not for sale in ' + where.currency.toUpperCase()), { forBuyer: true });
   // your own Stripe product for this pack when STRIPE_PRODUCTS / STRIPE_PRICES attach one (server/stripeprices.js), else an inline price
-  // the card fee (null while it is off): a surcharge line where one is allowed, the rest (or all of it) in the price of the credits
-  const q = FEES.quote(base, where);
-  // a dashboard price is fixed, so it is only used when nothing is added to the price itself
-  const priceId = q && q.inPrice ? null : await PRICES.priceFor({ item: pack, currency: where.currency, base, request: (m, p) => stripeRequest(m, p, null, fetchImpl) });
+  const priceId = await PRICES.priceFor({ item: pack, currency: where.currency, base, request: (m, p) => stripeRequest(m, p, null, fetchImpl) });
   const params = {
     mode: 'payment',
-    ...PRICES.line(0, { priceId, currency: where.currency, cents: q ? q.unit : base, name: `${pack.credits.toLocaleString('en-US')} Aduna credits` }),
-    ...(q && q.surcharge ? PRICES.line(1, { currency: where.currency, cents: q.surcharge, name: 'Card processing fee' }) : {}),
+    ...PRICES.line(0, { priceId, currency: where.currency, cents: base, name: `${pack.credits.toLocaleString('en-US')} Aduna credits` }),
     ...STRIPE_TAX,
     success_url: `${origin}/app?credits=paid`,
     cancel_url: `${origin}/app?credits=cancelled`,
@@ -434,8 +433,6 @@ async function createCheckout({ user, pack, origin, buyer = {}, fetchImpl = fetc
     'metadata[userId]': user.id,
     'metadata[packId]': pack.id,
     'metadata[country]': where.country,
-    ...(where.region ? { 'metadata[region]': where.region } : {}),
-    ...(q ? { 'metadata[fee]': String(q.fee), 'metadata[surcharge]': String(q.surcharge) } : {}), // what was added on top of the price (the webhook expects that total), and how much of it is the separate line
   };
   if (user.email) params.customer_email = user.email; // pre-fills the checkout page and where Stripe sends the receipt
   return (await createSession(params, fetchImpl)).url;
@@ -454,24 +451,23 @@ function handleStripeEvent(event, db, now = Date.now()) {
     const cur = String(obj.currency).toLowerCase(), { country = '', region = '', tax, total } = obj.metadata || {};
     const base = REG.priceIn(pack, cur);
     const paidTax = Number(obj.total_details?.amount_tax) || 0;
-    // the card fee the server added to this session (the price plus fee is what Stripe charges before tax); 0 when there was none
-    const feeRaw = obj.metadata?.fee, fee = feeRaw === undefined ? 0 : Number(feeRaw);
-    const gross = base + (Number.isInteger(fee) ? fee : 0);
-    // a session made before Stripe Tax carries its own total; otherwise the price and fee, plus the tax Stripe added on top of it
-    const expected = total !== undefined ? Number(total) : obj.amount_total === gross ? gross : gross + paidTax;
-    if (!base || !Number.isInteger(fee) || fee < 0 || fee > Math.round(base * 0.5) || !Number.isInteger(expected) || expected < gross || expected > Math.round(gross * 1.75) || obj.amount_total !== expected || (!!country && REG.currencyOf(country) !== cur)) {
+    // a checkout opened just before a price change was made at the pack's previous price: which of the two prices this session was for
+    const prev = cur === 'cad' ? pack.prevCadCents : pack.prevCents, paid = total !== undefined ? Number(total) : obj.amount_total;
+    const bought = [base, prev].find((b) => Number.isInteger(b) && (paid === b || paid === b + paidTax)) || base;
+    // a session made before Stripe Tax carries its own total; otherwise the price, plus the tax Stripe added on top of it
+    const expected = total !== undefined ? Number(total) : obj.amount_total === bought ? bought : bought + paidTax;
+    if (!base || !Number.isInteger(expected) || expected < bought || expected > Math.round(bought * 1.75) || obj.amount_total !== expected || (!!country && REG.currencyOf(country) !== cur)) {
       console.error('Credits: paid session', obj.id, 'amount does not match the pack; not crediting');
       return null;
     }
     const payerCountry = String(obj.customer_details?.address?.country || '').toUpperCase();
     const payerRegion = String(obj.customer_details?.address?.state || '').toUpperCase().slice(0, 3);
-    const why = REG.review(country, /^[A-Z]{2}$/.test(payerCountry) ? payerCountry : '')
-      || (Number(obj.metadata?.surcharge) > 0 && FEES.NEVER.has(payerCountry + '-' + payerRegion) ? 'surcharge-region' : ''); // the buyer's billing address is somewhere a surcharge is not allowed: refund the fee line
+    const why = REG.review(country, /^[A-Z]{2}$/.test(payerCountry) ? payerCountry : '');
     if (why) console.warn(`Credits: payment ${obj.id} needs a look (${why}): the buyer said ${country || 'nothing'}, Stripe says ${payerCountry}`);
     db.payments[obj.id] = {
       id: obj.id, userId: u.id, packId: pack.id, credits: pack.credits, cents: expected, currency: cur,
       country: /^[A-Z]{2}$/.test(payerCountry) ? payerCountry : country, region: region || payerRegion, tax: total !== undefined ? Number(tax) || 0 : paidTax,
-      ...(why ? { review: why } : {}), ...(fee > 0 ? { fee } : {}), intent: obj.payment_intent || null, createdAt: now, reversed: false,
+      ...(why ? { review: why } : {}), intent: obj.payment_intent || null, createdAt: now, reversed: false,
     };
     grant(u, pack.credits, 'purchase', { note: `${pack.credits} credits`, kind: 'buy', now });
     return { uid: u.id, delta: pack.credits, reason: 'purchase' };
@@ -594,20 +590,6 @@ function register(app, d) {
     }
     catch (e) { if (e.forBuyer) return res.status(400).json({ error: e.message }); console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
   }));
-
-  // What each pack costs for a buyer in this country and province or state, card fee included. Nothing is charged; the checkout works the same sum out again.
-  app.post('/api/credits/quote', d.auth, (req, res) => {
-    const where = REG.resolve(req.body);
-    if (!where.ok) return res.status(400).json({ error: where.error });
-    res.json({
-      currency: where.currency, region: where.region, fee: !!FEES.config(),
-      packs: PACKS.map((p) => {
-        const base = REG.priceIn(p, where.currency);
-        const q = base ? FEES.quote(base, where) : null;
-        return { id: p.id, base, ...(q ? { fee: q.fee, surcharge: q.surcharge, inPrice: q.inPrice, total: q.total } : { fee: 0, surcharge: 0, inPrice: 0, total: base }) };
-      }),
-    });
-  });
 
   // Stripe calls this. No login: the signature is the proof. index.js keeps the raw body for it (req.rawBody).
   app.post('/api/credits/webhook', d.ah(async (req, res) => {

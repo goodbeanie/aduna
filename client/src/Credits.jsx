@@ -5,7 +5,7 @@ import { EmptyState, PanelSkeleton } from './ShellBits.jsx';
 import { toast } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, ShopTile, useCountUp } from './Shop.jsx';
 import PlusCard from './PlusCard.jsx';
-import { homeCountry, rememberCountry, priceFor, money, REGIONS, savedRegion, rememberRegion } from './region.js';
+import { homeCountry, rememberCountry, priceFor } from './region.js';
 
 function Quest({ q, locked, busy, onClaim }) {
   const pct = Math.round((q.have / q.need) * 100);
@@ -217,8 +217,6 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   const [, setTick] = useState(0);
   const [coErr, setCoErr] = useState('');
   const [homePick, setHomePick] = useState(null); // 'CA' or 'US' when the person flips the price switch; otherwise the guess in region.js
-  const [region, setRegion] = useState('');   // the province or state they picked (only asked for when a card fee is on)
-  const [quote, setQuote] = useState(null);   // what each pack costs for that place, card fee included: { currency, fee, packs: [{ id, total, surcharge }] }
   const shownBalance = useCountUp(d ? d.balance : null);
   const [bump, setBump] = useState(0);
   useEffect(() => { if (d) setBump((n) => n + 1); }, [d?.balance]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -246,7 +244,7 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   // Buying sends the person straight to Stripe's checkout. The country only picks the currency; Stripe asks for the address and adds the tax.
   async function pay(p) {
     setBusy(p.id); setCoErr('');
-    try { const { url } = await api('/credits/checkout', { method: 'POST', body: { packId: p.id, country: d?.regions ? home : 'US', ...(region ? { region } : {}) } }); window.location.assign(url); }
+    try { const { url } = await api('/credits/checkout', { method: 'POST', body: { packId: p.id, country: d?.regions ? home : 'US' } }); window.location.assign(url); }
     catch (e) { setCoErr(e.message); setBusy(''); }
   }
   async function claim(q) {
@@ -289,16 +287,6 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   const locked = d?.unlocksAt && d.unlocksAt > Date.now();
   const mins = locked ? Math.max(1, Math.ceil((d.unlocksAt - Date.now()) / 60000)) : 0;
   const home = homePick || homeCountry(d?.regions?.countries); // whose price to show: Canadians see CAD, people in the US see USD
-  useEffect(() => { setRegion(savedRegion(home)); }, [home]);
-  // The card fee (when the server has one on): what each pack costs here. It is the server's sum, never worked out in the browser.
-  const sells = !!d?.regions, canBuy = !!d?.purchases;
-  useEffect(() => {
-    if (!buying || !canBuy || !sells) { setQuote(null); return undefined; }
-    let live = true;
-    api('/credits/quote', { method: 'POST', body: { country: home, region: region || undefined } }).then((q) => { if (live) setQuote(q); }).catch(() => { if (live) setQuote(null); });
-    return () => { live = false; };
-  }, [buying, canBuy, sells, home, region]);
-  const qFor = (p) => (quote?.fee ? quote.packs.find((x) => x.id === p.id) || null : null);
   const m = d?.messaging;
   // an artist's marketplace shows only their items; otherwise the whole shop
   const shopItems = d ? (artistId ? d.shop.filter((it) => it.byId === artistId) : d.shop) : [];
@@ -324,8 +312,7 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
               {d.packs.map((p) => (
                 <div key={p.id} className="credit-pack">
                   <div className="pack-amt"><Icon name="coin" size={20} />{p.credits.toLocaleString()}</div>
-                  <button className="btn primary" disabled={!d.purchases || !!busy} onClick={() => pay(p)}>{busy === p.id ? 'Opening Stripe…' : (qFor(p) ? money(qFor(p).total, quote.currency) : priceFor(p, d.regions ? home : 'US').text)}{busy !== p.id && d.regions ? <small className="buy-cad"> {priceFor(p, home).code}</small> : null}</button>
-                  {qFor(p)?.surcharge > 0 && <small className="muted">{money(qFor(p).total - qFor(p).surcharge, quote.currency)} + {money(qFor(p).surcharge, quote.currency)} card fee</small>}
+                  <button className="btn primary" disabled={!d.purchases || !!busy} onClick={() => pay(p)}>{busy === p.id ? 'Opening Stripe…' : priceFor(p, d.regions ? home : 'US').text}{busy !== p.id && d.regions ? <small className="buy-cad"> {priceFor(p, home).code}</small> : null}</button>
                 </div>
               ))}
             </div>
@@ -335,15 +322,6 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
                 <button type="button" className="link-btn" onClick={() => { const n = home === 'US' ? 'CA' : 'US'; rememberCountry(n); setHomePick(n); }}>Show {home === 'US' ? 'Canadian' : 'US'} prices</button>
               </p>
             )}
-            {quote?.fee && REGIONS[home] && (
-              <label className="field keep-case">{REGIONS[home].label}
-                <select value={region} onChange={(e) => { setRegion(e.target.value); rememberRegion(home, e.target.value); }}>
-                  <option value="">Choose…</option>
-                  {REGIONS[home].list.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
-                </select>
-              </label>
-            )}
-            {quote?.fee && <p className="muted small">{quote.packs.some((x) => x.surcharge > 0) ? 'Where the law allows it, the card fee is added as its own line at checkout.' : 'A small card processing fee is included in these prices.'}</p>}
             {coErr && <p className="error-text">{coErr}</p>}
             {d.purchases && <BuyNotices />}
             {!d.purchases && <p className="muted small">{d.paused ? 'Payments are paused right now. Please check back soon.' : 'Buying credits is not set up on this server yet.'}</p>}

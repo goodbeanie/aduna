@@ -21,21 +21,6 @@ export function rememberCountry(country) {
 }
 
 const fmt = (cents, cur) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: cur.toUpperCase() });
-export const money = fmt;
-
-// The province or state the person picked at checkout. Only needed when the card fee is on: where a card surcharge is allowed it is shown as its own
-// line, elsewhere (and in Quebec) it is part of the price, and the server tells the two apart by this.
-const REGION_KEY = 'aduna.region';
-export const REGIONS = {
-  CA: { label: 'Province', list: [['AB', 'Alberta'], ['BC', 'British Columbia'], ['MB', 'Manitoba'], ['NB', 'New Brunswick'], ['NL', 'Newfoundland and Labrador'], ['NS', 'Nova Scotia'], ['NT', 'Northwest Territories'], ['NU', 'Nunavut'], ['ON', 'Ontario'], ['PE', 'Prince Edward Island'], ['QC', 'Quebec'], ['SK', 'Saskatchewan'], ['YT', 'Yukon']] },
-  US: { label: 'State', list: [['AL', 'Alabama'], ['AK', 'Alaska'], ['AZ', 'Arizona'], ['AR', 'Arkansas'], ['CA', 'California'], ['CO', 'Colorado'], ['CT', 'Connecticut'], ['DE', 'Delaware'], ['DC', 'District of Columbia'], ['FL', 'Florida'], ['GA', 'Georgia'], ['HI', 'Hawaii'], ['ID', 'Idaho'], ['IL', 'Illinois'], ['IN', 'Indiana'], ['IA', 'Iowa'], ['KS', 'Kansas'], ['KY', 'Kentucky'], ['LA', 'Louisiana'], ['ME', 'Maine'], ['MD', 'Maryland'], ['MA', 'Massachusetts'], ['MI', 'Michigan'], ['MN', 'Minnesota'], ['MS', 'Mississippi'], ['MO', 'Missouri'], ['MT', 'Montana'], ['NE', 'Nebraska'], ['NV', 'Nevada'], ['NH', 'New Hampshire'], ['NJ', 'New Jersey'], ['NM', 'New Mexico'], ['NY', 'New York'], ['NC', 'North Carolina'], ['ND', 'North Dakota'], ['OH', 'Ohio'], ['OK', 'Oklahoma'], ['OR', 'Oregon'], ['PA', 'Pennsylvania'], ['RI', 'Rhode Island'], ['SC', 'South Carolina'], ['SD', 'South Dakota'], ['TN', 'Tennessee'], ['TX', 'Texas'], ['UT', 'Utah'], ['VT', 'Vermont'], ['VA', 'Virginia'], ['WA', 'Washington'], ['WV', 'West Virginia'], ['WI', 'Wisconsin'], ['WY', 'Wyoming']] },
-};
-export function savedRegion(country) {
-  try { const v = localStorage.getItem(REGION_KEY) || ''; const [c, r] = v.split('-'); return c === country && REGIONS[country]?.list.some(([code]) => code === r) ? r : ''; } catch { return ''; }
-}
-export function rememberRegion(country, region) {
-  try { if (region) localStorage.setItem(REGION_KEY, country + '-' + region); else localStorage.removeItem(REGION_KEY); } catch { /* storage can be off */ }
-}
 
 // An item ({ cents: US price, cadCents: Canadian price }) as the person in `country` sees it: { text: '$2.79', code: 'CAD', cents, currency }.
 // An item with no Canadian price (or when only USD is sold) shows its US price.
