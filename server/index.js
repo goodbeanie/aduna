@@ -4192,7 +4192,7 @@ app.put('/api/artists/items/:id/image', auth, artistOnly, uploadLimiter, rawImag
   const b = ownItem(req, res); if (!b) return;
   if (b.status === 'approved') return res.status(409).json({ error: 'An approved item’s picture cannot be changed. Make a new item instead.' });
   if (stickersLib.isPack(b)) return res.status(400).json({ error: 'A sticker pack is made of stickers. Add them one by one.' });
-  const pic = readPicture(req, 512);
+  const pic = readPicture(req, artistsLib.isFrame(b) ? artistsLib.FRAME.maxSide : 512);
   if (pic.error) return res.status(400).json({ error: pic.error });
   if (artistsLib.isFrame(b) && (pic.info.width !== pic.info.height || pic.info.width < artistsLib.FRAME.minSide)) return res.status(400).json({ error: `A frame picture is a square, at least ${artistsLib.FRAME.minSide}px. Use the template.` });
   const id = await store.putImage(pic.buf);

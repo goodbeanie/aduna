@@ -15,18 +15,19 @@ export function Avatar({ user, size = 40, presence, play = false }) {
   const frame = size >= 24 ? user?.framePreview || imageUrl(user?.frame) : null; // an artist's ring around the picture (see FRAME in image.js); too small to read under 24px
   const [failed, setFailed] = React.useState(null); // the src that failed to load, if any
   const [hover, setHover] = React.useState(false);
+  const [frameSide, setFrameSide] = React.useState(FRAME.side); // the frame picture's own width: one made with room around the template square is wider than 512
   if (!user) return <div className="avatar" style={{ width: size, height: size, background: '#cfc5ac' }} />;
   const src = anim && failed !== anim && (play || hover) ? anim : still;
   const showImg = src && failed !== src;
   const label = user.avatarEmoji || (user.displayName || user.username || '?').slice(0, 1).toUpperCase();
-  const ring = size * FRAME.side / FRAME.hole; // the frame picture is bigger than the avatar: the avatar fills its middle hole
+  const ring = size * frameSide / FRAME.hole; // the frame picture is bigger than the avatar: the avatar fills its middle hole
   const hoverProps = anim && !play ? { onMouseEnter: () => setHover(true), onMouseLeave: () => setHover(false) } : null;
   return (
     <div className="avatar-wrap" style={{ width: size, height: size }} {...hoverProps}>
       <div className="avatar" style={{ width: size, height: size, background: user.avatarColor, fontSize: size * (user.avatarEmoji ? 0.52 : 0.46) }}>
         {showImg ? <img src={src} alt="" draggable={false} onError={() => setFailed(src)} /> : user.avatarLogo ? <span className="logo-mark" aria-hidden="true"><i className="logo-body" /></span> : label}
       </div>
-      {frame && <img className="avatar-frame" src={frame} alt="" draggable={false} style={{ width: ring, height: ring, left: (size - ring) / 2, top: (size - ring) / 2 }} />}
+      {frame && <img className="avatar-frame" src={frame} alt="" draggable={false} onLoad={(e) => setFrameSide(Math.max(FRAME.side, e.currentTarget.naturalWidth))} style={{ width: ring, height: ring, left: (size - ring) / 2, top: (size - ring) / 2 }} />}
       {presence && <span className={'dot ' + presence} style={{ width: Math.max(10, size * 0.3), height: Math.max(10, size * 0.3) }} />}
     </div>
   );

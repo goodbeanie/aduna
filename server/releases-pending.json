@@ -374,5 +374,14 @@
     "items": [
       { "title": "Frame choice works", "text": "Picking a frame in the profile editor showed a \"Something went wrong\" screen. The frame now shows on your profile card preview as you pick it." }
     ]
+  },
+  {
+    "id": "2026.11.14.12",
+    "date": "2026-11-14",
+    "title": "Frames keep the whole picture",
+    "items": [
+      { "title": "Nothing is cut off", "text": "When an artist positions a frame, everything in the window is now kept, not only what sits inside the outlined square. Art that sticks out, like a hat, shows in full." },
+      { "title": "Existing frames stay as they are", "text": "Frames that are already in the shop keep their old shape. A new frame, or a draft that is uploaded again, uses the bigger area." }
+    ]
   }
 ]

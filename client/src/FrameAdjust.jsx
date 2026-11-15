@@ -1,17 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './ui.jsx';
-import { FRAME_ZOOM, processFrame } from './image.js';
+import { FRAME_VIEW, FRAME_ZOOM, processFrame } from './image.js';
 import { useLang } from './i18n.js';
 import './cropper.css';
 
 // Position, scale and rotate a profile frame picture before it is uploaded (Settings > Artist, a frame item).
-// The outlined square is the 512 x 512 frame, and the window shows a bit more around it (dimmed, that part is cut off) so the whole picture can be seen.
+// The outlined square is the 512 x 512 template, and the window shows a bit more around it. The whole window is saved, so art that sticks out past the square is kept.
 // The dashed rounded square is where the profile picture sits (art drawn there shows over it); the blue band around it is where the ring goes.
 // A sample profile picture sits under the art so the fit can be judged. Drag to move, slider / mouse wheel / + and - keys to scale, [ and ] keys to rotate,
 // arrow keys to nudge, or type exact numbers. Scale 100% fits the whole picture in the square. Scale and rotation both work from the picture's middle.
-// Nothing is uploaded here: onApply gets the finished 512px PNG (processFrame only refuses a picture with almost nothing in it).
+// Nothing is uploaded here: onApply gets the finished PNG (processFrame only refuses a picture with almost nothing in it).
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
-const VIEW = 1.5; // the window is this many frames wide
+const VIEW = FRAME_VIEW; // the window is this many frames wide
 const FRAME_INSET = `${((1 - 1 / VIEW) / 2) * 100}%`;
 const wrapTurn = (d) => ((d + 540) % 360) - 180;
 
@@ -117,7 +117,7 @@ export default function FrameAdjust({ file, onApply, onCancel }) {
   return (
     <Modal title="Position your frame" onClose={onCancel} wide>
       <div className="crop">
-        <p className="muted small">Drag to move the picture, or type exact numbers for its position, scale and rotation. Your ring goes in the blue band. The dashed square is where the profile picture sits, and art drawn inside it shows over the picture. The darker area outside the frame gets cut off.</p>
+        <p className="muted small">Drag to move the picture, or type exact numbers for its position, scale and rotation. Your ring goes in the blue band. The dashed square is where the profile picture sits, and art drawn inside it shows over the picture. Everything in the window is kept, including art outside the outlined square.</p>
         <div className="frame-layout">
           <div
             ref={box}
