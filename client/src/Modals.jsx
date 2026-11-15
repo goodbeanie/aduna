@@ -5,7 +5,7 @@ import { SafeLink } from './LinkGuard.jsx';
 import { Avatar, BadgeIcons, Banner, BannerBlur, bannerBlurClass, Icon, Modal, PlusBadge, STATUS_LABEL, useCardTheme } from './ui.jsx';
 import { useProfileThemes, loadProfileThemes, themeGradient, lightness, CUSTOM_THEME_ID } from './profilethemes.js';
 import { nameProps, NAME_FONTS, MAX_NAME_STOPS, DEFAULT_NAME_GRADIENT, nameGradientCss } from './namestyle.js';
-import { uploadImage, uploadAnimated, checkImageFile, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE, checkSongFile, inspectSongFile, uploadSong, songNameOf, SONG } from './image.js';
+import { uploadImage, uploadAnimated, checkImageFile, imageUrl, ACCEPT_ATTR, AVATAR_SIZE, BANNER_SIZE, checkSongFile, inspectSongFile, uploadSong, songNameOf, SONG } from './image.js';
 import Cropper from './Cropper.jsx';
 import ProfileSong from './ProfileSong.jsx';
 import GamePicker, { GameIcon, gameName } from './GamePicker.jsx';

@@ -366,5 +366,13 @@
     "items": [
       { "title": "Profile editor opens again", "text": "If you owned a profile frame, opening the profile editor showed a \"Something went wrong\" screen. It opens normally now." }
     ]
+  },
+  {
+    "id": "2026.11.14.11",
+    "date": "2026-11-14",
+    "title": "Choosing a frame no longer crashes",
+    "items": [
+      { "title": "Frame choice works", "text": "Picking a frame in the profile editor showed a \"Something went wrong\" screen. The frame now shows on your profile card preview as you pick it." }
+    ]
   }
 ]
