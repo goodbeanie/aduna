@@ -1,18 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal } from './ui.jsx';
-import { FRAME_VIEW, FRAME_ZOOM, processFrame } from './image.js';
+import { FRAME_ZOOM, frameViewFor, processFrame } from './image.js';
 import { useLang } from './i18n.js';
 import './cropper.css';
 
 // Position, scale and rotate a profile frame picture before it is uploaded (Settings > Artist, a frame item).
-// The outlined square is the 512 x 512 template, and the window shows a bit more around it. The whole window is saved, so art that sticks out past the square is kept.
+// The outlined square is the 512 x 512 template. The window shows more around it, and it zooms out by itself when the picture is moved or scaled past its edge,
+// so the whole picture is always in view and the whole picture is saved (up to FRAME_VIEW.max squares wide).
 // The dashed rounded square is where the profile picture sits (art drawn there shows over it); the blue band around it is where the ring goes.
 // A sample profile picture sits under the art so the fit can be judged. Drag to move, slider / mouse wheel / + and - keys to scale, [ and ] keys to rotate,
 // arrow keys to nudge, or type exact numbers. Scale 100% fits the whole picture in the square. Scale and rotation both work from the picture's middle.
 // Nothing is uploaded here: onApply gets the finished PNG (processFrame only refuses a picture with almost nothing in it).
 const clamp = (v, lo, hi) => Math.min(Math.max(v, lo), hi);
-const VIEW = FRAME_VIEW; // the window is this many frames wide
-const FRAME_INSET = `${((1 - 1 / VIEW) / 2) * 100}%`;
 const wrapTurn = (d) => ((d + 540) % 360) - 180;
 
 // A number box that only applies what was typed when you leave it or press Enter, so a half-typed value is not clamped under your fingers.
@@ -50,7 +49,9 @@ export default function FrameAdjust({ file, onApply, onCancel }) {
   const [err, setErr] = useState('');
   const drag = useRef(null);
   const box = useRef(null);
-  const side = view / VIEW; // the frame's size on screen
+  const turns = frameViewFor(nat ? nat.w : 1, nat ? nat.h : 1, { zoom, x: pos.x, y: pos.y, rotate: rot }); // how many squares wide the window has to show to hold the whole picture
+  const side = view / turns; // the frame's size on screen
+  const inset = `${((1 - 1 / turns) / 2) * 100}%`;
 
   useEffect(() => {
     const fit = () => { const w = window.innerWidth; setView(w >= 800 ? 460 : Math.max(240, Math.min(460, w - 56))); };
@@ -122,7 +123,7 @@ export default function FrameAdjust({ file, onApply, onCancel }) {
           <div
             ref={box}
             className="crop-window frame-window"
-            style={{ width: view, height: view, '--fi': FRAME_INSET, '--fs': `${side}px` }}
+            style={{ width: view, height: view, '--fi': inset, '--fs': `${side}px` }}
             tabIndex={0}
             role="img"
             aria-label={t('cropArea')}

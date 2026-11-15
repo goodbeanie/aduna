@@ -383,5 +383,14 @@
       { "title": "Nothing is cut off", "text": "When an artist positions a frame, everything in the window is now kept, not only what sits inside the outlined square. Art that sticks out, like a hat, shows in full." },
       { "title": "Existing frames stay as they are", "text": "Frames that are already in the shop keep their old shape. A new frame, or a draft that is uploaded again, uses the bigger area." }
     ]
+  },
+  {
+    "id": "2026.11.14.13",
+    "date": "2026-11-14",
+    "title": "Frame window zooms out for big art",
+    "items": [
+      { "title": "The window grows with your art", "text": "When you move or scale a frame picture past the edge of the window, the window now zooms out by itself, so you always see the whole picture and all of it is saved." },
+      { "title": "Bigger limit", "text": "A frame can now be up to five times as wide as the template square, up from three. Frames already in the shop are not changed." }
+    ]
   }
 ]
