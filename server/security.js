@@ -23,18 +23,14 @@ const CSP = [
   "frame-ancestors 'none'",
 ].join('; ');
 
-// Aduna's own checkout loads PayPal's card fields and button, so when PayPal is set up its addresses are allowed too (and only then).
+// Stripe Checkout is a redirect to Stripe's own page, so nothing of Stripe's is loaded into Aduna and the policy needs no Stripe addresses.
 // Clips: when CLIPS_PUBLIC_URL is set, the clips address is allowed for pictures and video, and (with CLIPS_R2_BUCKET) the R2 upload
 // address for the signed upload links. Without them the policy is unchanged.
 const originOf = (u) => { try { return new URL(String(u || '')).origin; } catch { return ''; } };
 function cspFor(env) {
   const add = {};
   const put = (k, v) => { add[k] = add[k] ? `${add[k]} ${v}` : v; };
-  if (env.PAYPAL_CLIENT_ID) {
-    const geo = env.TAX_COLLECT_IN ? ' https://api.bigdatacloud.net' : ''; // checkout's "use my location" turns coordinates into a country/state
-    put('script-src', 'https://*.paypal.com https://*.paypalobjects.com'); put('frame-src', 'https://*.paypal.com');
-    put('connect-src', 'https://*.paypal.com https://*.paypalobjects.com' + geo); put('img-src', 'https://*.paypal.com https://*.paypalobjects.com');
-  }
+  if (env.TAX_COLLECT_IN) put('connect-src', 'https://api.bigdatacloud.net'); // checkout's "use my location" turns coordinates into a country/state
   // Turnstile on the sign-up page: its script, its frame and its reporting calls.
   if (env.TURNSTILE_SECRET && env.TURNSTILE_SITE_KEY) {
     put('script-src', 'https://challenges.cloudflare.com'); put('frame-src', 'https://challenges.cloudflare.com'); put('connect-src', 'https://challenges.cloudflare.com');
@@ -67,7 +63,7 @@ function securityHeaders(env = process.env) {
     res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
     // calls need the camera, microphone and screen share on this site only
     res.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), display-capture=(self), geolocation=(' + (env.TAX_COLLECT_IN ? 'self' : '') + '), payment=(), usb=()');
-    res.setHeader('Cross-Origin-Opener-Policy', env.PAYPAL_CLIENT_ID ? 'same-origin-allow-popups' : 'same-origin');
+    res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
     if (req.secure) res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains'); // only over HTTPS
     next();
   };

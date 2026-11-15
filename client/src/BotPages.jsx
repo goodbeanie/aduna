@@ -13,6 +13,13 @@ export const BOT_BANNER = { w: 1200, h: 400 }; // 3:1, the same shape as the ban
 const asUser = (b) => ({ id: b.id, username: b.name, displayName: b.name, avatarImage: b.avatarImage, avatarColor: '#8c6b4f' });
 const bannerStyle = (b) => (b.bannerImage ? { backgroundImage: `url(${imageUrl(b.bannerImage)})` } : undefined);
 
+// Public bots are listed whether or not an admin has verified them. Unverified ones get a warning wherever someone can add them.
+export const VerifiedChip = ({ bot }) => (bot.verified
+  ? <span className="bchip bchip-ok" title="An Aduna admin reviewed this bot's code">✓ Verified</span>
+  : <span className="bchip bchip-warn" title="No one at Aduna has reviewed this bot's code">Not verified</span>);
+export const UNVERIFIED_TEXT = 'This bot is not verified. No one at Aduna has reviewed its code, so only add it to a server if you trust its developer.';
+export const UnverifiedWarning = ({ bot, short }) => (bot.verified || bot.mine ? null : <p className="bot-warn" role="note">{short ? 'Not verified. Only add it if you trust its developer.' : UNVERIFIED_TEXT}</p>);
+
 export function BotPictures({ bot, held, onSaved }) {
   const [busy, setBusy] = useState('');
   const [err, setErr] = useState('');
@@ -69,10 +76,11 @@ export function BotDetails({ bot, onAdd, onClose }) {
         <div className="bot-page-head">
           <Avatar user={asUser(bot)} size={64} />
           <div>
-            <div className="bot-head"><b className="bot-name">{bot.name}</b><span className="bot-tag">BOT</span></div>
+            <div className="bot-head"><b className="bot-name">{bot.name}</b><span className="bot-tag">BOT</span><VerifiedChip bot={bot} /></div>
             <div className="muted small">by {by} · {bot.installs} server{bot.installs === 1 ? '' : 's'}</div>
           </div>
         </div>
+        <UnverifiedWarning bot={bot} />
         {bot.tags.length > 0 && <div className="tag-row">{bot.tags.map((t) => <span key={t} className="tag">#{t}</span>)}</div>}
         {bot.description && <p className="bot-page-short">{bot.description}</p>}
         {bot.about && <div className="bot-page-about">{bot.about}</div>}

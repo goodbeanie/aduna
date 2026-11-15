@@ -2,10 +2,11 @@
 //
 // A bot is a small JavaScript program a developer writes and Aduna runs in a sandbox (the runtime is NOT in this file; see sandbox.js and sandbox-core.js).
 // bots[id] = { id, ownerId, name, description, about (long description), tags, prefix (default '/'), commands: [{ name, description }], avatarImage (image id or null), bannerImage (image id or null), visibility: 'private'|'public', code, createdAt, updatedAt, installs: [serverId],
-//              reports: [...], listingHold }
+//              reports: [...], listingHold, verified: { at, by, hash } }
 // "private" = only its developer can install it; "public" = listed on the Bots tab in the explorer and anyone can add it to a server
-// they manage.
+// they manage. A public bot is "verified" when an admin has reviewed it (admin page > Bots). Unverified bots are still listed, with a warning.
 const vm = require('vm');
+const crypto = require('crypto');
 const listing = require('./listing');
 
 const LIMITS = { perDeveloper: 5, name: 32, description: 200, about: 1500, code: 32 * 1024, tags: 5, page: 24, bannerW: 1600, bannerH: 600, prefix: 3, commands: 25, commandName: 32, commandDesc: 100 };
@@ -96,6 +97,10 @@ function checkBot(input, { current = null, words = [] } = {}) {
 // Command names and descriptions as one text, for the same checks as the other public text.
 const commandsText = (c) => (Array.isArray(c) ? c.map((x) => `${x.name} ${x.description || ''}`).join('\n').trim() : '');
 
+// Verification covers the name and the code the admin looked at. If either changes the hash no longer matches and the bot is unverified again.
+const verifyHash = (b) => crypto.createHash('sha256').update(String(b.name || '') + '\n' + String(b.code || '')).digest('hex');
+const isVerified = (b) => !!(b && b.verified && b.verified.hash === verifyHash(b));
+
 // What other people may see. The code is private to its developer (and the sandbox).
 function botView(b, viewerId, users = {}) {
   const o = users[b.ownerId];
@@ -104,8 +109,9 @@ function botView(b, viewerId, users = {}) {
     prefix: b.prefix || DEFAULT_PREFIX, commands: Array.isArray(b.commands) ? b.commands : [],
     developer: o ? { id: o.id, username: o.username, displayName: o.displayName } : null,
     avatarImage: b.avatarImage || null, bannerImage: b.bannerImage || null, installs: (b.installs || []).length, createdAt: b.createdAt, mine: b.ownerId === viewerId,
+    verified: isVerified(b),
   };
-  if (b.ownerId === viewerId) { view.code = b.code; view.review = b.listingHold ? b.listingHold.state : null; }
+  if (b.ownerId === viewerId) { view.code = b.code; view.review = b.listingHold ? b.listingHold.state : null; view.verificationLapsed = !!b.verified && !view.verified; }
   return view;
 }
 
@@ -134,4 +140,4 @@ function exploreBots(bots, { q = '', sort = 'popular', offset = 0, words = [] } 
   return { total: list.length, page: list.slice(offset, offset + LIMITS.page).map((x) => x.b), next: offset + LIMITS.page < list.length ? offset + LIMITS.page : null };
 }
 
-module.exports = { LIMITS, DEFAULT_PREFIX, checkBot, botView, exploreBots, syntaxProblem, cleanTagList, cleanCommandList };
+module.exports = { LIMITS, DEFAULT_PREFIX, checkBot, botView, exploreBots, syntaxProblem, cleanTagList, cleanCommandList, isVerified, verifyHash };

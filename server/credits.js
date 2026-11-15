@@ -1,4 +1,4 @@
-// Credits: Aduna's currency. Bought with real money (PayPal Checkout, or Stripe Checkout) or earned by chatting and finishing quests.
+// Credits: Aduna's currency. Bought with real money (Stripe Checkout) or earned by chatting and finishing quests.
 //
 // This file has no Express / Postgres imports on purpose: the rules are plain functions that work on a user
 // record (`user.credits`) and the in-memory `db`, so they can be unit tested without a database
@@ -6,9 +6,8 @@
 //
 // Where the money-safety lives:
 //   * Balances are only ever changed by grant() / spend() / claw() below, on the server. The client never sends an amount.
-//   * Purchases are credited from Stripe's signed webhook, or from a PayPal capture the server itself made / a PayPal-verified
-//     webhook (never from the browser's "success" redirect), once per checkout session or capture id (the `payments`
-//     collection), and only when the amount paid matches the pack's price.
+//   * Purchases are credited from Stripe's signed webhook (never from the browser's "success" redirect), once per checkout
+//     session (the `payments` collection), and only when the amount paid matches the pack's price.
 //   * Earning is rate limited per account and checked server side (see EARN). The typing "proof" sent by the browser
 //     is a speed bump against paste / auto-typing, NOT a guarantee: anything the browser sends can be forged by a
 //     determined script. The real limits are the daily cap, cooldown, account age, similarity and conversation checks.
@@ -40,16 +39,14 @@ const EARN = {
   minJitterMs: 8,                  // ...the gaps between them must vary by at least this (robots type evenly)
 };
 
-// Prices, set in Canadian dollars: 500 credits for 1.99, 1,000 for 3.49, 2,500 for 6.99 and 5,000 for 9.99, plus PayPal's 4.9% + 30 cents, rounded
-// up to the next price ending in 9 (cadCents). A pack's id is its credit amount. Older payments keep the pack id they were bought under (their own
-// record says how many credits they gave).
-// cadCents is the full price a Canadian buyer pays, the fee already in it, so checkout adds no fee line. With PayPal the US price is that converted at
-// the live rate (server/fx.js); cents is the US price used when PayPal is off or the rate is unknown (about cadCents / 1.4).
+// Prices: cadCents is what a Canadian buyer pays in CAD, cents is what a US buyer pays in USD. Both are fixed, and checkout adds no fee line.
+// A pack's id is its credit amount. Older payments keep the pack id they were bought under
+// (their own record says how many credits they gave).
 const PACKS = [
-  { id: 'p500', credits: 500, cents: 179, cadCents: 249 },
-  { id: 'p1000', credits: 1000, cents: 289, cadCents: 399 },
-  { id: 'p2500', credits: 2500, cents: 549, cadCents: 769 },
-  { id: 'p5000', credits: 5000, cents: 779, cadCents: 1089 },
+  { id: 'p500', credits: 500, cents: 149, cadCents: 199 },
+  { id: 'p1000', credits: 1000, cents: 249, cadCents: 349 },
+  { id: 'p2500', credits: 2500, cents: 499, cadCents: 699 },
+  { id: 'p5000', credits: 5000, cents: 719, cadCents: 999 },
 ];
 // The packs sold before the price changes. Not offered any more; only so a payment that was started before it still finishes and is credited.
 const LEGACY_PACKS = [
@@ -347,13 +344,11 @@ function view(u, db, { purchases, paused = false, now = Date.now(), dev = false,
     balance: c.balance,
     purchases,
     paused: !!paused, // purchases are set up but a creator has Payments switched off (/admin > Switches): the client says "paused", not "not set up"
-    provider: purchases ? (paypalEnabled() ? 'paypal' : 'stripe') : null,
-    tax: paypalEnabled() ? TAX.publicInfo() : null,
-    fee: paypalEnabled() ? FEE.publicInfo() : null,
-    regions: paypalEnabled() ? REG.publicInfo() : null,
-    paypalClientId: paypalEnabled() ? ppId() : null, // public by design: the browser needs it to load PayPal's card fields and button
-    packs: PACKS.map((p) => ({ ...p, cents: paypalEnabled() ? REG.priceIn(p, 'usd') : p.cents, currency: CURRENCY })), // with PayPal the US price follows the exchange rate (server/fx.js)
-    fx: paypalEnabled() ? FX.view() : null,
+    provider: purchases ? 'stripe' : null,
+    tax: purchases ? TAX.publicInfo() : null,
+    surcharge: purchases ? SUR.publicInfo() : null,
+    regions: purchases ? REG.publicInfo() : null,
+    packs: PACKS.map((p) => ({ ...p, currency: CURRENCY })),
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
     streakInfo: streakView(c, now, plus),
     ads: ads.view(u, { now, unlocksAt: unlocksAt(u), rewarded: !!features.rewarded, sponsored: !!features.sponsored }), // { enabled: false } unless sponsors are configured AND a feature switch is on for this person; never anything in chat or voice
@@ -379,167 +374,11 @@ const stripeKey = () => process.env.STRIPE_SECRET_KEY || '';
 const stripeHook = () => process.env.STRIPE_WEBHOOK_SECRET || '';
 const stripeEnabled = () => !!(stripeKey() && stripeHook());
 
-// ---------- buying: PayPal Checkout (used instead of Stripe when it is set up) ----------
-// Needs PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET and PAYPAL_WEBHOOK_ID (PAYPAL_ENV=live for real money; anything else is the sandbox).
-// Aduna never sees card or PayPal login details: the buyer is sent to PayPal, approves there, comes back, and the SERVER captures
-// the order. Credits are only granted from a COMPLETED capture that PayPal itself returned (or from a webhook whose signature PayPal
-// confirmed), once per capture id, and only when the amount and currency match the pack the server priced.
-const ppId = () => process.env.PAYPAL_CLIENT_ID || '';
-const ppSecret = () => process.env.PAYPAL_CLIENT_SECRET || '';
-const ppHook = () => process.env.PAYPAL_WEBHOOK_ID || '';
-const paypalEnabled = () => !!(ppId() && ppSecret() && ppHook());
-const ppBase = () => (String(process.env.PAYPAL_ENV || '').toLowerCase() === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com');
-const purchasesEnabled = () => paypalEnabled() || stripeEnabled();
+const purchasesEnabled = stripeEnabled;
 const TAX = require('./tax');
-const REG = require('./regions');      // where Aduna sells and in which currency (server/regions.js)
-const FX = require('./fx');            // the USD to CAD rate the US price is worked out from (server/fx.js)
-const FEE = require('./fee');          // PayPal's processing fee, passed on to the buyer (server/fee.js)
-const ppMoney = (cents) => (cents / 100).toFixed(2);
-const ppOrderId = (v) => (typeof v === 'string' && /^[A-Za-z0-9-]{8,40}$/.test(v) ? v : null);
-
-async function ppToken(fetchImpl = fetch) {
-  const r = await fetchImpl(ppBase() + '/v1/oauth2/token', {
-    method: 'POST',
-    headers: { Authorization: 'Basic ' + Buffer.from(ppId() + ':' + ppSecret()).toString('base64'), 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: 'grant_type=client_credentials',
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.access_token) throw new Error(`PayPal sign-in failed (${r.status})`);
-  return j.access_token;
-}
-
-// Creates the order (price comes from the pack on the server, never from the browser).
-// Without `embedded` it returns where to send the buyer (PayPal's own page). With embedded 'card' or 'paypal' the buyer pays inside
-// Aduna's checkout (PayPal's card fields or PayPal button) and only the order id is returned; the browser then hands it back to be captured.
-async function createPaypalOrder({ user, pack, origin, embedded = null, buyer = {}, fetchImpl = fetch }) {
-  const where = REG.resolve(buyer);                            // Canada and the US only, each in its own currency (server/regions.js)
-  if (!where.ok) throw Object.assign(new Error(where.error), { forBuyer: true });
-  const base = REG.priceIn(pack, where.currency);
-  if (!base) throw Object.assign(new Error('This pack is not for sale in ' + where.currency.toUpperCase()), { forBuyer: true });
-  const q = TAX.quote(buyer, base);                            // tax only where Aduna is set up to collect it (server/tax.js)
-  if (!q.ok) throw Object.assign(new Error(q.error), { forBuyer: true });
-  const f = FEE.quote(buyer, base + q.tax);                    // PayPal's cut, as its own "processing fee" line (server/fee.js)
-  const total = base + q.tax + f.fee, extra = q.tax + f.fee, cur = where.currency.toUpperCase();
-  const token = await ppToken(fetchImpl);
-  const r = await fetchImpl(ppBase() + '/v2/checkout/orders', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json', 'PayPal-Request-Id': crypto.randomUUID() },
-    body: JSON.stringify({
-      intent: 'CAPTURE',
-      purchase_units: [{
-        reference_id: pack.id,
-        custom_id: `${user.id}|${pack.id}|${q.code || ''}|${total}|${where.country}|${where.region}|${q.tax}`, // the total paid and where the buyer is travel with the order: the capture checks one and records the other
-        description: `${pack.credits.toLocaleString('en-US')} Aduna credits`,
-        amount: extra
-          ? { currency_code: cur, value: ppMoney(total), breakdown: { item_total: { currency_code: cur, value: ppMoney(base) }, ...(q.tax ? { tax_total: { currency_code: cur, value: ppMoney(q.tax) } } : {}), ...(f.fee ? { handling: { currency_code: cur, value: ppMoney(f.fee) } } : {}) } }
-          : { currency_code: cur, value: ppMoney(base) },
-        ...(q.tax ? { items: [{ name: `${pack.credits.toLocaleString('en-US')} Aduna credits`, quantity: '1', category: 'DIGITAL_GOODS', unit_amount: { currency_code: cur, value: ppMoney(base) }, tax: { currency_code: cur, value: ppMoney(q.tax) } }] } : {}),
-      }],
-      ...(embedded === 'card'
-        ? { payment_source: { card: { attributes: { verification: { method: 'SCA_WHEN_REQUIRED' } } } } } // 3-D Secure when the bank asks for it
-        : embedded ? {} : { payment_source: { paypal: { experience_context: {
-          brand_name: 'Aduna', user_action: 'PAY_NOW', shipping_preference: 'NO_SHIPPING',
-          return_url: `${origin}/app?credits=paypal`, cancel_url: `${origin}/app?credits=cancelled`,
-        } } } }),
-    }),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (embedded) {
-    if (!r.ok || !ppOrderId(j.id)) throw new Error(`PayPal checkout failed (${r.status}): ${j.message || 'no order id'}`);
-    return { orderId: j.id };
-  }
-  const link = (j.links || []).find((l) => l.rel === 'payer-action') || (j.links || []).find((l) => l.rel === 'approve');
-  if (!r.ok || !link?.href) throw new Error(`PayPal checkout failed (${r.status}): ${j.message || 'no approval link'}`);
-  let host = '';
-  try { host = new URL(link.href).hostname; } catch { /* handled below */ }
-  if (!/(^|\.)paypal\.com$/.test(host)) throw new Error('PayPal checkout failed: unexpected approval address');
-  return { url: link.href, orderId: j.id };
-}
-
-// Applies one PayPal capture object to `db` (the caller saves). Only a COMPLETED capture for the right amount pays out, once.
-function applyPaypalCapture(cap, db, now = Date.now()) {
-  if (!cap || cap.status !== 'COMPLETED' || typeof cap.id !== 'string') return null; // PENDING: wait for the webhook
-  if (String(cap.custom_id || '').startsWith('storage|')) return null;                // the storage plan: server/storage.js looks after it
-  const key = 'pp_' + cap.id;
-  if (db.payments[key]) return null;                                                // retries and the return trip + webhook: pay once
-  const [uid, packId, , totalStr, country = '', region = '', taxStr] = String(cap.custom_id || '').split('|');
-  const pack = packForPayment(packId), u = db.users[uid];
-  if (!pack || !u) { console.error('Credits: PayPal capture', cap.id, 'has an unknown pack or user'); return null; }
-  const cents = Math.round(Number(cap.amount?.value) * 100), cur = String(cap.amount?.currency_code).toLowerCase();
-  const base = REG.priceIn(pack, cur);                                         // the pack's price in the currency that was paid
-  const expected = totalStr === undefined ? base : Number(totalStr);             // price + the tax and processing fee the server added when it made the order
-  const wrongCurrency = !!country && REG.currencyOf(country) !== cur;           // a Canadian order is paid in CAD, a US one in USD
-  if (!base || !Number.isInteger(expected) || expected < REG.floorIn(pack, cur) || expected > Math.round(base * 1.75) || cents !== expected || wrongCurrency) {
-    console.error('Credits: PayPal capture', cap.id, 'amount does not match the pack; not crediting');
-    return null;
-  }
-  const why = REG.review(country, cap.payerCountry);
-  db.payments[key] = {
-    id: key, userId: u.id, packId: pack.id, credits: pack.credits, cents: expected, currency: cur, country, region, tax: Number(taxStr) || 0,
-    ...(cap.payerCountry ? { payerCountry: cap.payerCountry } : {}), ...(why ? { review: why } : {}),
-    intent: 'pp:' + cap.id, createdAt: now, reversed: false,
-  };
-  if (why) console.warn(`Credits: payment ${key} needs a look (${why}): the buyer said ${country || 'nothing'}, PayPal says ${cap.payerCountry}`);
-  grant(u, pack.credits, 'purchase', { note: `${pack.credits} credits`, kind: 'buy', now });
-  return { uid: u.id, delta: pack.credits, reason: 'purchase' };
-}
-
-// Captures an approved order (this is the moment the money moves) and applies it. Safe to call twice.
-// Returns { status: 'completed' | 'pending' | 'incomplete', change }.
-async function capturePaypalOrder({ orderId, db, fetchImpl = fetch, now = Date.now() }) {
-  const id = ppOrderId(orderId);
-  if (!id) throw new Error('Bad order');
-  const token = await ppToken(fetchImpl);
-  const auth = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
-  let r = await fetchImpl(`${ppBase()}/v2/checkout/orders/${id}/capture`, { method: 'POST', headers: { ...auth, 'PayPal-Request-Id': 'cap-' + id }, body: '{}' });
-  let j = await r.json().catch(() => ({}));
-  if (!r.ok && (j.details || []).some((x) => x.issue === 'ORDER_ALREADY_CAPTURED')) { // the webhook (or a second tab) got there first
-    r = await fetchImpl(`${ppBase()}/v2/checkout/orders/${id}`, { headers: auth });
-    j = await r.json().catch(() => ({}));
-  }
-  if (!r.ok) throw new Error(`PayPal capture failed (${r.status}): ${j.message || j.name || 'unknown'}`);
-  const cap = j.purchase_units?.[0]?.payments?.captures?.[0];
-  if (!cap) return { status: 'incomplete', change: null };
-  const withCustom = { ...cap, custom_id: cap.custom_id || j.purchase_units[0].custom_id, payerCountry: REG.payerCountryOf(j) };
-  const change = applyPaypalCapture(withCustom, db, now);
-  return { status: cap.status === 'COMPLETED' ? 'completed' : 'pending', change };
-}
-
-// PayPal's own check that a webhook is genuine. The event is passed on byte for byte (raw body), as PayPal signs it.
-async function verifyPaypalWebhook(raw, headers, fetchImpl = fetch) {
-  if (!Buffer.isBuffer(raw) || !ppHook()) return false;
-  const h = (k) => String(headers?.[k] || '');
-  const parts = { auth_algo: h('paypal-auth-algo'), cert_url: h('paypal-cert-url'), transmission_id: h('paypal-transmission-id'), transmission_sig: h('paypal-transmission-sig'), transmission_time: h('paypal-transmission-time') };
-  if (Object.values(parts).some((v) => !v)) return false;
-  let host = '';
-  try { host = new URL(parts.cert_url).hostname; } catch { return false; }
-  if (!/(^|\.)paypal\.com$/.test(host)) return false;
-  const token = await ppToken(fetchImpl);
-  const body = `{${Object.entries(parts).map(([k, v]) => `${JSON.stringify(k)}:${JSON.stringify(v)}`).join(',')},"webhook_id":${JSON.stringify(ppHook())},"webhook_event":${raw.toString('utf8')}}`;
-  const r = await fetchImpl(ppBase() + '/v1/notifications/verify-webhook-signature', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body });
-  const j = await r.json().catch(() => ({}));
-  return r.ok && j.verification_status === 'SUCCESS';
-}
-
-// Applies one verified PayPal event to `db` (the caller saves). CHECKOUT.ORDER.APPROVED is handled by the route (it needs to call PayPal).
-function handlePaypalEvent(event, db, now = Date.now()) {
-  const res = event?.resource || {};
-  if (event?.event_type === 'PAYMENT.CAPTURE.COMPLETED') return applyPaypalCapture(res, db, now);
-  let capId = null, refunded = null;
-  if (event?.event_type === 'PAYMENT.CAPTURE.REFUNDED') {                       // the resource is the refund; its "up" link is the capture
-    const up = (res.links || []).find((l) => l.rel === 'up')?.href || '';
-    capId = up.split('/').pop() || null;
-    refunded = Math.round(Number(res.amount?.value) * 100);
-  } else if (event?.event_type === 'PAYMENT.CAPTURE.REVERSED') capId = res.id || null;
-  else if (event?.event_type === 'CUSTOMER.DISPUTE.CREATED') capId = (res.disputed_transactions || []).map((t) => t.seller_transaction_id).find(Boolean) || null;
-  if (!capId) return null;
-  const pay = db.payments['pp_' + capId], u = pay && db.users[pay.userId];
-  if (!pay || !u || pay.reversed) return null;
-  if (refunded !== null && !(refunded >= pay.cents)) return null;               // partial refunds are ignored, like Stripe's
-  pay.reversed = true;
-  claw(u, pay.credits, event.event_type === 'CUSTOMER.DISPUTE.CREATED' || event.event_type === 'PAYMENT.CAPTURE.REVERSED' ? 'chargeback' : 'refund', { now });
-  return { uid: u.id, delta: -pay.credits, reason: 'refund' };
-}
+const SUR = require('./surcharge'); // the optional credit card surcharge line (off unless SURCHARGE_PCT is set)
+const REG = require('./regions'); // where Aduna sells and in which currency (server/regions.js)
+const PRICES = require('./stripeprices'); // attaches the products you made in the Stripe dashboard (off unless STRIPE_PRODUCTS or STRIPE_PRICES is set)
 
 // header looks like: t=1700000000,v1=<hex hmac>[,v1=...]. The signed text is "<t>.<raw body>".
 function verifyStripeSignature(raw, header, secret, nowSec = Math.floor(Date.now() / 1000), toleranceSec = 300) {
@@ -553,48 +392,92 @@ function verifyStripeSignature(raw, header, secret, nowSec = Math.floor(Date.now
   return sigs.some((s) => /^[0-9a-f]{64}$/i.test(s) && crypto.timingSafeEqual(Buffer.from(s, 'hex'), expected));
 }
 
-async function createCheckout({ user, pack, origin, fetchImpl = fetch }) {
-  const body = new URLSearchParams({
+async function stripeRequest(method, path, params, fetchImpl = fetch) {
+  const r = await fetchImpl('https://api.stripe.com/v1' + path, {
+    method,
+    headers: { Authorization: 'Bearer ' + stripeKey(), ...(params ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}) },
+    ...(params ? { body: new URLSearchParams(params) } : {}),
+  });
+  return { ok: r.ok, status: r.status, j: await r.json().catch(() => ({})) };
+}
+
+// Stripe accounts can have "Managed Payments" (Stripe as seller of record, handles tax) switched on by default; it
+// rejects checkouts whose products have no tax code. Aduna does not send tax codes, so it opts out per session
+// unless STRIPE_MANAGED_PAYMENTS=on is set (then a tax code must be added to the line item first).
+async function createSession(params, fetchImpl = fetch) {
+  const body = process.env.STRIPE_MANAGED_PAYMENTS === 'on' ? params : { ...params, 'managed_payments[enabled]': 'false' };
+  const r = await stripeRequest('POST', '/checkout/sessions', body, fetchImpl);
+  if (!r.ok || !r.j.url) throw new Error(`Stripe checkout failed (${r.status}): ${r.j.error?.message || 'no url'}`);
+  return r.j;
+}
+
+// The price comes from the pack on the server, never from the browser. The buyer's country and province pick the currency and the tax.
+async function createCheckout({ user, pack, origin, buyer = {}, fetchImpl = fetch }) {
+  const where = REG.resolve(buyer);
+  if (!where.ok) throw Object.assign(new Error(where.error), { forBuyer: true });
+  const base = REG.priceIn(pack, where.currency);
+  if (!base) throw Object.assign(new Error('This pack is not for sale in ' + where.currency.toUpperCase()), { forBuyer: true });
+  const q = TAX.quote(buyer, base);
+  if (!q.ok) throw Object.assign(new Error(q.error), { forBuyer: true });
+  const sc = SUR.quote(buyer, base);
+  // your own Stripe product for this pack when STRIPE_PRODUCTS / STRIPE_PRICES attach one (server/stripeprices.js), else an inline price
+  const priceId = await PRICES.priceFor({ item: pack, currency: where.currency, base, request: (m, p) => stripeRequest(m, p, null, fetchImpl) });
+  const params = {
     mode: 'payment',
-    'line_items[0][quantity]': '1',
-    'line_items[0][price_data][currency]': CURRENCY,
-    'line_items[0][price_data][unit_amount]': String(pack.cents),
-    'line_items[0][price_data][product_data][name]': `${pack.credits.toLocaleString('en-US')} Aduna credits`,
+    ...PRICES.line(0, { priceId, currency: where.currency, cents: base, name: `${pack.credits.toLocaleString('en-US')} Aduna credits` }),
     success_url: `${origin}/app?credits=paid`,
     cancel_url: `${origin}/app?credits=cancelled`,
     client_reference_id: user.id,
     'metadata[userId]': user.id,
     'metadata[packId]': pack.id,
-  });
-  if (user.email) body.set('customer_email', user.email); // pre-fills the checkout page and where Stripe sends the receipt
-  // Stripe accounts can have "Managed Payments" (Stripe as seller of record, handles tax) switched on by default; it
-  // rejects checkouts whose products have no tax code. Aduna does not send tax codes, so it opts out per session
-  // unless STRIPE_MANAGED_PAYMENTS=on is set (then a tax code must be added to the line item first).
-  if (process.env.STRIPE_MANAGED_PAYMENTS !== 'on') body.set('managed_payments[enabled]', 'false');
-  const r = await fetchImpl('https://api.stripe.com/v1/checkout/sessions', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + stripeKey(), 'Content-Type': 'application/x-www-form-urlencoded' },
-    body,
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.url) throw new Error(`Stripe checkout failed (${r.status}): ${j.error?.message || 'no url'}`);
-  return j.url;
+    'metadata[country]': where.country,
+    'metadata[region]': where.region,
+    'metadata[tax]': String(q.tax),
+    'metadata[surcharge]': String(sc.cents),
+    'metadata[total]': String(base + q.tax + sc.cents), // what the buyer should pay; the webhook checks the amount against it
+  };
+  let next = 1;
+  if (q.tax) {
+    params[`line_items[${next}][quantity]`] = '1';
+    params[`line_items[${next}][price_data][currency]`] = where.currency;
+    params[`line_items[${next}][price_data][unit_amount]`] = String(q.tax);
+    params[`line_items[${next}][price_data][product_data][name]`] = q.label;
+    next++;
+  }
+  if (sc.cents) {
+    params[`line_items[${next}][quantity]`] = '1';
+    params[`line_items[${next}][price_data][currency]`] = where.currency;
+    params[`line_items[${next}][price_data][unit_amount]`] = String(sc.cents);
+    params[`line_items[${next}][price_data][product_data][name]`] = sc.label;
+  }
+  if (user.email) params.customer_email = user.email; // pre-fills the checkout page and where Stripe sends the receipt
+  return (await createSession(params, fetchImpl)).url;
 }
 
 // Applies one verified Stripe event to `db` (the caller saves). Returns { uid, delta, reason } when a balance changed.
 function handleStripeEvent(event, db, now = Date.now()) {
   const obj = event?.data?.object || {};
   if (event?.type === 'checkout.session.completed' || event?.type === 'checkout.session.async_payment_succeeded') {
+    if (obj.mode === 'subscription') return null;   // the storage plan: server/storage.js looks after it
     if (obj.payment_status !== 'paid') return null; // an async payment: wait for async_payment_succeeded
     if (db.payments[obj.id]) return null;            // Stripe retries and sends duplicates: pay once per session
     const pack = packForPayment(obj.metadata?.packId);
     const u = db.users[obj.metadata?.userId];
     if (!pack || !u) { console.error('Credits: paid session', obj.id, 'has an unknown pack or user'); return null; }
-    if (obj.amount_total !== pack.cents || String(obj.currency).toLowerCase() !== CURRENCY) {
+    const cur = String(obj.currency).toLowerCase(), { country = '', region = '', tax, total } = obj.metadata || {};
+    const base = REG.priceIn(pack, cur);
+    const expected = total === undefined ? base : Number(total); // a session made before the total was recorded was for the plain price
+    if (!base || !Number.isInteger(expected) || expected < base || expected > Math.round(base * 1.75) || obj.amount_total !== expected || (!!country && REG.currencyOf(country) !== cur)) {
       console.error('Credits: paid session', obj.id, 'amount does not match the pack; not crediting');
       return null;
     }
-    db.payments[obj.id] = { id: obj.id, userId: u.id, packId: pack.id, credits: pack.credits, cents: pack.cents, intent: obj.payment_intent || null, createdAt: now, reversed: false };
+    const payerCountry = String(obj.customer_details?.address?.country || '').toUpperCase();
+    const why = REG.review(country, /^[A-Z]{2}$/.test(payerCountry) ? payerCountry : '');
+    if (why) console.warn(`Credits: payment ${obj.id} needs a look (${why}): the buyer said ${country || 'nothing'}, Stripe says ${payerCountry}`);
+    db.payments[obj.id] = {
+      id: obj.id, userId: u.id, packId: pack.id, credits: pack.credits, cents: expected, currency: cur, country, region, tax: Number(tax) || 0,
+      ...(why ? { review: why } : {}), intent: obj.payment_intent || null, createdAt: now, reversed: false,
+    };
     grant(u, pack.credits, 'purchase', { note: `${pack.credits} credits`, kind: 'buy', now });
     return { uid: u.id, delta: pack.credits, reason: 'purchase' };
   }
@@ -712,79 +595,28 @@ function register(app, d) {
     if (!pack) return res.status(400).json({ error: 'Unknown credit pack' });
     const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
     try {
-      if (paypalEnabled()) res.json({ url: (await createPaypalOrder({ user: req.user, pack, origin, buyer: req.body, fetchImpl: d.fetchImpl })).url });
-      else res.json({ url: await createCheckout({ user: req.user, pack, origin, fetchImpl: d.fetchImpl }) });
+      res.json({ url: await createCheckout({ user: req.user, pack, origin, buyer: req.body, fetchImpl: d.fetchImpl }) });
     }
     catch (e) { if (e.forBuyer) return res.status(400).json({ error: e.message }); console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
   }));
 
-  // Aduna's own checkout: the browser asks for an order (method 'card' for the card fields, 'paypal' for the PayPal button), pays inside
-  // Aduna's window, and then posts the order id to the capture route below. The price always comes from the pack, never from the browser.
-  app.post('/api/credits/paypal/order', d.auth, d.ah(async (req, res) => {
-    if (!paypalEnabled()) return res.status(503).json({ error: 'PayPal is not set up on this server' });
-    const t = Date.now(), arr = (tries.get(req.user.id) || []).filter((x) => t - x < 60_000);
-    if (arr.length >= 8) return res.status(429).json({ error: 'Too many attempts, try again in a minute' });
-    arr.push(t); tries.set(req.user.id, arr);
-    const pack = PACKS.find((p) => p.id === req.body?.packId);
-    if (!pack) return res.status(400).json({ error: 'Unknown credit pack' });
-    const method = req.body?.method === 'card' ? 'card' : 'paypal';
-    try { res.json({ orderId: (await createPaypalOrder({ user: req.user, pack, embedded: method, buyer: req.body, fetchImpl: d.fetchImpl })).orderId }); }
-    catch (e) { if (e.forBuyer) return res.status(400).json({ error: e.message }); console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' }); }
-  }));
-
-  // The buyer comes back from PayPal to /app?credits=paypal&token=<order id>; the app posts the order id here and the SERVER captures it.
-  const capTries = new Map();
-  app.post('/api/credits/paypal/capture', d.auth, d.ah(async (req, res) => {
-    if (!paypalEnabled()) return res.status(503).json({ error: 'PayPal is not set up on this server' });
-    const t = Date.now(), arr = (capTries.get(req.user.id) || []).filter((x) => t - x < 60_000);
-    if (arr.length >= 10) return res.status(429).json({ error: 'Too many attempts, try again in a minute' });
-    arr.push(t); capTries.set(req.user.id, arr);
-    if (!ppOrderId(req.body?.orderId)) return res.status(400).json({ error: 'Bad order' });
-    try {
-      const r = await capturePaypalOrder({ orderId: req.body.orderId, db: d.db(), fetchImpl: d.fetchImpl });
-      if (r.change) { d.save(); const u = d.db().users[r.change.uid]; if (u) push(u, r.change.delta, r.change.reason); }
-      res.json({ status: r.status, balance: acct(req.user).balance });
-    } catch (e) { console.error(e.message); res.status(502).json({ error: 'We could not confirm your payment yet. If PayPal charged you, your credits will arrive shortly.' }); }
-  }));
-
-  // PayPal calls this. No login: PayPal confirming the signature is the proof. index.js keeps the raw body for it (req.rawBody).
-  app.post('/api/credits/webhook/paypal', d.ah(async (req, res) => {
-    if (!paypalEnabled()) return res.status(503).json({ error: 'PayPal is not set up on this server' });
-    let ok = false;
-    try { ok = await verifyPaypalWebhook(req.rawBody, req.headers, d.fetchImpl); } catch (e) { console.error('PayPal webhook check failed:', e.message); return res.status(500).json({ error: 'Failed' }); }
-    if (!ok) return res.status(400).json({ error: 'Bad signature' });
-    let change = null;
-    try {
-      const ev = req.body;
-      // Storage plan (monthly subscription) events belong to server/storage.js; it hands back the person it changed.
-      if (d.paypalEvent && /^(BILLING\.SUBSCRIPTION|PAYMENT\.SALE)\./.test(String(ev?.event_type || ''))) {
-        const uid = d.paypalEvent(ev);
-        if (uid) { d.save(); if (d.storageChanged) d.storageChanged(uid); }
-        return res.json({ received: true });
-      }
-      // The buyer approved but never came back to Aduna: capture it here so the payment still completes.
-      if (ev?.event_type === 'CHECKOUT.ORDER.APPROVED' && ppOrderId(ev.resource?.id)) change = (await capturePaypalOrder({ orderId: ev.resource.id, db: d.db(), fetchImpl: d.fetchImpl })).change;
-      else change = handlePaypalEvent(ev, d.db());
-    } catch (e) { console.error('PayPal webhook error:', e.message); return res.status(500).json({ error: 'Failed' }); } // PayPal retries
-    if (change) { d.save(); const u = d.db().users[change.uid]; if (u) push(u, change.delta, change.reason); }
-    res.json({ received: true });
-  }));
-
   // Stripe calls this. No login: the signature is the proof. index.js keeps the raw body for it (req.rawBody).
-  app.post('/api/credits/webhook', (req, res) => {
+  app.post('/api/credits/webhook', d.ah(async (req, res) => {
     if (!verifyStripeSignature(req.rawBody, req.headers['stripe-signature'], stripeHook())) return res.status(400).json({ error: 'Bad signature' });
-    let change = null;
-    try { change = handleStripeEvent(req.body, d.db()); }
-    catch (e) { console.error('Credits webhook error:', e); return res.status(500).json({ error: 'Failed' }); } // Stripe retries
+    let change = null, storageUid = null;
+    try {
+      storageUid = d.storageEvent ? await d.storageEvent(req.body) : null; // subscription and invoice events belong to the storage plan (server/storage.js)
+      if (!storageUid) change = handleStripeEvent(req.body, d.db());
+    } catch (e) { console.error('Credits webhook error:', e); return res.status(500).json({ error: 'Failed' }); } // Stripe retries
+    if (storageUid) { d.save(); if (d.storageChanged) d.storageChanged(storageUid); }
     if (change) { d.save(); const u = d.db().users[change.uid]; if (u) push(u, change.delta, change.reason); }
     res.json({ received: true });
-  });
+  }));
 }
 
 module.exports = {
   EARN, PACKS, QUESTS, acct, grant, spend, claw, normalize, quality, similar, typingProblem,
   noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events, shop, pthemes, ads, STREAK_MILESTONES, streakView,
-  verifyStripeSignature, createCheckout, handleStripeEvent, purchasesEnabled, register,
-  paypalEnabled, ppToken, ppBase, ppId, createPaypalOrder, capturePaypalOrder, applyPaypalCapture, verifyPaypalWebhook, handlePaypalEvent,
+  verifyStripeSignature, stripeRequest, createSession, createCheckout, handleStripeEvent, purchasesEnabled, register,
   _reset: () => { spoke.clear(); seen.clear(); },
 };

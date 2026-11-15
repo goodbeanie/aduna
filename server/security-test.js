@@ -18,15 +18,13 @@ const step = (m) => console.log('✓', m);
   assert.ok(run({}, { secure: true })['Strict-Transport-Security'].includes('max-age'), 'HSTS over https');
   assert.ok(run({ CSP_MODE: 'report-only' })['Content-Security-Policy-Report-Only'] && !run({ CSP_MODE: 'report-only' })['Content-Security-Policy']);
   assert.strictEqual(run({ CSP_MODE: 'off' })['Content-Security-Policy'], undefined);
-  const pp = run({ PAYPAL_CLIENT_ID: 'x' });
-  assert.ok(pp['Content-Security-Policy'].includes("script-src 'self' https://*.paypal.com") && pp['Content-Security-Policy'].includes('frame-src https://*.paypal.com'), 'PayPal is allowed only when it is set up');
-  assert.ok(!h['Content-Security-Policy'].includes('paypal') && h['Content-Security-Policy'].includes("frame-src 'none'"), 'and not otherwise');
+  assert.ok(!h['Content-Security-Policy'].includes('paypal') && !h['Content-Security-Policy'].includes('stripe') && h['Content-Security-Policy'].includes("frame-src 'none'"), 'Stripe Checkout is a redirect: no payment company is allowed into the page');
   const ts = run({ TURNSTILE_SECRET: 's', TURNSTILE_SITE_KEY: 'k' })['Content-Security-Policy'];
   assert.ok(ts.includes("script-src 'self' https://challenges.cloudflare.com") && ts.includes('frame-src https://challenges.cloudflare.com'), 'Turnstile is allowed only when both keys are set');
   assert.ok(!run({ TURNSTILE_SECRET: 's' })['Content-Security-Policy'].includes('cloudflare') && !h['Content-Security-Policy'].includes('cloudflare'), 'and not otherwise');
-  assert.strictEqual(pp['Cross-Origin-Opener-Policy'], 'same-origin-allow-popups');
+  assert.strictEqual(h['Cross-Origin-Opener-Policy'], 'same-origin');
   assert.ok(h['Permissions-Policy'].includes('geolocation=()'), 'location stays blocked by default');
-  const tx = run({ PAYPAL_CLIENT_ID: 'x', TAX_COLLECT_IN: 'CA' });
+  const tx = run({ TAX_COLLECT_IN: 'CA' });
   assert.ok(tx['Permissions-Policy'].includes('geolocation=(self)') && tx['Content-Security-Policy'].includes('https://api.bigdatacloud.net'), 'location is allowed only when tax is on');
   step('headers: strict CSP, no framing, nosniff, permissions for calls, HSTS only on https, CSP_MODE switch');
 }

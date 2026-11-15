@@ -1,12 +1,10 @@
 // Where Aduna sells, and what each place pays in. No Express or database imports, so server/regions-test.js can test it alone.
 //
-// SELL_TO=CA,US is the default: Canada pays in CAD, the US in USD. The price is set once, in CAD, on each item (cadCents in
-// server/credits.js and server/storage.js); the US price is that converted at the live USD to CAD rate (server/fx.js).
-// Every order has to name a country and a province or state;
+// SELL_TO=CA,US is the default: Canada pays in CAD, the US in USD. Each item has a fixed price in each currency (cadCents and cents in
+// server/credits.js and server/storage.js). Every order has to name a country and a province or state;
 // the sales report (server/sales-report.js) counts by those.
 
 const TAX = require('./tax');
-const FX = require('./fx');           // the USD to CAD rate, fetched automatically (server/fx.js)
 
 const CURRENCY_OF = { CA: 'cad', US: 'usd' };
 const NAME_OF = { CA: 'Canada', US: 'the US' };
@@ -33,28 +31,12 @@ function resolve(body, env = process.env) {
 }
 
 // An item's price in cents in a currency, or null when it has none there.
-function priceIn(item, currency, env = process.env) {
-  if (currency === 'cad') return Number.isInteger(item?.cadCents) && item.cadCents > 0 ? item.cadCents : null;
-  if (currency !== 'usd') return null;
-  if (Number.isInteger(item?.cadCents) && item.cadCents > 0) return FX.toUsdCents(item.cadCents, env); // set in CAD, converted at today's rate (server/fx.js)
-  return Number.isInteger(item?.cents) && item.cents > 0 ? item.cents : null;                         // an old item with only a fixed US price
+function priceIn(item, currency) {
+  const cents = currency === 'cad' ? item?.cadCents : currency === 'usd' ? item?.cents : null;
+  return Number.isInteger(cents) && cents > 0 ? cents : null;
 }
 
-// The lowest price a payment may carry and still be accepted. The US price moves with the exchange rate, so an order made a little while
-// ago (at a slightly different rate) must still go through when it is captured; CAD prices never move.
-const FX_DRIFT = 0.85;
-function floorIn(item, currency, env = process.env) {
-  const base = priceIn(item, currency, env);
-  if (!base) return null;
-  return currency === 'usd' && Number.isInteger(item?.cadCents) ? Math.round(base * FX_DRIFT) : base;
-}
-
-// The country PayPal has for the payer, from a captured order. '' when PayPal did not say.
-function payerCountryOf(order) {
-  return cc(order?.payer?.address?.country_code || order?.payment_source?.paypal?.address?.country_code || order?.payment_source?.card?.billing_address?.country_code) || '';
-}
-
-// Why a payment needs a look, or ''. The buyer picks their own country at checkout, so PayPal's answer is the check on it.
+// Why a payment needs a look, or ''. The buyer picks their own country at checkout, so the country Stripe has for the card is the check on it.
 function review(country, payerCountry, env = process.env) {
   if (!payerCountry) return '';
   if (!sellTo(env).includes(payerCountry)) return 'payer-outside';
@@ -68,4 +50,4 @@ function publicInfo(env = process.env) {
   return { countries, currency: Object.fromEntries(countries.map((c) => [c, CURRENCY_OF[c]])) };
 }
 
-module.exports = { sellTo, currencyOf, resolve, priceIn, floorIn, payerCountryOf, review, publicInfo };
+module.exports = { sellTo, currencyOf, resolve, priceIn, review, publicInfo };

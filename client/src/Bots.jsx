@@ -5,7 +5,8 @@ import { Avatar, Icon, Modal } from './ui.jsx';
 import { PanelSkeleton, EmptyState } from './ShellBits.jsx';
 import { can } from './perms.js';
 import BotSim from './BotSim.jsx';
-import { BotPictures } from './BotPages.jsx';
+import { BotPictures, UNVERIFIED_TEXT, UnverifiedWarning, VerifiedChip } from './BotPages.jsx';
+import { askConfirm } from './Dialogs.jsx';
 
 // Bots on the client: Settings > Developer (write, test and publish bots), Server settings > Bots (add, scope and remove them),
 // and the "Add to server" picker the explorer uses. The sandbox and every rule live on the server; this file only asks.
@@ -33,6 +34,7 @@ function StatusChips({ bot }) {
     <>
       <span className={'bchip ' + (bot.visibility === 'public' ? 'bchip-pub' : '')}>{bot.visibility === 'public' ? 'Public' : 'Private'}</span>
       {bot.review === 'removed' && <span className="bchip bchip-bad">Removed by moderators</span>}
+      {bot.visibility === 'public' && <VerifiedChip bot={bot} />}
       {bot.review && bot.review !== 'removed' && <span className="bchip bchip-warn">Listing under review</span>}
       {bot.pausedUntil && <span className="bchip bchip-warn">Paused after timeouts</span>}
     </>
@@ -213,6 +215,7 @@ function BotEditor({ bot, limits, fetchHosts, onSaved, onDeleted, onBack }) {
       {removed && <div className="error">Moderators removed this bot from the public listing after reports. It left every server and cannot be added again.</div>}
       {bot?.review && !removed && <div className="error">This bot&rsquo;s public listing is under review after reports. You can edit it again once moderators have decided.</div>}
       {bot?.pausedUntil && <div className="error">This bot is paused because its code kept running out of time. Save new code to resume it.</div>}
+      {bot?.visibility === 'public' && !bot.verified && !held && <p className="bot-warn" role="note">{bot.verificationLapsed ? 'You changed the name or code after this bot was verified, so it is not verified any more. ' : ''}Public bots are listed with a warning until an Aduna admin has reviewed the code and verified them.</p>}
 
       <label>NAME</label>
       <input value={name} maxLength={limits.name} onChange={(e) => setName(e.target.value)} aria-label="Bot name" disabled={held} />
@@ -379,7 +382,10 @@ export function BotsTab({ server, me, onChange }) {
     try { const r = await fn(); if (r?.server) onChange(r.server); return true; }
     catch (e) { setErr(e.message); return false; } finally { setBusy(''); }
   }
-  const add = (b) => run('add' + b.id, () => api(`/servers/${server.id}/bots`, { method: 'POST', body: { botId: b.id } }));
+  const add = async (b) => {
+    if (!b.verified && !b.mine && !(await askConfirm({ title: `Add ${b.name}?`, body: UNVERIFIED_TEXT, confirmLabel: 'Add anyway' }))) return;
+    return run('add' + b.id, () => api(`/servers/${server.id}/bots`, { method: 'POST', body: { botId: b.id } }));
+  };
   const remove = (i) => run('rm' + i.botId, () => api(`/servers/${server.id}/bots/${i.botId}`, { method: 'DELETE' }));
   const scope = (i, channels) => run('sc' + i.botId, () => api(`/servers/${server.id}/bots/${i.botId}`, { method: 'PATCH', body: { channels } }));
 

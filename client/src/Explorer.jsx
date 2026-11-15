@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Select } from './Controls.jsx';
 import { api } from './api.js';
 import { Avatar, Icon, Modal } from './ui.jsx';
-import { BotDetails } from './BotPages.jsx';
+import { BotDetails, UnverifiedWarning, VerifiedChip } from './BotPages.jsx';
 import { imageUrl } from './image.js';
 import { InviteBox } from './Invite.jsx';
 import { AddToServerModal } from './Bots.jsx';
@@ -192,8 +192,9 @@ function BotList({ servers, me, onServerUpdate }) {
         <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>
           {items.map((b) => (
             <div key={b.id} className="bot-card">{b.bannerImage && <div className="bot-card-banner" style={{ backgroundImage: `url(${imageUrl(b.bannerImage)})` }} />}
-              <div className="bot-head"><Avatar user={{ id: b.id, username: b.name, displayName: b.name, avatarImage: b.avatarImage, avatarColor: '#8c6b4f' }} size={32} /><button type="button" className="bot-name bot-name-link" onClick={() => setDetails(b)} title="Open this bot's page">{b.name}</button><span className="bot-tag">BOT</span></div>
+              <div className="bot-head"><Avatar user={{ id: b.id, username: b.name, displayName: b.name, avatarImage: b.avatarImage, avatarColor: '#8c6b4f' }} size={32} /><button type="button" className="bot-name bot-name-link" onClick={() => setDetails(b)} title="Open this bot's page">{b.name}</button><span className="bot-tag">BOT</span><VerifiedChip bot={b} /></div>
               <div className="muted small">by {b.developer ? (b.developer.displayName || b.developer.username) : 'a developer'} · {b.installs} server{b.installs === 1 ? '' : 's'}</div>
+              <UnverifiedWarning bot={b} short />
               {b.description && <p className="ex-desc">{b.description}</p>}
               {b.tags.length > 0 && <div className="tag-row">{b.tags.map((t) => <button key={t} className="tag" onClick={() => setQ(t)} title={`Search #${t}`}>#{t}</button>)}</div>}
               <div className="bot-card-foot">

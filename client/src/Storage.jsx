@@ -33,9 +33,9 @@ function typeInfo(f) {
   return { icon: 'file', label: 'File' };
 }
 
-// PayPal sends the buyer back to /app?storage=paypal&subscription_id=I-...; read it once, when the app starts.
+// Stripe sends the buyer back to /app?storage=paid&session_id=cs_...; read it once, when the app starts.
 const RETURN = (() => {
-  try { const p = new URLSearchParams(location.search); return p.get('storage') ? { kind: p.get('storage'), id: p.get('subscription_id') } : null; }
+  try { const p = new URLSearchParams(location.search); return p.get('storage') ? { kind: p.get('storage'), id: p.get('session_id') } : null; }
   catch { return null; }
 })();
 let returnUsed = false;
@@ -128,7 +128,7 @@ function LimitForm({ current, onSave, busy, saveLabel = 'Save', max = 10, requir
   );
 }
 
-function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimit, busy }) {
+function PlanModal({ s, onClose, onSubscribe, onManage, onBilling, onCancelPlan, onSaveLimit, busy }) {
   const pct = s.limit ? Math.min(100, Math.round((s.used / s.limit) * 100)) : 0;
   return (
     <Modal title="Storage" onClose={onClose}>
@@ -171,6 +171,7 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onCancelPlan, onSaveLimi
       <div className="st-actions">
         <button className="btn st-left" onClick={onManage}>Manage files</button>
         {s.subscriber && !s.paused && <a className="btn" href="/payments">Payments</a>}
+        {s.subscriber && !s.lifetime && s.status !== 'none' && <button className="btn" onClick={onBilling} disabled={busy}>Billing</button>}
         {s.subscriber && s.renews && <button className="btn danger-btn" onClick={onCancelPlan} disabled={busy}>Cancel plan</button>}
         <button className="btn primary" onClick={onClose}>Done</button>
       </div>
@@ -219,21 +220,21 @@ export function StorageDock({ storage, setStorage }) {
     toast(`Free storage ${first ? 'is' : 'is now'} ${fmt(storage.freeLimit)} per person.${storage.readOnly ? ' You are over it, so attachments are read-only.' : ''} Older files could be removed to make room, so keep a copy of anything important.`);
   }, [storage]);
 
-  // back from PayPal: the server asks PayPal whether the plan is on (it never believes the browser)
+  // back from Stripe: the server asks Stripe whether the plan is on (it never believes the browser)
   useEffect(() => {
     if (!RETURN || returnUsed) return;
     returnUsed = true;
     try { history.replaceState(null, '', '/app'); } catch { /* ignore */ }
     if (RETURN.kind === 'cancelled') { toast('Checkout cancelled. You were not charged.'); return; }
-    if (RETURN.kind !== 'paypal' || !RETURN.id) return;
-    toast('Confirming your plan with PayPal…');
+    if (RETURN.kind !== 'paid' || !RETURN.id) return;
+    toast('Confirming your plan with Stripe…');
     let tries = 0;
-    const ask = () => api('/storage/confirm', { method: 'POST', body: { subscriptionId: RETURN.id } }).then((r) => {
+    const ask = () => api('/storage/confirm', { method: 'POST', body: { sessionId: RETURN.id } }).then((r) => {
       setStorage(r);
       if (r.status === 'active') toast('Your storage plan is on. Thank you!');
       else if (r.status === 'pending' && ++tries < 8) setTimeout(ask, 4000);
-      else if (r.status === 'pending') toast('PayPal is still processing it. Your plan turns on as soon as it clears.');
-      else toast('PayPal did not start the plan. You were not charged.', 'error');
+      else if (r.status === 'pending') toast('Stripe is still processing it. Your plan turns on as soon as it clears.');
+      else toast('The plan did not start. If you were charged, contact support.', 'error');
     }).catch((e) => toast(e.message, 'error'));
     ask();
   }, [setStorage]);
@@ -250,11 +251,11 @@ export function StorageDock({ storage, setStorage }) {
     catch (e) { toast(e.message, 'error'); }
     setBusy(false);
   }
-  // The card was paid and the server captured it (it saves the card at PayPal and starts the plan): show the new state.
-  function paid(r) {
-    setStorage(r); setCheckout(false); setBusy(false); setCoErr('');
-    if (r.status === 'active') toast(r.saved === false ? 'Your storage plan is on for this month. PayPal could not save your card, so it will not renew.' : 'Your storage plan is on. Thank you!');
-    else toast('PayPal is still processing your payment. Please do not pay again; check Storage again in a few minutes.');
+  // Stripe's own page for changing the card or cancelling
+  async function billing() {
+    setBusy(true);
+    try { const { url } = await api('/storage/portal', { method: 'POST' }); window.location.assign(url); }
+    catch (e) { toast(e.message, 'error'); setBusy(false); }
   }
   const finishFull = (ok) => { full?.resolve(ok); setFull(null); reload(); };
 
@@ -265,7 +266,7 @@ export function StorageDock({ storage, setStorage }) {
 
   const freePct = s.freeLimit ? Math.min(100, Math.round((s.used / s.freeLimit) * 100)) : 0;
 
-  if (checkout) return <Checkout pack={plan} provider={s.provider} clientId={s.paypalClientId || null} tax={s.tax} fee={s.fee} regions={s.regions} busy={busy} error={coErr} onPay={subscribe} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(false); setBusy(false); }} />;
+  if (checkout) return <Checkout pack={plan} tax={s.tax} surcharge={s.surcharge} regions={s.regions} busy={busy} error={coErr} onPay={subscribe} onClose={() => { setCheckout(false); setBusy(false); }} />;
 
   return (
     <>
@@ -277,7 +278,7 @@ export function StorageDock({ storage, setStorage }) {
         {s.subscriber && s.limit && <span className="st-track"><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: fillPct(s.used, s.limit) + '%' }} /></span>}
         {!s.subscriber && s.freeLimit && <span className="st-track"><i className={s.readOnly || freePct >= 95 ? 'full' : freePct >= 80 ? 'warn' : ''} style={{ width: fillPct(s.used, s.freeLimit) + '%' }} /></span>}
       </button>
-      {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={() => { setModal(null); setCoErr(''); setCheckout(true); }} onManage={() => setModal('files')} onCancelPlan={cancelPlan} onSaveLimit={(gb) => saveLimit(gb)} />}
+      {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={() => { setModal(null); setCoErr(''); setCheckout(true); }} onManage={() => setModal('files')} onBilling={billing} onCancelPlan={cancelPlan} onSaveLimit={(gb) => saveLimit(gb)} />}
       {ask && (
         <Modal title="Do you want a storage limit?" onClose={() => { ask.resolve(false); setAsk(null); }}>
           <p className="st-note">With Plus your files are never removed. You can keep uploading with no limit, or set one yourself so uploads stop at a size you choose. You can change this any time in Storage.</p>

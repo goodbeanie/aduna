@@ -1,4 +1,5 @@
-// The USD to CAD rate and the US prices worked out from it, without a database or the network: node server/fx-test.js
+// The USD to CAD rate the sales report uses, without a database or the network: node server/fx-test.js
+// Prices do not use it: every pack has a fixed price in each currency (server/credits.js).
 const assert = require('assert');
 const FX = require('./fx');
 const REG = require('./regions');
@@ -6,20 +7,17 @@ const SR = require('./sales-report');
 const step = (m) => console.log('✓', m);
 const T0 = Date.UTC(2026, 10, 11);
 
-// nothing fetched yet: 1.40 (or SALES_USD_TO_CAD), and today's prices come out exactly as they were set by hand
+// nothing fetched yet: 1.40 (or SALES_USD_TO_CAD)
 FX._reset();
 assert.deepStrictEqual([FX.current({}, T0).rate, FX.current({}, T0).source], [1.4, 'fallback']);
 assert.strictEqual(FX.current({ SALES_USD_TO_CAD: '1.5' }, T0).rate, 1.5);
-const PACKS = { 279: 199, 699: 499, 1399: 999, 2799: 1999 };
-for (const [cad, usd] of Object.entries(PACKS)) assert.strictEqual(FX.toUsdCents(Number(cad), {}, T0), usd, cad + ' CAD cents is ' + usd + ' US cents at 1.40');
-step('no rate fetched yet: 1.40, and the packs keep their old US prices');
+step('no rate fetched yet: 1.40, or SALES_USD_TO_CAD');
 
 // a pinned rate wins and nothing is fetched
 let calls = 0;
 const never = async () => { calls++; throw new Error('should not be called'); };
 assert.strictEqual(FX.current({ FX_USD_TO_CAD: '1.25' }, T0).source, 'pinned');
 FX.refresh({ fetchImpl: never, env: { FX_USD_TO_CAD: '1.25' }, now: T0 }).then(() => assert.strictEqual(calls, 0));
-assert.strictEqual(FX.toUsdCents(699, { FX_USD_TO_CAD: '1.25' }, T0), 559, '$6.99 CAD at 1.25 is $5.59 (ends in 9)');
 step('FX_USD_TO_CAD pins the rate and stops the fetching');
 
 const ok = (rate) => async () => ({ ok: true, json: async () => ({ rates: { CAD: rate } }) });
@@ -29,9 +27,7 @@ const down = async () => ({ ok: false, status: 503, json: async () => ({}) });
   // a fetched rate is used
   let c = await FX.refresh({ fetchImpl: ok(1.38), now: T0, env: {} });
   assert.deepStrictEqual([c.rate, c.source, c.stale], [1.38, 'live', false]);
-  assert.strictEqual(FX.toUsdCents(699, {}, T0), 509, '$6.99 CAD at 1.38 is $5.09');
-  assert.strictEqual(FX.toUsdCents(279, {}, T0), 199, '$2.79 CAD at 1.38 is $2.02, shown as $1.99');
-  step('a fetched rate sets the US price, in steps of 10 cents ending in 9');
+  step('a fetched rate is used');
 
   // the second service is used when the first is down
   FX._reset();
@@ -54,21 +50,14 @@ const down = async () => ({ ok: false, status: 503, json: async () => ({}) });
   assert.strictEqual(FX.current({}, T0 + FX.STALE_MS + 10_000).rate, 1.36);
   step('a rate a few days old is still used, and marked stale');
 
-  // prices: CAD never moves, USD follows the rate; old items keep their fixed US price
-  const pack = { id: 'p1350', cents: 499, cadCents: 699 };
-  assert.strictEqual(REG.priceIn(pack, 'cad', {}), 699);
-  assert.strictEqual(REG.priceIn(pack, 'usd', {}), FX.toUsdCents(699, {}, Date.now()));
+  // prices are fixed in each currency and never follow the rate
+  const pack = { id: 'p500', cents: 179, cadCents: 249 };
+  assert.strictEqual(REG.priceIn(pack, 'cad', {}), 249);
+  assert.strictEqual(REG.priceIn(pack, 'usd', {}), 179);
   assert.strictEqual(REG.priceIn({ cents: 999 }, 'usd', {}), 999, 'an old pack with no CAD price');
   assert.strictEqual(REG.priceIn({ cents: 999 }, 'cad', {}), null);
   assert.strictEqual(REG.priceIn(pack, 'eur', {}), null);
-  step('CAD is the set price, USD follows the rate, old packs keep theirs');
-
-  // the capture check allows for the rate moving between the order and the capture
-  const now = REG.priceIn(pack, 'usd', {}), floor = REG.floorIn(pack, 'usd', {});
-  assert.ok(floor < now && floor >= Math.round(now * 0.85));
-  assert.strictEqual(REG.floorIn(pack, 'cad', {}), 699, 'CAD has no allowance');
-  assert.strictEqual(REG.floorIn({ cents: 999 }, 'usd', {}), 999, 'an old pack has none either');
-  step('a US order a little under today\'s price is allowed; CAD and old packs must match exactly');
+  step('prices are fixed in CAD and in USD, whatever the rate does');
 
   // the sales report converts US sales at the live rate
   FX._reset();

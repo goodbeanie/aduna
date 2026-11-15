@@ -6,7 +6,7 @@ import { EmptyState, PanelSkeleton } from './ShellBits.jsx';
 import { toast } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, ShopTile, useCountUp } from './Shop.jsx';
 import PlusCard from './PlusCard.jsx';
-import { homeCountry, rememberCountry, priceFor, rateNote } from './region.js';
+import { homeCountry, rememberCountry, priceFor } from './region.js';
 
 const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
 
@@ -156,133 +156,25 @@ function StreakCard({ s }) {
   );
 }
 
-// The notices shown before paying. Shown on the Credits page and again inside the checkout, where `paypal` and `tax` add the two notes below.
-function BuyNotices({ paypal = false, tax = false, place = false, saved = false, fee = false }) {
+// The notices shown before paying. Shown on the Credits page and again inside the checkout, where `stripe` and `tax` add the notes below.
+function BuyNotices({ stripe = false, tax = false, place = false, saved = false }) {
   return (
     <div className="buy-notices">
       {saved
-        ? <div className="buy-note"><Icon name="shield" size={16} /><span>Your card is saved securely by PayPal, not by Aduna. Aduna never sees or stores your card details. Your plan renews every month and you can cancel any time in Storage.</span></div>
+        ? <div className="buy-note"><Icon name="shield" size={16} /><span>Your card is kept securely by Stripe, not by Aduna. Aduna never sees or stores your card details. Your plan renews every month and you can cancel any time in Storage.</span></div>
         : <div className="buy-note"><Icon name="shield" size={16} /><span>Aduna does not save your payment information, your security is our priority.</span></div>}
-      {paypal && <div className="buy-note"><Icon name="shield" size={16} /><span>Secure checkout is provided by PayPal. Your card details are entered directly with PayPal and are never seen or stored by Aduna.</span></div>}
-      {fee && <div className="buy-note"><Icon name="coin" size={16} /><span>The processing fee is what PayPal charges to handle your payment. Aduna adds it so the price of the item stays the same for us.</span></div>}
+      {stripe && <div className="buy-note"><Icon name="shield" size={16} /><span>Secure checkout is provided by Stripe. Your card details are entered on Stripe's page and are never seen or stored by Aduna.</span></div>}
       {tax && <div className="buy-note"><Icon name="pin" size={16} /><span>We ask for your billing location only to calculate the sales tax that applies to your order. Your postal code stays in your browser; only your country and province or state are sent with the order.</span></div>}
       {place && <div className="buy-note"><Icon name="pin" size={16} /><span>Aduna sells to Canada and the US, and prices are in Canadian or US dollars depending on where you are. Your postal code stays in your browser; only your country and province or state are sent with the order.</span></div>}
     </div>
   );
 }
 
-// Loads PayPal's script once per currency. The card boxes and the PayPal button come from it; card details are typed into boxes that
-// PayPal serves inside Aduna's checkout, so they go straight to PayPal and never reach Aduna.
-// Each currency gets its own namespace: a second copy of the script under window.paypal does not start and leaves no CardFields.
-const sdkLoads = {};
-function loadPaypal(clientId, currency = 'usd') {
-  const cur = String(currency).toUpperCase();
-  const ns = 'paypal_' + cur.toLowerCase();
-  if (!sdkLoads[cur]) {
-    sdkLoads[cur] = new Promise((resolve, reject) => {
-      const el = document.createElement('script');
-      el.src = `https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(clientId)}&components=buttons,card-fields&currency=${cur}&intent=capture&disable-funding=paylater,venmo`;
-      el.dataset.ppSdk = '1';
-      el.dataset.namespace = ns;
-      el.async = true;
-      el.onload = () => (window[ns] ? resolve(window[ns]) : (el.remove(), reject(new Error('PayPal did not load'))));
-      el.onerror = () => { el.remove(); reject(new Error('PayPal did not load')); };
-      document.head.appendChild(el);
-    }).catch((e) => { delete sdkLoads[cur]; throw e; });
-  }
-  return sdkLoads[cur];
-}
-
-const css = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
-
-// The card form and PayPal button inside Aduna's checkout. onPaid(result) runs after the server has captured the order.
-// For a monthly plan (`recurring`) the card is saved by PayPal (the server asks for it) and charged by the server every month; PayPal's
-// button cannot do that, so instead there is a button that opens PayPal's own subscription page (`onPaypalPage`) for PayPal-account payers.
-function PayForm({ pack, clientId, currency, getBuyer, blocked, total, recurring = false, onPaypalPage, onPaid, onFallback, onError }) {
-  const [ready, setReady] = useState(false);
-  const [cardOk, setCardOk] = useState(true);
-  const [noCard, setNoCard] = useState(false);
-  const [paying, setPaying] = useState(false);
-  const [live, setLive] = useState(false); // card boxes fade in once PayPal has drawn them (no white flash)
-  const cf = useRef(null);
-  const blockedRef = useRef(blocked); blockedRef.current = blocked;
-
-  useEffect(() => {
-    let dead = false, buttons = null;
-    const makeOrder = (method) => () => (recurring
-      ? api('/storage/vault/order', { method: 'POST', body: { ...getBuyer() } })
-      : api('/credits/paypal/order', { method: 'POST', body: { packId: pack.id, method, ...getBuyer() } })).then((r) => r.orderId);
-    const approved = ({ orderID }) => api(recurring ? '/storage/vault/capture' : '/credits/paypal/capture', { method: 'POST', body: { orderId: orderID } }).then((r) => { if (!dead) onPaid(r); });
-    const fail = (e) => { console.error('PayPal card error:', e?.message || e); if (!dead) { setPaying(false); onError(e?.message && !/^\s*\{/.test(e.message) && e.message.length < 160 ? e.message : 'The payment did not go through. Check your details or try another way to pay.'); } };
-    loadPaypal(clientId, currency).then((paypal) => {
-      if (dead) return;
-      const input = { 'font-size': '15px', 'font-family': 'inherit', 'font-weight': '500', 'letter-spacing': '0.01em', color: css('--head', '#222'), background: 'transparent', border: 'none', 'border-radius': '0', 'box-shadow': 'none', appearance: 'none', '-webkit-appearance': 'none', padding: '0 16px', outline: 'none' };
-      // CardFields is missing when PayPal has cards off for this account or currency; the PayPal button still works.
-      const fields = typeof paypal.CardFields !== 'function' ? null : paypal.CardFields({
-        createOrder: makeOrder('card'),
-        onApprove: approved,
-        onError: fail,
-        style: { input, '.invalid': { color: css('--err-fg', '#c00') }, ':focus': { color: css('--head', '#222') } },
-      });
-      if (fields?.isEligible()) {
-        cf.current = fields;
-        const shown = [
-          fields.NameField({ placeholder: 'Name on card' }).render('#pp-name'),
-          fields.NumberField({ placeholder: 'Card number' }).render('#pp-number'),
-          fields.ExpiryField({ placeholder: 'MM / YY' }).render('#pp-expiry'),
-          fields.CVVField({ placeholder: 'CVV' }).render('#pp-cvv'),
-        ];
-        const reveal = () => { if (!dead) setTimeout(() => { if (!dead) setLive(true); }, 120); }; // a beat for the iframe to paint its own background
-        Promise.allSettled(shown).then(reveal);
-        setTimeout(() => { if (!dead) setLive(true); }, 3000); // never leave the boxes hidden
-      } else { setCardOk(false); setNoCard(true); console.warn('PayPal card fields are not available for this account/browser'); }
-      if (!recurring) {
-        buttons = paypal.Buttons({
-          fundingSource: paypal.FUNDING.PAYPAL,
-          style: { layout: 'vertical', shape: 'rect', height: 44, label: 'paypal' },
-          onClick: (_d, actions) => { if (blockedRef.current) { onError('Choose your country and province or state first.'); return actions.reject(); } onError(''); return actions.resolve(); },
-          createOrder: makeOrder('paypal'),
-          onApprove: approved,
-          onError: fail,
-        });
-        if (buttons.isEligible()) buttons.render('#pp-button');
-      }
-      setReady(true);
-    }).catch((e) => { console.error('PayPal checkout setup failed:', e); if (!dead) onFallback(e?.message || 'PayPal could not be set up'); });
-    return () => { dead = true; try { buttons?.close(); } catch { /* already gone */ } cf.current = null; };
-  }, [pack.id, clientId, recurring, currency]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function payByCard() {
-    if (!cf.current) return;
-    onError(''); setPaying(true);
-    cf.current.submit().catch((e) => { console.error('PayPal card error:', e?.message || e); setPaying(false); onError(e?.message && e.message.length < 160 ? e.message : 'Check your card details and try again.'); });
-  }
-
-  return (
-    <div className="pay-form">
-      {!ready && <p className="muted small">Loading secure checkout…</p>}
-      {noCard && <p className="error-text">Card payments are not switched on for this PayPal account yet, so only the PayPal button is available. (PayPal Business account: Advanced Credit and Debit Card Payments.)</p>}
-      <div className={'pay-card' + (cardOk ? '' : ' hidden') + (live ? ' live' : '')}>
-        <div className="pp-field" id="pp-name" />
-        <div className="pp-field" id="pp-number" />
-        <div className="pp-row"><div className="pp-field" id="pp-expiry" /><div className="pp-field" id="pp-cvv" /></div>
-        <button type="button" className="btn primary pay-btn" disabled={!ready || paying || blocked} onClick={payByCard}>{paying ? 'Processing…' : recurring ? `Subscribe ${total} a month` : `Pay ${total}`}</button>
-      </div>
-      <div className={'pay-or' + (ready ? '' : ' hidden')}><span>{cardOk ? 'or' : 'pay with'}</span></div>
-      {recurring
-        ? <button type="button" className={'btn pay-btn pay-pp' + (ready ? '' : ' hidden')} disabled={paying || blocked} onClick={onPaypalPage}>Subscribe with a PayPal account</button>
-        : <div id="pp-button" className="pp-button" />}
-    </div>
-  );
-}
-
-// Aduna's own full-screen checkout, laid out like Stripe's: the payment form on the left, the receipt on the right, an X to leave.
-// With PayPal set up it shows the card boxes and a PayPal button; otherwise (Stripe, or if PayPal's script cannot load) a plain hand-off button.
+// Aduna's own full-screen checkout, laid out like Stripe's: where the buyer is on the left, the receipt on the right, an X to leave.
+// Continue hands the buyer to Stripe's checkout page, where the card is entered.
 const PROVINCES = { AB: 'Alberta', BC: 'British Columbia', MB: 'Manitoba', NB: 'New Brunswick', NL: 'Newfoundland and Labrador', NS: 'Nova Scotia', NT: 'Northwest Territories', NU: 'Nunavut', ON: 'Ontario', PE: 'Prince Edward Island', QC: 'Quebec', SK: 'Saskatchewan', YT: 'Yukon' };
 const STATES = { AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming' };
 const REGIONS = { CA: PROVINCES, US: STATES };
-// What PayPal's cut adds to `net` cents so the sale still nets `net` (same whole-number maths as server/fee.js). `fee` = { percent, fixedCents } from the server.
-const processingFee = (net, fee) => { const den = 10000 - Math.round(fee.percent * 100); return Math.floor(((net + fee.fixedCents) * 10000 + den - 1) / den) - net; };
 const countryName = (c) => { try { return new Intl.DisplayNames(undefined, { type: 'region' }).of(c) || c; } catch { return c; } };
 
 // Asks the browser where the buyer is, then turns the coordinates into a country and state/province (BigDataCloud, no key needed).
@@ -332,9 +224,8 @@ function fromPostal(raw, tax) {
 }
 
 // `pack` is a credit pack, or (Storage.jsx) a plan: { cents, currency, recurring: true, title, subtitle, icon }, billed every month.
-// A plan with a PayPal client id uses the same card boxes: PayPal saves the card and the server charges it each month. Without the client id,
-// or if the card form cannot start, the buyer is sent to PayPal's own page to approve a PayPal subscription instead.
-export function Checkout({ pack, provider, clientId, tax, fee, regions, busy, error, onPay, onPaid, onError, onClose }) {
+// A plan is a Stripe subscription: Stripe keeps the card and charges it each month.
+export function Checkout({ pack, tax, surcharge = null, regions, busy, error, onPay, onClose }) {
   const [country, setCountry] = useState(() => (regions ? homeCountry(regions.countries) : '')); // the country whose price was shown, so the price does not change under the buyer
   useEffect(() => { if (regions && country) rememberCountry(country); }, [regions, country]); // next time the shop shows this country's price
   const [region, setRegion] = useState('');
@@ -342,9 +233,6 @@ export function Checkout({ pack, provider, clientId, tax, fee, regions, busy, er
   const [locMsg, setLocMsg] = useState('');
   const [postal, setPostal] = useState(''); // typed here only; it fills in the pickers and is never sent to the server
   const buyerRef = useRef({}); buyerRef.current = { country, region: REGIONS[country] ? region : '' };
-  const [fallback, setFallback] = useState(''); // why the card form could not start; the buyer is then offered PayPal's own page
-  const who = provider === 'paypal' ? 'PayPal' : 'Stripe';
-  const embedded = provider === 'paypal' && !!clientId && !fallback;
   const where = regions || tax;                  // the countries Aduna sells to, or else the ones it collects tax in
   const asks = !!where;
   const needsRegion = !!REGIONS[country] && (!!regions || (!!tax && Object.keys(tax.rates).some((k) => k.startsWith(country + '-'))));
@@ -356,11 +244,11 @@ export function Checkout({ pack, provider, clientId, tax, fee, regions, busy, er
   const hit = tax && picked ? tax.rates[code] : null;
   const parts = hit ? (hit.parts || [{ label: hit.label, rate: hit.rate }]).map((x) => ({ ...x, amount: Math.round((cents * x.rate) / 100) })) : [];
   const taxCents = parts.reduce((t, x) => t + x.amount, 0);
-  // PayPal's processing fee, worked out the same way as the server does (server/fee.js); the server's amount is the one charged.
-  // Where the buyer's country is not known yet, the fee waits until it is.
-  const net = cents + taxCents;
-  const feeCents = fee && picked && !(country && fee.skip.includes(country)) ? processingFee(net, fee) : 0;
-  const price = money(cents, cur), total = money(net + feeCents, cur);
+  // the optional credit card surcharge (server/surcharge.js): same rounding as the server, nothing for places that are left out
+  const scRate = surcharge && picked && country ? surcharge.rates[country] || 0 : 0;
+  const scLeftOut = !!surcharge && (surcharge.exclude.includes(country) || surcharge.exclude.includes(code));
+  const scCents = scRate && !scLeftOut ? Math.round((cents * scRate) / 100) : 0;
+  const price = money(cents, cur), total = money(cents + taxCents + scCents, cur);
   // a postal code or location that is outside what Aduna sells to clears the picker and says so
   const fill = (r, msg) => {
     if (regions && r.country === 'ZZ') { setCountry(''); setRegion(''); setLocMsg(sellsOnly); return; }
@@ -379,7 +267,7 @@ export function Checkout({ pack, provider, clientId, tax, fee, regions, busy, er
       </div>
       <div className="co-grid">
         <main className="co-form">
-          <h1 className="co-h">{embedded ? 'Pay with card' : `Pay with ${who}`}</h1>
+          <h1 className="co-h">Pay with Stripe</h1>
           {asks && (
             <div className="co-where">
               <label className="muted small" htmlFor="co-postal">Billing location</label>
@@ -410,13 +298,9 @@ export function Checkout({ pack, provider, clientId, tax, fee, regions, busy, er
               )}
             </div>
           )}
-          {embedded && !picked && <p className="muted small">Choose your country and {country === 'US' ? 'state' : 'province or state'} above to pay.</p>}
-          {embedded && picked && <PayForm key={cur} pack={pack} clientId={clientId} currency={cur} getBuyer={() => buyerRef.current} blocked={!picked} total={total} recurring={!!pack.recurring} onPaypalPage={() => onPay(buyerRef.current)} onPaid={onPaid} onError={onError} onFallback={setFallback} />}
-          {provider === 'paypal' && !clientId && !pack.recurring && <p className="error-text">The server did not send a PayPal client id, so the card form is off. Redeploy the server with the latest code.</p>}
-          {fallback && provider === 'paypal' && <p className="error-text">The card form could not start ({fallback}). You can still pay on PayPal's own page.</p>}
-          {!embedded && <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? `Opening ${who}…` : pack.recurring ? `Subscribe for ${total} a month with ${who}` : `Pay ${total} with ${who}`}</button>}
+          <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? 'Opening Stripe…' : pack.recurring ? `Subscribe for ${total} a month` : `Pay ${total}`}</button>
           {error && <p className="error-text">{error}</p>}
-          <BuyNotices paypal={provider === 'paypal'} tax={!!tax} place={!!regions && !tax} fee={feeCents > 0} saved={!!pack.recurring && embedded} />
+          <BuyNotices stripe tax={!!tax} place={!!regions && !tax} saved={!!pack.recurring} />
         </main>
         <aside className="co-receipt">
           <div className="co-rcpt-in">
@@ -431,8 +315,9 @@ export function Checkout({ pack, provider, clientId, tax, fee, regions, busy, er
             {tax && !picked && <div className="co-line"><span>Tax</span><span className="muted small">Choose where you are</span></div>}
             {tax && picked && !parts.length && <div className="co-line"><span>Tax</span><span>{money(0, cur)}</span></div>}
             {parts.map((x) => <div key={x.label} className="co-line"><span>{x.label} ({x.rate}%)</span><span>{money(x.amount, cur)}</span></div>)}
-            {feeCents > 0 && <div className="co-line"><span>Processing fee</span><span>{money(feeCents, cur)}</span></div>}
+            {scCents > 0 && <div className="co-line"><span>Card processing surcharge ({scRate}%)</span><span>{money(scCents, cur)}</span></div>}
             <div className="co-line total"><span>Total due today</span><b>{total}</b></div>
+            {scCents > 0 && <p className="muted small">A {scRate}% surcharge is added to card payments to help cover the card processing fee.</p>}
             {pack.recurring && <p className="muted small">Then {total} every month until you cancel. You can cancel any time in Storage; you keep the plan until the month you paid for ends.</p>}
           </div>
         </aside>
@@ -482,7 +367,7 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
 // Credits: balance, buying, the earning rules, quests and recent activity.
 // `rev` goes up whenever the server says the balance changed, so this page refreshes itself.
 // `page` picks the tab: 'shop' (buy credits, spend them on badges, recent activity) or 'quests' (earn credits: events, chatting, quests).
-export default function Credits({ page = 'shop', storage = null, onBack, rev, justPaid, paypalOrder, creator = false, artistId = null, onAllItems }) {
+export default function Credits({ page = 'shop', storage = null, onBack, rev, justPaid, creator = false, artistId = null, onAllItems }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
@@ -494,7 +379,6 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   const [, setTick] = useState(0);
   const [checkout, setCheckout] = useState(null); // the pack being checked out, or null
   const [coErr, setCoErr] = useState('');
-  const captured = useRef('');
   const [homePick, setHomePick] = useState(null); // 'CA' or 'US' when the person flips the price switch; otherwise the guess in region.js
   const shownBalance = useCountUp(d ? d.balance : null);
   const [bump, setBump] = useState(0);
@@ -520,27 +404,12 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
     return () => clearInterval(iv);
   }, [justPaid, load]);
 
-  // Back from PayPal with ?token=<order>: the server captures the order (that is when the money moves) and adds the credits.
-  useEffect(() => {
-    if (!paypalOrder || captured.current === paypalOrder) return;
-    captured.current = paypalOrder; // once per visit; the server also ignores repeats
-    setNote('Confirming your payment with PayPal…'); setErr('');
-    api('/credits/paypal/capture', { method: 'POST', body: { orderId: paypalOrder } })
-      .then((r) => { load(); setNote(r.status === 'completed' ? 'Payment received. Your credits have been added.' : 'PayPal is still processing your payment. Your credits are added as soon as it clears.'); })
-      .catch((e) => { setNote(''); setErr(e.message); });
-  }, [paypalOrder, load]);
-
-  // The Buy buttons open the checkout; only its Continue button leaves for the payment provider.
+  // The Buy buttons open the checkout; only its Continue button leaves for Stripe.
   async function pay(buyer = {}) {
     const p = checkout;
     setBusy(p.id); setCoErr('');
     try { const { url } = await api('/credits/checkout', { method: 'POST', body: { packId: p.id, ...buyer } }); window.location.assign(url); }
     catch (e) { setCoErr(e.message); setBusy(''); }
-  }
-  // Paid inside Aduna's checkout: the server already captured the order, so close the window and show the result.
-  function paid(r) {
-    setCheckout(null); setBusy(''); setCoErr(''); load();
-    setNote(r.status === 'completed' ? 'Payment received. Your credits have been added.' : 'PayPal is still processing your payment. Your credits are added as soon as it clears.');
   }
   async function claim(q) {
     setBusy(q.id); setErr(''); setNote('');
@@ -585,7 +454,7 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   const m = d?.messaging;
   // an artist's marketplace shows only their items; otherwise the whole shop
   const shopItems = d ? (artistId ? d.shop.filter((it) => it.byId === artistId) : d.shop) : [];
-  if (checkout && d) return <Checkout pack={checkout} provider={d.provider} clientId={d.paypalClientId} tax={d.tax} fee={d.fee} regions={d.regions} busy={!!busy} error={coErr} onPay={pay} onPaid={paid} onError={setCoErr} onClose={() => { setCheckout(null); setBusy(''); }} />;
+  if (checkout && d) return <Checkout pack={checkout} tax={d.tax} surcharge={d.surcharge} regions={d.regions} busy={!!busy} error={coErr} onPay={pay} onClose={() => { setCheckout(null); setBusy(''); }} />;
 
   return (
     <section className="chat">
@@ -616,7 +485,6 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
               <p className="muted small">
                 Prices in {home === 'US' ? 'US dollars' : 'Canadian dollars'}.{' '}
                 <button type="button" className="link-btn" onClick={() => { const n = home === 'US' ? 'CA' : 'US'; rememberCountry(n); setHomePick(n); }}>Show {home === 'US' ? 'Canadian' : 'US'} prices</button>
-                {home === 'US' && rateNote(d.fx) ? ' ' + rateNote(d.fx) : ''}
               </p>
             )}
             {d.purchases && <BuyNotices />}

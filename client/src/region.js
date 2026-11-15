@@ -1,5 +1,5 @@
-// Which country's prices to show, and how. Aduna sells in Canada (CAD) and the US (USD); the price is set in CAD and the server works the
-// US price out from the live exchange rate (server/fx.js), so the client only picks which of the two numbers to draw.
+// Which country's prices to show, and how. Aduna sells in Canada (CAD) and the US (USD); each item has a fixed price in both, so the client
+// only picks which of the two numbers to draw.
 // The server still decides what is charged; this is only about what is shown before checkout.
 
 const KEY = 'aduna.country';
@@ -28,9 +28,4 @@ export function priceFor(item, country) {
   const cad = country !== 'US' && Number.isInteger(item?.cadCents) && item.cadCents > 0;
   const cents = cad ? item.cadCents : item.cents, currency = cad ? 'cad' : 'usd';
   return { text: fmt(cents, currency), code: currency.toUpperCase(), cents, currency };
-}
-
-// "1 US dollar is about 1.38 Canadian dollars" for the small print under the prices; '' when there is no rate to speak of.
-export function rateNote(fx) {
-  return fx && fx.rate ? `US prices follow the exchange rate (1 USD ≈ ${fx.rate.toFixed(2)} CAD).` : '';
 }

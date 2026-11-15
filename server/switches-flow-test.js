@@ -26,7 +26,7 @@ const reg = async (name, email) => {
 };
 const step = (m) => console.log('✓', m);
 const flip = (acc, on) => call('/admin/switches/payments', { method: 'POST', token: acc.token, body: { on } });
-const STARTS = [['POST', '/credits/checkout'], ['POST', '/credits/paypal/order'], ['POST', '/storage/subscribe'], ['POST', '/storage/vault/order'], ['GET', '/payments']];
+const STARTS = [['POST', '/credits/checkout'], ['POST', '/storage/subscribe'], ['GET', '/payments']];
 
 (async () => {
   await ready;
@@ -65,19 +65,21 @@ const STARTS = [['POST', '/credits/checkout'], ['POST', '/credits/paypal/order']
   r = await call('/credits', { token: nina.token });
   assert.deepStrictEqual([r.status, r.purchases, r.paused], [200, false, true], 'the credits view says paused, not "not set up"');
   assert.strictEqual((await call('/credits/checkout', { method: 'POST', body: { packId: 'p500' } })).status, 401, 'signed out: the route\'s own login check answers');
-  step('payments off: checkout, PayPal order, Plus subscribe, card-on-file order and the Payments page are all closed for the public');
+  step('payments off: checkout, Plus subscribe and the Payments page are all closed for the public');
 
   // what stays open, and who is never closed out
   r = await call('/storage/cancel', { method: 'POST', token: nina.token });
   assert.notStrictEqual(r.code, 'feature_off', 'cancelling a plan is not closed');
-  r = await call('/credits/paypal/capture', { method: 'POST', token: nina.token, body: { orderId: '../x' } });
-  assert.notStrictEqual(r.code, 'feature_off', 'capturing an order that is already paid for is not closed');
+  r = await call('/storage/portal', { method: 'POST', token: nina.token });
+  assert.notStrictEqual(r.code, 'feature_off', 'the billing portal (card and cancel) is not closed');
+  r = await call('/storage/confirm', { method: 'POST', token: nina.token, body: { sessionId: '../x' } });
+  assert.notStrictEqual(r.code, 'feature_off', 'confirming a checkout that is already paid for is not closed');
   r = await call('/credits/checkout', { method: 'POST', token: creator.token, body: { packId: 'bogus' } });
   assert.strictEqual(r.status, 400, 'a creator is never closed out');
   assert.strictEqual((await call('/payments', { token: creator.token })).status, 200);
   r = await call('/credits', { token: creator.token });
   assert.deepStrictEqual([r.purchases, r.paused], [true, false]);
-  step('cancelling and capturing paid orders stay open; the creator keeps full use of payments');
+  step('cancelling, the billing portal and confirming paid checkouts stay open; the creator keeps full use of payments');
 
   // back on
   assert.strictEqual((await flip(creator, true)).switches[0].on, true);

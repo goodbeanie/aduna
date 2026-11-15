@@ -9,7 +9,7 @@ const day = (t) => new Date(t).toLocaleDateString(undefined, { year: 'numeric', 
 const clock = (t) => new Date(t).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
 const money = (cents, cur = 'usd') => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(cur).toUpperCase() });
 
-function PlanCard({ s, busy, onCancel }) {
+function PlanCard({ s, busy, onCancel, onBilling }) {
   let state = 'none', line = 'You do not have a plan right now.';
   if (s.lifetime) { state = 'on'; line = 'Plus is on for this account for good. There is nothing to pay or cancel.'; }
   else if (s.subscriber && s.renews) { state = 'on'; line = `Renews around ${day(s.paidThrough)} for ${money(s.currency === 'cad' ? s.plan.cadCents : s.plan.cents, s.currency || 'usd')}.`; }
@@ -27,8 +27,9 @@ function PlanCard({ s, busy, onCancel }) {
         <span className={'pay-pill ' + state}>{label}</span>
       </div>
       <p className="pay-line">{line}</p>
-      {s.status === 'past_due' && s.subscriber && <p className="pay-line pay-warn">Your last payment did not go through. We will try again. If it keeps failing, update your card in PayPal.</p>}
+      {s.status === 'past_due' && s.subscriber && <p className="pay-line pay-warn">Your last payment did not go through. Stripe will try again. If it keeps failing, update your card on the billing page.</p>}
       <div className="pay-actions">
+        {s.subscriber && !s.lifetime && s.status !== 'none' && <button type="button" className="btn" onClick={onBilling} disabled={busy}>Billing</button>}
         {s.subscriber && s.renews && !s.lifetime && <button type="button" className="btn danger" onClick={onCancel} disabled={busy}>Cancel plan</button>}
         {!s.subscriber && !s.lifetime && <a className="btn primary" href="/app">Get Plus in the app</a>}
       </div>
@@ -63,6 +64,12 @@ export default function Payments() {
     setAsk(false); setBusy(false);
   }
 
+  async function billing() {
+    setBusy(true); setErr(''); setNote('');
+    try { const { url } = await api('/storage/portal', { method: 'POST' }); window.location.assign(url); }
+    catch (e) { setErr(e.message); setBusy(false); }
+  }
+
   // shop buys only: credit packs are listed from the payments, so their ledger lines would repeat them
   const rows = hist ? [
     ...hist.payments,
@@ -82,7 +89,7 @@ export default function Payments() {
         {plan && hist && (
           <>
             <h2 className="pay-h">Plans</h2>
-            <PlanCard s={plan} busy={busy} onCancel={() => setAsk(true)} />
+            <PlanCard s={plan} busy={busy} onCancel={() => setAsk(true)} onBilling={billing} />
 
             <h2 className="pay-h">Purchase history</h2>
             {rows.length === 0
@@ -100,7 +107,7 @@ export default function Payments() {
                   ))}
                 </ul>
               )}
-            <p className="pay-quiet pay-foot">PayPal keeps your card. Aduna never sees it.</p>
+            <p className="pay-quiet pay-foot">Stripe keeps your card. Aduna never sees it.</p>
           </>
         )}
       </div>

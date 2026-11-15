@@ -1,4 +1,4 @@
-// Sales tax / VAT for credit purchases. No Express or database imports, so server/paypal-test.js can test it alone.
+// Sales tax / VAT for credit purchases. No Express or database imports, so server/stripe-test.js can test it alone.
 //
 // IMPORTANT: Aduna only adds tax in the places YOU say you are registered to collect it (TAX_COLLECT_IN). By default it adds none.
 // Charging tax where you are not registered is not allowed in many countries (in Canada you need a GST/HST number first), and the
@@ -7,7 +7,7 @@
 // province like CA-ON, a whole group: CA = every province, EU = every EU country; "=rate" sets the percentage yourself).
 //
 // The buyer says which country (and for Canada, which province) they are in at checkout. That is the self-declared billing place;
-// the server does the maths and PayPal is sent the price and the tax as separate lines.
+// the server does the maths and Stripe is sent the price and the tax as separate lines.
 
 const EU = { AT: 20, BE: 21, BG: 20, HR: 25, CY: 19, CZ: 21, DK: 25, EE: 24, FI: 25.5, FR: 20, DE: 19, GR: 24, HU: 27, IE: 23, IT: 22, LV: 21, LT: 21, LU: 17, MT: 18, NL: 21, PL: 23, PT: 23, RO: 21, SK: 23, SI: 22, ES: 21, SE: 25 };
 // Canada: each province lists its taxes separately (the receipt shows them as separate lines).

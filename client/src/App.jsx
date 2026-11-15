@@ -256,9 +256,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [gain, setGain] = useState(null);         // the little "+2" after a rewarded message
   const [justPaid, setJustPaid] = useState(false); // we just came back from Stripe Checkout
   const [loaded, setLoaded] = useState(false); // servers, presence and DMs have been fetched
-  const payReturn = useRef(new URLSearchParams(location.search).get('credits')); // 'paid' | 'paypal' | 'cancelled' | null
-  const payToken = useRef(new URLSearchParams(location.search).get('token')); // PayPal's order id, sent back with ?credits=paypal
-  const [paypalOrder, setPaypalOrder] = useState(null); // an order to capture once the Credits page is open
+  const payReturn = useRef(new URLSearchParams(location.search).get('credits')); // 'paid' | 'cancelled' | null
   useEffect(() => { api('/credits').then((r) => setBalance(r.balance)).catch(() => {}); }, []);
   useEffect(() => { if (!gain) return undefined; const t = setTimeout(() => setGain(null), 2400); return () => clearTimeout(t); }, [gain]);
   useEffect(() => { api('/gifs/config').then((r) => setGifEnabled(r.enabled)).catch(() => {}); }, []);
@@ -431,12 +429,11 @@ function Main({ me, setMe, privKey, openServerId }) {
       const first = sv.find((x) => x.id === firstOpen.current) || sv[0];
       if (first) setView({ kind: 'server', serverId: first.id, channelId: first.channels[0].id });
       else setView({ kind: 'dm', userId: null });
-      if (payReturn.current) { // back from Stripe or PayPal checkout: show the Shop (where credits are bought)
+      if (payReturn.current) { // back from Stripe Checkout: show the Shop (where credits are bought)
         setView({ kind: 'dm', userId: null, shop: true }); setShowList(false);
         if (payReturn.current === 'paid') setJustPaid(true);
-        if (payReturn.current === 'paypal' && payToken.current) setPaypalOrder(payToken.current);
         history.replaceState(null, '', '/app');
-        payReturn.current = null; payToken.current = null;
+        payReturn.current = null;
       }
       setLoaded(true);
     })().catch((e) => { if (e.status === 401) logout(); });
@@ -1331,7 +1328,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             : <><Icon name="alert" size={14} className="inline-icon" /> You cannot read new messages in this group on this device yet. Another member’s Aduna will refresh its keys when they are online. <button className="link-btn" onClick={() => refreshKeys(group.id)}>Refresh keys now</button></>} />
       )}
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer key={view.exploreTab || 'servers'} startTab={view.exploreTab} onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
-      {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} storage={storage} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} paypalOrder={paypalOrder} creator={!!me.creator} artistId={view.shop ? view.shopArtist || null : null} onAllItems={() => setView({ kind: 'dm', userId: null, shop: true })} />}
+      {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} storage={storage} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} creator={!!me.creator} artistId={view.shop ? view.shopArtist || null : null} onAllItems={() => setView({ kind: 'dm', userId: null, shop: true })} />}
       {CLIPS_ENABLED && view.kind === 'dm' && !dmUser && view.clips && <React.Suspense fallback={null}><Clips onBack={() => setShowList(true)} /></React.Suspense>}
       {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && !view.clips && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} blocked={social.blocked} onUnblock={unblockUser} servers={servers} me={me} users={users} voiceMembers={voice.members} onJoinVoice={(sid, cid) => { const sv = servers.find((x) => x.id === sid); const ch = sv?.channels.find((c) => c.id === cid); if (sv && ch) joinEventVoice(sv, ch); }} onSettings={() => setModal({ type: 'edit', tab: 'activity' })} onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }} />

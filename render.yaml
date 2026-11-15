@@ -65,22 +65,25 @@ services:
       # optional: how many bot events run at the same time (default 2, max 8; each worker holds a WebAssembly runtime, mind the 512 MB on the free plan)
       - key: SANDBOX_WORKERS
         sync: false
-      # optional: buying credits with real money through PayPal (used instead of Stripe when set). All three are needed.
-      # PAYPAL_ENV: put "live" for real money; leave unset to use PayPal's sandbox (fake money) while testing.
-      - key: PAYPAL_CLIENT_ID
-        sync: false
-      - key: PAYPAL_CLIENT_SECRET
-        sync: false
-      - key: PAYPAL_WEBHOOK_ID
-        sync: false
       # TAX_COLLECT_IN: optional, e.g. CA-BC=12,CA-ON,GB,IN,MX,BR=14.25 (only places you are registered to collect tax; empty = no tax)
-      - key: PAYPAL_ENV
-        sync: false
-      # optional: buying credits with real money (Stripe). Both keys are needed; without them the Buy buttons are off.
+      # Buying credits and the storage plan with real money (Stripe). Both keys are needed; without them the Buy buttons are off.
+      # Webhook endpoint: <your site>/api/credits/webhook (events listed in docs/reference.md).
       - key: STRIPE_SECRET_KEY
         sync: false
       - key: STRIPE_WEBHOOK_SECRET
         sync: false
+      # Attach the products you made in the Stripe dashboard (server/stripeprices.js). "auto" finds "500 Credits", "1000 Credits", "2500 Credits",
+      # "5000 Credits" and "Aduna PLUS" by name, currency and amount. Or name the prices yourself:
+      #   STRIPE_PRICES={"p500":{"cad":"price_..."},"p1000":{"cad":"price_..."},"p2500":{"cad":"price_..."},"p5000":{"cad":"price_..."},"storage10":{"cad":"price_..."}}
+      # Unset = checkout uses inline prices as before. A price that does not match Aduna's own amount is never used.
+      - key: STRIPE_PRODUCTS
+        value: auto
+      - key: STRIPE_PRICES
+        sync: false
+      # Card processing surcharge: its own line at checkout. "stripe" = pass on Stripe's card fee as far as card rules allow (2.4% Canada, 3% US, never Quebec).
+      # A number (e.g. 2) asks for less. Unset = no surcharge. SURCHARGE_EXCLUDE=US-CT,US-MA leaves places out.
+      - key: SURCHARGE_PCT
+        value: stripe
       # email verification. Free option that works on Render's free plan: Brevo (HTTPS). Set BREVO_API_KEY and EMAIL_FROM
       # (a sender you verified in Brevo). Render's free plan blocks SMTP, so the Gmail option below needs a paid plan.
       - key: BREVO_API_KEY

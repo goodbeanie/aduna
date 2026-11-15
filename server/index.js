@@ -542,7 +542,7 @@ app.get('/api/username-available', (req, res) => {
   if (!/^[a-zA-Z0-9_]{3,20}$/.test(name)) return res.json({ ok: false, reason: 'format' });
   res.json({ ok: !usernameTaken(name) });
 });
-// Stripe and PayPal sign the exact bytes they send, so the credits webhooks keep the raw body next to the parsed one.
+// Stripe signs the exact bytes it sends, so the credits webhook keeps the raw body next to the parsed one.
 // Incoming webhooks (/api/hooks/...) read their own body, with its own size limit (see "webhooks" below): GitHub's events can be bigger than 64 KB.
 const jsonBody = express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/credits/webhook')) req.rawBody = buf; } });
 app.use((req, res, next) => (req.originalUrl.startsWith('/api/hooks/') ? next() : jsonBody(req, res, next)));
@@ -4414,6 +4414,48 @@ app.post('/api/admin/bots/:id/listing', auth, reviewOnly, (req, res) => {
   res.json({ ok: true, hold: b.listingHold || null });
 });
 
+// Verified bots (admins only). Public bots are listed whether or not they are verified; the explorer warns about the ones that are not. An admin reads the
+// code, then verifies it. Verification is tied to the name and code that were read (botsLib.isVerified), so it lapses by itself when either changes.
+app.get('/api/admin/bots', auth, adminOnly, (req, res) => {
+  const filter = ['unverified', 'verified', 'all'].includes(req.query.filter) ? req.query.filter : 'unverified';
+  const q = clip(req.query.q, 60).toLowerCase();
+  const users = db().users;
+  const list = Object.values(db().bots).filter((b) => b.visibility === 'public')
+    .filter((b) => filter === 'all' || (filter === 'verified') === botsLib.isVerified(b))
+    .filter((b) => !q || `${b.name} ${users[b.ownerId]?.username || ''}`.toLowerCase().includes(q))
+    .sort((a, b) => (b.installs || []).length - (a.installs || []).length || a.name.localeCompare(b.name));
+  res.json({
+    total: list.length,
+    bots: list.slice(0, 50).map((b) => ({
+      id: b.id, name: b.name, description: b.description || '', tags: b.tags || [], developer: users[b.ownerId]?.username || null, installs: (b.installs || []).length,
+      updatedAt: b.updatedAt || b.createdAt || null, hold: b.listingHold ? b.listingHold.state : null, verified: botsLib.isVerified(b),
+      lapsed: !!b.verified && !botsLib.isVerified(b), verifiedAt: b.verified ? b.verified.at : null, verifiedBy: b.verified ? users[b.verified.by]?.username || null : null,
+    })),
+  });
+});
+app.get('/api/admin/bots/:id/code', auth, adminOnly, (req, res) => {
+  const b = db().bots[req.params.id];
+  if (!b) return res.status(404).json({ error: 'Not found' });
+  res.json({ code: b.code || '', about: b.about || '', prefix: b.prefix || botsLib.DEFAULT_PREFIX, commands: b.commands || [], hash: botsLib.verifyHash(b) });
+});
+// verify needs the hash from the code endpoint: it is refused if the developer changed the bot after the admin opened it
+app.post('/api/admin/bots/:id/verify', auth, adminOnly, (req, res) => {
+  const b = db().bots[req.params.id];
+  if (!b) return res.status(404).json({ error: 'Not found' });
+  if (req.body?.verified === false) {
+    delete b.verified;
+  } else {
+    if (b.visibility !== 'public') return res.status(400).json({ error: 'Only public bots can be verified' });
+    if (b.listingHold) return res.status(400).json({ error: 'This bot\'s listing is under review or was removed. Settle the reports first.' });
+    if (req.body?.hash !== botsLib.verifyHash(b)) return res.status(409).json({ error: 'The developer changed this bot after you opened it. Look at the code again.' });
+    b.verified = { at: now(), by: req.user.id, hash: botsLib.verifyHash(b) };
+  }
+  store.save();
+  adminLogAdd(req.user, b.verified ? 'verify bot' : 'unverify bot', b.name, '');
+  tellDeveloper(b);
+  res.json({ ok: true, verified: botsLib.isVerified(b) });
+});
+
 // ----- reports from inside the app: a person, a bot account, a message -----
 // (A server is reported with POST /api/servers/:id/report above; it now also accepts members of a private server.)
 // Same rules as the listing reports: one per person per thing, never your own, a reason (and details for "other"), a rate limit, and the
@@ -4625,7 +4667,7 @@ app.get('/api/admin/users/:id', auth, reviewOnly, (req, res) => {
       owned: mine.filter((s) => s.ownerId === u.id).map((s) => ({ id: s.id, name: s.name, members: humanCount(s) })),
       clips: clips.length, liveClips: clips.filter((c) => clipsLib.isLive(c, now())).length, bots: myBots(u.id).length,
       ownsOfficialServer: !!defaultServer() && defaultServer().ownerId === u.id,
-      canResetStorage: isPaymentTester(u), storagePlanStatus: u.storageSub && u.storageSub.status ? String(u.storageSub.status) : null, canForceRenew: isPaymentTester(u) && !!u.storageSub && u.storageSub.kind === 'vault' && !!u.storageSub.vaultId && ['active', 'past_due'].includes(u.storageSub.status), storageNextChargeAt: (u.storageSub && u.storageSub.nextChargeAt) || null, storagePaidThrough: (u.storageSub && u.storageSub.paidThrough) || null, // the "Reset storage plan" button (payment testing) shows for the test account only
+      canResetStorage: isPaymentTester(u), storagePlanStatus: u.storageSub && u.storageSub.status ? String(u.storageSub.status) : null, storagePaidThrough: (u.storageSub && u.storageSub.paidThrough) || null, // the "Reset storage plan" button (payment testing) shows for the test account only
       canModerate: u.id !== req.user.id && !isCreator(u) && (!adminRole(u) || isCreator(req.user)),
       moderation: moderation.adminView(u, now(), (id) => db().users[id]?.username || null), // warnings (newest first), the open mute, when a timed suspension ends
     },
@@ -4669,7 +4711,7 @@ app.post('/api/admin/users/:id/remove-artist', auth, adminOnly, (req, res) => {
 });
 
 // PAYMENT TESTING ONLY: lets an admin wipe the storage plan record of ONE account, so the checkout can be tried again. It works only for the account whose
-// VERIFIED email is adunachat@gmail.com; for every other account it answers a plain 404, and it never touches PayPal (a saved sandbox card stays there).
+// VERIFIED email is adunachat@gmail.com; for every other account it answers a plain 404, and it never touches Stripe (the subscription there stays).
 const PAYMENT_TEST_KEY = security.emailKey(security.cleanEmail('adunachat@gmail.com'));
 const isPaymentTester = (u) => !!u && !u.bot && !u.deleted && u.emailVerified === true && !!u.email && security.emailKey(security.cleanEmail(u.email)) === PAYMENT_TEST_KEY;
 app.post('/api/admin/users/:id/storage-reset', auth, adminOnly, (req, res) => {
@@ -4681,30 +4723,6 @@ app.post('/api/admin/users/:id/storage-reset', auth, adminOnly, (req, res) => {
   adminLogAdd(req.user, 'storage-reset', u.username, `payment test: storage plan record cleared (was ${was})`);
   res.json({ ok: true, was });
 });
-
-// PAYMENT TESTING ONLY: "Force renew". Makes the saved-card plan of the test account due right now and runs the real monthly charge (storagePlan.chargeRenewal,
-// the same code the hourly sweep uses), so the renewal can be tried without waiting a month. It really charges the saved card at PayPal (sandbox while
-// PAYPAL_ENV is sandbox). Same gate as the reset: only the account with the VERIFIED email adunachat@gmail.com, a plain 404 for everybody else.
-app.post('/api/admin/users/:id/storage-renew', auth, adminOnly, ah(async (req, res) => {
-  const u = db().users[req.params.id];
-  if (!isPaymentTester(u)) return res.status(404).json({ error: 'Not found' });
-  const s = u.storageSub;
-  if (!s || s.kind !== 'vault' || !s.vaultId || !['active', 'past_due'].includes(s.status)) return res.status(400).json({ error: 'There is no saved card to charge. Subscribe with a card first (the plan must be active or past_due).' });
-  const t = now(), before = { dueAt: s.dueAt, nextChargeAt: s.nextChargeAt }, paidBefore = s.paidThrough;
-  s.dueAt = t; s.nextChargeAt = t; // due now; a new time per press also gives PayPal a new request id, so a second press is a second charge
-  let r;
-  try { r = await storagePlan.chargeRenewal({ user: u, now: t }); }
-  catch (e) { console.error('Force renew failed:', e.message); s.dueAt = before.dueAt; s.nextChargeAt = before.nextChargeAt; return res.status(502).json({ error: 'Could not reach PayPal: ' + e.message }); }
-  if (r.skipped) { s.dueAt = before.dueAt; s.nextChargeAt = before.nextChargeAt; return res.status(400).json({ error: 'Nothing was charged: the stored plan record is not chargeable (check the server log).' }); }
-  store.save();
-  if (storageApi) storageApi.push(u.id);
-  const result = r.ok ? 'charged' : r.ended ? 'ended' : r.transient ? 'pending' : 'declined';
-  adminLogAdd(req.user, 'storage-renew', u.username, `payment test: forced renewal, result ${result}`);
-  res.json({
-    ok: true, result, paidBefore: paidBefore || null,
-    plan: { status: s.status, paidThrough: s.paidThrough || null, nextChargeAt: s.nextChargeAt || null, failures: s.failures || 0 },
-  });
-}));
 
 // ----- warnings, mutes and IP bans (server/moderation.js) -----
 // A warning must be read ("I understand", POST /api/me/warnings/ack) before the person can send anything again. The 3rd active warning in 90 days is a
@@ -5865,9 +5883,9 @@ app.get('/api/call/config', auth, ah(async (req, res) => {
   res.json({ iceServers, relay });
 }));
 // Switch: payments. While a creator has Payments off (/admin > Switches), nobody but an admin can START a payment or open the Payments page. Only the starts are
-// closed: capturing an order that is already paid for, the signed webhooks, monthly renewals of saved cards and cancelling a plan keep working, so nobody is
+// closed: confirming a checkout that is already paid for, the signed webhooks, monthly renewals and cancelling a plan keep working, so nobody is
 // charged without being credited, or kept paying for a plan they cannot cancel. Registered before the routes below so it runs first.
-app.post(['/api/credits/checkout', '/api/credits/paypal/order', '/api/storage/subscribe', '/api/storage/vault/order'], switchOpen('payments'));
+app.post(['/api/credits/checkout', '/api/storage/subscribe'], switchOpen('payments'));
 app.get('/api/payments', switchOpen('payments'));
 const paymentsOpen = (u) => !switchClosed('payments', u);
 // Credits (balance, quests, buying). Must be registered before the /api 404 handler below.
@@ -5880,7 +5898,7 @@ credits.register(app, {
   isPlus: (u) => storagePlan.isSubscriber(u, now()), // Plus pays more for messages and quests, and has the Plus-only quests
   featureOn: (id, u) => featureOn(id, u),      // feature releases: 'rewarded-ads' and 'sponsored-card' gate the sponsors on Quests and Shop
   userChanged: (u) => emitUserUpdate(u),       // an event badge was earned
-  paypalEvent: (ev) => storagePlan.handleEvent(ev, db()),            // storage plan renewals / cancellations from PayPal's signed webhook
+  storageEvent: (ev) => storagePlan.handleEvent(ev, db(), now()),    // storage plan renewals / cancellations from Stripe's signed webhook
   storageChanged: (uid) => { if (storageApi) storageApi.push(uid); },
 });
 // Free storage budget: the free people's own limit, worked out every 6 hours from how many people pay (server/storage-budget.js).
@@ -5892,14 +5910,12 @@ const storageBudget = storageBudgetLib.create({
   getMeta: (k) => store.getMeta(k), setMeta: (k, v) => store.setMeta(k, v),
   log: console,
 });
-// Storage plan (10 GB for $5.59 a month): usage, cleanup list, PayPal subscription. Registered here so /api/files can push usage updates.
+// Storage plan (10 GB, monthly): usage, cleanup list, Stripe subscription. Registered here so /api/files can push usage updates.
 storageApi = storagePlan.register(app, {
   auth, ah, db, save: () => store.save(), store, freeBudget: storageBudget,
   paymentsOpen, // Payments switch: the storage view says "paused" and turns Get storage off while a creator has it off (renewals and cancelling still work)
-  runRenewals: true, // charges saved cards when their month is due (server/storage.js, card on file)
   notify: (uid, v) => io.to('user:' + uid).emit('storage:update', v),
   userChanged: (uid) => { const u = db().users[uid]; if (u) emitUserUpdate(u); }, // the Plus badge on their profile turned on or off
-  getMeta: (k) => store.getMeta(k), setMeta: (k, v) => store.setMeta(k, v),
   filesGone: (ids) => flagGone(ids),
   fileLabels: () => {
     const m = new Map();
@@ -6729,7 +6745,7 @@ if (require.main === module) {
   ready
     .then(() => httpServer.listen(PORT, () => {
       console.log(`Aduna running on port ${PORT}`);
-      require('./fx').start(); // the USD to CAD rate the US prices follow: fetched now and every 6 hours (only when run for real, never in the tests)
+      require('./fx').start(); // the USD to CAD rate the sales report uses: fetched now and every 6 hours (only when run for real, never in the tests)
       // Wordle and Contexto read their word lists the first time someone guesses, which made that first guess slow. Do it now, just after the server is up.
       setTimeout(() => { try { wordleLib.warm(); contextoLib.warm(contextoLib.answerFor('global', contextoLib.dayOf(Date.now()), SECRET)); } catch (e) { console.warn('Game warm-up skipped:', e.message); } }, 1500);
     }))

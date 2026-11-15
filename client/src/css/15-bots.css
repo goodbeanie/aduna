@@ -21,6 +21,8 @@
 .bchip-pub { color: var(--ink); border-color: var(--ink); }
 .bchip-warn { color: #8a5a00; border-color: #c8921c; background: rgba(200, 146, 28, .12); }
 .bchip-bad { color: var(--danger); border-color: var(--danger); }
+.bchip-ok { color: var(--ok-fg); border-color: var(--ok-fg); }
+.bot-warn { margin: 0; padding: 8px 10px; border-radius: 10px; border: 1px solid #c8921c; background: rgba(200, 146, 28, .12); color: #8a5a00; font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
 .dev-join p, .dev-rules { line-height: 1.5; }
 .dev-rules { padding-left: 20px; margin: 10px 0 14px; color: var(--text); }
 .dev-rules li { margin: 4px 0; }
