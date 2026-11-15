@@ -8,7 +8,7 @@ import './admin.css';
 // visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['bots', 'Bots'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin', moderator: 'Moderator' };
 const MOD_TABS = ['overview', 'reports', 'people']; // a moderator reads and reviews reports, looks people up, and warns or mutes
@@ -224,6 +224,71 @@ function BotReports() {
       {b.reports.length > 0 && <ReportItems list={b.reports} onChanged={changed} />}
     </div>
   ));
+}
+
+// ---------- bot verification ----------
+// Public bots are listed whether or not they are verified (the explorer warns about the ones that are not). An admin opens a bot, reads its code, and verifies it.
+// Verification is tied to the name and code that were read: the server refuses it if the developer changed the bot after it was opened, and it lapses by itself
+// if the name or code change later (the "lapsed" mark below). Everything the developer wrote is shown as plain text.
+function BotVerify() {
+  const { say, run, ask } = useAdm();
+  const [filter, setFilter] = useState('unverified');
+  const [q, setQ] = useState('');
+  const [data, setData] = useState(null);
+  const [open, setOpen] = useState(null); // { id, code, about, prefix, commands, hash } for the bot being reviewed
+  const load = useCallback(() => api('/admin/bots?filter=' + filter + (q.trim() ? '&q=' + encodeURIComponent(q.trim()) : '')).then(setData).catch((e) => { setData({ total: 0, bots: [] }); say(e.message, 'error'); }), [filter, q, say]);
+  useEffect(() => { const t = setTimeout(load, q ? 250 : 0); return () => clearTimeout(t); }, [load, q]);
+  const review = async (b) => {
+    if (open && open.id === b.id) { setOpen(null); return; }
+    try { setOpen({ id: b.id, ...(await api(`/admin/bots/${b.id}/code`)) }); } catch (e) { say(e.message, 'error'); }
+  };
+  const verify = async (b) => {
+    if (!open || open.id !== b.id) return;
+    if (await run(() => api(`/admin/bots/${b.id}/verify`, { method: 'POST', body: { hash: open.hash } }), 'Bot verified')) { setOpen(null); load(); }
+  };
+  const unverify = async (b) => {
+    const r = await ask({ title: `Remove the verified mark from ${b.name}?`, body: 'It is listed with the warning for unverified bots again, and its developer is told.', confirmLabel: 'Remove mark', danger: true });
+    if (r && await run(() => api(`/admin/bots/${b.id}/verify`, { method: 'POST', body: { verified: false } }), 'Verified mark removed')) { setOpen(null); load(); }
+  };
+  return (
+    <>
+      <div className="adm-subtabs" role="group" aria-label="Filter bots">
+        {[['unverified', 'Waiting'], ['verified', 'Verified'], ['all', 'All public bots']].map(([id, name]) => (
+          <button key={id} className={'adm-chip' + (filter === id ? ' on' : '')} aria-pressed={filter === id} onClick={() => { setFilter(id); setOpen(null); }}>{name}</button>
+        ))}
+        <input className="adm-input" placeholder="Search by bot or developer" value={q} maxLength={60} onChange={(e) => setQ(e.target.value)} aria-label="Search bots" />
+      </div>
+      {!data ? <p className="adm-muted">Loading…</p> : !data.bots.length ? <Empty text={filter === 'unverified' ? 'No public bots are waiting for review.' : 'No bots match.'} /> : (
+        <>
+          {data.total > data.bots.length && <p className="adm-muted">Showing {data.bots.length} of {data.total}. Search to narrow it down.</p>}
+          {data.bots.map((b) => (
+            <div className="adm-card" key={b.id}>
+              <div className="adm-row">
+                <div>
+                  <h3>{b.name} {b.verified && <span className="adm-muted">✓ verified</span>}{b.lapsed && <span className="adm-muted"> · verification lapsed: the code or name changed</span>}</h3>
+                  <span className="adm-muted">developer {b.developer || '—'} · {b.installs} install{b.installs === 1 ? '' : 's'} · updated {when(b.updatedAt)}{b.hold ? ` · listing ${b.hold}` : ''}{b.verified && b.verifiedBy ? ` · verified by ${b.verifiedBy} on ${when(b.verifiedAt)}` : ''}</span>
+                  {b.description && <p className="adm-details">{b.description}</p>}
+                  {b.tags.length > 0 && <span className="adm-muted">Tags: {b.tags.join(', ')}</span>}
+                </div>
+                <div className="adm-actions">
+                  <button className="adm-btn small" onClick={() => review(b)}>{open && open.id === b.id ? 'Close' : 'Read the code'}</button>
+                  {b.verified && <button className="adm-btn small danger" onClick={() => unverify(b)}>Remove mark</button>}
+                  {!b.verified && <button className="adm-btn small primary" disabled={!open || open.id !== b.id || !!b.hold} title={b.hold ? 'Settle the reports first' : 'Read the code first'} onClick={() => verify(b)}>Verify</button>}
+                </div>
+              </div>
+              {open && open.id === b.id && (
+                <div>
+                  <p className="adm-muted">Command prefix: <b>{open.prefix}</b>{open.commands.length > 0 && ` · ${open.commands.length} command${open.commands.length === 1 ? '' : 's'}: ${open.commands.map((c) => (typeof c === 'string' ? c : c && c.name) || '?').join(', ')}`}</p>
+                  {open.about && <p className="adm-details">{open.about}</p>}
+                  <pre style={{ maxHeight: 360, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', padding: 12, borderRadius: 8, background: 'rgba(127,127,127,.12)', fontSize: 12 }}>{open.code || '(no code)'}</pre>
+                </div>
+              )}
+            </div>
+          ))}
+        </>
+      )}
+    </>
+  );
 }
 
 function ClipReports() {
@@ -1126,6 +1191,7 @@ export default function AdminPage() {
           {cur === 'artists' && <ArtistReview />}
           {cur === 'shop' && <ShopItems />}
           {cur === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
+          {cur === 'bots' && <BotVerify />}
           {cur === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
           {cur === 'releases' && <Releases />}
           {cur === 'switches' && <Switches />}
