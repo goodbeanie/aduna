@@ -100,6 +100,7 @@ function line(i, { priceId, currency, cents, name, recurring = false }) {
     [`${k}[quantity]`]: '1',
     [`${k}[price_data][currency]`]: currency,
     [`${k}[price_data][unit_amount]`]: String(cents),
+    [`${k}[price_data][tax_behavior]`]: 'exclusive',
     ...(recurring ? { [`${k}[price_data][recurring][interval]`]: 'month' } : {}),
     [`${k}[price_data][product_data][name]`]: name,
   };

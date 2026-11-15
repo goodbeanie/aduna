@@ -9,7 +9,7 @@
     "test:servertag": "node server/servertag-test.js",
     "test:automod": "node server/automod-test.js",
     "test:mediacheck": "node server/mediacheck-test.js",
-    "test:pricing": "node server/fx-test.js && node server/surcharge-test.js && node server/stripeprices-test.js && node server/stripe-test.js && node server/storage-stripe-test.js",
+    "test:pricing": "node server/fx-test.js && node server/stripeprices-test.js && node server/stripe-test.js && node server/storage-stripe-test.js",
     "tmp:syntax": "node server/switches-flow-test.js && node server/credits-test.js",
     "dev": "concurrently \"node --watch server/index.js\" \"npm --prefix client run dev\"",
     "build": "node server/contexto-build.js --if-missing && npm --prefix client install --include=dev && npm --prefix client run build",

@@ -11,7 +11,7 @@ const reduced = () => !!(window.matchMedia && window.matchMedia('(prefers-reduce
 
 // A badge picture: the creator's uploaded image, or an emoji (or first letter) on a colour. `src` overrides the stored image (a local preview).
 // A profile frame (item.kind === 'frame') is drawn as a ring around a sample avatar; the ring is bigger than the avatar, so the avatar is 3/4 of `size`.
-export function BadgeArt({ item, size = 64, src }) {
+export function BadgeArt({ item, size = 64, src, viewer }) {
   const url = src || imageUrl(item?.image);
   if (item?.kind === 'stickers') { // a sticker pack: up to four of its stickers in a grid (still frames)
     const shown = (item.stickers || []).slice(0, 4);
@@ -24,7 +24,7 @@ export function BadgeArt({ item, size = 64, src }) {
   if (item?.kind === 'frame') {
     return (
       <span className="frame-art" style={{ width: size, height: size, display: 'inline-grid', placeItems: 'center', flex: 'none' }} aria-hidden="true">
-        <Avatar user={{ displayName: item.name, avatarColor: item.color || '#8c6b4f', framePreview: url }} size={Math.round(size * 0.75)} />
+        <Avatar user={viewer ? { ...viewer, frame: null, framePreview: url } : { displayName: item.name, avatarColor: item.color || '#8c6b4f', framePreview: url }} size={Math.round(size * 0.75)} />
       </span>
     );
   }
@@ -62,7 +62,7 @@ const fmtEnds = (ms) => new Date(ms).toLocaleString(undefined, { month: 'short',
 
 // One badge for sale. Affordable ones lift on hover and open the buy window; the rest show how close you are.
 // The shop is view-only: there are no edit or remove controls here. Removing an item is done on the admin page (/admin > Shop).
-export function ShopTile({ item, balance, busy, onOpen }) {
+export function ShopTile({ item, balance, busy, onOpen, viewer }) {
   const away = !!item.state && item.state !== 'live'; // not on show to players right now, so it cannot be bought
   const short = !item.owned && balance < item.price;
   const pct = Math.max(0, Math.min(100, Math.round((balance / item.price) * 100)));
@@ -79,7 +79,7 @@ export function ShopTile({ item, balance, busy, onOpen }) {
       )}
       <button type="button" className="shop-tile-main" disabled={item.owned || short || away || busy === item.id} onClick={() => onOpen(item)}
         title={item.owned ? 'You own this' : away ? 'Players cannot see this right now' : short ? `You need ${(item.price - balance).toLocaleString()} more credits` : `Get ${item.name}`}>
-        <BadgeArt item={item} size={72} />
+        <BadgeArt item={item} size={72} viewer={viewer} />
         <b>{item.name}</b>
         <span className="muted small shop-desc">{item.desc}</span>
         {item.by && <span className="muted small shop-by">by {item.by}</span>}
@@ -98,11 +98,11 @@ export function ShopTile({ item, balance, busy, onOpen }) {
 }
 
 // Shown before any credits are spent: what you get, and what your balance does.
-export function BuyConfirm({ item, balance, busy, onConfirm, onClose }) {
+export function BuyConfirm({ item, balance, busy, onConfirm, onClose, viewer }) {
   return (
     <Modal title={item.kind === 'frame' ? 'Get this frame?' : item.kind === 'stickers' ? 'Get this sticker pack?' : 'Get this badge?'} onClose={onClose}>
       <div className="buy-confirm">
-        <BadgeArt item={item} size={96} />
+        <BadgeArt item={item} size={96} viewer={viewer} />
         <h3>{item.name}</h3>
         {item.desc && <p className="muted">{item.desc}</p>}
         {item.kind === 'stickers' && <div className="stk-strip">{(item.stickers || []).map((s) => <StickerImg key={s.id} id={s.id} animated={s.animated} name={s.name} />)}</div>}
@@ -123,7 +123,7 @@ export function BuyConfirm({ item, balance, busy, onConfirm, onClose }) {
 
 // The reward moment: the badge bounces in over a burst of confetti.
 const COLORS = ['#ff8a1f', '#ffd43b', '#51cf66', '#4dabf7', '#9775fa', '#f06595'];
-export function Celebration({ item, onClose }) {
+export function Celebration({ item, onClose, viewer }) {
   const bits = useMemo(() => (reduced() ? [] : Array.from({ length: 36 }, (_, i) => ({
     left: Math.random() * 100, delay: Math.random() * 0.35, dur: 1.3 + Math.random() * 1.1,
     x: Math.round((Math.random() - 0.5) * 160) + 'px', r: Math.round(360 + Math.random() * 540) + 'deg', color: COLORS[i % COLORS.length],
@@ -139,7 +139,7 @@ export function Celebration({ item, onClose }) {
         {bits.map((b, i) => <i key={i} style={{ left: b.left + '%', background: b.color, '--delay': b.delay + 's', '--d': b.dur + 's', '--x': b.x, '--r': b.r }} />)}
       </div>
       <div className="celebrate-card" role="dialog" aria-label="Badge bought">
-        <div className="celebrate-art"><BadgeArt item={item} size={112} /></div>
+        <div className="celebrate-art"><BadgeArt item={item} size={112} viewer={viewer} /></div>
         <h3>It’s yours!</h3>
         <p>{item.kind === 'frame' ? <>The <b>{item.name}</b> frame is yours. Wear it from Settings, Profile.</> : item.kind === 'stickers' ? <>The <b>{item.name}</b> sticker pack is yours. Find it under the sticker button in any chat.</> : <>The <b>{item.name}</b> badge now shows next to your name.</>}</p>
         <button className="btn primary" autoFocus onClick={onClose}>Nice</button>

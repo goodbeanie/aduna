@@ -29,7 +29,8 @@ function fakeStripe(opts = {}) {
 
 const session = (over = {}) => ({
   id: 'cs_sub_1', mode: 'subscription', payment_status: 'paid', currency: 'usd', amount_total: S.PLAN.cents, customer: 'cus_1', subscription: 'sub_1',
-  metadata: { kind: 'storage', userId: 'u1', country: 'US', region: 'WA', tax: '0', total: String(S.PLAN.cents) }, ...over,
+  metadata: { kind: 'storage', userId: 'u1', country: 'US' }, total_details: { amount_tax: 0 },
+  customer_details: { address: { country: 'US', state: 'WA' } }, ...over,
 });
 const started = () => { const u = user(); assert.strictEqual(S.applySession(u, session(), T0), 'changed'); return u; };
 
@@ -44,6 +45,10 @@ const started = () => { const u = user(); assert.strictEqual(S.applySession(u, s
     assert.strictEqual(p['line_items[0][price_data][unit_amount]'], String(S.PLAN.cents), 'the price is the plan\'s, never the browser\'s');
     assert.strictEqual(p['line_items[0][price_data][recurring][interval]'], 'month');
     assert.strictEqual(p['metadata[kind]'], 'storage');
+    assert.strictEqual(p['automatic_tax[enabled]'], 'true', 'Stripe Tax adds the tax to every month');
+    assert.strictEqual(p.billing_address_collection, 'required');
+    assert.strictEqual(p['line_items[0][price_data][tax_behavior]'], 'exclusive');
+    assert.ok(!('metadata[total]' in p) && !('line_items[1][quantity]' in p), 'no tax or surcharge line of our own');
     assert.strictEqual(p['subscription_data[metadata][userId]'], 'u1');
     assert.ok(p.success_url.includes('storage=paid&session_id={CHECKOUT_SESSION_ID}'));
     await assert.rejects(S.createCheckout({ user: u, buyer: {}, origin: 'x', fetchImpl: f.impl }), /country/);
@@ -66,6 +71,18 @@ const started = () => { const u = user(); assert.strictEqual(S.applySession(u, s
     assert.strictEqual(S.applySession(u, session(), T0 + 1000), 'same', 'the same session twice adds nothing');
     assert.strictEqual(u.storageSub.paidThrough, T0 + S.PAID_FOR_MS);
     step('a paid session starts the plan for the paid month, once');
+  }
+  {
+    const u = user(), tax = 52;
+    const taxed = session({ currency: 'cad', amount_total: S.PLAN.cadCents + tax, total_details: { amount_tax: tax }, metadata: { kind: 'storage', userId: 'u1', country: 'CA' }, customer_details: { address: { country: 'CA', state: 'BC' } } });
+    assert.strictEqual(S.applySession(u, taxed, T0), 'changed');
+    assert.strictEqual(u.storageSub.tax, tax);
+    assert.strictEqual(u.storageSub.region, 'BC', 'the province comes from the address Stripe collected');
+    assert.strictEqual(u.storagePayments[0].cents, S.PLAN.cadCents + tax);
+    const u2 = user();
+    assert.strictEqual(S.applySession(u2, { ...taxed, amount_total: S.PLAN.cadCents + 400, total_details: { amount_tax: 0 } }, T0), 'bad', 'an amount the reported tax does not explain');
+    assert.strictEqual(u2.storageSub, undefined);
+    step('a subscription with Stripe Tax starts the plan and records the tax; an unexplained amount does not');
   }
   {
     const u = user();

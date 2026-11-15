@@ -345,8 +345,6 @@ function view(u, db, { purchases, paused = false, now = Date.now(), dev = false,
     purchases,
     paused: !!paused, // purchases are set up but a creator has Payments switched off (/admin > Switches): the client says "paused", not "not set up"
     provider: purchases ? 'stripe' : null,
-    tax: purchases ? TAX.publicInfo() : null,
-    surcharge: purchases ? SUR.publicInfo() : null,
     regions: purchases ? REG.publicInfo() : null,
     packs: PACKS.map((p) => ({ ...p, currency: CURRENCY })),
     streak: c.lastCheckin === dayKey(now) || c.lastCheckin === dayKey(now - 86_400_000) ? c.streak : 0,
@@ -375,10 +373,11 @@ const stripeHook = () => process.env.STRIPE_WEBHOOK_SECRET || '';
 const stripeEnabled = () => !!(stripeKey() && stripeHook());
 
 const purchasesEnabled = stripeEnabled;
-const TAX = require('./tax');
-const SUR = require('./surcharge'); // the optional credit card surcharge line (off unless SURCHARGE_PCT is set)
 const REG = require('./regions'); // where Aduna sells and in which currency (server/regions.js)
 const PRICES = require('./stripeprices'); // attaches the products you made in the Stripe dashboard (off unless STRIPE_PRODUCTS or STRIPE_PRICES is set)
+
+// Stripe asks for the billing address on its own page and adds the tax for it. Needs Stripe Tax switched on in the dashboard.
+const STRIPE_TAX = { 'automatic_tax[enabled]': 'true', billing_address_collection: 'required' };
 
 // header looks like: t=1700000000,v1=<hex hmac>[,v1=...]. The signed text is "<t>.<raw body>".
 function verifyStripeSignature(raw, header, secret, nowSec = Math.floor(Date.now() / 1000), toleranceSec = 300) {
@@ -411,45 +410,26 @@ async function createSession(params, fetchImpl = fetch) {
   return r.j;
 }
 
-// The price comes from the pack on the server, never from the browser. The buyer's country and province pick the currency and the tax.
+// The price comes from the pack on the server, never from the browser. The buyer's country picks the currency; Stripe asks for the
+// billing address on its own page and works out the tax there (Stripe Tax).
 async function createCheckout({ user, pack, origin, buyer = {}, fetchImpl = fetch }) {
   const where = REG.resolve(buyer);
   if (!where.ok) throw Object.assign(new Error(where.error), { forBuyer: true });
   const base = REG.priceIn(pack, where.currency);
   if (!base) throw Object.assign(new Error('This pack is not for sale in ' + where.currency.toUpperCase()), { forBuyer: true });
-  const q = TAX.quote(buyer, base);
-  if (!q.ok) throw Object.assign(new Error(q.error), { forBuyer: true });
-  const sc = SUR.quote(buyer, base);
   // your own Stripe product for this pack when STRIPE_PRODUCTS / STRIPE_PRICES attach one (server/stripeprices.js), else an inline price
   const priceId = await PRICES.priceFor({ item: pack, currency: where.currency, base, request: (m, p) => stripeRequest(m, p, null, fetchImpl) });
   const params = {
     mode: 'payment',
     ...PRICES.line(0, { priceId, currency: where.currency, cents: base, name: `${pack.credits.toLocaleString('en-US')} Aduna credits` }),
+    ...STRIPE_TAX,
     success_url: `${origin}/app?credits=paid`,
     cancel_url: `${origin}/app?credits=cancelled`,
     client_reference_id: user.id,
     'metadata[userId]': user.id,
     'metadata[packId]': pack.id,
     'metadata[country]': where.country,
-    'metadata[region]': where.region,
-    'metadata[tax]': String(q.tax),
-    'metadata[surcharge]': String(sc.cents),
-    'metadata[total]': String(base + q.tax + sc.cents), // what the buyer should pay; the webhook checks the amount against it
   };
-  let next = 1;
-  if (q.tax) {
-    params[`line_items[${next}][quantity]`] = '1';
-    params[`line_items[${next}][price_data][currency]`] = where.currency;
-    params[`line_items[${next}][price_data][unit_amount]`] = String(q.tax);
-    params[`line_items[${next}][price_data][product_data][name]`] = q.label;
-    next++;
-  }
-  if (sc.cents) {
-    params[`line_items[${next}][quantity]`] = '1';
-    params[`line_items[${next}][price_data][currency]`] = where.currency;
-    params[`line_items[${next}][price_data][unit_amount]`] = String(sc.cents);
-    params[`line_items[${next}][price_data][product_data][name]`] = sc.label;
-  }
   if (user.email) params.customer_email = user.email; // pre-fills the checkout page and where Stripe sends the receipt
   return (await createSession(params, fetchImpl)).url;
 }
@@ -466,16 +446,20 @@ function handleStripeEvent(event, db, now = Date.now()) {
     if (!pack || !u) { console.error('Credits: paid session', obj.id, 'has an unknown pack or user'); return null; }
     const cur = String(obj.currency).toLowerCase(), { country = '', region = '', tax, total } = obj.metadata || {};
     const base = REG.priceIn(pack, cur);
-    const expected = total === undefined ? base : Number(total); // a session made before the total was recorded was for the plain price
+    const paidTax = Number(obj.total_details?.amount_tax) || 0;
+    // a session made before Stripe Tax carries its own total; otherwise the price, plus the tax Stripe added on top of it
+    const expected = total !== undefined ? Number(total) : obj.amount_total === base ? base : base + paidTax;
     if (!base || !Number.isInteger(expected) || expected < base || expected > Math.round(base * 1.75) || obj.amount_total !== expected || (!!country && REG.currencyOf(country) !== cur)) {
       console.error('Credits: paid session', obj.id, 'amount does not match the pack; not crediting');
       return null;
     }
     const payerCountry = String(obj.customer_details?.address?.country || '').toUpperCase();
+    const payerRegion = String(obj.customer_details?.address?.state || '').toUpperCase().slice(0, 3);
     const why = REG.review(country, /^[A-Z]{2}$/.test(payerCountry) ? payerCountry : '');
     if (why) console.warn(`Credits: payment ${obj.id} needs a look (${why}): the buyer said ${country || 'nothing'}, Stripe says ${payerCountry}`);
     db.payments[obj.id] = {
-      id: obj.id, userId: u.id, packId: pack.id, credits: pack.credits, cents: expected, currency: cur, country, region, tax: Number(tax) || 0,
+      id: obj.id, userId: u.id, packId: pack.id, credits: pack.credits, cents: expected, currency: cur,
+      country: /^[A-Z]{2}$/.test(payerCountry) ? payerCountry : country, region: region || payerRegion, tax: total !== undefined ? Number(tax) || 0 : paidTax,
       ...(why ? { review: why } : {}), intent: obj.payment_intent || null, createdAt: now, reversed: false,
     };
     grant(u, pack.credits, 'purchase', { note: `${pack.credits} credits`, kind: 'buy', now });
@@ -617,6 +601,6 @@ function register(app, d) {
 module.exports = {
   EARN, PACKS, QUESTS, acct, grant, spend, claw, normalize, quality, similar, typingProblem,
   noteChannelMessage, rewardMessage, noteReaction, questList, claimQuest, view, events, shop, pthemes, ads, STREAK_MILESTONES, streakView,
-  verifyStripeSignature, stripeRequest, createSession, createCheckout, handleStripeEvent, purchasesEnabled, register,
+  verifyStripeSignature, stripeRequest, createSession, STRIPE_TAX, createCheckout, handleStripeEvent, purchasesEnabled, register,
   _reset: () => { spoke.clear(); seen.clear(); },
 };

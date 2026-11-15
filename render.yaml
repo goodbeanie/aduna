@@ -65,7 +65,7 @@ services:
       # optional: how many bot events run at the same time (default 2, max 8; each worker holds a WebAssembly runtime, mind the 512 MB on the free plan)
       - key: SANDBOX_WORKERS
         sync: false
-      # TAX_COLLECT_IN: optional, e.g. CA-BC=12,CA-ON,GB,IN,MX,BR=14.25 (only places you are registered to collect tax; empty = no tax)
+      # Sales tax is worked out by Stripe Tax on Stripe's checkout page (switch it on in the Stripe dashboard and add your registrations there).
       # Buying credits and the storage plan with real money (Stripe). Both keys are needed; without them the Buy buttons are off.
       # Webhook endpoint: <your site>/api/credits/webhook (events listed in docs/reference.md).
       - key: STRIPE_SECRET_KEY
@@ -80,10 +80,6 @@ services:
         value: auto
       - key: STRIPE_PRICES
         sync: false
-      # Card processing surcharge: its own line at checkout. "stripe" = pass on Stripe's card fee as far as card rules allow (2.4% Canada, 3% US, never Quebec).
-      # A number (e.g. 2) asks for less. Unset = no surcharge. SURCHARGE_EXCLUDE=US-CT,US-MA leaves places out.
-      - key: SURCHARGE_PCT
-        value: stripe
       # email verification. Free option that works on Render's free plan: Brevo (HTTPS). Set BREVO_API_KEY and EMAIL_FROM
       # (a sender you verified in Brevo). Render's free plan blocks SMTP, so the Gmail option below needs a paid plan.
       - key: BREVO_API_KEY

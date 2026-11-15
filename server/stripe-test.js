@@ -24,8 +24,8 @@ function fakeStripe(opts = {}) {
 
 const session = (over = {}) => ({
   id: 'cs_1', mode: 'payment', payment_status: 'paid', currency: 'usd', amount_total: 249, payment_intent: 'pi_1',
-  metadata: { userId: 'u1', packId: 'p1000', country: 'US', region: 'WA', tax: '0', total: '249' },
-  customer_details: { address: { country: 'US' } }, ...over,
+  metadata: { userId: 'u1', packId: 'p1000', country: 'US' }, total_details: { amount_tax: 0 },
+  customer_details: { address: { country: 'US', state: 'WA' } }, ...over,
 });
 const done = (over, type = 'checkout.session.completed') => ({ type, data: { object: session(over) } });
 const newDb = () => ({ users: { u1: user() }, payments: {} });
@@ -50,15 +50,25 @@ const newDb = () => ({ users: { u1: user() }, payments: {} });
     assert.strictEqual(p['line_items[0][price_data][currency]'], 'usd');
     assert.strictEqual(p.client_reference_id, 'u1');
     assert.strictEqual(p['metadata[packId]'], 'p2500');
-    assert.strictEqual(p['metadata[total]'], String(pack.cents));
+    assert.strictEqual(p['metadata[country]'], 'US');
     assert.strictEqual(p.success_url, 'https://aduna.test/app?credits=paid');
     assert.strictEqual(p.cancel_url, 'https://aduna.test/app?credits=cancelled');
     assert.strictEqual(p['managed_payments[enabled]'], 'false');
-    assert.ok(!('line_items[1][quantity]' in p), 'no tax line where Aduna collects no tax');
+    assert.ok(!('line_items[1][quantity]' in p), 'no tax or surcharge line of our own');
+    assert.ok(!('metadata[total]' in p) && !('metadata[tax]' in p), 'Stripe works out the total, not Aduna');
     await assert.rejects(C.createCheckout({ user: u, pack, origin: 'x', buyer: {}, fetchImpl: f.impl }), /country/);
     await assert.rejects(C.createCheckout({ user: u, pack, origin: 'x', buyer: { country: 'DE', region: 'BY' }, fetchImpl: f.impl }), /only sells/);
     await assert.rejects(C.createCheckout({ user: u, pack, origin: 'x', buyer: US, fetchImpl: fakeStripe({ fail: true }).impl }), /Stripe checkout failed/);
-    step('checkout: server price, user and pack in metadata, return links, Stripe Checkout redirect, buyer must name where they are');
+    step('checkout: server price, user and pack in metadata, return links, Stripe Checkout redirect, buyer must name a country');
+  }
+  {
+    const f = fakeStripe();
+    await C.createCheckout({ user: user(), pack: C.PACKS[0], origin: 'x', buyer: { country: 'US' }, fetchImpl: f.impl });
+    const p = f.calls[0].params;
+    assert.strictEqual(p['automatic_tax[enabled]'], 'true', 'Stripe Tax adds the tax');
+    assert.strictEqual(p.billing_address_collection, 'required', 'Stripe asks for the billing address');
+    assert.strictEqual(p['line_items[0][price_data][tax_behavior]'], 'exclusive', 'the tax goes on top of the price');
+    step('Stripe collects the billing address and the tax; the buyer only names a country');
   }
   {
     const f = fakeStripe(), pack = C.PACKS.find((p) => p.id === 'p500');
@@ -72,12 +82,11 @@ const newDb = () => ({ users: { u1: user() }, payments: {} });
     process.env.TAX_COLLECT_IN = 'CA-BC';
     const f = fakeStripe(), pack = C.PACKS.find((p) => p.id === 'p500');
     await C.createCheckout({ user: user(), pack, origin: 'x', buyer: CA, fetchImpl: f.impl });
-    const p = f.calls[0].params, tax = Math.round(pack.cadCents * 0.05) + Math.round(pack.cadCents * 0.07); // GST + PST, each rounded on its own line
-    assert.strictEqual(p['line_items[1][price_data][unit_amount]'], String(tax));
-    assert.strictEqual(p['metadata[tax]'], String(tax));
-    assert.strictEqual(p['metadata[total]'], String(pack.cadCents + tax));
+    const p = f.calls[0].params;
+    assert.ok(!('line_items[1][quantity]' in p), 'TAX_COLLECT_IN no longer adds a tax line');
+    assert.strictEqual(p['automatic_tax[enabled]'], 'true');
     delete process.env.TAX_COLLECT_IN;
-    step('tax is its own checkout line, only where TAX_COLLECT_IN says so');
+    step('the old TAX_COLLECT_IN setting adds nothing to checkout; Stripe Tax does it');
   }
   {
     process.env.STRIPE_MANAGED_PAYMENTS = 'on';
@@ -133,10 +142,28 @@ const newDb = () => ({ users: { u1: user() }, payments: {} });
   }
   {
     const db = newDb();
-    const meta = { userId: 'u1', packId: 'p500', country: 'CA', region: 'BC', tax: '29', total: '278' };
-    assert.strictEqual(C.handleStripeEvent(done({ currency: 'cad', amount_total: 278, metadata: meta, customer_details: { address: { country: 'CA' } } }), db, T0).delta, 500, 'credits for the pack, not for the tax');
-    assert.strictEqual(db.payments.cs_1.tax, 29);
-    step('a purchase with tax credits the pack and records the tax');
+    const pack = C.PACKS.find((p) => p.id === 'p500'), tax = 31;
+    const meta = { userId: 'u1', packId: 'p500', country: 'CA' };
+    const taxed = { currency: 'cad', amount_total: pack.cadCents + tax, total_details: { amount_tax: tax }, metadata: meta, customer_details: { address: { country: 'CA', state: 'BC' } } };
+    assert.strictEqual(C.handleStripeEvent(done(taxed), db, T0).delta, 500, 'credits for the pack, not for the tax');
+    assert.strictEqual(db.payments.cs_1.tax, tax);
+    assert.strictEqual(db.payments.cs_1.cents, pack.cadCents + tax);
+    assert.strictEqual(db.payments.cs_1.region, 'BC', 'the province comes from the address Stripe collected');
+    step('a purchase with Stripe Tax credits the pack and records the tax and where it was paid from');
+  }
+  {
+    const db = newDb(), pack = C.PACKS.find((p) => p.id === 'p500');
+    const base = { currency: 'cad', metadata: { userId: 'u1', packId: 'p500', country: 'CA' }, customer_details: { address: { country: 'CA', state: 'BC' } } };
+    assert.strictEqual(C.handleStripeEvent(done({ ...base, amount_total: pack.cadCents + 40, total_details: { amount_tax: 0 } }), db, T0), null, 'more than the price with no tax to explain it');
+    assert.strictEqual(C.handleStripeEvent(done({ ...base, amount_total: pack.cadCents * 3, total_details: { amount_tax: pack.cadCents * 2 } }), db, T0), null, 'tax far above any real rate');
+    assert.strictEqual(db.users.u1.credits, undefined, 'nothing was credited');
+    step('an amount that the price plus the reported tax does not explain is not credited');
+  }
+  {
+    const db = newDb();
+    const old = { metadata: { userId: 'u1', packId: 'p1000', country: 'US', region: 'WA', tax: '0', total: '249' } };
+    assert.strictEqual(C.handleStripeEvent(done(old), db, T0).delta, 1000);
+    step('a session made before Stripe Tax, with its own total in the metadata, still credits');
   }
   {
     const db = newDb(), warn = console.warn; let warned = '';

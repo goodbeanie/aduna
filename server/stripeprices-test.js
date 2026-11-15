@@ -1,13 +1,12 @@
 // Attaching your own Stripe products, without a database or the network: node server/stripeprices-test.js
 // Stripe is replaced by a fake that holds the same products as the dashboard (500/1000/2500/5000 Credits in CAD, Aduna PLUS monthly).
 process.env.STRIPE_SECRET_KEY = 'sk_test_x'; process.env.STRIPE_WEBHOOK_SECRET = 'whsec_x';
-delete process.env.TAX_COLLECT_IN; delete process.env.SELL_TO; delete process.env.STRIPE_MANAGED_PAYMENTS; delete process.env.SURCHARGE_PCT;
+delete process.env.TAX_COLLECT_IN; delete process.env.SELL_TO; delete process.env.STRIPE_MANAGED_PAYMENTS;
 delete process.env.STRIPE_PRODUCTS; delete process.env.STRIPE_PRICES;
 const assert = require('assert');
 const P = require('./stripeprices');
 const credits = require('./credits');
 const storage = require('./storage');
-const S = require('./surcharge');
 
 const prod = (name) => ({ id: 'prod_' + name.replace(/\W/g, ''), name, active: true });
 const price = (id, name, cents, cur = 'cad', recurring = false) => ({
@@ -51,14 +50,15 @@ const pack = (id) => credits.PACKS.find((p) => p.id === id);
 
   // ---- STRIPE_PRODUCTS=auto: your products are found by name, currency and amount ----
   process.env.STRIPE_PRODUCTS = 'auto';
-  for (const [id, cents, want] of [['p500', 199, 'price_cad500aaa'], ['p1000', 349, 'price_cad1000aa'], ['p2500', 699, 'price_cad2500aa'], ['p5000', 999, 'price_cad5000aa']]) {
+  for (const [id, want] of [['p500', 'price_cad500aaa'], ['p1000', 'price_cad1000aa'], ['p2500', 'price_cad2500aa'], ['p5000', 'price_cad5000aa']]) {
     P._reset(); f = fakeStripe();
     await credits.createCheckout({ user, pack: pack(id), origin: 'https://x.test', buyer: ca, fetchImpl: f.fetchImpl });
     const s = f.sessions()[0];
     assert.strictEqual(s.get('line_items[0][price]'), want, id + ' uses your Stripe price');
     assert.strictEqual(s.has('line_items[0][price_data][unit_amount]'), false);
     assert.strictEqual(s.get('metadata[packId]'), id);
-    assert.strictEqual(Number(s.get('metadata[total]')), cents, 'the amount the webhook checks is still Aduna\'s own');
+    assert.strictEqual(s.get('automatic_tax[enabled]'), 'true', 'Stripe Tax is on beside your product');
+    assert.strictEqual(s.has('metadata[total]'), false, 'the total is Stripe\'s to work out');
   }
   console.log('ok: the four credit packs use your CAD products');
 
@@ -121,36 +121,14 @@ const pack = (id) => credits.PACKS.find((p) => p.id === id);
   delete process.env.STRIPE_PRICES;
   console.log('ok: STRIPE_PRICES ids are validated and checked');
 
-  // ---- the surcharge line: SURCHARGE_PCT=stripe ----
-  P._reset();
-  const env = { SURCHARGE_PCT: 'stripe' };
-  const q = S.quote(ca, 1000, env);
-  assert.strictEqual(q.rate, 2.4, 'Canada: as much as the card rules allow');
-  assert.strictEqual(q.cents, 24);
-  assert.ok(/surcharge/i.test(q.label));
-  assert.strictEqual(S.quote(us, 1000, env).rate, 3, 'US cap');
-  assert.strictEqual(S.quote({ country: 'CA', region: 'QC' }, 1000, env).cents, 0, 'Quebec never');
-  assert.strictEqual(S.quote(ca, 199, env).cents, 5, 'the 500 pack: 5 cents');
-  assert.ok(S.publicInfo(env) && S.publicInfo(env).rates.CA === 2.4);
-  assert.strictEqual(S.quote(ca, 1000, { SURCHARGE_PCT: 'abc' }).cents, 0, 'nonsense still turns it off');
-  console.log('ok: SURCHARGE_PCT=stripe');
-
-  // ---- and it lands on the Stripe checkout as its own line, next to your product ----
-  process.env.STRIPE_PRODUCTS = 'auto'; process.env.SURCHARGE_PCT = 'stripe';
+  // ---- an inline price (no Stripe product attached) tells Stripe Tax the tax goes on top ----
   P._reset(); f = fakeStripe();
-  await credits.createCheckout({ user, pack: pack('p1000'), origin: 'https://x.test', buyer: ca, fetchImpl: f.fetchImpl });
-  s = f.sessions()[0];
-  assert.strictEqual(s.get('line_items[0][price]'), 'price_cad1000aa');
-  assert.strictEqual(s.get('line_items[1][price_data][unit_amount]'), '8', '2.4% of 349 = 8 cents');
-  assert.ok(/^Card processing surcharge \(2\.4%\)$/.test(s.get('line_items[1][price_data][product_data][name]')));
-  assert.strictEqual(Number(s.get('metadata[total]')), 349 + 8);
+  await credits.createCheckout({ user, pack: pack('p500'), origin: 'https://x.test', buyer: ca, fetchImpl: f.fetchImpl });
+  assert.strictEqual(f.sessions()[0].get('line_items[0][price_data][tax_behavior]'), 'exclusive');
   P._reset(); f = fakeStripe();
   await storage.createCheckout({ user, buyer: ca, origin: 'https://x.test', fetchImpl: f.fetchImpl });
-  s = f.sessions()[0];
-  assert.strictEqual(s.get('line_items[0][price]'), 'price_cadplusaa');
-  assert.strictEqual(s.get('line_items[1][price_data][recurring][interval]'), 'month', 'the surcharge repeats monthly with the plan');
-  assert.strictEqual(Number(s.get('metadata[total]')), 499 + 12);
-  console.log('ok: the surcharge is its own line beside your Stripe product (packs and Aduna PLUS)');
+  assert.strictEqual(f.sessions()[0].get('line_items[0][price_data][tax_behavior]'), 'exclusive');
+  console.log('ok: inline prices are tax exclusive');
 
   console.log('stripeprices-test: ok');
 })().catch((e) => { console.error(e); process.exit(1); });

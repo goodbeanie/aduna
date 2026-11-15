@@ -347,5 +347,16 @@
       { "title": "See the whole picture", "text": "The window where you position a frame now shows a bit more around the frame. The part outside the frame is dimmed, because that part gets cut off." },
       { "title": "Position, scale and rotation", "text": "You can type exact values for the position, scale and rotation of the picture, or use the sliders. Rotation goes from -180 to 180 degrees, and the [ and ] keys turn it a step at a time. The saved frame matches what you see." }
     ]
+  },
+  {
+    "id": "2026.11.14.9",
+    "date": "2026-11-14",
+    "title": "Stripe's own checkout page",
+    "items": [
+      { "title": "Pay on Stripe's page", "text": "Buy credits and Aduna Plus now opens Stripe's checkout straight away. Stripe asks for your billing address there and adds the sales tax for it, so Aduna's own checkout screen and its postal code and location boxes are gone." },
+      { "title": "No card surcharge line", "text": "Checkout no longer adds a separate card processing surcharge. You pay the price plus the tax Stripe shows." },
+      { "title": "Frames show your picture", "text": "In the shop, profile frames are previewed on your own profile picture instead of a letter." },
+      { "title": "Admin shop items skip review", "text": "Items made by admin accounts go straight into the shop instead of waiting for a review that the admin could not give to their own work." }
+    ]
   }
 ]

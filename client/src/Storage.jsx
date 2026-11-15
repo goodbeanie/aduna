@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { askConfirm, toast } from './Dialogs.jsx';
-import { Checkout } from './Credits.jsx';
 import { homeCountry } from './region.js';
 import PlusCard, { plusPerks } from './PlusCard.jsx';
 import { setStorageFullHandler, setPlusLimitHandler, sizeLabel } from './files.js';
@@ -183,8 +182,6 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onBilling, onCancelPlan,
 export function StorageDock({ storage, setStorage }) {
   const [modal, setModal] = useState(null);        // 'plan' | 'files' | null
   const [full, setFull] = useState(null);          // { needed, fileName, resolve } while an upload waits for room
-  const [checkout, setCheckout] = useState(false);
-  const [coErr, setCoErr] = useState('');
   const [busy, setBusy] = useState(false);
   const fullRef = useRef(null); fullRef.current = full;
   const [ask, setAsk] = useState(null);            // { resolve } while a Plus person's first upload waits for "do you want a limit?"
@@ -239,10 +236,10 @@ export function StorageDock({ storage, setStorage }) {
     ask();
   }, [setStorage]);
 
-  async function subscribe(buyer = {}) {
-    setBusy(true); setCoErr('');
-    try { const { url } = await api('/storage/subscribe', { method: 'POST', body: buyer }); window.location.assign(url); }
-    catch (e) { setCoErr(e.message); setBusy(false); }
+  async function subscribe() {
+    setBusy(true);
+    try { const { url } = await api('/storage/subscribe', { method: 'POST', body: { country: storage.regions ? homeCountry(storage.regions.countries) : 'US' } }); window.location.assign(url); }
+    catch (e) { toast(e.message, 'error'); setBusy(false); }
   }
   async function cancelPlan() {
     if (!(await askConfirm({ title: 'Cancel storage plan', body: 'You keep the plan until the month you paid for ends. After that your files are kept for 14 more days.', confirmLabel: 'Cancel plan' }))) return;
@@ -262,11 +259,8 @@ export function StorageDock({ storage, setStorage }) {
   if (!storage) return null;
   const s = storage;
   const pct = s.limit ? Math.min(100, Math.round((s.used / s.limit) * 100)) : 0;
-  const plan = { ...s.plan, recurring: true, title: 'Aduna Plus', subtitle: `${fmt(s.plan.bytes)} of your own · billed monthly`, icon: 'bag' };
 
   const freePct = s.freeLimit ? Math.min(100, Math.round((s.used / s.freeLimit) * 100)) : 0;
-
-  if (checkout) return <Checkout pack={plan} tax={s.tax} surcharge={s.surcharge} regions={s.regions} busy={busy} error={coErr} onPay={subscribe} onClose={() => { setCheckout(false); setBusy(false); }} />;
 
   return (
     <>
@@ -278,7 +272,7 @@ export function StorageDock({ storage, setStorage }) {
         {s.subscriber && s.limit && <span className="st-track"><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: fillPct(s.used, s.limit) + '%' }} /></span>}
         {!s.subscriber && s.freeLimit && <span className="st-track"><i className={s.readOnly || freePct >= 95 ? 'full' : freePct >= 80 ? 'warn' : ''} style={{ width: fillPct(s.used, s.freeLimit) + '%' }} /></span>}
       </button>
-      {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={() => { setModal(null); setCoErr(''); setCheckout(true); }} onManage={() => setModal('files')} onBilling={billing} onCancelPlan={cancelPlan} onSaveLimit={(gb) => saveLimit(gb)} />}
+      {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={() => { setModal(null); subscribe(); }} onManage={() => setModal('files')} onBilling={billing} onCancelPlan={cancelPlan} onSaveLimit={(gb) => saveLimit(gb)} />}
       {ask && (
         <Modal title="Do you want a storage limit?" onClose={() => { ask.resolve(false); setAsk(null); }}>
           <p className="st-note">With Plus your files are never removed. You can keep uploading with no limit, or set one yourself so uploads stop at a size you choose. You can change this any time in Storage.</p>
@@ -287,7 +281,7 @@ export function StorageDock({ storage, setStorage }) {
       )}
       {modal === 'files' && <CleanupModal onDone={() => { setModal('plan'); reload(); }} onCancel={() => setModal('plan')} />}
       {full && <CleanupModal needed={full.needed} fileName={full.fileName} limitMB={full.freeLimitMB || 0} readOnly={!!full.readOnly} plusBytes={s.plan.bytes}
-        onUpgrade={full.canUpgrade && s.purchases ? () => { finishFull(false); setCoErr(''); setCheckout(true); } : null}
+        onUpgrade={full.canUpgrade && s.purchases ? () => { finishFull(false); subscribe(); } : null}
         onDone={() => finishFull(true)} onCancel={() => finishFull(false)} />}
     </>
   );

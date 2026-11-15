@@ -10,8 +10,6 @@
 // itself said so (the server fetches the checkout session from Stripe, or Stripe's signed webhook arrives), and only for the period paid.
 // No Express or database imports here, so server/storage-stripe-test.js can test it with fakes.
 
-const TAX = require('./tax');
-const SUR = require('./surcharge'); // the optional credit card surcharge line (off unless SURCHARGE_PCT is set)
 const REG = require('./regions');
 const credits = require('./credits');
 
@@ -113,39 +111,24 @@ function logPayment(user, { id, cents, at, renewal = false, currency = 'usd', co
   if (list.length > 60) list.length = 60;
 }
 
-// Starts the subscription and returns where to send the buyer to pay. The price comes from PLAN, never from the browser. The tax (only where
-// Aduna is set up to collect it, server/tax.js) is a second monthly line next to the price.
+// Starts the subscription and returns where to send the buyer to pay. The price comes from PLAN, never from the browser. Stripe asks for the
+// billing address on its own page and adds the tax to every monthly charge (Stripe Tax).
 async function createCheckout({ user, buyer = {}, origin, fetchImpl = fetch }) {
   const where = REG.resolve(buyer);
   if (!where.ok) throw Object.assign(new Error(where.error), { forBuyer: true });
   const base = REG.priceIn(PLAN, where.currency);
-  const q = TAX.quote(buyer, base);
-  if (!q.ok) throw Object.assign(new Error(q.error), { forBuyer: true });
-  const sc = SUR.quote(buyer, base); // the optional credit card surcharge, a monthly line like the tax (off unless SURCHARGE_PCT is set)
   // your own "Aduna PLUS" monthly price from Stripe when STRIPE_PRODUCTS / STRIPE_PRICES attach one (server/stripeprices.js), else an inline price
   const priceId = await PRICES.priceFor({ item: PLAN, currency: where.currency, base, recurring: true, request: (m, p) => credits.stripeRequest(m, p, null, fetchImpl) });
-  const line = (i, cents, name) => ({
-    [`line_items[${i}][quantity]`]: '1',
-    [`line_items[${i}][price_data][currency]`]: where.currency,
-    [`line_items[${i}][price_data][unit_amount]`]: String(cents),
-    [`line_items[${i}][price_data][recurring][interval]`]: 'month',
-    [`line_items[${i}][price_data][product_data][name]`]: name,
-  });
   const params = {
     mode: 'subscription',
-    ...(priceId ? PRICES.line(0, { priceId }) : line(0, base, PLAN.name + ' (monthly)')),
-    ...(q.tax ? line(1, q.tax, q.label) : {}),
-    ...(sc.cents ? line(q.tax ? 2 : 1, sc.cents, sc.label) : {}),
+    ...PRICES.line(0, { priceId, currency: where.currency, cents: base, name: PLAN.name + ' (monthly)', recurring: true }),
+    ...credits.STRIPE_TAX,
     success_url: `${origin}/app?storage=paid&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/app?storage=cancelled`,
     client_reference_id: user.id,
     'metadata[kind]': 'storage',
     'metadata[userId]': user.id,
     'metadata[country]': where.country,
-    'metadata[region]': where.region,
-    'metadata[tax]': String(q.tax),
-    'metadata[surcharge]': String(sc.cents),
-    'metadata[total]': String(base + q.tax + sc.cents), // what the first payment should be; checked when Stripe says it was paid
     'subscription_data[metadata][userId]': user.id,
   };
   if (user.email) params.customer_email = user.email;
@@ -160,19 +143,24 @@ function applySession(u, session, now = Date.now()) {
   if (session.payment_status !== 'paid') return 'unpaid';
   const cur = String(session.currency).toLowerCase(), cents = session.amount_total;
   const { country = '', region = '' } = meta;
-  if (!amountOk(cents, cur) || cents !== Number(meta.total) || (!!country && REG.currencyOf(country) !== cur) || !STRIPE_ID.test(String(session.customer || '')) || !STRIPE_ID.test(String(session.subscription || ''))) {
+  const base = REG.priceIn(PLAN, cur), paidTax = Number(session.total_details?.amount_tax) || 0;
+  // a session made before Stripe Tax carries its own total; otherwise the price, plus the tax Stripe added on top of it
+  const expected = meta.total !== undefined ? Number(meta.total) : cents === base ? base : base + paidTax;
+  if (!amountOk(cents, cur) || cents !== expected || (!!country && REG.currencyOf(country) !== cur) || !STRIPE_ID.test(String(session.customer || '')) || !STRIPE_ID.test(String(session.subscription || ''))) {
     console.error('Storage: Stripe session', session.id, 'does not match the plan; not activating');
     return 'bad';
   }
   if ((u.storagePayments || []).some((p) => p.id === session.id)) return 'same';
   const old = rec(u) || {};
-  const tax = Number(meta.tax) || 0;
+  const tax = meta.total !== undefined ? Number(meta.tax) || 0 : paidTax;
+  const payerCountry = String(session.customer_details?.address?.country || '').toUpperCase();
+  const where = { country: /^[A-Z]{2}$/.test(payerCountry) ? payerCountry : country, region: region || String(session.customer_details?.address?.state || '').toUpperCase().slice(0, 3) };
   u.storageSub = {
     status: 'active', customerId: session.customer, subscriptionId: session.subscription,
-    amountCents: cents, currency: cur, country, region, tax,
+    amountCents: cents, currency: cur, country: where.country, region: where.region, tax,
     since: old.since || now, paidThrough: Math.max(Number(old.paidThrough) || 0, now) + PAID_FOR_MS, syncedAt: now,
   };
-  logPayment(u, { id: session.id, cents, at: now, currency: cur, country, region, tax });
+  logPayment(u, { id: session.id, cents, at: now, currency: cur, country: where.country, region: where.region, tax });
   return 'changed';
 }
 
@@ -301,8 +289,6 @@ function register(app, d) {
       purchases: pay && open,
       paused: pay && !open, // a creator has Payments switched off (/admin > Switches): Get storage says "paused"
       provider: pay ? 'stripe' : null,
-      tax: pay ? TAX.publicInfo() : null,
-      surcharge: pay ? SUR.publicInfo() : null,
       regions: pay ? REG.publicInfo() : null,
     };
   }

@@ -1,5 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Select } from './Controls.jsx';
+import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { EmptyState, PanelSkeleton } from './ShellBits.jsx';
@@ -7,8 +6,6 @@ import { toast } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, ShopTile, useCountUp } from './Shop.jsx';
 import PlusCard from './PlusCard.jsx';
 import { homeCountry, rememberCountry, priceFor } from './region.js';
-
-const money = (cents, currency) => (cents / 100).toLocaleString(undefined, { style: 'currency', currency: String(currency || 'usd').toUpperCase() });
 
 function Quest({ q, locked, busy, onClaim }) {
   const pct = Math.round((q.have / q.need) * 100);
@@ -156,172 +153,13 @@ function StreakCard({ s }) {
   );
 }
 
-// The notices shown before paying. Shown on the Credits page and again inside the checkout, where `stripe` and `tax` add the notes below.
-function BuyNotices({ stripe = false, tax = false, place = false, saved = false }) {
+// The notices shown before paying. Stripe's own page takes the billing address and adds the sales tax for it.
+function BuyNotices() {
   return (
     <div className="buy-notices">
-      {saved
-        ? <div className="buy-note"><Icon name="shield" size={16} /><span>Your card is kept securely by Stripe, not by Aduna. Aduna never sees or stores your card details. Your plan renews every month and you can cancel any time in Storage.</span></div>
-        : <div className="buy-note"><Icon name="shield" size={16} /><span>Aduna does not save your payment information, your security is our priority.</span></div>}
-      {stripe && <div className="buy-note"><Icon name="shield" size={16} /><span>Secure checkout is provided by Stripe. Your card details are entered on Stripe's page and are never seen or stored by Aduna.</span></div>}
-      {tax && <div className="buy-note"><Icon name="pin" size={16} /><span>We ask for your billing location only to calculate the sales tax that applies to your order. Your postal code stays in your browser; only your country and province or state are sent with the order.</span></div>}
-      {place && <div className="buy-note"><Icon name="pin" size={16} /><span>Aduna sells to Canada and the US, and prices are in Canadian or US dollars depending on where you are. Your postal code stays in your browser; only your country and province or state are sent with the order.</span></div>}
-    </div>
-  );
-}
-
-// Aduna's own full-screen checkout, laid out like Stripe's: where the buyer is on the left, the receipt on the right, an X to leave.
-// Continue hands the buyer to Stripe's checkout page, where the card is entered.
-const PROVINCES = { AB: 'Alberta', BC: 'British Columbia', MB: 'Manitoba', NB: 'New Brunswick', NL: 'Newfoundland and Labrador', NS: 'Nova Scotia', NT: 'Northwest Territories', NU: 'Nunavut', ON: 'Ontario', PE: 'Prince Edward Island', QC: 'Quebec', SK: 'Saskatchewan', YT: 'Yukon' };
-const STATES = { AL: 'Alabama', AK: 'Alaska', AZ: 'Arizona', AR: 'Arkansas', CA: 'California', CO: 'Colorado', CT: 'Connecticut', DE: 'Delaware', DC: 'District of Columbia', FL: 'Florida', GA: 'Georgia', HI: 'Hawaii', ID: 'Idaho', IL: 'Illinois', IN: 'Indiana', IA: 'Iowa', KS: 'Kansas', KY: 'Kentucky', LA: 'Louisiana', ME: 'Maine', MD: 'Maryland', MA: 'Massachusetts', MI: 'Michigan', MN: 'Minnesota', MS: 'Mississippi', MO: 'Missouri', MT: 'Montana', NE: 'Nebraska', NV: 'Nevada', NH: 'New Hampshire', NJ: 'New Jersey', NM: 'New Mexico', NY: 'New York', NC: 'North Carolina', ND: 'North Dakota', OH: 'Ohio', OK: 'Oklahoma', OR: 'Oregon', PA: 'Pennsylvania', RI: 'Rhode Island', SC: 'South Carolina', SD: 'South Dakota', TN: 'Tennessee', TX: 'Texas', UT: 'Utah', VT: 'Vermont', VA: 'Virginia', WA: 'Washington', WV: 'West Virginia', WI: 'Wisconsin', WY: 'Wyoming' };
-const REGIONS = { CA: PROVINCES, US: STATES };
-const countryName = (c) => { try { return new Intl.DisplayNames(undefined, { type: 'region' }).of(c) || c; } catch { return c; } };
-
-// Asks the browser where the buyer is, then turns the coordinates into a country and state/province (BigDataCloud, no key needed).
-// It only fills in the pickers; the buyer can change them, and the server still works out the tax from what they chose.
-function locate(tax) {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) return reject(new Error('This browser cannot share its location.'));
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      try {
-        const r = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${pos.coords.latitude}&longitude=${pos.coords.longitude}&localityLanguage=en`);
-        const j = await r.json();
-        const country = String(j.countryCode || '').toUpperCase();
-        if (!country) throw new Error('no country');
-        const sub = String(j.principalSubdivisionCode || '').toUpperCase().split('-')[1] || '';
-        resolve({ country: tax.countries.includes(country) ? country : 'ZZ', region: sub });
-      } catch { reject(new Error('Could not work out where you are. Please choose below.')); }
-    }, (e) => reject(new Error(e.code === 1 ? 'Location is blocked for this site. Please choose below.' : 'Could not get your location. Please choose below.')), { timeout: 10000, maximumAge: 600000 });
-  });
-}
-
-// Works out the country and state/province from a postal or ZIP code, right here in the browser: nothing is sent anywhere and Aduna never
-// receives the code. Canada: the first letter names the province. US: the first three digits name the state. It only fills in the pickers.
-const CA_FIRST = { A: 'NL', B: 'NS', C: 'PE', E: 'NB', G: 'QC', H: 'QC', J: 'QC', K: 'ON', L: 'ON', M: 'ON', N: 'ON', P: 'ON', R: 'MB', S: 'SK', T: 'AB', V: 'BC', Y: 'YT' };
-const US_ZIP3 = [
-  [5, 5, 'NY'], [10, 27, 'MA'], [28, 29, 'RI'], [30, 38, 'NH'], [39, 49, 'ME'], [50, 59, 'VT'], [60, 69, 'CT'], [70, 89, 'NJ'],
-  [100, 149, 'NY'], [150, 196, 'PA'], [197, 199, 'DE'], [200, 200, 'DC'], [201, 201, 'VA'], [202, 205, 'DC'], [206, 219, 'MD'],
-  [220, 246, 'VA'], [247, 268, 'WV'], [270, 289, 'NC'], [290, 299, 'SC'], [300, 319, 'GA'], [320, 349, 'FL'], [350, 369, 'AL'],
-  [370, 385, 'TN'], [386, 397, 'MS'], [398, 399, 'GA'], [400, 427, 'KY'], [430, 459, 'OH'], [460, 479, 'IN'], [480, 499, 'MI'],
-  [500, 528, 'IA'], [530, 549, 'WI'], [550, 567, 'MN'], [569, 569, 'DC'], [570, 577, 'SD'], [580, 588, 'ND'], [590, 599, 'MT'],
-  [600, 629, 'IL'], [630, 658, 'MO'], [660, 679, 'KS'], [680, 693, 'NE'], [700, 715, 'LA'], [716, 729, 'AR'], [730, 749, 'OK'],
-  [750, 799, 'TX'], [800, 816, 'CO'], [820, 831, 'WY'], [832, 838, 'ID'], [840, 847, 'UT'], [850, 865, 'AZ'], [870, 884, 'NM'],
-  [885, 885, 'TX'], [889, 898, 'NV'], [900, 961, 'CA'], [967, 968, 'HI'], [970, 979, 'OR'], [980, 994, 'WA'], [995, 999, 'AK'],
-];
-function fromPostal(raw, tax) {
-  const s = String(raw || '').toUpperCase().replace(/[\s-]/g, '');
-  let country = '', region = '';
-  if (/^[ABCEGHJKLMNPRSTVXY]\d[A-Z]/.test(s)) {                    // Canada: A1A 1A1
-    country = 'CA';
-    region = s[0] === 'X' ? (/^X0[ABC]/.test(s) ? 'NU' : 'NT') : CA_FIRST[s[0]] || '';
-  } else if (/^\d{5}(\d{4})?$/.test(s)) {                           // US: 12345 or 12345-6789
-    country = 'US';
-    const n = Number(s.slice(0, 3));
-    region = (US_ZIP3.find(([lo, hi]) => n >= lo && n <= hi) || [])[2] || '';
-  } else return null;
-  if (!tax.countries.includes(country)) return { country: 'ZZ', region: '' }; // somewhere the shop does not collect tax
-  return { country, region };
-}
-
-// `pack` is a credit pack, or (Storage.jsx) a plan: { cents, currency, recurring: true, title, subtitle, icon }, billed every month.
-// A plan is a Stripe subscription: Stripe keeps the card and charges it each month.
-export function Checkout({ pack, tax, surcharge = null, regions, busy, error, onPay, onClose }) {
-  const [country, setCountry] = useState(() => (regions ? homeCountry(regions.countries) : '')); // the country whose price was shown, so the price does not change under the buyer
-  useEffect(() => { if (regions && country) rememberCountry(country); }, [regions, country]); // next time the shop shows this country's price
-  const [region, setRegion] = useState('');
-  const [locBusy, setLocBusy] = useState(false);
-  const [locMsg, setLocMsg] = useState('');
-  const [postal, setPostal] = useState(''); // typed here only; it fills in the pickers and is never sent to the server
-  const buyerRef = useRef({}); buyerRef.current = { country, region: REGIONS[country] ? region : '' };
-  const where = regions || tax;                  // the countries Aduna sells to, or else the ones it collects tax in
-  const asks = !!where;
-  const needsRegion = !!REGIONS[country] && (!!regions || (!!tax && Object.keys(tax.rates).some((k) => k.startsWith(country + '-'))));
-  const code = needsRegion ? (region ? country + '-' + region : '') : country;
-  const picked = !asks || (!!country && !(needsRegion && !region));
-  const cur = regions && country ? regions.currency[country] || 'usd' : pack.currency || 'usd';
-  const cents = cur === 'cad' && pack.cadCents ? pack.cadCents : pack.cents;
-  const sellsOnly = regions ? `Aduna only sells to ${regions.countries.map(countryName).join(' and ')} for now.` : '';
-  const hit = tax && picked ? tax.rates[code] : null;
-  const parts = hit ? (hit.parts || [{ label: hit.label, rate: hit.rate }]).map((x) => ({ ...x, amount: Math.round((cents * x.rate) / 100) })) : [];
-  const taxCents = parts.reduce((t, x) => t + x.amount, 0);
-  // the optional credit card surcharge (server/surcharge.js): same rounding as the server, nothing for places that are left out
-  const scRate = surcharge && picked && country ? surcharge.rates[country] || 0 : 0;
-  const scLeftOut = !!surcharge && (surcharge.exclude.includes(country) || surcharge.exclude.includes(code));
-  const scCents = scRate && !scLeftOut ? Math.round((cents * scRate) / 100) : 0;
-  const price = money(cents, cur), total = money(cents + taxCents + scCents, cur);
-  // a postal code or location that is outside what Aduna sells to clears the picker and says so
-  const fill = (r, msg) => {
-    if (regions && r.country === 'ZZ') { setCountry(''); setRegion(''); setLocMsg(sellsOnly); return; }
-    setCountry(r.country); setRegion(REGIONS[r.country] && REGIONS[r.country][r.region] ? r.region : ''); setLocMsg(msg);
-  };
-  useEffect(() => {
-    const h = (e) => e.key === 'Escape' && !busy && onClose();
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [busy, onClose]);
-  return (
-    <div className="co" role="dialog" aria-label="Checkout">
-      <div className="co-top">
-        <span className="co-logo" role="img" aria-label="Aduna" />
-        <button type="button" className="icon-btn co-x" aria-label="Cancel checkout" title="Cancel" onClick={onClose} disabled={busy}><Icon name="close" size={22} /></button>
-      </div>
-      <div className="co-grid">
-        <main className="co-form">
-          <h1 className="co-h">Pay with Stripe</h1>
-          {asks && (
-            <div className="co-where">
-              <label className="muted small" htmlFor="co-postal">Billing location</label>
-              <p className="muted small co-locmsg">Enter your postal or ZIP code and we will find your {regions ? 'province or state' : 'tax region'}, or choose it below.</p>
-              <input id="co-postal" className="co-select" type="text" autoComplete="postal-code" maxLength={10} placeholder="Postal or ZIP code" value={postal} disabled={busy}
-                onChange={(e) => {
-                  const v = e.target.value; setPostal(v);
-                  const r = fromPostal(v, where);
-                  if (r) fill(r, r.region ? (regions ? 'Found from your postal code. Please check it below.' : 'Tax region found from your postal code. Please check it below.') : '');
-                }} />
-              <button type="button" className="btn co-loc" disabled={busy || locBusy} onClick={async () => {
-                setLocBusy(true); setLocMsg('');
-                try { fill(await locate(where), 'Filled in from your location. Change it below if it is wrong.'); }
-                catch (e) { setLocMsg(e.message); }
-                setLocBusy(false);
-              }}><Icon name="pin" size={16} /> {locBusy ? 'Finding you…' : 'Use my location'}</button>
-              {locMsg && <p className="muted small co-locmsg">{locMsg}</p>}
-              <Select id="co-country" aria-label="Country" className="co-select" value={country} onChange={(e) => { setCountry(e.target.value); setRegion(''); }} disabled={busy}>
-                <option value="" disabled>Choose your country</option>
-                {where.countries.map((c) => <option key={c} value={c}>{countryName(c)}</option>)}
-                {!regions && <option value="ZZ">Somewhere else</option>}
-              </Select>
-              {needsRegion && (
-                <Select className="co-select" aria-label={country === 'US' ? 'State' : 'Province'} value={region} onChange={(e) => setRegion(e.target.value)} disabled={busy}>
-                  <option value="" disabled>{country === 'US' ? 'Choose your state' : 'Choose your province'}</option>
-                  {Object.entries(REGIONS[country]).map(([k, n]) => <option key={k} value={k}>{n}</option>)}
-                </Select>
-              )}
-            </div>
-          )}
-          <button type="button" className="btn primary pay-btn" disabled={busy || !picked} onClick={() => onPay(buyerRef.current)}>{busy ? 'Opening Stripe…' : pack.recurring ? `Subscribe for ${total} a month` : `Pay ${total}`}</button>
-          {error && <p className="error-text">{error}</p>}
-          <BuyNotices stripe tax={!!tax} place={!!regions && !tax} saved={!!pack.recurring} />
-        </main>
-        <aside className="co-receipt">
-          <div className="co-rcpt-in">
-            <div className="muted small">Order summary</div>
-            <div className="co-total">{total}</div>
-            <div className="co-item">
-              <span className="co-item-ic"><Icon name={pack.icon || 'coin'} size={22} /></span>
-              <div className="co-item-t"><b>{pack.title || 'Aduna credits'}</b><span className="muted small">{pack.recurring ? pack.subtitle : `${pack.credits.toLocaleString()} credits · Qty 1`}</span></div>
-              <b>{price}</b>
-            </div>
-            <div className="co-line"><span>Subtotal</span><span>{price}</span></div>
-            {tax && !picked && <div className="co-line"><span>Tax</span><span className="muted small">Choose where you are</span></div>}
-            {tax && picked && !parts.length && <div className="co-line"><span>Tax</span><span>{money(0, cur)}</span></div>}
-            {parts.map((x) => <div key={x.label} className="co-line"><span>{x.label} ({x.rate}%)</span><span>{money(x.amount, cur)}</span></div>)}
-            {scCents > 0 && <div className="co-line"><span>Card processing surcharge ({scRate}%)</span><span>{money(scCents, cur)}</span></div>}
-            <div className="co-line total"><span>Total due today</span><b>{total}</b></div>
-            {scCents > 0 && <p className="muted small">A {scRate}% surcharge is added to card payments to help cover the card processing fee.</p>}
-            {pack.recurring && <p className="muted small">Then {total} every month until you cancel. You can cancel any time in Storage; you keep the plan until the month you paid for ends.</p>}
-          </div>
-        </aside>
-      </div>
+      <div className="buy-note"><Icon name="shield" size={16} /><span>Aduna does not save your payment information, your security is our priority.</span></div>
+      <div className="buy-note"><Icon name="shield" size={16} /><span>Secure checkout is provided by Stripe. Your card details are entered on Stripe's page and are never seen or stored by Aduna.</span></div>
+      <div className="buy-note"><Icon name="pin" size={16} /><span>Aduna sells to Canada and the US, and prices are in Canadian or US dollars. Stripe asks for your billing address on its page and adds any sales tax that applies there.</span></div>
     </div>
   );
 }
@@ -367,7 +205,7 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
 // Credits: balance, buying, the earning rules, quests and recent activity.
 // `rev` goes up whenever the server says the balance changed, so this page refreshes itself.
 // `page` picks the tab: 'shop' (buy credits, spend them on badges, recent activity) or 'quests' (earn credits: events, chatting, quests).
-export default function Credits({ page = 'shop', storage = null, onBack, rev, justPaid, creator = false, artistId = null, onAllItems }) {
+export default function Credits({ page = 'shop', storage = null, onBack, rev, justPaid, creator = false, artistId = null, onAllItems, me = null }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
@@ -377,7 +215,6 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   const [won, setWon] = useState(null); // the badge just bought (the celebration), or null
   const [adding, setAdding] = useState(false); // a creator's "add a badge" window
   const [, setTick] = useState(0);
-  const [checkout, setCheckout] = useState(null); // the pack being checked out, or null
   const [coErr, setCoErr] = useState('');
   const [homePick, setHomePick] = useState(null); // 'CA' or 'US' when the person flips the price switch; otherwise the guess in region.js
   const shownBalance = useCountUp(d ? d.balance : null);
@@ -404,11 +241,10 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
     return () => clearInterval(iv);
   }, [justPaid, load]);
 
-  // The Buy buttons open the checkout; only its Continue button leaves for Stripe.
-  async function pay(buyer = {}) {
-    const p = checkout;
+  // Buying sends the person straight to Stripe's checkout. The country only picks the currency; Stripe asks for the address and adds the tax.
+  async function pay(p) {
     setBusy(p.id); setCoErr('');
-    try { const { url } = await api('/credits/checkout', { method: 'POST', body: { packId: p.id, ...buyer } }); window.location.assign(url); }
+    try { const { url } = await api('/credits/checkout', { method: 'POST', body: { packId: p.id, country: d?.regions ? home : 'US' } }); window.location.assign(url); }
     catch (e) { setCoErr(e.message); setBusy(''); }
   }
   async function claim(q) {
@@ -454,7 +290,6 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   const m = d?.messaging;
   // an artist's marketplace shows only their items; otherwise the whole shop
   const shopItems = d ? (artistId ? d.shop.filter((it) => it.byId === artistId) : d.shop) : [];
-  if (checkout && d) return <Checkout pack={checkout} tax={d.tax} surcharge={d.surcharge} regions={d.regions} busy={!!busy} error={coErr} onPay={pay} onClose={() => { setCheckout(null); setBusy(''); }} />;
 
   return (
     <section className="chat">
@@ -468,8 +303,8 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
         {err && <p className="error-text">{err}</p>}
         {justPaid && <p className="ok-text">Thank you! Your credits are added as soon as the payment is confirmed, usually within seconds.</p>}
         {note && <p className="ok-text">{note}</p>}
-        {confirm && d && <BuyConfirm item={confirm} balance={d.balance} busy={busy === confirm.id} onConfirm={() => buyItem(confirm)} onClose={() => setConfirm(null)} />}
-        {won && <Celebration item={won} onClose={() => setWon(null)} />}
+        {confirm && d && <BuyConfirm item={confirm} balance={d.balance} busy={busy === confirm.id} onConfirm={() => buyItem(confirm)} onClose={() => setConfirm(null)} viewer={me} />}
+        {won && <Celebration item={won} onClose={() => setWon(null)} viewer={me} />}
         {adding && <AddBadgeModal onClose={() => setAdding(false)} onAdded={(name) => { setAdding(false); load(); setNote(`${name} is in the shop.`); }} />}
         {buying && d && (
           <Modal title="Buy credits" onClose={() => setBuying(false)}>
@@ -477,7 +312,7 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
               {d.packs.map((p) => (
                 <div key={p.id} className="credit-pack">
                   <div className="pack-amt"><Icon name="coin" size={20} />{p.credits.toLocaleString()}</div>
-                  <button className="btn primary" disabled={!d.purchases} onClick={() => { setBuying(false); setCoErr(''); setCheckout(p); }}>{priceFor(p, d.regions ? home : 'US').text}{d.regions ? <small className="buy-cad"> {priceFor(p, home).code}</small> : null}</button>
+                  <button className="btn primary" disabled={!d.purchases || !!busy} onClick={() => pay(p)}>{busy === p.id ? 'Opening Stripe…' : priceFor(p, d.regions ? home : 'US').text}{busy !== p.id && d.regions ? <small className="buy-cad"> {priceFor(p, home).code}</small> : null}</button>
                 </div>
               ))}
             </div>
@@ -487,6 +322,7 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
                 <button type="button" className="link-btn" onClick={() => { const n = home === 'US' ? 'CA' : 'US'; rememberCountry(n); setHomePick(n); }}>Show {home === 'US' ? 'Canadian' : 'US'} prices</button>
               </p>
             )}
+            {coErr && <p className="error-text">{coErr}</p>}
             {d.purchases && <BuyNotices />}
             {!d.purchases && <p className="muted small">{d.paused ? 'Payments are paused right now. Please check back soon.' : 'Buying credits is not set up on this server yet.'}</p>}
           </Modal>
@@ -523,7 +359,7 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
             {shopItems.length === 0
               ? <EmptyState compact icon="bag" title={artistId ? 'Nothing for sale right now' : creator ? 'No badges for sale yet' : 'Nothing for sale right now'}>{artistId ? 'This artist has no items on sale at the moment.' : creator ? 'Add one with a picture and a price.' : 'Check back soon.'}</EmptyState>
               : (() => {
-                const tile = (it) => <ShopTile key={it.id} item={it} balance={d.balance} busy={busy} onOpen={setConfirm} />;
+                const tile = (it) => <ShopTile key={it.id} item={it} balance={d.balance} busy={busy} onOpen={setConfirm} viewer={me} />;
                 const regular = shopItems.filter((it) => !it.daily), daily = shopItems.filter((it) => it.daily);
                 const max = d.shopInfo?.dailyMax || 5;
                 return (

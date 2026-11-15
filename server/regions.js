@@ -1,8 +1,8 @@
 // Where Aduna sells, and what each place pays in. No Express or database imports, so server/regions-test.js can test it alone.
 //
 // SELL_TO=CA,US is the default: Canada pays in CAD, the US in USD. Each item has a fixed price in each currency (cadCents and cents in
-// server/credits.js and server/storage.js). Every order has to name a country and a province or state;
-// the sales report (server/sales-report.js) counts by those.
+// server/credits.js and server/storage.js). Every order names a country; Stripe collects the billing address and the tax.
+// The sales report (server/sales-report.js) counts by the country and province or state Stripe reports.
 
 const TAX = require('./tax');
 
@@ -20,14 +20,14 @@ function sellTo(env = process.env) {
 const currencyOf = (country) => CURRENCY_OF[country] || null;
 
 // { ok:true, country, region, currency } for a buyer Aduna sells to, or { ok:false, error } with something the buyer can read.
+// The country picks the currency. The region (province or state) is only kept when the client knows it; Stripe asks for the address.
 function resolve(body, env = process.env) {
   const allowed = sellTo(env);
   const country = cc(body?.country);
   if (!country) return { ok: false, error: 'Choose your country first' };
   if (!allowed.includes(country)) return { ok: false, error: 'Aduna only sells to ' + (allowed.map((c) => NAME_OF[c]).join(' and ') || 'nobody') + ' for now' };
   const region = rg(body?.region);
-  if (!region || !TAX.RATES[country + '-' + region]) return { ok: false, error: country === 'US' ? 'Choose your state first' : 'Choose your province first' };
-  return { ok: true, country, region, currency: CURRENCY_OF[country] };
+  return { ok: true, country, region: region && TAX.RATES[country + '-' + region] ? region : '', currency: CURRENCY_OF[country] };
 }
 
 // An item's price in cents in a currency, or null when it has none there.
