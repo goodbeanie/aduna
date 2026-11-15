@@ -358,5 +358,13 @@
       { "title": "Frames show your picture", "text": "In the shop, profile frames are previewed on your own profile picture instead of a letter." },
       { "title": "Admin shop items skip review", "text": "Items made by admin accounts go straight into the shop instead of waiting for a review that the admin could not give to their own work." }
     ]
+  },
+  {
+    "id": "2026.11.14.10",
+    "date": "2026-11-14",
+    "title": "Profile editor crash fixed",
+    "items": [
+      { "title": "Profile editor opens again", "text": "If you owned a profile frame, opening the profile editor showed a \"Something went wrong\" screen. It opens normally now." }
+    ]
   }
 ]
