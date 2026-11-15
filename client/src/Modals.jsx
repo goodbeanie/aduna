@@ -20,6 +20,7 @@ import { ServerTagChip, ServerTagPicker } from './ServerTag.jsx';
 import { useLang } from './i18n.js';
 import { PlayingLine } from './Activity.jsx';
 import { TEMPLATES, DEFAULT_TEMPLATE } from './templates.js';
+import { BadgeArt } from './Shop.jsx';
 
 export function ServerModal({ onClose, onDone }) {
   const [tab, setTab] = useState('create');
