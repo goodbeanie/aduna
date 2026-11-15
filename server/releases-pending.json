@@ -392,5 +392,13 @@
       { "title": "The window grows with your art", "text": "When you move or scale a frame picture past the edge of the window, the window now zooms out by itself, so you always see the whole picture and all of it is saved." },
       { "title": "Bigger limit", "text": "A frame can now be up to five times as wide as the template square, up from three. Frames already in the shop are not changed." }
     ]
+  },
+  {
+    "id": "2026.11.15",
+    "date": "2026-11-15",
+    "title": "Same name on shop items",
+    "items": [
+      { "title": "Items can share a name", "text": "Two shop items, badges, frames or sticker packs can now have the same name. A few names stay reserved, like Creator and Artist." }
+    ]
   }
 ]
