@@ -7,7 +7,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const store = require('./db');
-const { sniffImage, sniffAny, cleanGif, stillGif } = require('./images');
+const { sniffImage, sniffAny, cleanGif, stillGif, trimImage } = require('./images');
 const animated = require('./animated'); // animated profile pictures, banners and server icons (a GIF cut to size with ffmpeg)
 const credits = require('./credits');
 const storagePlan = require('./storage');
@@ -371,7 +371,8 @@ const emailTaken = (email, exceptId) => {
 
 const convoKey = (a, b) => [a, b].sort().join(':');
 // Tokens carry the account's tokenVersion, so "log out everywhere" (POST /api/me/logout-all) can revoke them all (see security.js).
-const sessions = security.createSessions({ jwt, getSecret: () => SECRET });
+const revokedTokens = new security.RevokedTokens(); // ids of tokens ended by a plain log out (POST /api/logout); saved with the rate limits, see LIMITERS
+const sessions = security.createSessions({ jwt, getSecret: () => SECRET, revoked: revokedTokens });
 const signToken = (u) => sessions.sign(u);
 const userFromToken = (token) => sessions.user(token, (uid) => { const u = db().users[uid]; return u && !u.bot && !u.deleted && !u.suspended ? u : undefined; }); // a bot account has no password and no session, whatever token is presented; a suspended or deleted account (see the admin page) is signed out everywhere
 
@@ -604,6 +605,14 @@ function defaultServer() {
 
 const signups = new security.RateWindow(posNum(process.env.SIGNUPS_PER_HOUR, 10), 3600_000); // new accounts per address per hour
 const loginGuard = new security.LoginGuard();
+// Invite codes can be guessed one lookup at a time, and a custom code (Server settings) can be short. So looking one up is limited per address, signed in
+// or not: GET /api/invites/:code and POST /api/servers/join share the count. Saved across restarts with the other limits (see LIMITERS).
+// The 403 for a private server and the 404 for a missing one stay different on purpose (people are told why an invite does not work); this limit is what makes guessing impractical.
+const inviteLookups = new security.RateWindow(posNum(process.env.INVITE_LOOKUPS_PER_15MIN, 30), 15 * 60_000);
+function inviteLimiter(req, res, next) {
+  if (!inviteLookups.allow(req.ip)) { res.set('Retry-After', '900'); return res.status(429).json({ error: 'Too many invite lookups from this connection. Try again in a few minutes.' }); }
+  next();
+}
 
 // ----- at most two accounts per person -----
 // "A person" is a browser: the first sign-up sets a device cookie (security.js), and accounts and pending applications keep a hash of it.
@@ -622,7 +631,8 @@ const ACCOUNT_LIMIT_MSG = `You already have ${MAX_ACCOUNTS_PER_PERSON} accounts 
 // when the server is told to shut down. At startup the saved state is loaded and anything past its window is dropped. One instance only: two
 // running at once would each keep their own counts and overwrite each other's saved copy. The upload/GIF limits stay in memory on purpose
 // (short per-user limits, not a security boundary).
-const LIMITERS = { authHits, signups, loginGuard, resends, notices, resetMails };
+// (the list of logged-out token ids rides along: it is the same kind of small state that must not vanish on a redeploy)
+const LIMITERS = { authHits, signups, loginGuard, resends, notices, resetMails, inviteLookups, revokedTokens };
 let limitsSaved = '';
 async function saveLimits() {
   const now = Date.now();
@@ -949,7 +959,15 @@ app.post('/api/login', authLimiter, ah(async (req, res) => {
 }));
 
 // Ends the browser's session: the cookie is httpOnly, so only the server can remove it. Needs no login (clearing is always safe).
-app.post('/api/logout', (req, res) => {
+app.post('/api/logout', (req, res, next) => {
+  // End this login for real, not just in this browser: its token (cookie or header) goes on the revoked list, so a copy of it stops working.
+  // The list is written to the database before the answer, so a restart cannot bring the token back. A token from before ids existed
+  // (or a bad one) is not on the list; it still dies with "log out everywhere".
+  const bearer = (req.headers.authorization || '').replace(/^Bearer /, '');
+  const ended = [bearer, security.readSessionCookie(req.headers, secureReq(req))].filter(Boolean).map((t) => sessions.revoke(t)).some(Boolean);
+  if (!ended) return next();
+  saveLimits().catch((e) => console.error('Could not save the logged-out token list:', e.message)).then(() => next());
+}, (req, res) => {
   for (const c of security.clearedSessionCookies({ secure: secureReq(req) })) res.append('Set-Cookie', c);
   res.json({ ok: true });
 });
@@ -1723,6 +1741,10 @@ app.get('/api/games/search', auth, lookupLimiter, async (req, res) => {
   if (hit && now() - hit.at < 600_000) return res.json({ games: hit.games });
   try {
     const r = await fetch(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(q)}&l=english&cc=US`, { signal: AbortSignal.timeout(6000) });
+    // Steam refusing the search itself is not an outage. 429 means Steam is rate limiting us (tell the browser to wait, do not cache); any other 4xx means it
+    // did not accept this search term, so there is nothing to find: an empty list, remembered for a while like any other answer. Only 5xx and network errors are a 502.
+    if (r.status === 429) { res.set('Retry-After', '60'); return res.status(503).json({ error: 'The game search is busy. Try again in a minute. The built-in list still works.' }); }
+    if (r.status >= 400 && r.status < 500) { if (steamFinds.size > 500) steamFinds.clear(); steamFinds.set(key, { at: now(), games: [] }); return res.json({ games: [] }); }
     if (!r.ok) throw new Error('bad status');
     const body = await r.json();
     const games = (Array.isArray(body.items) ? body.items : [])
@@ -1762,7 +1784,8 @@ app.get('/api/images/:id', ah(async (req, res) => {
     'X-Content-Type-Options': 'nosniff',
     'Content-Security-Policy': "default-src 'none'",
   });
-  res.send(info.mime === 'image/gif' && req.query.still ? stillGif(buf) || buf : buf); // ?still=1: the first frame only
+  // ?still=1: the first frame only. A still picture is cut at its real end, so pictures stored before uploads were trimmed do not serve trailing bytes either.
+  res.send(info.mime === 'image/gif' ? (req.query.still ? stillGif(buf) || buf : buf) : trimImage(buf));
 }));
 
 // ----- custom emoji -----
@@ -2283,7 +2306,7 @@ function publishMissing(s, vis) {
   return Object.entries(need).filter(([k, v]) => n[k] < v).map(([k, v]) => `${v - n[k]} more ${KIND_WORD[k]}${v - n[k] === 1 ? '' : 's'}`);
 }
 
-app.post('/api/servers/join', auth, (req, res) => {
+app.post('/api/servers/join', inviteLimiter, auth, (req, res) => {
   const code = String(req.body?.code || '').trim().toLowerCase();
   const s = Object.values(db().servers).find((x) => x.inviteCode === code);
   if (!s) return res.status(404).json({ error: 'Invalid invite code' });
@@ -3321,7 +3344,7 @@ app.get('/api/servers/:id/invite-check', auth, (req, res) => {
 // what an invite card shows: public details of the server a code points to
 // Open to people who are not signed in: the page at /invite/<code> shows this box to a visitor before they have an account.
 // A signed-in token is still honoured so members and listed people of a private server get the card.
-app.get('/api/invites/:code', (req, res) => {
+app.get('/api/invites/:code', inviteLimiter, (req, res) => {
   const bearer = (req.headers.authorization || '').replace(/^Bearer /, '');
   const me = userFromToken(bearer || security.readSessionCookie(req.headers, secureReq(req))); // the web app is signed in by cookie
   if (!me) return authLimiter(req, res, () => sendInvite(req, res, null));
@@ -6752,7 +6775,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, nameSweep, moderationSweep, ready, loginGuard, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, nameSweep, moderationSweep, ready, loginGuard, inviteLookups, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep: for the tests
 
 
 

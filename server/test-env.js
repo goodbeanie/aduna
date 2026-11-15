@@ -12,6 +12,7 @@ process.env.DB_ENCRYPTION_KEY = crypto.randomBytes(32).toString('hex');
 delete process.env.JWT_SECRET;
 process.env.NODE_ENV = 'test';
 process.env.SIGNUPS_PER_HOUR = '100000';
+process.env.INVITE_LOOKUPS_PER_15MIN = '100000'; // the invite limit has its own test (invite-limit-test.js), which lowers it for itself
 process.env.AUTH_PER_MINUTE = '100000'; // same for the per-address login/register limiter // the tests create many accounts from one address
 
 const store = require('./db');

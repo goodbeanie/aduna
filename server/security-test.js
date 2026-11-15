@@ -150,6 +150,70 @@ const step = (m) => console.log('✓', m);
   step('sessions: version in the token, old tokens survive the upgrade, bump revokes only that account, junk/forged/expired/alg:none refused');
 }
 
+// ---- plain log out: revoked token ids ----
+{
+  const crypto = require('crypto');
+  const b = (x) => Buffer.from(x).toString('base64url');
+  const mac = (data, secret) => crypto.createHmac('sha256', secret).update(data).digest('base64url');
+  const fakeJwt = { // same stand-in as above
+    sign(payload, secret, { expiresIn, algorithm } = {}) {
+      const head = b(JSON.stringify({ alg: algorithm, typ: 'JWT' })), body = b(JSON.stringify({ ...payload, exp: Math.floor(Date.now() / 1000) + (expiresIn === '30d' ? 30 * 86400 : -10) }));
+      return head + '.' + body + '.' + mac(head + '.' + body, secret);
+    },
+    verify(token, secret, { algorithms } = {}) {
+      const [h, p, sig] = String(token).split('.');
+      if (!h || !p || !sig) throw new Error('malformed');
+      if (!algorithms || !algorithms.includes(JSON.parse(Buffer.from(h, 'base64url')).alg)) throw new Error('algorithm not allowed');
+      if (sig !== mac(h + '.' + p, secret)) throw new Error('bad signature');
+      const body = JSON.parse(Buffer.from(p, 'base64url'));
+      if (body.exp < Date.now() / 1000) throw new Error('expired');
+      return body;
+    },
+  };
+  const jtiOf = (t) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url')).jti;
+  const secret = 'test-secret';
+  const rv = new S.RevokedTokens();
+  const sessions = S.createSessions({ jwt: fakeJwt, getSecret: () => secret, revoked: rv });
+  const users = { a1: { id: 'a1' }, b2: { id: 'b2' } };
+  const lookup = (id) => users[id] || null;
+
+  const laptop = sessions.sign(users.a1), phone = sessions.sign(users.a1), other = sessions.sign(users.b2);
+  assert.ok(/^[0-9a-f]{32}$/.test(jtiOf(laptop)) && jtiOf(laptop) !== jtiOf(phone), 'every token gets its own random id');
+  let changes = 0; rv.onChange = () => changes++;
+  assert.strictEqual(sessions.user(laptop, lookup), users.a1);
+  assert.strictEqual(sessions.revoke(laptop), true, 'logging out puts the token on the list'); assert.strictEqual(changes, 1, 'and tells the saver');
+  assert.strictEqual(sessions.user(laptop, lookup), null, 'the logged-out token is refused, though its signature and expiry are still fine');
+  assert.strictEqual(sessions.user(phone, lookup), users.a1, 'the same account stays signed in on its other devices');
+  assert.strictEqual(sessions.user(other, lookup), users.b2, 'and other accounts are untouched');
+  assert.strictEqual(sessions.revoke(laptop), true, 'logging out twice is harmless');
+
+  // what cannot be revoked one by one
+  const legacy = fakeJwt.sign({ uid: 'a1', tv: 0 }, secret, { expiresIn: '30d', algorithm: 'HS256' }); // made before ids existed
+  assert.strictEqual(sessions.revoke(legacy), false, 'an old token without an id cannot go on the list'); assert.strictEqual(sessions.user(legacy, lookup), users.a1, '(it still dies with "log out everywhere")');
+  const expired = fakeJwt.sign({ uid: 'a1', tv: 0, jti: 'x'.repeat(32) }, secret, { expiresIn: 'x', algorithm: 'HS256' });
+  for (const bad of [undefined, null, '', 'abc', 'a.b.c', 42, {}, expired, laptop.slice(0, -2) + 'xx']) assert.strictEqual(sessions.revoke(bad), false, 'nothing to revoke: ' + String(bad).slice(0, 20));
+  assert.strictEqual(changes, 2, 'only real revocations change the list');
+
+  // the list is saved and survives a restart; entries are dropped once their token would have expired anyway
+  const saved = JSON.parse(JSON.stringify(rv.dump()));
+  const rv2 = new S.RevokedTokens(); rv2.restore(saved);
+  const sessions2 = S.createSessions({ jwt: fakeJwt, getSecret: () => secret, revoked: rv2 });
+  assert.strictEqual(sessions2.user(laptop, lookup), null, 'still refused after a restart'); assert.strictEqual(sessions2.user(phone, lookup), users.a1);
+  const later = Date.now() + 31 * 86400_000;
+  assert.deepStrictEqual(rv.dump(later), [], 'expired entries are not kept'); assert.strictEqual(rv.has(jtiOf(laptop), later), false);
+  const rv3 = new S.RevokedTokens(); rv3.restore(saved, later); assert.strictEqual(rv3.until.size, 0, 'a restore after expiry brings nothing back');
+  rv.add('old', Date.now() + 1000); rv.add('new', Date.now() + 5000, Date.now() + 2000); assert.ok(!rv.until.has('old'), 'adding cleans out what has expired');
+
+  // saved data is untrusted
+  const rv4 = new S.RevokedTokens(), t0 = Date.now();
+  rv4.restore([null, 5, ['k'], ['ok', 'soon'], [123, t0 + 5000], ['x'.repeat(65), t0 + 5000], ['gone', t0 - 1], ['nan', NaN], ['far', t0 + 10 ** 13], ['fine', t0 + 5000]], t0);
+  rv4.restore('not a list', t0); rv4.restore(undefined, t0); rv4.restore({}, t0);
+  assert.deepStrictEqual([...rv4.until.keys()].sort(), ['far', 'fine'], 'only well-formed, unexpired rows are kept');
+  assert.ok(rv4.until.get('far') <= t0 + 367 * 86400_000, 'never kept longer than a token can live');
+  assert.strictEqual(rv4.add('', t0 + 5000, t0), false); assert.strictEqual(rv4.add('a', t0 - 1, t0), false); assert.strictEqual(rv4.add('a'.repeat(65), t0 + 5000, t0), false);
+  step('plain log out: token ids, revoke() ends one login only, survives a restart, expired entries dropped, saved data distrusted');
+}
+
 // ---- session cookie, origin check, CSRF guard ----
 {
   // parsing

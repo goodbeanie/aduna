@@ -151,4 +151,53 @@ function stillGif(b) {
   }
 }
 
-module.exports = { sniffImage, sniffAny, gifInfo, cleanGif, stillGif };
+// Drops whatever follows the end of a still picture. A PNG, JPEG or WebP is a self-delimiting file, but viewers ignore extra bytes after its end, so a
+// file can carry a second payload (a script, an archive, a hidden message, a camera's embedded clip) behind a valid picture and still pass sniffImage.
+// This walks the file to its real end (PNG: the IEND chunk; JPEG: the end-of-image marker after the last scan; WebP: the RIFF length) and returns a view
+// that stops there. It never guesses: bytes that are not a still picture, or a picture whose end cannot be found (truncated, odd structure), come back
+// untouched, so a good picture is never cut short. Returns the same buffer when there is nothing to remove.
+function trimImage(b) {
+  if (!Buffer.isBuffer(b)) return b;
+  const cut = (end) => (end > 0 && end < b.length ? b.subarray(0, end) : b);
+  if (pngInfo(b)) {
+    let pos = 8;
+    while (pos + 12 <= b.length) {
+      const end = pos + 12 + b.readUInt32BE(pos);
+      if (end > b.length) return b;
+      if (b.toString('latin1', pos + 4, pos + 8) === 'IEND') return cut(end);
+      pos = end;
+    }
+    return b;
+  }
+  if (jpegInfo(b)) {
+    let i = 2;
+    while (i + 2 <= b.length) {
+      if (b[i] !== 0xff) return b;
+      const m = b[i + 1];
+      if (m === 0xff) { i++; continue; } // fill byte
+      if (m === 0xd9) return cut(i + 2);
+      if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; } // no length field
+      if (i + 4 > b.length) return b;
+      const len = b.readUInt16BE(i + 2);
+      if (len < 2) return b;
+      i += 2 + len;
+      if (m === 0xda) { // start of scan: skip the compressed data up to the next real marker (FF00 is a stuffed byte, FFD0-FFD7 a restart)
+        while (i + 1 < b.length) {
+          if (b[i] !== 0xff) { i++; continue; }
+          const n = b[i + 1];
+          if (n === 0x00 || (n >= 0xd0 && n <= 0xd7)) { i += 2; continue; }
+          if (n === 0xff) { i++; continue; }
+          break;
+        }
+      }
+    }
+    return b;
+  }
+  if (webpInfo(b)) {
+    const end = b.readUInt32LE(4) + 8;
+    return end >= 12 && end <= b.length ? cut(end) : b;
+  }
+  return b;
+}
+
+module.exports = { sniffImage, sniffAny, gifInfo, cleanGif, stillGif, trimImage };

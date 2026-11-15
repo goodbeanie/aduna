@@ -254,6 +254,16 @@ async function putImg(kind, body, type, token) {
     const out = await raw('/logout', { method: 'POST', headers: { Cookie: cookie } });
     assert.strictEqual(out.status, 200);
     assert.ok(out.headers.getSetCookie().some((c) => /^aduna_session=;/.test(c) && /Max-Age=0/.test(c)), 'logout removes the cookie');
+    // ...and ends the login on the server: a copy of the cookie that was kept is dead too
+    assert.strictEqual((await raw('/me', { headers: { Cookie: cookie } })).status, 401, 'the logged-out cookie no longer works, even if someone kept a copy');
+    const again = (await login()).headers.getSetCookie().find((c) => c.startsWith('aduna_session=')).split(';')[0];
+    assert.strictEqual((await raw('/me', { headers: { Cookie: again } })).status, 200, 'logging in again works');
+    const tok = (await (await raw('/login', { method: 'POST', body: { username: 'cam_cookie', password: 'password123' } })).json()).token;
+    assert.strictEqual((await raw('/me', { headers: { Authorization: 'Bearer ' + tok } })).status, 200);
+    assert.strictEqual((await raw('/logout', { method: 'POST', headers: { Authorization: 'Bearer ' + tok } })).status, 200);
+    assert.strictEqual((await raw('/me', { headers: { Authorization: 'Bearer ' + tok } })).status, 401, 'a logged-out header token stops working');
+    assert.strictEqual((await raw('/me', { headers: { Cookie: again } })).status, 200, "the account's other logins stay signed in");
+    assert.strictEqual((await raw('/logout', { method: 'POST' })).status, 200, 'logging out with nothing to log out of is still fine');
     step('cookie sessions: httpOnly, no token in the answer, cross-site writes and sockets refused, __Host- over https, legacy token moves, logout clears');
   }
 

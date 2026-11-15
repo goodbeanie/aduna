@@ -413,6 +413,7 @@ async function dropBlobs(keys) {
 const imageId = () => crypto.randomBytes(16).toString('hex'); // unguessable: the id is the access token for the URL
 // Everything anybody can see goes through here, so this is where the nudity check sits (server/mediacheck.js). Throws MEDIA_REFUSED (a 422).
 async function putImage(buf) {
+  buf = require('./images').trimImage(buf); // nothing after the end of a PNG/JPEG/WebP is stored (a no-op for GIFs, audio and anything else)
   await mediacheck.guardPublic(buf);
   const iid = imageId();
   const sealed = seal(buf, `images:${iid}`);

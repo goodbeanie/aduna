@@ -167,25 +167,65 @@ class LoginGuard {
   restore(data, now = Date.now()) { if (data && typeof data === 'object') { restoreMap(this.pair, data.pair, this.windowMs, now); restoreMap(this.name, data.name, this.windowMs, now); } }
 }
 
+// ---------- revoked tokens (plain "log out") ----------
+// Logging out used to only clear the cookie, so a copy of the token (a stolen cookie, a script's saved header) stayed valid for its full 30 days.
+// Every token now carries a random id (jti). Logging out puts that id on this list, each kept only until the token would have expired anyway.
+// Saved and restored with the rate limits (dump / restore / onChange) so a restart does not bring a logged-out token back to life.
+const MAX_REVOKED = 100_000;
+class RevokedTokens {
+  constructor() { this.until = new Map(); this.onChange = null; } // jti -> time (ms) the token would have expired
+  _prune(now) { for (const [k, t] of this.until) if (t <= now) this.until.delete(k); }
+  // true if it was added; false for a junk id or a token that is already expired (nothing to revoke)
+  add(jti, untilMs, now = Date.now()) {
+    if (typeof jti !== 'string' || !jti || jti.length > 64 || !Number.isFinite(untilMs) || untilMs <= now) return false;
+    this._prune(now);
+    this.until.set(jti, untilMs);
+    if (this.until.size > MAX_REVOKED) { // drop the ones closest to expiring: they have the least left to protect
+      const drop = [...this.until].sort((a, b) => a[1] - b[1]).slice(0, this.until.size - MAX_REVOKED);
+      for (const [k] of drop) this.until.delete(k);
+    }
+    if (this.onChange) this.onChange();
+    return true;
+  }
+  has(jti, now = Date.now()) { const t = this.until.get(jti); return t !== undefined && t > now; }
+  dump(now = Date.now()) { return [...this.until].filter(([, t]) => t > now); }
+  restore(rows, now = Date.now()) {
+    if (!Array.isArray(rows)) return;
+    for (const row of rows.slice(0, MAX_REVOKED)) {
+      if (!Array.isArray(row) || typeof row[0] !== 'string' || !row[0] || row[0].length > 64 || !Number.isFinite(row[1]) || row[1] <= now) continue;
+      this.until.set(row[0], Math.min(row[1], now + 366 * 86400_000)); // saved data is untrusted: never kept longer than a token can live
+    }
+  }
+}
+
 // ---------- sessions ----------
 // A login token carries the account's `tokenVersion` (tv). Bumping that number on the account makes every token issued
 // before it stop working on the next request and the next socket connection: "log out everywhere". Tokens issued before
 // this existed have no tv and count as version 0, so the upgrade logs nobody out. `jwt` is passed in (the jsonwebtoken
 // module) and `getSecret` is a function because the secret is only known once the server has started.
-function createSessions({ jwt, getSecret, ttl = '30d' }) {
+function createSessions({ jwt, getSecret, ttl = '30d', revoked = new RevokedTokens() }) {
   const version = (u) => Number(u && u.tokenVersion) || 0;
   return {
-    sign: (u) => jwt.sign({ uid: u.id, tv: version(u) }, getSecret(), { expiresIn: ttl, algorithm: 'HS256' }),
+    sign: (u) => jwt.sign({ uid: u.id, tv: version(u), jti: nodeCrypto.randomBytes(16).toString('hex') }, getSecret(), { expiresIn: ttl, algorithm: 'HS256' }),
     // the account a token belongs to, or null: bad signature, expired, revoked, or the account no longer exists
     user(token, lookup) {
       try {
         const p = jwt.verify(String(token || ''), getSecret(), { algorithms: ['HS256'] });
+        if (p.jti && revoked.has(p.jti)) return null;
         const u = lookup(p.uid);
         return u && (Number(p.tv) || 0) === version(u) ? u : null;
       } catch { return null; }
     },
     // revoke every token this account has handed out so far
     bump(u) { u.tokenVersion = version(u) + 1; return u.tokenVersion; },
+    // end ONE login (plain "log out"): the token's id goes on the revoked list until the token would have expired anyway.
+    // true if it was added; false for a bad or expired token, or an older one without an id (those still die with "log out everywhere")
+    revoke(token, now = Date.now()) {
+      try {
+        const p = jwt.verify(String(token || ''), getSecret(), { algorithms: ['HS256'] });
+        return typeof p.jti === 'string' && Number.isFinite(p.exp) ? revoked.add(p.jti, p.exp * 1000, now) : false;
+      } catch { return false; }
+    },
   };
 }
 
@@ -273,7 +313,7 @@ function siteOrigin({ env = process.env, protocol = 'http', host = 'localhost' }
 }
 const resetLink = (origin, token) => `${origin}/reset#${token}`;
 
-module.exports = { CSP, securityHeaders, cleanEmail, emailKey, weakPassword, RateWindow, LoginGuard, createSessions,
+module.exports = { CSP, securityHeaders, cleanEmail, emailKey, weakPassword, RateWindow, LoginGuard, RevokedTokens, createSessions,
   parseCookies, isSecure, readSessionCookie, hasSessionCookie, sessionCookie, clearedSessionCookies, originAllowed, csrfGuard,
   newResetToken, validResetToken, resetTokenHash, siteOrigin, resetLink,
   newDeviceToken, readDeviceCookie, deviceCookie, deviceKey };
