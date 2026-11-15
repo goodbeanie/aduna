@@ -400,5 +400,13 @@
     "items": [
       { "title": "Items can share a name", "text": "Two shop items, badges, frames or sticker packs can now have the same name. A few names stay reserved, like Creator and Artist." }
     ]
+  },
+  {
+    "id": "2026.11.15.1",
+    "date": "2026-11-15",
+    "title": "Report a message",
+    "items": [
+      { "title": "Report message", "text": "Right-click a message in a server channel (or tap More, or long-press on a phone) and pick Report message. Moderators see the message and your reason. The person who wrote it is not told who reported. Messages in DMs and group chats cannot be reported yet." }
+    ]
   }
 ]
