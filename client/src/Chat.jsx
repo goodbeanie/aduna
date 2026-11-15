@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Avatar, BadgeIcons, Icon, Modal, timeLabel } from './ui.jsx';
+import ReportModal from './ReportModal.jsx';
 import { nameProps } from './namestyle.js';
 import EmojiPicker from './EmojiPicker.jsx';
 import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
@@ -162,6 +163,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   const [picker, setPicker] = useState(false);
   const [ctxPicker, setCtxPicker] = useState(null); // { x, y }: the emoji picker opened from the right-click menu, placed where you clicked
   const [who, setWho] = useState(null); // the reaction chip that was clicked: opens the "who reacted" list on that emoji
+  const [reporting, setReporting] = useState(false);
   const lastTap = useRef(0);
   const { lib, openMenu } = useEmoji();
   const ctx = useContextMenu();
@@ -218,6 +220,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
         'sep',
         text && !sticker && text !== '\u2026' && { label: 'Copy text', icon: 'copy', onClick: () => ctx.copy(text) },
         !m.hook && { label: 'View profile', icon: 'user', onClick: () => onUser(m.authorId) },
+        !mine && !dm && !m.hook && !m.system && { label: 'Report message', icon: 'flag', danger: true, onClick: () => setReporting(true) },
         canDelete && 'sep',
         canDelete && { label: 'Delete message', icon: 'trash', danger: true, onClick: () => onDelete(m) },
       ],
@@ -290,6 +293,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
       </div>
       {who && <ReactorsModal reactions={m.reactions} start={who} users={users} me={me} onToggle={(e) => onReact(m.id, e)} onUser={onUser} onClose={() => setWho(null)} />}
       {ctxPicker && !editing && <Picker at={ctxPicker} onPick={(e) => onReact(m.id, e)} onClose={() => setCtxPicker(null)} />}
+      {reporting && <ReportModal kind="message" info={{ name: author?.displayName || 'this person' }} path={`/messages/${m.id}/report`} onClose={() => setReporting(false)} />}
     </div>
   );
 }

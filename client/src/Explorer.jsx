@@ -1,66 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Select } from './Controls.jsx';
 import { api } from './api.js';
-import { Avatar, Icon, Modal } from './ui.jsx';
+import { Avatar, Icon } from './ui.jsx';
+import ReportModal from './ReportModal.jsx';
 import { BotDetails, UnverifiedWarning, VerifiedChip } from './BotPages.jsx';
 import { imageUrl } from './image.js';
 import { InviteBox } from './Invite.jsx';
 import { AddToServerModal } from './Bots.jsx';
 import { ThemeGallery } from './ThemeGallery.jsx';
 import { loadTheme, applyTheme } from './themes.js';
-
-const REASONS = [
-  ['inappropriate', 'Inappropriate or offensive', 'Name, description, tags or pictures'],
-  ['spam', 'Spam or scam', 'Advertising, phishing, fake giveaways'],
-  ['illegal', 'Illegal or dangerous', 'Threats, exploitation, anything that puts people at risk'],
-  ['impersonation', 'Impersonation', 'Pretends to be a person, brand or another server'],
-  ['other', 'Something else', 'Tell us below'],
-];
-
-// Report a public listing. Owners never learn who reported; enough reports from established accounts hide it until a moderator looks.
-function ReportModal({ info, path, onClose }) {
-  const [reason, setReason] = useState('');
-  const [details, setDetails] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState('');
-  const [done, setDone] = useState(false);
-  const send = async () => {
-    setBusy(true); setErr('');
-    try { await api(path, { method: 'POST', body: { reason, details } }); setDone(true); }
-    catch (e) { setErr(e.message); }
-    setBusy(false);
-  };
-  return (
-    <Modal title={`Report ${info.name}`} onClose={onClose}>
-      {done ? (
-        <>
-          <p>Thank you. Your report was sent. The server owner is not told who reported.</p>
-          <div className="modal-foot"><button className="btn primary" autoFocus onClick={onClose}>Done</button></div>
-        </>
-      ) : (
-        <>
-          <p className="muted small">What is wrong with this listing?</p>
-          <div className="report-reasons">
-            {REASONS.map(([id, label, hint]) => (
-              <label key={id} className={'report-reason' + (reason === id ? ' on' : '')}>
-                <input type="radio" name="report-reason" checked={reason === id} disabled={busy} onChange={() => setReason(id)} />
-                <span><b>{label}</b><span className="muted small"> {hint}</span></span>
-              </label>
-            ))}
-          </div>
-          <label className="field">Details {reason === 'other' ? '' : '(optional)'}
-            <textarea rows={3} maxLength={500} value={details} disabled={busy} onChange={(e) => setDetails(e.target.value)} />
-          </label>
-          {err && <div className="error">{err}</div>}
-          <div className="modal-foot">
-            <button className="btn" disabled={busy} onClick={onClose}>Cancel</button>
-            <button className="btn primary danger-fill" disabled={busy || !reason || (reason === 'other' && !details.trim())} onClick={send}>{busy ? 'Sending…' : 'Send report'}</button>
-          </div>
-        </>
-      )}
-    </Modal>
-  );
-}
 
 const SORTS = [['popular', 'Most popular'], ['az', 'A to Z'], ['za', 'Z to A']];
 
