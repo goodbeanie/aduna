@@ -439,5 +439,15 @@
       { "title": "Emoji look the same everywhere", "text": "Aduna now brings its own emoji font on browsers that can use it. Newer emoji no longer show up as separate broken pieces on older systems." },
       { "title": "Developer themes", "text": "Developers can write a theme as CSS with their own pictures under Settings > Developer, and preview it before sending it in. Nobody else can use it until an admin has read the CSS, looked at the pictures and verified it. Verified themes show up in the Themes tab in Explorer." }
     ]
+  },
+  {
+    "id": "2026.11.16.2",
+    "date": "2026-11-16",
+    "title": "Bigger developer theme cards and a whole-site preview",
+    "items": [
+      { "title": "Bigger theme cards", "text": "Developer themes in the Explorer now show as large cards, the same size as server cards, with a wide preview and the full description." },
+      { "title": "Save and apply", "text": "Each developer theme card has a Save and apply button. It saves the theme on this device and applies it. It reads Applied once it is on. Try still shows it without saving." },
+      { "title": "Preview on the whole site", "text": "When you write a developer theme, Preview on the whole site closes Settings so you can look at the real app with your theme on. A bar at the bottom lets you go back to the editor or stop the preview. Nothing is saved." }
+    ]
   }
 ]
