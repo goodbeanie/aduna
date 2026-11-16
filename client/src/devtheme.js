@@ -50,6 +50,14 @@ function setLink(sel) {
 export const currentDevTheme = () => (previewing ? null : saved);
 export const previewingId = () => (previewing ? previewing.id : null);
 
+// "Preview on the whole site": the preview stays on after Settings closes, until the person stops it (the bar in DevThemes.jsx).
+let held = null; // { name } while a preview is held across the whole site
+export const previewHeld = () => (previewing && held ? held : null);
+export function holdPreview(name) {
+  held = name ? { name: String(name).slice(0, 30) } : null;
+  window.dispatchEvent(new CustomEvent('aduna:devtheme', { detail: null }));
+}
+
 // Use a verified theme on this device (null turns it off). The colours are applied by the caller.
 export function applyDevTheme(sel) {
   saved = sel ? clean({ id: sel.id, v: sel.v, name: String(sel.name || '').slice(0, 30) }) : null;
@@ -68,6 +76,7 @@ export function previewDevTheme(id, key) {
 }
 export function stopPreview() {
   previewing = null;
+  held = null;
   setLink(saved);
   window.dispatchEvent(new CustomEvent('aduna:devtheme', { detail: saved }));
 }

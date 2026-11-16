@@ -4,7 +4,7 @@ import { Icon } from './ui.jsx';
 import { PanelSkeleton, EmptyState } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import { loadTheme, applyTheme, previewColors } from './themes.js';
-import { applyDevTheme, clearDevTheme, currentDevTheme, previewDevTheme, stopPreview, previewingId, UI_HOOKS, CSS_VARS } from './devtheme.js';
+import { applyDevTheme, clearDevTheme, currentDevTheme, previewDevTheme, stopPreview, previewingId, previewHeld, holdPreview, UI_HOOKS, CSS_VARS } from './devtheme.js';
 import './devthemes.css';
 
 // Developer themes. Settings > Developer > Themes: write a theme as CSS with its own pictures, preview it on this page, send it for review.
@@ -89,8 +89,8 @@ function Editor({ theme, limits, onChange, onDeleted, onBack }) {
   const body = () => ({ name: f.name, description: f.description, seed: { dark: f.dark, bg: f.bg, accent: f.accent }, css: f.css });
   const dirty = !theme || theme.name !== f.name.trim() || theme.description !== f.description.trim() || theme.seed.dark !== f.dark || theme.seed.bg !== f.bg || theme.seed.accent !== f.accent || theme.css !== f.css;
 
-  // leaving the editor puts the person's own look back
-  useEffect(() => () => { if (previewingId()) { stopPreview(); restoreLook(); } }, []);
+  // leaving the editor puts the person's own look back, unless they asked to preview the whole site
+  useEffect(() => () => { if (previewingId() && !previewHeld()) { stopPreview(); restoreLook(); } }, []);
 
   const showPreview = (t) => { showSeed(t.seed, false); previewDevTheme(t.id, t.key); setPrev(true); };
   const run = async (fn) => { setBusy(true); setErr(''); try { return await fn(); } catch (e) { setErr(e.message || 'That did not work.'); return null; } finally { setBusy(false); } };
@@ -106,6 +106,14 @@ function Editor({ theme, limits, onChange, onDeleted, onBack }) {
     if (prev) { stopPreview(); restoreLook(); setPrev(false); return; }
     const t = dirty ? await save() : theme;
     if (t) showPreview(t);
+  };
+  // closes Settings and keeps the preview on, so the whole app can be looked at; the bar at the bottom ends it
+  const previewSite = async () => {
+    const t = dirty ? await save() : theme;
+    if (!t) return;
+    showPreview(t);
+    holdPreview(t.name);
+    window.dispatchEvent(new CustomEvent('aduna:closesettings'));
   };
   const submit = () => run(async () => { const r = await api(`/devthemes/${theme.id}/submit`, { method: 'POST' }); onChange(r.theme); setNote('Sent. An admin will read it.'); });
   const withdraw = () => run(async () => { const r = await api(`/devthemes/${theme.id}/withdraw`, { method: 'POST' }); onChange(r.theme); setNote(''); });
@@ -181,10 +189,30 @@ function Editor({ theme, limits, onChange, onDeleted, onBack }) {
       <div className="dt-actions">
         <button className="btn primary" disabled={busy || !dirty || f.name.trim().length < 2} onClick={save}>{busy ? 'Working…' : theme ? 'Save' : 'Create theme'}</button>
         <button className="btn" disabled={busy || f.name.trim().length < 2} onClick={togglePreview}>{prev ? 'Stop preview' : 'Preview on this page'}</button>
+        <button className="btn" disabled={busy || f.name.trim().length < 2} onClick={previewSite}>Preview on the whole site</button>
         {theme && theme.status === 'pending' && <button className="btn" disabled={busy} onClick={withdraw}>Withdraw from review</button>}
         {theme && (theme.status === 'draft') && <button className="btn" disabled={busy || dirty || !theme.css.trim()} title={dirty ? 'Save your changes first' : 'Ask an admin to verify it'} onClick={submit}>Send for review</button>}
         {theme && <button className="btn danger-btn" disabled={busy} onClick={remove}>Delete</button>}
       </div>
+    </div>
+  );
+}
+
+// ---------- the bar shown while the whole site is being previewed ----------
+export function SitePreviewBar({ onEdit }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const h = () => tick((n) => n + 1);
+    window.addEventListener('aduna:devtheme', h);
+    return () => window.removeEventListener('aduna:devtheme', h);
+  }, []);
+  const held = previewHeld();
+  if (!held) return null;
+  return (
+    <div className="dt-sitebar" role="status">
+      <span className="dt-sitebar-text">Previewing <b>{held.name}</b> on the whole site. Nothing is saved.</span>
+      <button type="button" className="btn small-btn" onClick={onEdit}>Back to editor</button>
+      <button type="button" className="btn small-btn primary" onClick={() => { stopPreview(); restoreLook(); }}>Stop preview</button>
     </div>
   );
 }
@@ -236,13 +264,18 @@ function Card({ t, active, previewing, onUse, onPreview, onReport, busy }) {
   return (
     <div className={'gallery-card dt-card' + (active ? ' on' : '')}>
       <span className="theme-prev dt-cover" style={{ background: c.bg, borderColor: c.bg2, backgroundImage: cover || undefined }} aria-hidden="true"><i style={{ background: c.bg2, opacity: cover ? 0.7 : 1 }} /><b style={{ background: c.accent }} /></span>
-      <span className="theme-name" title={t.description || t.name}>{t.name}</span>
-      <span className="gallery-by muted small">by {t.mine ? 'you' : t.author.displayName} · {t.uses} {t.uses === 1 ? 'use' : 'uses'}</span>
-      <span className="dt-card-acts">
-        <button type="button" className="btn small-btn" disabled={busy} onClick={() => onUse(t)}>{active ? 'In use' : 'Use'}</button>
-        <button type="button" className="btn small-btn" disabled={busy} onClick={() => onPreview(t)}>{previewing ? 'Stop' : 'Try'}</button>
-        {!t.mine && <button type="button" className="gallery-act" disabled={busy} onClick={() => onReport(t)} title="Report this theme" aria-label={'Report ' + t.name}><Icon name="flag" size={14} /></button>}
-      </span>
+      <div className="dt-body">
+        <span className="theme-name dt-name" title={t.name}>{t.name}</span>
+        <span className="gallery-by muted small">by {t.mine ? 'you' : t.author.displayName} · {t.uses} {t.uses === 1 ? 'use' : 'uses'}</span>
+        {t.description && <p className="dt-desc muted small">{t.description}</p>}
+        <div className="dt-card-acts">
+          <div className="mode-pick">
+            <button type="button" className={active ? 'on' : ''} disabled={busy} aria-pressed={active} onClick={() => onUse(t)}>{active ? 'Applied' : 'Save and apply'}</button>
+            <button type="button" disabled={busy} onClick={() => onPreview(t)}>{previewing ? 'Stop trying' : 'Try'}</button>
+          </div>
+          {!t.mine && <button type="button" className="gallery-act" disabled={busy} onClick={() => onReport(t)} title="Report this theme" aria-label={'Report ' + t.name}><Icon name="flag" size={14} /></button>}
+        </div>
+      </div>
     </div>
   );
 }
@@ -273,7 +306,7 @@ export function DevThemeGallery() {
   // a "Try" ends when the person leaves this tab
   const tryRef = useRef(tryId);
   tryRef.current = tryId;
-  useEffect(() => () => { if (previewingId() || tryRef.current) { stopPreview(); restoreLook(); } }, []);
+  useEffect(() => () => { if ((previewingId() || tryRef.current) && !previewHeld()) { stopPreview(); restoreLook(); } }, []);
 
   const use = (t) => {
     if (active && active.id === t.id) return;

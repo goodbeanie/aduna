@@ -14,6 +14,7 @@ import { ServerSettings } from './ServerSettings.jsx';
 import { ServerModal, ChannelModal, CategoryModal, InviteModal, NewDmModal, UserCard, ProfileEditor, SafetyModal, KickModal } from './Modals.jsx';
 import { api, connectSocket, emitAck, markSignedIn, endSession, adoptLegacyToken } from './api.js';
 import { SettingsScreen } from './Settings.jsx';
+import { SitePreviewBar } from './DevThemes.jsx';
 import { BotTag } from './Bots.jsx';
 import { commandsFor } from './BotCommands.jsx';
 import { ServerTagChip } from './ServerTag.jsx';
@@ -235,6 +236,12 @@ function Main({ me, setMe, privKey, openServerId }) {
     const open = (e) => { setModal(null); setView({ kind: 'dm', userId: null, explore: true, exploreTab: e.detail?.tab || 'themes' }); setShowList(false); };
     window.addEventListener('aduna:explore', open);
     return () => window.removeEventListener('aduna:explore', open);
+  }, []);
+  // "Preview on the whole site" in a developer theme closes settings so the app can be looked at
+  useEffect(() => {
+    const close = () => setModal((m) => (m?.type === 'edit' ? null : m));
+    window.addEventListener('aduna:closesettings', close);
+    return () => window.removeEventListener('aduna:closesettings', close);
   }, []);
   const [membersOpen, setMembersOpen] = useState(false); // narrow screens: the member list is a slide-over
   // Phones: Back closes a dialog, then the member list, then the chat (to the channel / DM list) instead of closing the app.
@@ -1420,6 +1427,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       )}
       {modal?.type === 'edit' && <SettingsScreen initialTab={modal.tab} me={me} onClose={() => setModal(null)} onSaved={(u) => { setMe((m) => ({ ...m, ...u })); addUsers([u]); }} onPrefs={(p) => setMe((m) => ({ ...m, notifPrefs: p }))} onLogout={logout} getSocketId={() => socketRef.current?.id} />}
       <DialogHost />
+      <SitePreviewBar onEdit={() => setModal({ type: 'edit', tab: 'developer' })} />
     </div>
     </InviteContext.Provider>
   );

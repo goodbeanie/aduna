@@ -29,11 +29,19 @@
 
 .dt-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
+.dt-sitebar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 500; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; max-width: calc(100vw - 24px); box-sizing: border-box; padding: 10px 14px; background: var(--raised); color: var(--text); border: 1px solid var(--line2); border-radius: 12px; box-shadow: 0 8px 30px var(--shadow); }
+@media (max-width: 720px) { .dt-sitebar { bottom: calc(72px + env(safe-area-inset-bottom, 0px)); } }
+
 .dt-gallery { margin-top: 24px; }
 .dt-active { margin: 6px 0; }
-.dt-grid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
-.dt-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
-.dt-cover { height: 72px; border-radius: 8px; background-size: cover; background-position: center; }
-.dt-card .theme-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-.dt-card-acts { display: flex; align-items: center; gap: 6px; }
+.dt-grid { grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; align-items: start; }
+.dt-card { display: flex; flex-direction: column; overflow: hidden; border-color: var(--line2); background: var(--bg); }
+.dt-cover { height: auto; aspect-ratio: 3 / 1; border: 0; border-radius: 0; background-size: cover; background-position: center; }
+.dt-cover b { width: 56px; height: 20px; right: 14px; bottom: 14px; }
+.dt-body { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 14px; min-width: 0; }
+.dt-card .dt-name { font-size: 17px; color: var(--head); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dt-desc { margin: 2px 0 0; overflow-wrap: anywhere; }
+.dt-card-acts { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.dt-card-acts .mode-pick { margin-bottom: 0; flex: 1; flex-wrap: nowrap; }
+.dt-card-acts .mode-pick button { flex: 1; }
 .dt-card-acts .gallery-act { position: static; opacity: 1; margin-left: auto; }
