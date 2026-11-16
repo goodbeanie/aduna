@@ -16,7 +16,7 @@
 .gutter { width: 40px; flex: none; text-align: right; padding-top: 4px; }
 .hover-time { visibility: hidden; } .msg:hover .hover-time { visibility: visible; }
 .msg-body { min-width: 0; flex: 1; }
-.msg-head { display: flex; }
+.msg-head { display: flex; flex-wrap: wrap; min-width: 0; }
 .name { padding: 0; } .name:hover { text-decoration: underline; }
 
 .content { white-space: pre-wrap; overflow-wrap: anywhere; }

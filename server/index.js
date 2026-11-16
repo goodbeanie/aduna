@@ -1923,7 +1923,7 @@ const themesList = () => Object.values(db().themes);
 const liveTheme = (id) => { const t = db().themes[id]; return t && !t.hidden ? t : null; };
 app.get('/api/themes', auth, (req, res) => {
   const q = req.query || {};
-  res.json(gallery.list(themesList(), db().users, { sort: q.sort === 'new' ? 'new' : 'popular', mode: q.mode, q: String(q.q || ''), offset: q.offset, uid: req.user.id }));
+  res.json(gallery.list(themesList(), db().users, { sort: ['new', 'az', 'za'].includes(q.sort) ? q.sort : 'popular', mode: q.mode, q: String(q.q || ''), offset: q.offset, uid: req.user.id }));
 });
 app.get('/api/themes/mine', auth, (req, res) => {
   const mine = themesList().filter((t) => t.ownerId === req.user.id && !t.hidden).sort((a, b) => b.createdAt - a.createdAt);
@@ -4600,7 +4600,7 @@ app.get('/api/devthemes/:id/css', (req, res) => {
 // verified themes for everyone
 app.get('/api/devthemes', auth, (req, res) => {
   const q = req.query || {};
-  res.json(devthemes.list(Object.values(devThemes()), db().users, { sort: q.sort === 'new' ? 'new' : 'popular', mode: q.mode, q: String(q.q || ''), offset: q.offset, uid: req.user.id }));
+  res.json(devthemes.list(Object.values(devThemes()), db().users, { sort: ['new', 'az', 'za'].includes(q.sort) ? q.sort : 'popular', mode: q.mode, q: String(q.q || ''), offset: q.offset, uid: req.user.id }));
 });
 app.get('/api/devthemes/:id', auth, (req, res) => {
   const t = devThemes()[req.params.id];

@@ -9,7 +9,8 @@
 html { -webkit-text-size-adjust: 100%; }
 body { -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
 button { touch-action: manipulation; }
-.app { height: 100%; height: 100dvh; }
+.app { height: 100%; height: 100dvh; max-width: 100%; overflow: hidden; }
+html:has(.app), html:has(.app) body { overflow: hidden; }
 .rail { height: var(--rail-h); }
 .back-btn, .members-toggle, .send-btn, .drawer-backdrop { display: none; }
 .chat-head h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

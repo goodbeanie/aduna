@@ -7,9 +7,7 @@ import { BotDetails, UnverifiedWarning, VerifiedChip } from './BotPages.jsx';
 import { imageUrl } from './image.js';
 import { InviteBox } from './Invite.jsx';
 import { AddToServerModal } from './Bots.jsx';
-import { ThemeGallery } from './ThemeGallery.jsx';
-import { DevThemeGallery } from './DevThemes.jsx';
-import { loadTheme, applyTheme } from './themes.js';
+import { ThemeBrowser } from './DevThemes.jsx';
 
 const SORTS = [['popular', 'Most popular'], ['az', 'A to Z'], ['za', 'Z to A']];
 
@@ -163,18 +161,12 @@ function BotList({ servers, me, onServerUpdate }) {
   );
 }
 
-// Themes tab: themes other people published. Picking one makes it your own custom theme on this device (same as it did in Settings > Appearance).
+// Themes tab: colour themes and developer themes together. Using one saves it on this device (a colour theme replaces your custom colours).
 function ThemeList() {
-  const [s, setS] = useState(loadTheme);
-  const pick = (seed) => {
-    const next = { ...s, id: 'custom', custom: { ...s.custom, dark: seed.dark, bg: seed.bg, accent: seed.accent, grad: null, stops: null } };
-    setS(next); applyTheme(next, { save: true });
-  };
   return (
     <div className="explore-body explore-themes">
-      <p className="muted small hint">Themes other people published. Picking one makes it your custom theme on this device (your current custom colours are replaced). Publish your own from Settings &rsaquo; Appearance.</p>
-      <ThemeGallery current={s.id === 'custom' ? s.custom : null} onPick={pick} />
-      <DevThemeGallery />
+      <p className="muted small hint">Themes other people published. Developer themes are whole looks written as CSS; an admin read and verified each one. Publish your own colours from Settings &rsaquo; Appearance.</p>
+      <ThemeBrowser />
     </div>
   );
 }

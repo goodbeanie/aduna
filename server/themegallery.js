@@ -78,13 +78,14 @@ function view(t, uid, users) {
     author: a ? { id: a.id, displayName: a.displayName || a.username } : { id: t.ownerId, displayName: 'Someone' } };
 }
 
-// The gallery page: sort 'popular' (most used, then newest) or 'new'; mode 'light' | 'dark' | undefined; q matches name, description, author.
+// The gallery page: sort 'popular' (most used, then newest), 'new', 'az' or 'za'; mode 'light' | 'dark' | undefined; q matches name, description, author.
 function list(all, users, { sort = 'popular', mode, q, offset = 0, limit = THEME.page, uid } = {}) {
   const needle = String(q || '').trim().toLowerCase().slice(0, 40);
   let rows = all.filter((t) => !t.hidden);
   if (mode === 'light' || mode === 'dark') rows = rows.filter((t) => t.seed.dark === (mode === 'dark'));
   if (needle) rows = rows.filter((t) => `${t.name} ${t.description} ${users[t.ownerId]?.displayName || ''}`.toLowerCase().includes(needle));
-  rows.sort(sort === 'new' ? (a, b) => b.createdAt - a.createdAt : (a, b) => (b.uses || 0) - (a.uses || 0) || b.createdAt - a.createdAt);
+  const byName = (a, b) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base' });
+  rows.sort(sort === 'new' ? (a, b) => b.createdAt - a.createdAt : sort === 'az' ? byName : sort === 'za' ? (a, b) => byName(b, a) : (a, b) => (b.uses || 0) - (a.uses || 0) || b.createdAt - a.createdAt);
   const start = Math.max(0, Math.min(Number(offset) || 0, 100000)), n = Math.max(1, Math.min(Number(limit) || THEME.page, THEME.page));
   const slice = rows.slice(start, start + n);
   return { themes: slice.map((t) => view(t, uid, users)), more: start + n < rows.length };

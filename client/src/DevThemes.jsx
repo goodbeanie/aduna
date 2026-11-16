@@ -3,6 +3,8 @@ import { api } from './api.js';
 import { Icon } from './ui.jsx';
 import { PanelSkeleton, EmptyState } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
+import { Select } from './Controls.jsx';
+import { sameSeed } from './ThemeGallery.jsx';
 import { loadTheme, applyTheme, previewColors } from './themes.js';
 import { applyDevTheme, clearDevTheme, currentDevTheme, previewDevTheme, stopPreview, previewingId, previewHeld, holdPreview, UI_HOOKS, CSS_VARS } from './devtheme.js';
 import './devthemes.css';
@@ -280,9 +282,45 @@ function Card({ t, active, previewing, onUse, onPreview, onReport, busy }) {
   );
 }
 
-export function DevThemeGallery() {
+function ColourCard({ t, on, onUse, onDelete, onReport, busy }) {
+  const c = previewColors({ id: 'gallery', ...t.seed });
+  return (
+    <div className={'gallery-card dt-card' + (on ? ' on' : '')}>
+      <span className="theme-prev dt-cover" style={{ background: c.bg, borderColor: c.bg2 }} aria-hidden="true"><i style={{ background: c.bg2 }} /><b style={{ background: c.accent }} /></span>
+      <div className="dt-body">
+        <span className="theme-name dt-name" title={t.name}>{t.name}</span>
+        <span className="gallery-by muted small">by {t.mine ? 'you' : t.author.displayName} · {t.uses} {t.uses === 1 ? 'use' : 'uses'}</span>
+        {t.description && <p className="dt-desc muted small">{t.description}</p>}
+        <div className="dt-card-acts">
+          <div className="mode-pick">
+            <button type="button" className={on ? 'on' : ''} disabled={busy} aria-pressed={on} onClick={() => onUse(t)}>{on ? 'Applied' : 'Save and apply'}</button>
+          </div>
+          {t.mine
+            ? <button type="button" className="gallery-act" disabled={busy} onClick={() => onDelete(t)} title="Delete this theme from the gallery" aria-label={'Delete ' + t.name}><Icon name="trash" size={14} /></button>
+            : <button type="button" className="gallery-act" disabled={busy} onClick={() => onReport(t)} title="Report this theme" aria-label={'Report ' + t.name}><Icon name="flag" size={14} /></button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const SORTS = [['popular', 'Most used'], ['new', 'Newest'], ['az', 'A to Z'], ['za', 'Z to A'], ['custom', 'Custom themes first'], ['colour', 'Colour themes first']];
+const byName = (a, b) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base' });
+const mostUsed = (a, b) => (b.uses || 0) - (a.uses || 0) || b.createdAt - a.createdAt;
+const ORDER = {
+  popular: mostUsed,
+  new: (a, b) => b.createdAt - a.createdAt,
+  az: byName,
+  za: (a, b) => byName(b, a),
+  custom: (a, b) => (b.kind === 'dev') - (a.kind === 'dev') || mostUsed(a, b),
+  colour: (a, b) => (b.kind === 'colour') - (a.kind === 'colour') || mostUsed(a, b),
+};
+const serverSort = (sort) => (['new', 'az', 'za'].includes(sort) ? sort : 'popular');
+const sameTheme = (a, b) => a.kind === b.kind && a.id === b.id;
+
+// Colour themes and developer themes in one grid. Each kind has its own list on the server; the two are fetched together and sorted here.
+export function ThemeBrowser() {
   const [q, setQ] = useState('');
-  const [mode, setMode] = useState('');
   const [sort, setSort] = useState('popular');
   const [rows, setRows] = useState([]);
   const [more, setMore] = useState(false);
@@ -292,29 +330,50 @@ export function DevThemeGallery() {
   const [tryId, setTryId] = useState(previewingId());
   const active = useActive();
   const seq = useRef(0);
+  const pages = useRef({ colour: { n: 0, more: false }, dev: { n: 0, more: false } });
+  const cur = loadTheme();
 
-  const load = useCallback(async (offset) => {
+  const load = useCallback(async (append) => {
     const mine = ++seq.current;
-    if (!offset) setState('loading');
+    if (!append) setState('loading');
+    const query = (n) => '?' + new URLSearchParams({ sort: serverSort(sort), ...(q.trim() ? { q: q.trim() } : {}), ...(n ? { offset: n } : {}) });
+    const p = pages.current;
     try {
-      const r = await api('/devthemes?' + new URLSearchParams({ sort, ...(mode ? { mode } : {}), ...(q.trim() ? { q: q.trim() } : {}), ...(offset ? { offset } : {}) }));
+      const [c, d] = await Promise.all([
+        append && !p.colour.more ? null : api('/themes' + query(append ? p.colour.n : 0)),
+        append && !p.dev.more ? null : api('/devthemes' + query(append ? p.dev.n : 0)),
+      ]);
       if (mine !== seq.current) return;
-      setRows((p) => (offset ? [...p, ...r.themes] : r.themes)); setMore(!!r.more); setState('ready');
+      const cs = c ? c.themes.map((t) => ({ ...t, kind: 'colour' })) : [];
+      const ds = d ? d.themes.map((t) => ({ ...t, kind: 'dev' })) : [];
+      if (c) p.colour = { n: (append ? p.colour.n : 0) + cs.length, more: !!c.more };
+      if (d) p.dev = { n: (append ? p.dev.n : 0) + ds.length, more: !!d.more };
+      setRows((prev) => (append ? [...prev, ...cs, ...ds] : [...cs, ...ds]).sort(ORDER[sort]));
+      setMore(p.colour.more || p.dev.more);
+      setState('ready');
     } catch { if (mine === seq.current) setState('failed'); }
-  }, [q, mode, sort]);
-  useEffect(() => { const t = setTimeout(() => load(0), q ? 250 : 0); return () => clearTimeout(t); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, sort]);
+  useEffect(() => { const t = setTimeout(() => load(false), q ? 250 : 0); return () => clearTimeout(t); }, [load]); // eslint-disable-line react-hooks/exhaustive-deps
   // a "Try" ends when the person leaves this tab
   const tryRef = useRef(tryId);
   tryRef.current = tryId;
   useEffect(() => () => { if ((previewingId() || tryRef.current) && !previewHeld()) { stopPreview(); restoreLook(); } }, []);
 
+  const bumpUses = (t, uses) => setRows((p) => p.map((x) => (sameTheme(x, t) ? { ...x, uses } : x)));
+  const useColours = (t) => {
+    if (previewingId()) stopPreview();
+    if (active) clearDevTheme();
+    showSeed(t.seed, true);
+    setTryId(null); setNote(`Using ${t.name}.`);
+    api(`/themes/${t.id}/use`, { method: 'POST' }).then((r) => bumpUses(t, r.theme.uses)).catch(() => {});
+  };
   const use = (t) => {
     if (active && active.id === t.id) return;
     if (previewingId()) { stopPreview(); }
     showSeed(t.seed, true); // the theme's colours become the person's custom colours on this device, as with any gallery theme
     applyDevTheme({ id: t.id, v: t.v, name: t.name });
     setTryId(null); setNote(`Using ${t.name}.`);
-    api(`/devthemes/${t.id}/use`, { method: 'POST' }).then((r) => setRows((p) => p.map((x) => (x.id === t.id ? { ...x, uses: r.theme.uses } : x)))).catch(() => {});
+    api(`/devthemes/${t.id}/use`, { method: 'POST' }).then((r) => bumpUses(t, r.theme.uses)).catch(() => {});
   };
   // "Try" shows it on this page without saving; it is a stylesheet of its own, so the version in the address is what a verified theme is cached by
   const tryIt = (t) => {
@@ -326,28 +385,47 @@ export function DevThemeGallery() {
     setTryId(t.id);
   };
   const off = () => { clearDevTheme(); setNote('Developer theme turned off. Your colours stay.'); };
+  const drop = (t) => setRows((p) => p.filter((x) => !sameTheme(x, t)));
   const report = async (t) => {
-    if (!(await askConfirm({ title: 'Report theme', body: `Report "${t.name}"? Themes with enough reports are hidden until an admin looks at them.`, confirmLabel: 'Report', danger: true }))) return;
+    const dev = t.kind === 'dev';
+    if (!(await askConfirm({ title: 'Report theme', body: `Report "${t.name}"? ${dev ? 'Themes with enough reports are hidden until an admin looks at them.' : 'Themes with enough reports from established accounts are hidden.'}`, confirmLabel: 'Report', danger: true }))) return;
     setBusy(true);
-    try { await api(`/devthemes/${t.id}/report`, { method: 'POST' }); setRows((p) => p.filter((x) => x.id !== t.id)); setNote('Thanks, it was reported and is hidden for you.'); }
+    try { await api(`/${dev ? 'devthemes' : 'themes'}/${t.id}/report`, { method: 'POST' }); drop(t); setNote('Thanks, it was reported and is hidden for you.'); }
     catch (e) { setNote(e.message || 'Could not report that.'); } finally { setBusy(false); }
+  };
+  const del = async (t) => {
+    if (!(await askConfirm({ title: 'Delete theme', body: `Delete "${t.name}" from the gallery? People already using its colours keep them.`, confirmLabel: 'Delete', danger: true }))) return;
+    setBusy(true);
+    try { await api(`/themes/${t.id}`, { method: 'DELETE' }); drop(t); } catch (e) { setNote(e.message || 'Could not delete that.'); } finally { setBusy(false); }
   };
 
   return (
-    <div className="gallery dt-gallery">
-      <h3 className="dt-title">Developer themes</h3>
-      <p className="muted small hint">Whole looks written as CSS, with their own pictures. Each one was read and verified by an admin; changing a theme takes its verification away until it is checked again.</p>
+    <div className="gallery">
       {active && <p className="small dt-active">Using <b>{active.name || 'a developer theme'}</b>. <button type="button" className="linkish" onClick={off}>Turn it off</button></p>}
-      <div className="gallery-filters">
-        <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search themes or authors" maxLength={40} aria-label="Search developer themes" />
-        <select value={mode} onChange={(e) => setMode(e.target.value)} aria-label="Light or dark"><option value="">Light and dark</option><option value="light">Light</option><option value="dark">Dark</option></select>
-        <select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort"><option value="popular">Most used</option><option value="new">Newest</option></select>
+      <div className="explore-bar">
+        <div className="explore-search">
+          <Icon name="search" size={18} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search themes or authors" aria-label="Search themes" maxLength={40} />
+          {q && <button className="icon-btn" title="Clear search" aria-label="Clear search" onClick={() => setQ('')}><Icon name="close" size={16} /></button>}
+        </div>
+        <label className="explore-sort">
+          <span className="muted small">Sort by</span>
+          <Select value={sort} onChange={(e) => setSort(e.target.value)} aria-label="Sort by">
+            {SORTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </Select>
+        </label>
       </div>
       {state === 'loading' && <p className="muted small" role="status">Loading themes…</p>}
-      {state === 'failed' && <p className="error-text small">Could not load themes. <button type="button" className="linkish" onClick={() => load(0)}>Try again</button></p>}
-      {state === 'ready' && !rows.length && <p className="muted small">{q || mode ? 'No themes match.' : 'No developer themes are verified yet. Turn on a developer account in Settings and write the first one!'}</p>}
-      {!!rows.length && <div className="gallery-grid dt-grid">{rows.map((t) => <Card key={t.id} t={t} active={!!active && active.id === t.id} previewing={tryId === t.id} onUse={use} onPreview={tryIt} onReport={report} busy={busy} />)}</div>}
-      {more && <button type="button" className="btn small-btn gallery-more" onClick={() => load(rows.length)}>Show more</button>}
+      {state === 'failed' && <p className="error-text small">Could not load themes. <button type="button" className="linkish" onClick={() => load(false)}>Try again</button></p>}
+      {state === 'ready' && !rows.length && <p className="muted small">{q.trim() ? 'No themes match.' : 'No themes have been published yet. Be the first!'}</p>}
+      {!!rows.length && (
+        <div className="explore-grid">
+          {rows.map((t) => (t.kind === 'dev'
+            ? <Card key={'dev' + t.id} t={t} active={!!active && active.id === t.id} previewing={tryId === t.id} onUse={use} onPreview={tryIt} onReport={report} busy={busy} />
+            : <ColourCard key={'colour' + t.id} t={t} on={!active && cur.id === 'custom' && sameSeed(cur.custom, t.seed)} onUse={useColours} onDelete={del} onReport={report} busy={busy} />))}
+        </div>
+      )}
+      {more && <button type="button" className="btn small-btn gallery-more" onClick={() => load(true)}>Show more</button>}
       {note && <p className="muted small" role="status">{note}</p>}
     </div>
   );

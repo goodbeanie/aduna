@@ -449,5 +449,16 @@
       { "title": "Save and apply", "text": "Each developer theme card has a Save and apply button. It saves the theme on this device and applies it. It reads Applied once it is on. Try still shows it without saving." },
       { "title": "Preview on the whole site", "text": "When you write a developer theme, Preview on the whole site closes Settings so you can look at the real app with your theme on. A bar at the bottom lets you go back to the editor or stop the preview. Nothing is saved." }
     ]
+  },
+  {
+    "id": "2026.11.16.3",
+    "date": "2026-11-16",
+    "title": "One Themes page, and scrolling fixes",
+    "items": [
+      { "title": "All themes in one list", "text": "Colour themes and developer themes now sit together in one grid in the Explorer, all at the server card size. A Sort by menu offers Most used, Newest, A to Z, Z to A, and Custom or Colour themes first. The Light and dark filter is gone." },
+      { "title": "Colour themes turn off developer themes", "text": "Applying a colour theme now switches off the developer theme you were using, so its CSS no longer covers the new colours." },
+      { "title": "No more page scrolling", "text": "The app page no longer scrolls up, down or sideways behind the chat, which happened on some phones and browsers." },
+      { "title": "Many badges", "text": "A long row of badges next to a name now wraps instead of stretching the screen sideways." }
+    ]
   }
 ]
