@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EMOJIS, Icon } from './ui.jsx';
 import { TileSkeleton } from './ShellBits.jsx';
-import { useEmoji } from './Emoji.jsx';
+import { loadShortcodes, useEmoji } from './Emoji.jsx';
 
 // The full Unicode emoji set lives in its own chunk and is only fetched the first time a picker opens.
 let dataPromise;
@@ -25,11 +25,14 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode: just don't remember */ } },
 };
 
-// Newer multi-part emoji (ZWJ sequences) show up as several separate glyphs on systems that predate them; hide those.
+// Emoji are drawn with the bundled Noto Color Emoji font where the browser can use it, so the system's emoji support does not matter there.
+const NOTO = typeof CSS !== 'undefined' && !!CSS.supports?.('font-tech(color-COLRv1)');
+
+// Without it, newer multi-part emoji (ZWJ sequences) show up as several separate glyphs on systems that predate them; hide those.
 let probe;
 const rendersCache = new Map();
 function renders(emoji, version) {
-  if (version < 11 || !emoji.includes('\u200d')) return true;
+  if (NOTO || version < 11 || !emoji.includes('\u200d')) return true;
   if (rendersCache.has(emoji)) return rendersCache.get(emoji);
   let ok = true;
   try {
@@ -44,6 +47,7 @@ function renders(emoji, version) {
 export default function EmojiPicker({ onPick, onCustom, onManage }) {
   const { lib } = useEmoji();
   const [data, setData] = useState(null);
+  const [codes, setCodes] = useState(null);
   const [q, setQ] = useState('');
   const [tone, setTone] = useState(() => store.get('aduna_skin', 0));
   const [toneOpen, setToneOpen] = useState(false);
@@ -53,20 +57,30 @@ export default function EmojiPicker({ onPick, onCustom, onManage }) {
   const scroller = useRef(null);
   const sections = useRef({});
 
-  useEffect(() => { let dead = false; loadData().then((d) => !dead && setData(d)); return () => { dead = true; }; }, []);
+  useEffect(() => {
+    let dead = false;
+    loadData().then((d) => !dead && setData(d));
+    loadShortcodes().then((c) => !dead && setCodes(c)).catch(() => {}); // only for search: ":sob" finds the crying face
+    return () => { dead = true; };
+  }, []);
 
   const groups = useMemo(() => data && data.groups.map((g) => ({ ...g, items: g.items.filter((it) => renders(it[0], it[3])) })), [data]);
+  const names = useMemo(() => {
+    const m = new Map();
+    if (codes) for (const [name, emoji] of Object.entries(codes)) m.set(emoji, (m.get(emoji) || '') + ' ' + name);
+    return m;
+  }, [codes]);
   const glyph = useCallback((it) => (tone && it[4] ? it[4][tone - 1] : it[0]), [tone]);
 
   const results = useMemo(() => {
-    const t = q.trim().toLowerCase();
+    const t = q.trim().toLowerCase().replace(/:/g, ' ').trim();
     if (!t || !groups) return null;
     const words = t.split(/\s+/);
-    const hit = (it) => { const hay = (it[1] + ' ' + it[2]).toLowerCase(); return words.every((w) => hay.includes(w)); };
+    const hit = (it) => { const hay = (it[1] + ' ' + it[2] + (names.get(it[0]) || '')).toLowerCase(); return words.every((w) => hay.includes(w)); };
     const emoji = groups.flatMap((g) => g.items.filter(hit)).slice(0, 240);
     const custom = lib.filter((c) => words.every((w) => c.name.includes(w)));
     return { emoji, custom };
-  }, [q, groups, lib]);
+  }, [q, groups, lib, names]);
 
   // The row pinned under the search box: what you picked last (unicode and custom emoji), or a few quick picks until you have picked something.
   const quick = useMemo(() => {

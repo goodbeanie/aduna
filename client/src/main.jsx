@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import '@fontsource-variable/inter';
+import '@fontsource/noto-color-emoji';
 import './styles.css';
 import './redesign.css';
 import './redesign5.css';
@@ -44,13 +45,18 @@ import './controls.css'; // after checkbox.css: the custom dropdown, date and co
 import './buttons.css'; // last: text on accent-coloured buttons (Leave, etc.) follows --on-ink so it stays readable on light accents (remove this line to undo)
 import './voice-channel.css'; // last: the voice channel page (tiles, soundboard card, control bar); remove this line to undo
 import ErrorBoundary from './ErrorBoundary.jsx';
-import { initTheme } from './themes.js';
+import { initTheme, applyTheme, loadTheme, DEFAULT_CUSTOM } from './themes.js';
+import { initDevTheme } from './devtheme.js';
 import { startPhrases } from './phrases.js';
 import { initKeyboard } from './keyboard.js';
 
 try { document.documentElement.dataset.density = localStorage.getItem('aduna-density') === 'compact' ? 'compact' : 'cozy'; } catch { /* storage blocked: stay cozy */ }
 
 initTheme();
+{ // the developer theme the person chose goes on top of their colours; an admin's preview link (?devthemepreview=...) shows the theme's own colours for this page only
+  const previewSeed = initDevTheme();
+  if (previewSeed) applyTheme({ ...loadTheme(), id: 'custom', custom: { ...DEFAULT_CUSTOM, ...previewSeed, stops: null } });
+}
 initKeyboard();
 
 startPhrases();

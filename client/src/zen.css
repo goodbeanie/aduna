@@ -10,7 +10,7 @@
   --lift-2: 0 6px 18px var(--shadow);
   --lift-3: 0 12px 36px var(--shadow);
   --t-hover: 140ms;
-  --font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font: "Inter Variable", Inter, "Noto Color Emoji", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   scrollbar-width: thin; scrollbar-color: var(--line2) transparent;
 }
 * { scrollbar-width: thin; scrollbar-color: var(--line2) transparent; }

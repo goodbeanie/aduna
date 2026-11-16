@@ -211,7 +211,7 @@ export function Modal({ title, onClose, children, wide, bare }) {
   }, []);
   return (
     <div className="overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className={'modal' + (wide ? ' wide' : '') + (bare ? ' bare' : '')} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={box}>
+      <div data-ui="modal" className={'modal' + (wide ? ' wide' : '') + (bare ? ' bare' : '')} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={box}>
         {bare
           ? <button className="icon-btn modal-x" onClick={onClose} aria-label="Close"><Icon name="close" size={16} /></button>
           : (

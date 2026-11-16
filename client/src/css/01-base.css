@@ -75,7 +75,7 @@
   --scrim: #2a1f0f73; --scrim-soft: #2a1f0f55;
   --shadow: #5a4a2a1a;
   --name-lift: 0%;      /* dark themes lighten dark profile name colours so they stay readable */
-  --font: "Bree Serif", Georgia, "Times New Roman", serif;
+  --font: "Bree Serif", "Noto Color Emoji", Georgia, "Times New Roman", serif;
   color-scheme: light;
 }
 [data-nc] { color: var(--nc) !important; color: color-mix(in srgb, var(--nc), var(--head) var(--name-lift)) !important; }

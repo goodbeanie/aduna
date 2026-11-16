@@ -1051,9 +1051,9 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   return (
     <InviteContext.Provider value={inviteCtx}>
-    <div className="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
+    <div className="app" data-ui="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
       {/* server bar (top) */}
-      <nav className="rail">
+      <nav className="rail" data-ui="server-bar">
         <button className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
           <span className="dm-home-mark" aria-hidden="true" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
@@ -1075,7 +1075,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         <RailUpdateChip />
       </nav>
 
-      <nav className={'tabbar' + (showList ? ' show' : '')} aria-label="Main">
+      <nav data-ui="tabbar" className={'tabbar' + (showList ? ' show' : '')} aria-label="Main">
         <button className={view.kind === 'server' ? 'on' : ''} aria-current={view.kind === 'server' ? 'page' : undefined}
           onClick={() => { const s = server || servers[0]; if (s) openServer(s); else setModal({ type: 'server' }); }}>
           <Icon name="users" size={22} /><span>Servers</span>
@@ -1092,9 +1092,9 @@ function Main({ me, setMe, privKey, openServerId }) {
         <button onClick={() => setModal({ type: 'edit', tab: 'profile' })}><Icon name="user" size={22} /><span>You</span></button>
       </nav>
 
-      <div className={'body' + (call.call.phase !== 'idle' || inGroupCall(gcall.gcall) ? ' in-call' : '') + (showList ? ' list-open' : '')}>
+      <div data-ui="body" className={'body' + (call.call.phase !== 'idle' || inGroupCall(gcall.gcall) ? ' in-call' : '') + (showList ? ' list-open' : '')}>
       {/* sidebar */}
-      <aside className="side">
+      <aside className="side" data-ui="sidebar">
         {server ? (
           <>
             {/* an animated banner (server.bannerAnim) plays while the pointer is over the header: the hover rule in 11-server-settings.css swaps in --banner-anim */}
@@ -1338,7 +1338,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {server && (
         <>
         {membersOpen && <div className="drawer-backdrop" onClick={() => setMembersOpen(false)} />}
-        <aside className={'members' + (membersOpen ? ' open' : '') + (membersHidden ? ' collapsed' : '')} aria-label="Members">
+        <aside data-ui="members" className={'members' + (membersOpen ? ' open' : '') + (membersHidden ? ' collapsed' : '')} aria-label="Members">
           <div className="member-search">
             <Icon name="search" size={15} />
             <input type="search" value={memberQ} onChange={(e) => setMemberQ(e.target.value)} placeholder="Search members" aria-label="Search members" maxLength={40} />

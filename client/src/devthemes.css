@@ -1,0 +1,39 @@
+.dt-ref { margin: 16px 0 8px; border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; background: var(--field); }
+.dt-ref summary { cursor: pointer; font-weight: 600; }
+.dt-ref code, .dt-pics code, .dt-list code { font-size: 12px; }
+.dt-list { margin: 4px 0 10px; padding-left: 18px; }
+.dt-list li { margin: 2px 0; }
+
+.dt-title { margin: 0 0 4px; }
+.dt-list-wrap { display: flex; flex-direction: column; gap: 8px; margin-top: 24px; }
+.dt-list-wrap .btn.primary { align-self: flex-start; }
+
+.dt-edit { display: flex; flex-direction: column; gap: 6px; margin-top: 24px; }
+.dt-back { align-self: flex-start; }
+.dt-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dt-head h2 { margin: 0; }
+.dt-draft { color: var(--muted); }
+.dt-warn { color: #8a5a00; border-color: #c8921c; background: rgba(200, 146, 28, .12); }
+.dt-ok { color: var(--ok-fg, var(--green)); border-color: var(--ok-fg, var(--green)); }
+.dt-bad { color: var(--danger); border-color: var(--danger); }
+
+.dt-colours { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.dt-colour { display: flex; align-items: center; gap: 8px; }
+.dt-swatch { width: 84px; height: 36px; border-radius: 8px; }
+
+.dt-css { width: 100%; box-sizing: border-box; min-height: 260px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.45; tab-size: 2; white-space: pre; overflow: auto; }
+
+.dt-pics { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.dt-pics li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.dt-pics .gallery-act { position: static; opacity: 1; margin-left: auto; }
+
+.dt-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+
+.dt-gallery { margin-top: 24px; }
+.dt-active { margin: 6px 0; }
+.dt-grid { grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+.dt-card { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.dt-cover { height: 72px; border-radius: 8px; background-size: cover; background-position: center; }
+.dt-card .theme-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.dt-card-acts { display: flex; align-items: center; gap: 6px; }
+.dt-card-acts .gallery-act { position: static; opacity: 1; margin-left: auto; }

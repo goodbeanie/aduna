@@ -31,7 +31,7 @@ const mediacheck = require('./mediacheck');
 types.setTypeParser(20, (v) => Number(v)); // BIGINT (timestamps) -> number
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments', 'bots', 'calllog', 'themes', 'groups', 'gmsgs', 'badges', 'artists', 'clips', 'wordle', 'contexto', 'applications', 'features', 'releases', 'linkblocks', 'switches'];
+const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments', 'bots', 'calllog', 'themes', 'groups', 'gmsgs', 'badges', 'artists', 'clips', 'wordle', 'contexto', 'applications', 'features', 'releases', 'linkblocks', 'switches', 'devthemes'];
 const SCHEMA = process.env.DB_SCHEMA;
 if (SCHEMA && !/^[a-z_][a-z0-9_]*$/i.test(SCHEMA)) throw new Error('DB_SCHEMA may only contain letters, digits and underscores');
 

@@ -6,6 +6,7 @@ import { NotificationSettings } from './Notifications.jsx';
 import { VoiceSettings } from './VoiceSettings.jsx';
 import { SecuritySettings } from './Security.jsx';
 import { DeveloperSettings } from './Bots.jsx';
+import { DeveloperThemes } from './DevThemes.jsx';
 import { BadgeSettings } from './Badges.jsx';
 import { ArtistSettings } from './Artist.jsx';
 import { WhatsNewSettings } from './WhatsNew.jsx';
@@ -26,7 +27,7 @@ const KEYWORDS = {
   voice: 'microphone mic camera audio input output zoom screen share shortcut hotkey keybind',
   security: 'password two factor 2fa sessions login email',
   whatsnew: 'updates changelog release',
-  developer: 'bots api token',
+  developer: 'bots api token themes css',
   artist: 'shop sell art',
   badges: 'creator shop',
 };
@@ -85,7 +86,7 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
           {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings me={me} /></>}
           {tab === 'security' && <><h1>{t('tabSecurity')}</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
           {tab === 'whatsnew' && <><h1>{t('tabWhatsNew')}</h1><WhatsNewSettings /></>}
-          {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} /></>}
+          {tab === 'developer' && <><h1>{t('tabDeveloper')}</h1><DeveloperSettings me={me} onSaved={onSaved} /><DeveloperThemes me={me} /></>}
           {tab === 'badges' && me.creator && <><h1>{t('tabBadges')}</h1><BadgeSettings /></>}
           {tab === 'artist' && <><h1>{t('tabArtist')}</h1><ArtistSettings me={me} /></>}
           {tab === 'appearance' && <><h1>{t('tabAppearance')}</h1><AppearancePicker /></>}

@@ -8,6 +8,7 @@ import { imageUrl } from './image.js';
 import { InviteBox } from './Invite.jsx';
 import { AddToServerModal } from './Bots.jsx';
 import { ThemeGallery } from './ThemeGallery.jsx';
+import { DevThemeGallery } from './DevThemes.jsx';
 import { loadTheme, applyTheme } from './themes.js';
 
 const SORTS = [['popular', 'Most popular'], ['az', 'A to Z'], ['za', 'Z to A']];
@@ -173,6 +174,7 @@ function ThemeList() {
     <div className="explore-body explore-themes">
       <p className="muted small hint">Themes other people published. Picking one makes it your custom theme on this device (your current custom colours are replaced). Publish your own from Settings &rsaquo; Appearance.</p>
       <ThemeGallery current={s.id === 'custom' ? s.custom : null} onPick={pick} />
+      <DevThemeGallery />
     </div>
   );
 }

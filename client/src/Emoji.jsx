@@ -100,8 +100,21 @@ export const NAME_OK = /^[a-z0-9_]{2,32}$/;
 const Ctx = createContext(null);
 export const useEmoji = () => useContext(Ctx);
 
+// :name: -> emoji for the Unicode set. Its own small chunk, fetched the first time someone types a colon.
+let shortPromise, shortCache = null;
+export const loadShortcodes = () => shortPromise || (shortPromise = import('./emoji-shortcodes.json').then((m) => (shortCache = m.default)).catch((e) => { shortPromise = null; throw e; }));
+
+// typed :sob: -> the emoji itself; code spans and code blocks are left alone, and so is the middle of "10:30:45"
+const CODE_SPLIT = /(```[\s\S]*?```|`[^`\n]*`)/;
+const SHORT_RE = /(?<![\w<]):([a-z0-9_+-]{1,32}):(?!\w)/gi;
+export function expandShortcodes(text, codes) {
+  if (!codes || !text.includes(':')) return text;
+  return text.split(CODE_SPLIT).map((part, i) => (i % 2 ? part : part.replace(SHORT_RE, (m, n) => codes[n.toLowerCase()] || m))).join('');
+}
+
 export function EmojiProvider({ children }) {
   const [lib, setLib] = useState([]);
+  const [codes, setCodes] = useState(null);
   const [limits, setLimits] = useState({ owned: 50, library: 100 });
   const [menu, setMenu] = useState(null); // { id, name, x, y, note }
   const [manager, setManager] = useState(false);
@@ -115,21 +128,23 @@ export function EmojiProvider({ children }) {
     report: (id) => api(`/emoji/${id}/report`, { method: 'POST' }).then((r) => { refresh(); return r; }),
   }), [refresh]);
 
-  // typed :name: -> <:name:id> on send, and back again when editing
-  const toTokens = useCallback((text) => text.replace(/(?<!<):([a-z0-9_]{2,32}):(?![0-9a-f]{16}>)/gi, (m, n) => {
+  const ensureShortcodes = useCallback(() => loadShortcodes().then((c) => { setCodes(c); return c; }).catch(() => null), []);
+
+  // typed :name: -> <:name:id> on send, and back again when editing. Custom emoji win over a Unicode name; what is left becomes the Unicode emoji.
+  const toTokens = useCallback((text) => expandShortcodes(text.replace(/(?<!<):([a-z0-9_]{2,32}):(?![0-9a-f]{16}>)/gi, (m, n) => {
     const e = lib.find((x) => x.name === n.toLowerCase());
     return e ? `<:${e.name}:${e.id}>` : m;
-  }), [lib]);
+  }), shortCache), [lib]);
   const fromTokens = useCallback((text) => text.replace(TOKEN, (m, _n, id) => {
     const e = lib.find((x) => x.id === id);
     return e ? `:${e.name}:` : m;
   }), [lib]);
 
   const value = useMemo(() => ({
-    lib, limits, refresh, ...actions, toTokens, fromTokens,
+    lib, limits, refresh, ...actions, toTokens, fromTokens, codes, ensureShortcodes,
     openMenu: (id, name, x, y) => setMenu({ id, name, x, y, note: '' }),
     openManager: () => setManager(true),
-  }), [lib, limits, refresh, actions, toTokens, fromTokens]);
+  }), [lib, limits, refresh, actions, toTokens, fromTokens, codes, ensureShortcodes]);
 
   return (
     <Ctx.Provider value={value}>

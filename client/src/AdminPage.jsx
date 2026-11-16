@@ -8,7 +8,7 @@ import './admin.css';
 // visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['bots', 'Bots'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['bots', 'Bots'], ['themes', 'Themes'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin', moderator: 'Moderator' };
 const MOD_TABS = ['overview', 'reports', 'people']; // a moderator reads and reviews reports, looks people up, and warns or mutes
@@ -285,6 +285,92 @@ function BotVerify() {
               )}
             </div>
           ))}
+        </>
+      )}
+    </>
+  );
+}
+
+// ---------- developer themes ----------
+// A developer theme is CSS plus pictures. An admin reads the CSS, looks at every picture, tries it in the app, then approves or rejects exactly that:
+// the server refuses the decision if the developer changed anything after it was opened (hash), and an approval lapses if the theme changes later.
+const THEME_STATE = { draft: 'Draft', pending: 'Waiting', approved: 'Verified', rejected: 'Turned down' };
+const previewLink = (t) => `/app?devthemepreview=${encodeURIComponent(t.id)}.${t.key}.${t.seed.dark ? 'dark' : 'light'}.${t.seed.bg.slice(1)}.${t.seed.accent.slice(1)}`;
+
+function ThemeReview() {
+  const { say, run, ask } = useAdm();
+  const [filter, setFilter] = useState('pending');
+  const [q, setQ] = useState('');
+  const [data, setData] = useState(null);
+  const [open, setOpen] = useState(null);
+  const load = useCallback(() => api('/admin/devthemes?filter=' + filter + (q.trim() ? '&q=' + encodeURIComponent(q.trim()) : '')).then(setData).catch((e) => { setData({ total: 0, themes: [] }); say(e.message, 'error'); }), [filter, q, say]);
+  useEffect(() => { const t = setTimeout(load, q ? 250 : 0); return () => clearTimeout(t); }, [load, q]);
+  const read = async (t) => {
+    if (open && open.id === t.id) { setOpen(null); return; }
+    try { setOpen(await api(`/admin/devthemes/${t.id}`)); } catch (e) { say(e.message, 'error'); }
+  };
+  const decide = async (t, action) => {
+    let note = '';
+    if (action === 'reject') {
+      const r = await ask({ title: `Turn down ${t.name}?`, body: 'The developer sees your note. They have to change something before they can send it again.', textarea: 'Note for the developer (optional)', confirmLabel: 'Turn down', danger: true });
+      if (!r) return;
+      note = r.text;
+    }
+    if (action === 'revoke') {
+      const r = await ask({ title: `Remove the verified mark from ${t.name}?`, body: 'It leaves the gallery and nobody can load it any more.', confirmLabel: 'Remove mark', danger: true });
+      if (!r) return;
+    }
+    const done = { approve: 'Theme verified', reject: 'Theme turned down', revoke: 'Verified mark removed' }[action];
+    if (await run(() => api(`/admin/devthemes/${t.id}/review`, { method: 'POST', body: { action, hash: open && open.id === t.id ? open.hash : undefined, note } }), done)) { setOpen(null); load(); }
+  };
+  return (
+    <>
+      <div className="adm-subtabs" role="group" aria-label="Filter themes">
+        {[['pending', 'Waiting'], ['approved', 'Verified'], ['rejected', 'Turned down'], ['all', 'All']].map(([id, name]) => (
+          <button key={id} className={'adm-chip' + (filter === id ? ' on' : '')} aria-pressed={filter === id} onClick={() => { setFilter(id); setOpen(null); }}>{name}</button>
+        ))}
+        <input className="adm-input" placeholder="Search by theme or developer" value={q} maxLength={60} onChange={(e) => setQ(e.target.value)} aria-label="Search themes" />
+      </div>
+      {!data ? <p className="adm-muted">Loading…</p> : !data.themes.length ? <Empty text={filter === 'pending' ? 'No themes are waiting for review.' : 'No themes match.'} /> : (
+        <>
+          {data.total > data.themes.length && <p className="adm-muted">Showing {data.themes.length} of {data.total}. Search to narrow it down.</p>}
+          {data.themes.map((t) => {
+            const shown = open && open.id === t.id;
+            return (
+              <div className="adm-card" key={t.id}>
+                <div className="adm-row">
+                  <div>
+                    <h3>{t.name} <span className="adm-muted">{THEME_STATE[t.status] || t.status}</span>{t.lapsed && <span className="adm-muted"> · verification lapsed: something changed</span>}{t.hidden && <span className="adm-muted"> · hidden by reports</span>}</h3>
+                    <span className="adm-muted">developer {t.developer || '—'} · {t.images} picture{t.images === 1 ? '' : 's'} · {t.uses} use{t.uses === 1 ? '' : 's'} · {t.submittedAt ? `sent ${when(t.submittedAt)}` : `updated ${when(t.updatedAt)}`}{t.reviewedBy ? ` · reviewed by ${t.reviewedBy}` : ''}</span>
+                    {t.description && <p className="adm-details">{t.description}</p>}
+                  </div>
+                  <div className="adm-actions">
+                    <button className="adm-btn small" onClick={() => read(t)}>{shown ? 'Close' : 'Read it'}</button>
+                    {t.status === 'pending' && <button className="adm-btn small primary" disabled={!shown} title={shown ? '' : 'Read it first'} onClick={() => decide(t, 'approve')}>Verify</button>}
+                    {t.status === 'pending' && <button className="adm-btn small danger" disabled={!shown} title={shown ? '' : 'Read it first'} onClick={() => decide(t, 'reject')}>Turn down</button>}
+                    {(t.status === 'approved' || t.lapsed) && <button className="adm-btn small danger" onClick={() => decide(t, 'revoke')}>Remove mark</button>}
+                  </div>
+                </div>
+                {shown && (
+                  <div>
+                    <p className="adm-muted">Base colours: {open.seed.dark ? 'dark' : 'light'}, background {open.seed.bg}, accent {open.seed.accent}. <a href={previewLink(open)} target="_blank" rel="noopener noreferrer">Try it in the app</a> (this tab only, nothing is saved).</p>
+                    {open.note && <p className="adm-details">Earlier note: {open.note}</p>}
+                    {open.images.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, margin: '8px 0' }}>
+                        {open.images.map((p) => (
+                          <figure key={p.name} style={{ margin: 0, maxWidth: 220 }}>
+                            <a href={p.url} target="_blank" rel="noopener noreferrer"><img src={p.url} alt={p.name} loading="lazy" style={{ maxWidth: 220, maxHeight: 160, objectFit: 'contain', borderRadius: 6, background: 'rgba(127,127,127,.12)' }} /></a>
+                            <figcaption className="adm-muted">{p.name} · {p.width}×{p.height} · {Math.max(1, Math.round(p.bytes / 1024))} KB</figcaption>
+                          </figure>
+                        ))}
+                      </div>
+                    )}
+                    <pre style={{ maxHeight: 420, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', padding: 12, borderRadius: 8, background: 'rgba(127,127,127,.12)', fontSize: 12 }}>{open.css || '(no CSS)'}</pre>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </>
       )}
     </>
@@ -1192,6 +1278,7 @@ export default function AdminPage() {
           {cur === 'shop' && <ShopItems />}
           {cur === 'people' && <People focusId={focusId} clearFocus={clearFocus} refresh={refresh} />}
           {cur === 'bots' && <BotVerify />}
+          {cur === 'themes' && <ThemeReview />}
           {cur === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
           {cur === 'releases' && <Releases />}
           {cur === 'switches' && <Switches />}

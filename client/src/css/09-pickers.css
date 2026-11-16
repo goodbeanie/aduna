@@ -27,7 +27,8 @@
 .ep-label { position: sticky; top: 0; z-index: 1; background: var(--raised); font-size: 11px; color: var(--muted); letter-spacing: .08em; padding: 8px 2px 4px; }
 .ep-sec { content-visibility: auto; contain-intrinsic-size: auto 240px; }
 .ep-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); }
-.ep-e { height: 36px; font-size: 22px; line-height: 1; border-radius: 8px; display: grid; place-items: center; font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif; }
+.ep-e { height: 36px; font-size: 22px; line-height: 1; border-radius: 8px; display: grid; place-items: center; font-family: "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", sans-serif; }
+.suggest-glyph { font-size: 18px; line-height: 1; }
 .ep-e:hover, .ep-e:focus-visible { background: var(--hover); }
 .ep-e img { width: 26px; height: 26px; object-fit: contain; }
 .ep-scroll .pop-add { margin: 6px 0 2px; }

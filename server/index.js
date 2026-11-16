@@ -47,6 +47,7 @@ const releasesLib = require('./releases'); // "What's new" releases: every relea
 const calllog = require('./calllog');
 const groupsLib = require('./groups');
 const gallery = require('./themegallery');
+const devthemes = require('./devthemes');
 const nameStyle = require('./namestyle'); // the font and gradient a display name is drawn in (see namestyle.js)
 const serverTagLib = require('./servertag'); // server tags: a 4-character badge a server designs and members choose to wear (see servertag.js)
 const loungeLib = require('./lounge'); // a server's info page: template, look and widgets, validated here (see lounge.js)
@@ -93,6 +94,7 @@ const referencedImages = () => new Set([
   ...Object.values(store.db.badges || {}).map((b) => b.image), // badge pictures (creator badges and artists' items); without this the startup cleanup deleted them
   ...Object.values(store.db.badges || {}).flatMap((b) => stickersLib.stickersOf(b).map((s) => s.id)), // the pictures inside sticker packs (a sticker's id is its image id)
   ...Object.values(store.db.artists || {}).flatMap((a) => (Array.isArray(a.pieces) ? a.pieces : [])), // the pieces of art in an artist application
+  ...Object.values(store.db.devthemes || {}).flatMap((t) => (t.images || []).map((p) => p.imageId)), // the pictures of developer themes
 ].filter(Boolean));
 const now = () => Date.now();
 const MAX_FILE = 20 * 1024 * 1024;          // largest file a person can attach
@@ -4477,6 +4479,180 @@ app.post('/api/admin/bots/:id/verify', auth, adminOnly, (req, res) => {
   adminLogAdd(req.user, b.verified ? 'verify bot' : 'unverify bot', b.name, '');
   tellDeveloper(b);
   res.json({ ok: true, verified: botsLib.isVerified(b) });
+});
+
+// ----- developer themes: a theme written as CSS with its own pictures (rules, limits and the CSS scanner are in devthemes.js) -----
+// A developer writes and previews a theme in Settings > Developer. Nobody else can use it until an admin has read the CSS, looked at the pictures
+// and verified it (admin page > Themes). The verification is tied to a hash of the whole theme, so it lapses when anything in it changes.
+// The app loads a theme as a stylesheet from its own address (GET /api/devthemes/:id/css): the page policy only allows styles from this site.
+// A verified theme's stylesheet is public; a draft is only served with the author's private preview key (?k=), which changes with every edit.
+const themeSaves = new security.RateWindow(120, 3600_000);
+const rawThemeImage = express.raw({ type: ['image/png', 'image/jpeg', 'image/webp'], limit: devthemes.LIMITS.imageBytes });
+const devThemes = () => (db().devthemes || (db().devthemes = {}));
+const newPreviewKey = () => crypto.randomBytes(16).toString('hex');
+const ownDevTheme = (req, res) => {
+  const t = devThemes()[req.params.id];
+  if (!t || t.ownerId !== req.user.id) { res.status(404).json({ error: 'Theme not found' }); return null; }
+  return t;
+};
+const touchDevTheme = (t) => { t.updatedAt = now(); t.previewKey = newPreviewKey(); };
+const sameKey = (a, b) => { const x = Buffer.from(String(a || '')), y = Buffer.from(String(b || '')); return x.length > 0 && x.length === y.length && crypto.timingSafeEqual(x, y); };
+const ownThemeView = (t) => devthemes.ownView(t);
+
+app.get('/api/devthemes/mine', auth, developerOnly, (req, res) => {
+  const mine = Object.values(devThemes()).filter((t) => t.ownerId === req.user.id).sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  res.json({ themes: mine.map(ownThemeView), limits: devthemes.LIMITS });
+});
+app.post('/api/devthemes', auth, developerOnly, (req, res) => {
+  if (Object.values(devThemes()).filter((t) => t.ownerId === req.user.id).length >= devthemes.LIMITS.perDeveloper) return res.status(400).json({ error: `You can have up to ${devthemes.LIMITS.perDeveloper} themes` });
+  if (!themeSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving themes too fast. Try again later.' });
+  const r = devthemes.checkTheme(req.body, { words: BLOCKED_WORDS });
+  if (r.error) return res.status(400).json({ error: r.error });
+  const t = { id: store.id(), ownerId: req.user.id, images: [], uses: 0, reports: [], hidden: false, createdAt: now(), updatedAt: now(), previewKey: newPreviewKey(), ...r.value };
+  devThemes()[t.id] = t;
+  store.save();
+  res.json({ theme: ownThemeView(t) });
+});
+app.patch('/api/devthemes/:id', auth, developerOnly, (req, res) => {
+  const t = ownDevTheme(req, res); if (!t) return;
+  if (!themeSaves.allow(req.user.id)) return res.status(429).json({ error: 'You are saving themes too fast. Try again later.' });
+  const r = devthemes.checkTheme(req.body, { current: t, words: BLOCKED_WORDS });
+  if (r.error) return res.status(400).json({ error: r.error });
+  Object.assign(t, r.value); // a changed theme is a draft again: its hash no longer matches what was sent or verified
+  touchDevTheme(t);
+  store.save();
+  res.json({ theme: ownThemeView(t) });
+});
+app.delete('/api/devthemes/:id', auth, ah(async (req, res) => {
+  const t = devThemes()[req.params.id];
+  if (!t) return res.json({ ok: true });
+  if (t.ownerId !== req.user.id) return res.status(404).json({ error: 'Theme not found' });
+  delete devThemes()[t.id];
+  await store.flush();
+  for (const p of t.images || []) await store.deleteImage(p.imageId);
+  res.json({ ok: true });
+}));
+
+// pictures: PNG, JPEG or WebP, named like the CSS says (url("bg.png")), checked like every other public picture
+app.put('/api/devthemes/:id/images/:name', auth, developerOnly, uploadLimiter, rawThemeImage, ah(async (req, res) => {
+  const t = ownDevTheme(req, res); if (!t) return;
+  const name = devthemes.imageName(req.params.name);
+  if (!name || name !== req.params.name) return res.status(400).json({ error: 'Picture names are lower case letters, numbers, - and _, ending in .png, .jpg or .webp' });
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a PNG, JPEG or WebP image' });
+  const info = sniffImage(buf);
+  if (!info) return res.status(400).json({ error: 'That file is not a valid PNG, JPEG or WebP image' });
+  if (info.width > devthemes.LIMITS.imageSide || info.height > devthemes.LIMITS.imageSide) return res.status(400).json({ error: `Pictures can be at most ${devthemes.LIMITS.imageSide} px on a side` });
+  const images = t.images || (t.images = []);
+  const at = images.findIndex((p) => p.name === name);
+  if (at < 0 && images.length >= devthemes.LIMITS.images) return res.status(400).json({ error: `A theme can have up to ${devthemes.LIMITS.images} pictures` });
+  const imageId = await store.putImage(buf);
+  const old = at >= 0 ? images[at].imageId : null;
+  const entry = { name, imageId, width: info.width, height: info.height, bytes: buf.length };
+  if (at >= 0) images[at] = entry; else images.push(entry);
+  touchDevTheme(t);
+  await store.flush(); // everything points at the new picture before the old one is deleted
+  if (old && old !== imageId) await store.deleteImage(old);
+  res.json({ theme: ownThemeView(t) });
+}));
+app.delete('/api/devthemes/:id/images/:name', auth, developerOnly, ah(async (req, res) => {
+  const t = ownDevTheme(req, res); if (!t) return;
+  const p = (t.images || []).find((x) => x.name === req.params.name);
+  if (!p) return res.status(404).json({ error: 'Picture not found' });
+  t.images = t.images.filter((x) => x !== p);
+  touchDevTheme(t);
+  await store.flush();
+  await store.deleteImage(p.imageId);
+  res.json({ theme: ownThemeView(t) });
+}));
+
+// sending for review: only exactly what is there now (the hash), and only when the CSS passes the checks with the uploaded pictures
+app.post('/api/devthemes/:id/submit', auth, developerOnly, (req, res) => {
+  const t = ownDevTheme(req, res); if (!t) return;
+  const problem = devthemes.submitProblem(t);
+  if (problem) return res.status(400).json({ error: problem });
+  delete t.review;
+  t.submitted = { at: now(), hash: devthemes.verifyHash(t) };
+  store.save();
+  res.json({ theme: ownThemeView(t) });
+});
+app.post('/api/devthemes/:id/withdraw', auth, developerOnly, (req, res) => {
+  const t = ownDevTheme(req, res); if (!t) return;
+  if (devthemes.statusOf(t) === 'pending') { delete t.submitted; store.save(); }
+  res.json({ theme: ownThemeView(t) });
+});
+
+// the stylesheet. No sign-in: it is loaded by a <link> tag. Verified themes are public (the version in ?v= makes the copy cacheable for good);
+// anything else needs the author's preview key.
+app.get('/api/devthemes/:id/css', (req, res) => {
+  const t = devThemes()[req.params.id];
+  const preview = !!t && sameKey(req.query.k, t.previewKey);
+  const hide = () => res.status(404).type('text/plain').send('Not found');
+  if (!t || !(devthemes.isApproved(t) || preview)) return hide();
+  const byName = new Map((t.images || []).map((p) => [p.name, p.imageId]));
+  const css = devthemes.render(t.css, (n) => (byName.has(n) ? '/api/images/' + byName.get(n) : ''));
+  if (css === null) return hide();
+  const fixed = !preview && req.query.v === devthemes.version(t);
+  res.set({ 'Content-Type': 'text/css; charset=utf-8', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': fixed ? 'public, max-age=31536000, immutable' : 'no-cache' });
+  res.send(css);
+});
+
+// verified themes for everyone
+app.get('/api/devthemes', auth, (req, res) => {
+  const q = req.query || {};
+  res.json(devthemes.list(Object.values(devThemes()), db().users, { sort: q.sort === 'new' ? 'new' : 'popular', mode: q.mode, q: String(q.q || ''), offset: q.offset, uid: req.user.id }));
+});
+app.get('/api/devthemes/:id', auth, (req, res) => {
+  const t = devThemes()[req.params.id];
+  if (!t || !devthemes.isApproved(t)) return res.status(404).json({ error: 'That theme is not available' });
+  res.json({ theme: devthemes.publicView(t, req.user.id, db().users) });
+});
+app.post('/api/devthemes/:id/use', auth, (req, res) => {
+  const t = devThemes()[req.params.id];
+  if (!t || !devthemes.isApproved(t)) return res.status(404).json({ error: 'That theme is not available' });
+  const used = req.user.themeUses || (req.user.themeUses = []);
+  if (!used.includes(t.id) && t.ownerId !== req.user.id) {
+    used.push(t.id);
+    if (used.length > 300) used.splice(0, used.length - 300);
+    t.uses = (t.uses || 0) + 1;
+    store.save();
+  }
+  res.json({ theme: devthemes.publicView(t, req.user.id, db().users) });
+});
+app.post('/api/devthemes/:id/report', auth, (req, res) => {
+  const t = devThemes()[req.params.id];
+  if (!t || !devthemes.isApproved(t)) return res.status(404).json({ error: 'Not found' });
+  if (t.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot report your own theme' });
+  gallery.addReport(t, req.user.id, now());
+  if (gallery.shouldHide(t, db().users, now())) t.hidden = true; // hidden themes stop being served until an admin looks at them
+  store.save();
+  res.json({ ok: true });
+});
+
+// admin: the review queue. An admin opens a theme (CSS, pictures, a private preview link, the hash), then approves or rejects exactly that.
+app.get('/api/admin/devthemes', auth, adminOnly, (req, res) => {
+  const filter = ['pending', 'approved', 'rejected', 'all'].includes(req.query.filter) ? req.query.filter : 'pending';
+  const rows = devthemes.adminList(Object.values(devThemes()), db().users, filter, req.query.q);
+  res.json({ total: rows.length, themes: rows.slice(0, 50) });
+});
+app.get('/api/admin/devthemes/:id', auth, adminOnly, (req, res) => {
+  const t = devThemes()[req.params.id];
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  if (!t.previewKey) { t.previewKey = newPreviewKey(); store.save(); }
+  res.json({ id: t.id, name: t.name, description: t.description, seed: t.seed, css: t.css || '', status: devthemes.statusOf(t), hash: devthemes.verifyHash(t), key: t.previewKey,
+    developer: db().users[t.ownerId]?.username || null, hidden: !!t.hidden, note: t.review?.note || '',
+    images: (t.images || []).map((p) => ({ name: p.name, width: p.width, height: p.height, bytes: p.bytes, url: '/api/images/' + p.imageId })) });
+});
+app.post('/api/admin/devthemes/:id/review', auth, adminOnly, (req, res) => {
+  const t = devThemes()[req.params.id];
+  if (!t) return res.status(404).json({ error: 'Not found' });
+  const action = req.body?.action;
+  const r = devthemes.review(t, { action, hash: req.body?.hash, note: req.body?.note, by: req.user.id, at: now() });
+  if (r.error) return res.status(r.status || 400).json({ error: r.error });
+  if (action === 'revoke') t.hidden = false;
+  store.save();
+  adminLogAdd(req.user, action + ' theme', t.name, '');
+  res.json({ ok: true, state: devthemes.statusOf(t) });
 });
 
 // ----- reports from inside the app: a person, a bot account, a message -----

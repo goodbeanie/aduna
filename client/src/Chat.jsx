@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Avatar, BadgeIcons, Icon, Modal, timeLabel } from './ui.jsx';
 import ReportModal from './ReportModal.jsx';
 import { nameProps } from './namestyle.js';
@@ -119,6 +119,7 @@ function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone, chan
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const ref = useRef(null);
+  const { ensureShortcodes } = useEmoji();
   const mc = useMentionComplete({ text: v, setText: setV, inputRef: ref, people, everyone, channels });
   useEffect(() => { const el = ref.current; el.focus(); el.setSelectionRange(el.value.length, el.value.length); }, []);
   async function save() {
@@ -126,7 +127,7 @@ function EditBox({ initial, allowEmpty, onSave, onCancel, people, everyone, chan
     if ((!t && !allowEmpty) || busy) return;
     if (t === initial.trim()) return onCancel();
     setBusy(true); setErr('');
-    try { await onSave(t); onCancel(); } catch (e) { setErr(e.message); setBusy(false); }
+    try { if (t.includes(':')) await ensureShortcodes(); await onSave(t); onCancel(); } catch (e) { setErr(e.message); setBusy(false); }
   }
   return (
     <div className="edit-box">
@@ -231,7 +232,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   const openAuthor = () => { if (!m.hook) onUser(m.authorId); }; // a webhook has no profile to open
 
   return (
-    <div className={'msg' + (grouped ? ' grouped' : '') + (mine ? ' mine' : '') + (editing ? ' editing' : '') + (tapped ? ' tapped' : '') + (pinged ? ' pinged' : '')} id={'m-' + m.id}
+    <div data-ui="message" className={'msg' + (grouped ? ' grouped' : '') + (mine ? ' mine' : '') + (editing ? ' editing' : '') + (tapped ? ' tapped' : '') + (pinged ? ' pinged' : '')} id={'m-' + m.id}
       onClick={tapMessage} onContextMenu={messageMenu}>
       {m.replyTo && (
         <div className="reply-ref" onClick={() => document.getElementById('m-' + m.replyTo)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
@@ -331,7 +332,8 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     return () => document.removeEventListener('pointerdown', away);
   }, [pop]);
   const fileInput = useRef(null);
-  const { lib, toTokens, fromTokens } = useEmoji();
+  const { lib, toTokens, fromTokens, codes, ensureShortcodes } = useEmoji();
+  const codeList = useMemo(() => (codes ? Object.entries(codes) : []), [codes]);
   const people = mentionables || [];
   // channels only exist inside a server channel; in DMs and group chats "#name" stays plain text
   const channelMap = channels ? Object.fromEntries(channels.map((c) => [c.id, c])) : undefined;
@@ -560,6 +562,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
 
   const sending = useRef(false); // a second Enter / tap while the first send is still on its way must not send the message twice
   async function submit() {
+    if (text.includes(':')) await ensureShortcodes();
     const t = encode(text.trim());
     const atts = pending.filter((p) => p.att).map((p) => p.att);
     if ((!t && !atts.length) || uploading || sending.current) return;
@@ -601,16 +604,21 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     }
   }
 
-  // typing ":par" offers matching custom emoji
-  const partial = /(?:^|\s):([a-z0-9_]{1,32})$/i.exec(text);
-  const suggestions = partial ? lib.filter((e) => e.name.startsWith(partial[1].toLowerCase())).slice(0, 8) : [];
+  // typing ":par" offers matching custom emoji, and from two letters on the Unicode ones (:sob:, :smile:)
+  const partial = /(?:^|\s):([a-z0-9_+-]{1,32})$/i.exec(text);
+  const want = partial ? partial[1].toLowerCase() : '';
+  const unicode = want.length >= 2
+    ? [...codeList.filter(([n]) => n.startsWith(want)), ...codeList.filter(([n]) => !n.startsWith(want) && n.includes(want))].slice(0, 8).map(([name, glyph]) => ({ id: 'u:' + name, name, glyph }))
+    : [];
+  const suggestions = partial ? [...lib.filter((e) => e.name.startsWith(want)), ...unicode].slice(0, 8) : [];
   function pickSuggestion(e) {
-    setText((t) => t.replace(/:([a-z0-9_]{1,32})$/i, `:${e.name}: `));
+    setText((t) => t.replace(/:([a-z0-9_+-]{1,32})$/i, e.glyph ? `${e.glyph} ` : `:${e.name}: `));
     inputRef.current?.focus();
   }
 
   function onChange(e) {
     setText(e.target.value);
+    if (e.target.value.includes(':')) ensureShortcodes();
     mc.track(e);
     cc.track(e);
     const t = Date.now();
@@ -618,11 +626,11 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   }
 
   return (
-    <section className="chat"
+    <section className="chat" data-ui="chat"
       onDragOver={(e) => { if (e.dataTransfer?.types?.includes('Files')) { e.preventDefault(); setDragging(true); } }}
       onDragLeave={(e) => e.currentTarget.contains(e.relatedTarget) || setDragging(false)}
       onDrop={(e) => { if (e.dataTransfer?.files?.length) { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); } }}>
-      <header className="chat-head">
+      <header className="chat-head" data-ui="chat-header">
         {onBack && <button className="icon-btn back-btn" title="Back" aria-label="Back to list" onClick={onBack}><Icon name="back" size={22} /></button>}
         <span className="hash">{subtitle}</span>
         <h3>{title}</h3>
@@ -705,7 +713,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
         {suggestions.length > 0 && (
           <div className="suggest">
             {suggestions.map((e, i) => (
-              <button key={e.id} onClick={() => pickSuggestion(e)}><img className="cemoji" src={`/api/emoji/${e.id}/image`} alt="" />:{e.name}:{i === 0 && <span className="muted small"> Tab</span>}</button>
+              <button key={e.id} onClick={() => pickSuggestion(e)}>{e.glyph ? <span className="suggest-glyph">{e.glyph}</span> : <img className="cemoji" src={`/api/emoji/${e.id}/image`} alt="" />}:{e.name}:{i === 0 && <span className="muted small"> Tab</span>}</button>
             ))}
           </div>
         )}
@@ -747,7 +755,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           </div>
           <input ref={fileInput} type="file" multiple hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
           <input ref={camInput} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { addFiles(e.target.files); e.target.value = ''; }} />
-          <textarea ref={inputRef} className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={limit} onSelect={(e) => { mc.track(e); cc.track(e); }} onKeyUp={(e) => { mc.track(e); cc.track(e); }}
+          <textarea ref={inputRef} data-ui="composer" className="composer" rows={1} value={text} onChange={onChange} onKeyDown={onKey} placeholder={placeholder} maxLength={limit} onSelect={(e) => { mc.track(e); cc.track(e); }} onKeyUp={(e) => { mc.track(e); cc.track(e); }}
             onFocus={() => { if (!window.matchMedia('(max-width: 720px)').matches) return; stick.current = true; [120, 320, 600].forEach((ms) => setTimeout(() => { const el = scroller.current; if (el && document.activeElement === inputRef.current) el.scrollTop = el.scrollHeight; }, ms)); }}
             onPaste={(e) => { if (e.clipboardData?.files?.length) { e.preventDefault(); addFiles(e.clipboardData.files); } }} />
           <div className="comp-tools">
