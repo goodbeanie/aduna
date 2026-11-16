@@ -428,5 +428,16 @@
       { "title": "Cleaner uploaded pictures", "text": "Anything hidden after the end of a PNG, JPEG or WebP is now removed when you upload a picture, and old pictures are served without it." },
       { "title": "Game search", "text": "Searching for a game shows no results instead of an error when Steam refuses the search. If Steam is busy it asks you to try again in a minute." }
     ]
+  },
+  {
+    "id": "2026.11.16",
+    "date": "2026-11-16",
+    "title": "Type :emoji: names, and developer themes",
+    "items": [
+      { "title": "Type an emoji by name", "text": "Write :sob: or :smile: in a message and it turns into the emoji when you send it. The message box suggests matches from two letters on, and it works when you edit a message too. Custom emoji with the same name still win." },
+      { "title": "Search the picker by name", "text": "The emoji picker also finds emoji by those same names, so :sob finds the crying face." },
+      { "title": "Emoji look the same everywhere", "text": "Aduna now brings its own emoji font on browsers that can use it. Newer emoji no longer show up as separate broken pieces on older systems." },
+      { "title": "Developer themes", "text": "Developers can write a theme as CSS with their own pictures under Settings > Developer, and preview it before sending it in. Nobody else can use it until an admin has read the CSS, looked at the pictures and verified it. Verified themes show up in the Themes tab in Explorer." }
+    ]
   }
 ]
