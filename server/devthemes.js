@@ -218,10 +218,32 @@ function ownView(t) {
     hidden: !!t.hidden, uses: t.uses || 0, createdAt: t.createdAt, updatedAt: t.updatedAt, v: version(t), key: t.previewKey || null };
 }
 
+// The font and corner shape a theme sets, so its card in the Explorer can be drawn in the theme's own style. Only plain values pass:
+// a font list or a size, never a function call or an address.
+const FONT_OK = /^[A-Za-z0-9 ,'"_-]{1,90}$/;
+const SIZE_OK = /^(?:0|\d{1,2}(?:\.\d{1,2})?(?:px|rem|em))$/;
+function lookOf(t) {
+  const s = scan(String(t.css || ''));
+  if (s.error) return null;
+  const find = (re, ok, text = s.out) => {
+    for (const m of text.matchAll(re)) {
+      const v = m[1].trim().replace(/\s*!important$/i, '');
+      if (ok.test(v)) return v;
+    }
+    return null;
+  };
+  const modal = /\[data-ui=["']?modal["']?\][^{}]*\{([^}]*)\}/.exec(s.out);
+  const modalRadius = modal ? find(/border-radius\s*:\s*([^;}]+)/g, SIZE_OK, modal[1]) : null;
+  const font = find(/--font\s*:\s*([^;}]+)/g, FONT_OK) || find(/(?:^|[;{\s])font-family\s*:\s*([^;}]+)/g, FONT_OK);
+  const card = find(/--r-xl\s*:\s*([^;}]+)/g, SIZE_OK) || modalRadius || find(/--r-lg\s*:\s*([^;}]+)/g, SIZE_OK);
+  const button = find(/--r-md\s*:\s*([^;}]+)/g, SIZE_OK) || find(/--r-sm\s*:\s*([^;}]+)/g, SIZE_OK) || (card === '0' ? '0' : null);
+  return { font, card, button };
+}
+
 // what everybody sees of a verified theme (no CSS: the app loads it from the theme's own address)
 function publicView(t, uid, users) {
   const a = users[t.ownerId];
-  return { id: t.id, name: t.name, description: t.description, seed: t.seed, cover: t.images && t.images[0] ? t.images[0].name : null, coverImage: t.images && t.images[0] ? t.images[0].imageId : null, uses: t.uses || 0, createdAt: t.createdAt, v: version(t), mine: t.ownerId === uid,
+  return { id: t.id, name: t.name, description: t.description, seed: t.seed, look: lookOf(t), cover: t.images && t.images[0] ? t.images[0].name : null, coverImage: t.images && t.images[0] ? t.images[0].imageId : null, uses: t.uses || 0, createdAt: t.createdAt, v: version(t), mine: t.ownerId === uid,
     author: a ? { id: a.id, displayName: a.displayName || a.username } : { id: t.ownerId, displayName: 'Someone' } };
 }
 

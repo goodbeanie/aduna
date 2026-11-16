@@ -5,7 +5,7 @@ import { PanelSkeleton, EmptyState } from './ShellBits.jsx';
 import { askConfirm } from './Dialogs.jsx';
 import { Select } from './Controls.jsx';
 import { sameSeed } from './ThemeGallery.jsx';
-import { loadTheme, applyTheme, previewColors } from './themes.js';
+import { loadTheme, applyTheme, previewColors, cardVars } from './themes.js';
 import { applyDevTheme, clearDevTheme, currentDevTheme, previewDevTheme, stopPreview, previewingId, previewHeld, holdPreview, UI_HOOKS, CSS_VARS } from './devtheme.js';
 import './devthemes.css';
 
@@ -263,8 +263,11 @@ export function DeveloperThemes({ me }) {
 function Card({ t, active, previewing, onUse, onPreview, onReport, busy }) {
   const c = previewColors({ id: 'dt', ...t.seed });
   const cover = t.coverImage ? `url("/api/images/${t.coverImage}")` : null;
+  const look = t.look || {};
+  // the whole card is drawn in the theme's colours, font and corner shape
+  const style = { ...cardVars(t.seed), '--tc-font': look.font || undefined, '--tc-r': look.card || undefined, '--tc-rb': look.button || undefined };
   return (
-    <div className={'gallery-card dt-card' + (active ? ' on' : '')}>
+    <div className={'gallery-card dt-card' + (active ? ' on' : '')} style={style}>
       <span className="theme-prev dt-cover" style={{ background: c.bg, borderColor: c.bg2, backgroundImage: cover || undefined }} aria-hidden="true"><i style={{ background: c.bg2, opacity: cover ? 0.7 : 1 }} /><b style={{ background: c.accent }} /></span>
       <div className="dt-body">
         <span className="theme-name dt-name" title={t.name}>{t.name}</span>
@@ -285,7 +288,7 @@ function Card({ t, active, previewing, onUse, onPreview, onReport, busy }) {
 function ColourCard({ t, on, onUse, onDelete, onReport, busy }) {
   const c = previewColors({ id: 'gallery', ...t.seed });
   return (
-    <div className={'gallery-card dt-card' + (on ? ' on' : '')}>
+    <div className={'gallery-card dt-card' + (on ? ' on' : '')} style={cardVars(t.seed)}>
       <span className="theme-prev dt-cover" style={{ background: c.bg, borderColor: c.bg2 }} aria-hidden="true"><i style={{ background: c.bg2 }} /><b style={{ background: c.accent }} /></span>
       <div className="dt-body">
         <span className="theme-name dt-name" title={t.name}>{t.name}</span>

@@ -253,3 +253,11 @@ export function previewColors(theme) {
   const v = buildPalette(theme);
   return { bg: v['--bg'], bg2: v['--bg2'], accent: v['--ink'], image: v['--app-grad'] || null };
 }
+
+// A published theme's palette as inline style values, so its card can be drawn in the theme's own colours.
+export function cardVars(seed) {
+  const v = buildPalette({ dark: !!seed.dark, bg: seed.bg, accent: seed.accent });
+  const out = { colorScheme: v.__scheme };
+  for (const [k, val] of Object.entries(v)) if (k.startsWith('--')) out[k] = val;
+  return out;
+}

@@ -460,5 +460,14 @@
       { "title": "No more page scrolling", "text": "The app page no longer scrolls up, down or sideways behind the chat, which happened on some phones and browsers." },
       { "title": "Many badges", "text": "A long row of badges next to a name now wraps instead of stretching the screen sideways." }
     ]
+  },
+  {
+    "id": "2026.11.16.4",
+    "date": "2026-11-16",
+    "title": "Theme cards drawn in their own style",
+    "items": [
+      { "title": "Cards use the theme's colours", "text": "In the Explorer, each theme card is now drawn in that theme's own colours: its background, text, borders and buttons." },
+      { "title": "Developer themes keep their font and corners", "text": "A developer theme's card also uses the font and the rounded or square corners that theme sets, when it sets them." }
+    ]
   }
 ]
