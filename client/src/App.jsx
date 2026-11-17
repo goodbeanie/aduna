@@ -47,6 +47,9 @@ import NameWarning from './NameWarning.jsx';
 import ModWarning from './ModWarning.jsx';
 import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
+import { slotOf, usePanels, useWide } from './panels.js';
+import QuickPanel from './QuickPanel.jsx';
+import UnreadPanel from './UnreadPanel.jsx';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 import { wrapDm, unwrapDm } from './envelope.js';
 import { useGroups } from './useGroups.js';
@@ -127,6 +130,9 @@ function VoiceDock({ voice, servers, onOpen }) {
 
 export default function App() {
   const { t: tr } = useLang(); // redraws the whole app when the language changes
+  const pan = usePanels(); // where each section sits (Settings > Appearance > Layout); only used on wide screens
+  const wideScreen = useWide();
+  const placeOf = (id) => (wideScreen || id !== 'profile' ? slotOf(pan, id) : 'dock'); // below the wide breakpoint the profile bar always stays in the side list
   const [splashDone, setSplashDone] = useState(() => typeof performance === 'undefined' || performance.now() >= MIN_SPLASH_MS || splashSeen());
   useEffect(() => {
     if (splashDone) { try { sessionStorage.setItem('aduna-splash', '1'); } catch { /* storage blocked: it just plays again next time */ } return undefined; }
@@ -1056,11 +1062,31 @@ function Main({ me, setMe, privKey, openServerId }) {
     </button>
   );
 
+  // Profile and voice: lives at the foot of the side list by default, or as a section of its own in any slot
+  const userPanel = (
+    <div className="user-panel" data-panel="profile" data-slot={placeOf('profile')}>
+      <button className="me" onClick={() => setModal({ type: 'user', id: me.id })}>
+        <Avatar user={me} size={34} presence={myPresence} />
+        <div><div className="me-name">{me.displayName}<BadgeIcons user={me} size={16} /></div><div className="muted small">{STATUS_LABEL[myPresence]}</div></div>
+      </button>
+      {voice.state.channelId && (
+        <>
+          <button className={'icon-btn vc-btn' + (voice.state.muted ? ' off' : '')} title={voice.state.muted ? 'Unmute' : 'Mute'} aria-label={voice.state.muted ? 'Unmute' : 'Mute'} aria-pressed={voice.state.muted} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={18} /></button>
+          <button className={'icon-btn vc-btn' + (voice.state.deafened ? ' off' : '')} title={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-label={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-pressed={voice.state.deafened} onClick={voice.actions.toggleDeafen}><Icon name={voice.state.deafened ? 'headphonesoff' : 'headphones'} size={18} /></button>
+        </>
+      )}
+      <button className="credit-chip" title={tr('shopTab')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
+      <button className="icon-btn" title={tr('customEmoji')} onClick={openManager}><Icon name="smile" size={18} /></button>
+      <button className="icon-btn panel-jump" title="Jump to…" aria-label="Jump to a channel, person or setting" onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={18} /></button>
+      <button className="icon-btn" title={tr('settings')} onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
+    </div>
+  );
+
   return (
     <InviteContext.Provider value={inviteCtx}>
     <div className="app" data-ui="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
       {/* server bar (top) */}
-      <nav className="rail" data-ui="server-bar">
+      <nav className="rail" data-ui="server-bar" data-panel="rail" data-slot={placeOf('rail')}>
         <button className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
           <span className="dm-home-mark" aria-hidden="true" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
@@ -1101,7 +1127,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
       <div data-ui="body" className={'body' + (call.call.phase !== 'idle' || inGroupCall(gcall.gcall) ? ' in-call' : '') + (showList ? ' list-open' : '')}>
       {/* sidebar */}
-      <aside className="side" data-ui="sidebar">
+      <aside className="side" data-ui="sidebar" data-panel="side" data-slot={placeOf('side')}>
         {server ? (
           <>
             {/* an animated banner (server.bannerAnim) plays while the pointer is over the header: the hover rule in 11-server-settings.css swaps in --banner-anim */}
@@ -1238,23 +1264,10 @@ function Main({ me, setMe, privKey, openServerId }) {
           onServer={() => setModal({ type: 'server' })} />
         <VoiceDock voice={voice} servers={servers} onOpen={(sv, ch) => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }} />
         <StorageDock storage={storage} setStorage={setStorage} />
-        <div className="user-panel">
-          <button className="me" onClick={() => setModal({ type: 'user', id: me.id })}>
-            <Avatar user={me} size={34} presence={myPresence} />
-            <div><div className="me-name">{me.displayName}<BadgeIcons user={me} size={16} /></div><div className="muted small">{STATUS_LABEL[myPresence]}</div></div>
-          </button>
-          {voice.state.channelId && (
-            <>
-              <button className={'icon-btn vc-btn' + (voice.state.muted ? ' off' : '')} title={voice.state.muted ? 'Unmute' : 'Mute'} aria-label={voice.state.muted ? 'Unmute' : 'Mute'} aria-pressed={voice.state.muted} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={18} /></button>
-              <button className={'icon-btn vc-btn' + (voice.state.deafened ? ' off' : '')} title={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-label={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-pressed={voice.state.deafened} onClick={voice.actions.toggleDeafen}><Icon name={voice.state.deafened ? 'headphonesoff' : 'headphones'} size={18} /></button>
-            </>
-          )}
-          <button className="credit-chip" title={tr('shopTab')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
-          <button className="icon-btn" title={tr('customEmoji')} onClick={openManager}><Icon name="smile" size={18} /></button>
-          <button className="icon-btn panel-jump" title="Jump to…" aria-label="Jump to a channel, person or setting" onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={18} /></button>
-          <button className="icon-btn" title={tr('settings')} onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
-        </div>
+        {placeOf('profile') === 'dock' && userPanel}
       </aside>
+      {/* profile and voice as a section of its own (Settings > Appearance > Layout): a direct child of the body so it joins the layout grid */}
+      {wideScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('profile')) && userPanel}
 
       {/* main */}
       {server && loungeOpen && (
@@ -1345,7 +1358,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {server && (
         <>
         {membersOpen && <div className="drawer-backdrop" onClick={() => setMembersOpen(false)} />}
-        <aside data-ui="members" className={'members' + (membersOpen ? ' open' : '') + (membersHidden ? ' collapsed' : '')} aria-label="Members">
+        <aside data-ui="members" data-panel="members" data-slot={placeOf('members')} className={'members' + (membersOpen ? ' open' : '') + (membersHidden ? ' collapsed' : '')} aria-label="Members">
           <div className="member-search">
             <Icon name="search" size={15} />
             <input type="search" value={memberQ} onChange={(e) => setMemberQ(e.target.value)} placeholder="Search members" aria-label="Search members" maxLength={40} />
@@ -1361,6 +1374,33 @@ function Main({ me, setMe, privKey, openServerId }) {
         </aside>
         </>
       )}
+      {/* shortcuts: a section that is off until it is placed in a slot (Settings > Appearance > Layout) */}
+      {wideScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('quick')) && (
+        <QuickPanel slot={placeOf('quick')}
+          onFriends={() => { setView({ kind: 'dm', userId: null }); setShowList(false); setMembersOpen(false); }}
+          onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}
+          onShop={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); setMembersOpen(false); }}
+          onSettings={() => setModal({ type: 'edit' })} />
+      )}
+      {/* unread: every channel, group and message with something new; off until it is placed in a slot */}
+      {wideScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('unread')) && (() => {
+        const items = [];
+        for (const sv of servers) {
+          for (const c of sv.channels) {
+            const n = unread['c:' + c.id] || 0, m = mentions['c:' + c.id] || 0;
+            if (n || m) items.push({ key: 'c:' + c.id, label: '#' + c.name, sub: sv.name, unread: n, mentions: m, onOpen: () => { lastChan.current[sv.id] = c.id; setView({ kind: 'server', serverId: sv.id, channelId: c.id }); setShowList(false); setMembersOpen(false); } });
+          }
+        }
+        for (const g of groups.list) {
+          const n = unread['g:' + g.id] || 0;
+          if (n) items.push({ key: 'g:' + g.id, label: groups.titleFor(g.id), sub: '', unread: n, mentions: 0, onOpen: () => openGroup(g.id) });
+        }
+        for (const id of convos) {
+          const n = unread['d:' + id] || 0;
+          if (n && users[id]) items.push({ key: 'd:' + id, label: users[id].displayName, sub: '', unread: n, mentions: 0, onOpen: () => { setView({ kind: 'dm', userId: id }); setShowList(false); setMembersOpen(false); } });
+        }
+        return <UnreadPanel slot={placeOf('unread')} items={items} />;
+      })()}
       <VoiceUI voice={voice} />
       {voice.state.channelId && !showList && (!(channel?.id === voice.state.channelId) || eventsOpen) && (() => {
         const sv = servers.find((x) => x.channels.some((c) => c.id === voice.state.channelId)); const ch = sv?.channels.find((c) => c.id === voice.state.channelId);

@@ -1,0 +1,176 @@
+// Where the app's sections sit. Kept on this device and only used on wide screens (panels.css);
+// phones and small tablets keep the standard layout (bottom tab bar).
+//
+// A layout is one ordered list of section ids per slot:
+//   { top: [], left: [], right: [], bottom: [], dock: [], off: [] }
+//   top / bottom   sections run across the window, one row each, listed from the top down
+//   left / right   sections stand beside the page, one column each, listed from left to right
+//   dock           (profile only) stays at the foot of the side list, where it always was
+//   off            hidden
+// Every section is in exactly one list. The page (chat) always sits in the middle.
+import { useSyncExternalStore } from 'react';
+
+const KEY = 'aduna-panels';
+const STYLE_ID = 'aduna-panels-style';
+
+export const SLOTS = ['top', 'left', 'right', 'bottom'];
+export const SLOT_NAME = { top: 'Top', left: 'Left', right: 'Right', bottom: 'Bottom', dock: 'Under side list', off: 'Hidden' };
+const LISTS = [...SLOTS, 'dock', 'off'];
+
+// `home` is where a section sits in the standard layout and where it goes when a saved layout does not mention it
+// (so a section added in a later version appears without anyone resetting their layout).
+export const SECTIONS = [
+  { id: 'rail', name: 'Server bar', hint: 'Your servers, direct messages and search', home: 'top' },
+  { id: 'side', name: 'Side list', hint: 'Channels, or your conversations', home: 'left' },
+  { id: 'members', name: 'Member list', hint: 'Who is in this server', home: 'right' },
+  { id: 'profile', name: 'Profile and voice', hint: 'Your status, mute, deafen and settings', home: 'dock', canDock: true },
+  { id: 'quick', name: 'Shortcuts', hint: 'Jump to, Friends, Explorer, Shop and Settings', home: 'off' },
+  { id: 'unread', name: 'Unread', hint: 'Every channel, group and message with something new', home: 'off' },
+];
+const IDS = SECTIONS.map((s) => s.id);
+export const sectionName = (id) => SECTIONS.find((s) => s.id === id)?.name || id;
+
+const emptyLists = () => ({ top: [], left: [], right: [], bottom: [], dock: [], off: [] });
+
+export function defaultPanels() {
+  const l = emptyLists();
+  for (const s of SECTIONS) l[s.home].push(s.id);
+  return l;
+}
+
+export function normalizePanels(raw) {
+  let src = raw && typeof raw === 'object' ? raw : null;
+  if (src && typeof src.rail === 'string') { // the first version stored one edge per section: { rail: 'left', side: 'left', members: 'right' }
+    const old = emptyLists();
+    for (const id of ['rail', 'side', 'members']) if (SLOTS.includes(src[id])) old[src[id]].push(id);
+    src = old;
+  }
+  const out = emptyLists();
+  const seen = new Set();
+  for (const list of LISTS) {
+    for (const id of Array.isArray(src?.[list]) ? src[list] : []) {
+      const s = SECTIONS.find((x) => x.id === id);
+      if (!s || seen.has(id) || (list === 'dock' && !s.canDock)) continue;
+      seen.add(id); out[list].push(id);
+    }
+  }
+  for (const s of SECTIONS) if (!seen.has(s.id)) out[s.home].push(s.id);
+  // the dock lives inside the side list, so with the side list hidden the profile bar steps out to the left edge instead of vanishing with it
+  if (out.off.includes('side') && out.dock.length) { out.left.push(...out.dock); out.dock = []; }
+  return out;
+}
+
+export const slotOf = (l, id) => LISTS.find((k) => l[k].includes(id)) || 'off';
+
+const DEFAULT = defaultPanels();
+export const isDefaultPanels = (l) => LISTS.every((k) => l[k].length === DEFAULT[k].length && l[k].every((id, i) => id === DEFAULT[k][i]));
+
+// Move a section to another slot (it goes last there).
+export function placePanel(l, id, to) {
+  const s = SECTIONS.find((x) => x.id === id);
+  if (!s || !LISTS.includes(to) || (to === 'dock' && !s.canDock) || slotOf(l, id) === to) return l;
+  const out = emptyLists();
+  for (const k of LISTS) out[k] = l[k].filter((x) => x !== id);
+  out[to].push(id);
+  return normalizePanels(out);
+}
+
+// Swap a section with its neighbour in the same slot: delta -1 is up / left, +1 is down / right.
+export function nudgePanel(l, id, delta) {
+  const k = slotOf(l, id), list = l[k], i = list.indexOf(id), j = i + delta;
+  if (i < 0 || j < 0 || j >= list.length) return l;
+  const next = [...list];
+  [next[i], next[j]] = [next[j], next[i]];
+  return { ...l, [k]: next };
+}
+
+export const PRESETS = [
+  ['Standard', defaultPanels()],
+  ['Server bar on the left', normalizePanels({ left: ['rail', 'side'], right: ['members'] })],
+  ['Mirrored', normalizePanels({ top: ['rail'], left: ['members'], right: ['side'] })],
+  ['Everything on the right', normalizePanels({ right: ['side', 'members', 'rail'] })],
+  ['Compact', normalizePanels({ left: ['rail', 'side'], off: ['members'] })],
+  ['With a shortcuts bar', normalizePanels({ top: ['rail'], left: ['side'], right: ['members'], bottom: ['quick'] })],
+];
+
+// The grid for the whole app. Top and bottom sections are rows across the window; left and right sections are columns
+// between them; the page sits in the one flexible cell in the middle. `.body` stops being a box (display: contents) so the
+// side list, member list and the rest take part in the same grid as the server bar.
+const at = (id) => `html[data-pan] [data-panel="${id}"]`;
+export function panelCss(l) {
+  const { top, bottom, left, right } = l;
+  const cols = [...left.map(() => 'auto'), 'minmax(0, 1fr)', ...right.map(() => 'auto')];
+  const rows = [...top.map(() => 'auto'), 'minmax(0, 1fr)', ...bottom.map(() => 'auto')];
+  const cc = left.length + 1, cr = top.length + 1, across = `1 / ${cols.length + 1}`;
+  const cell = (id, row, col) => `${at(id)} { grid-row: ${row}; grid-column: ${col}; }`;
+  return [
+    `html[data-pan] .app { display: grid; grid-template-columns: ${cols.join(' ')}; grid-template-rows: ${rows.join(' ')}; }`,
+    'html[data-pan] .app > .body { display: contents; }',
+    `html[data-pan] .body > :not([data-panel]) { grid-row: ${cr}; grid-column: ${cc}; min-width: 0; min-height: 0; }`,
+    ...top.map((id, i) => cell(id, i + 1, across)),
+    ...bottom.map((id, i) => cell(id, cr + 1 + i, across)),
+    ...left.map((id, i) => cell(id, cr, i + 1)),
+    ...right.map((id, i) => cell(id, cr, cc + 1 + i)),
+    ...l.off.map((id) => `${at(id)} { display: none !important; }`),
+  ].join('\n');
+}
+
+// html carries data-pan-<section>="<slot>" always (so a theme can react to where things are) and data-pan only when the layout is not the standard one.
+export function applyPanels(l) {
+  const el = document.documentElement;
+  for (const s of SECTIONS) el.setAttribute(`data-pan-${s.id}`, slotOf(l, s.id));
+  let style = document.getElementById(STYLE_ID);
+  if (isDefaultPanels(l)) {
+    el.removeAttribute('data-pan');
+    style?.remove();
+    return;
+  }
+  el.setAttribute('data-pan', '1');
+  if (!style) { style = document.createElement('style'); style.id = STYLE_ID; document.head.appendChild(style); }
+  style.textContent = `@media (min-width: 1051px) {\n${panelCss(l)}\n}`;
+}
+
+function read() {
+  try { return normalizePanels(JSON.parse(localStorage.getItem(KEY))); } catch { return defaultPanels(); }
+}
+
+let current = defaultPanels();
+const subs = new Set();
+const notify = () => subs.forEach((fn) => fn());
+
+export const getPanels = () => current;
+export const loadPanels = read;
+export function subscribePanels(fn) { subs.add(fn); return () => subs.delete(fn); }
+export const usePanels = () => useSyncExternalStore(subscribePanels, getPanels, getPanels);
+
+// The layout only applies on wide screens (the same breakpoint as panels.css). Below it every section stays where the standard layout has it.
+const WIDE = '(min-width: 1051px)';
+const wideNow = () => typeof window === 'undefined' || typeof window.matchMedia !== 'function' || window.matchMedia(WIDE).matches;
+const wideWatch = (fn) => {
+  const m = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(WIDE) : null;
+  m?.addEventListener?.('change', fn);
+  return () => m?.removeEventListener?.('change', fn);
+};
+export const useWide = () => useSyncExternalStore(wideWatch, wideNow, () => true);
+
+export function initPanels() {
+  current = read();
+  applyPanels(current);
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', (e) => { // another tab of Aduna changed it
+      if (e.key !== KEY) return;
+      current = read(); applyPanels(current); notify();
+    });
+  }
+  return current;
+}
+
+export function setPanels(next) {
+  current = normalizePanels(next);
+  applyPanels(current);
+  try {
+    if (isDefaultPanels(current)) localStorage.removeItem(KEY);
+    else localStorage.setItem(KEY, JSON.stringify(current));
+  } catch { /* storage blocked: applies until reload */ }
+  notify();
+}

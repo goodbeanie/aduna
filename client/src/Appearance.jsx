@@ -5,6 +5,7 @@ import { THEMES, GRADIENT_THEMES, DEFAULT_CUSTOM, MAX_STOPS, customStops, applyT
 import { PublishTheme } from './ThemeGallery.jsx';
 import { useLang } from './i18n.js';
 import { seasonalNow } from './seasonal.js';
+import LayoutSettings from './LayoutSettings.jsx';
 
 export function Swatch({ theme, on, onPick }) {
   const c = previewColors(theme);
@@ -49,6 +50,9 @@ export function AppearancePicker() {
           <button type="button" role="radio" key={id} aria-checked={density === id} className={density === id ? 'on' : ''} onClick={() => setDensity(id)}>{label}</button>
         ))}
       </div>
+
+      <label>Layout</label>
+      <LayoutSettings />
 
       <label>{tr('automatic')}</label>
       <div className="mode-pick" role="radiogroup" aria-label={tr('themeMode')}>
