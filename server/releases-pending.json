@@ -477,5 +477,14 @@
     "items": [
       { "title": "Save and apply and Try in the theme's button style", "text": "On a developer theme's card in the Explorer, the two buttons now look like that theme's own buttons: its fills, borders, text and shadows. A theme that does not style buttons keeps the normal look." }
     ]
+  },
+  {
+    "id": "2026.11.16.6",
+    "date": "2026-11-16",
+    "title": "Layout editor for creator accounts",
+    "items": [
+      { "title": "Move parts of the app around", "text": "In Settings > Appearance > Layout, creator accounts can put the server bar, side list, member list, profile and voice, Shortcuts and Unread in the top, left, right or bottom slot, in any order, or hide them. There are presets and a map to tap. It is saved per device and only works on wide windows, at least 1051 px across." },
+      { "title": "Creator accounts only for now", "text": "Everyone else keeps the standard layout and does not see the Layout section yet." }
+    ]
   }
 ]

@@ -134,14 +134,21 @@ function read() {
   try { return normalizePanels(JSON.parse(localStorage.getItem(KEY))); } catch { return defaultPanels(); }
 }
 
+// Creator accounts only for now: until setLayoutAllowed(true) is called (App.jsx does it for creators) everyone gets the standard layout,
+// whatever is saved on the device. Remove the gate by calling setLayoutAllowed(true) for everyone.
+let saved = defaultPanels();
+let allowed = false;
 let current = defaultPanels();
 const subs = new Set();
 const notify = () => subs.forEach((fn) => fn());
+const refresh = () => { current = allowed ? saved : defaultPanels(); applyPanels(current); notify(); };
 
 export const getPanels = () => current;
 export const loadPanels = read;
 export function subscribePanels(fn) { subs.add(fn); return () => subs.delete(fn); }
 export const usePanels = () => useSyncExternalStore(subscribePanels, getPanels, getPanels);
+export function setLayoutAllowed(v) { if (!!v !== allowed) { allowed = !!v; refresh(); } }
+export const useLayoutAllowed = () => useSyncExternalStore(subscribePanels, () => allowed, () => allowed);
 
 // The layout only applies on wide screens (the same breakpoint as panels.css). Below it every section stays where the standard layout has it.
 const WIDE = '(min-width: 1051px)';
@@ -154,23 +161,23 @@ const wideWatch = (fn) => {
 export const useWide = () => useSyncExternalStore(wideWatch, wideNow, () => true);
 
 export function initPanels() {
-  current = read();
-  applyPanels(current);
+  saved = read();
+  refresh();
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (e) => { // another tab of Aduna changed it
       if (e.key !== KEY) return;
-      current = read(); applyPanels(current); notify();
+      saved = read(); refresh();
     });
   }
   return current;
 }
 
 export function setPanels(next) {
-  current = normalizePanels(next);
-  applyPanels(current);
+  if (!allowed) return;
+  saved = normalizePanels(next);
   try {
-    if (isDefaultPanels(current)) localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, JSON.stringify(current));
+    if (isDefaultPanels(saved)) localStorage.removeItem(KEY);
+    else localStorage.setItem(KEY, JSON.stringify(saved));
   } catch { /* storage blocked: applies until reload */ }
-  notify();
+  refresh();
 }

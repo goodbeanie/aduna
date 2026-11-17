@@ -6,6 +6,7 @@ import { PublishTheme } from './ThemeGallery.jsx';
 import { useLang } from './i18n.js';
 import { seasonalNow } from './seasonal.js';
 import LayoutSettings from './LayoutSettings.jsx';
+import { useLayoutAllowed } from './panels.js';
 
 export function Swatch({ theme, on, onPick }) {
   const c = previewColors(theme);
@@ -23,6 +24,7 @@ export function Swatch({ theme, on, onPick }) {
 
 export function AppearancePicker() {
   const { t: tr } = useLang();
+  const layoutAllowed = useLayoutAllowed(); // the layout editor is for creator accounts only for now (panels.js)
   const [s, setS] = useState(loadTheme);
   const [publishing, setPublishing] = useState(false);
   const choose = (next) => { setS(next); applyTheme(next, { save: true }); };
@@ -51,8 +53,10 @@ export function AppearancePicker() {
         ))}
       </div>
 
-      <label>Layout</label>
-      <LayoutSettings />
+      {layoutAllowed && (<>
+        <label>Layout</label>
+        <LayoutSettings />
+      </>)}
 
       <label>{tr('automatic')}</label>
       <div className="mode-pick" role="radiogroup" aria-label={tr('themeMode')}>
