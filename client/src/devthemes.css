@@ -36,6 +36,8 @@
 .dt-card { display: flex; flex-direction: column; overflow: hidden; color: var(--text); font-family: var(--tc-font, inherit); border-color: var(--line2); border-radius: var(--tc-r, 12px); background: var(--bg); }
 .dt-card button { color: inherit; font-family: inherit; }
 .dt-card .mode-pick button { border-radius: var(--tc-rb, 10px); }
+.dt-card .dt-themed button { box-shadow: none; }
+.dt-card .dt-themed button.on { outline: none; font-weight: inherit; }
 .dt-cover { height: auto; aspect-ratio: 3 / 1; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background-size: cover; background-position: center; }
 .dt-cover b { width: 56px; height: 20px; right: 14px; bottom: 14px; }
 .dt-body { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px 14px; min-width: 0; }

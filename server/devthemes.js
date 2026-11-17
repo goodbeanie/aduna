@@ -222,6 +222,63 @@ function ownView(t) {
 // a font list or a size, never a function call or an address.
 const FONT_OK = /^[A-Za-z0-9 ,'"_-]{1,90}$/;
 const SIZE_OK = /^(?:0|\d{1,2}(?:\.\d{1,2})?(?:px|rem|em))$/;
+const BUTTON_PROPS = new Set(['background', 'background-color', 'background-image', 'color', 'border', 'border-color', 'border-width', 'border-style', 'border-top', 'border-right', 'border-bottom', 'border-left',
+  'border-radius', 'box-shadow', 'text-shadow', 'font-family', 'font-size', 'font-weight', 'letter-spacing', 'text-transform', 'filter']);
+const VALUE_OK = /^[^;{}\u0000\\<>]{1,160}$/;
+
+// top-level rules as [selector, body]; at-rules and nested blocks are skipped
+function rulesOf(text) {
+  const rules = [];
+  let i = 0;
+  while (i < text.length) {
+    const open = text.indexOf('{', i);
+    if (open < 0) break;
+    let depth = 1, j = open + 1;
+    while (j < text.length && depth) { if (text[j] === '{') depth++; else if (text[j] === '}') depth--; j++; }
+    const prelude = text.slice(i, open).trim(), body = text.slice(open + 1, j - 1);
+    if (!prelude.startsWith('@') && !body.includes('{')) rules.push([prelude, body]);
+    i = j;
+  }
+  return rules;
+}
+
+const declsOf = (body) => body.split(';').map((d) => {
+  const k = d.indexOf(':');
+  return k < 0 ? null : [d.slice(0, k).trim().toLowerCase(), d.slice(k + 1).trim().replace(/\s*!important$/i, '')];
+}).filter(Boolean);
+
+// What the theme gives .btn and .btn.primary (plain, listed properties only), plus the :root variables those values read,
+// so the Explorer card can show buttons that look like the theme's own.
+function buttonLook(text) {
+  const base = {}, primary = {}, rootVars = {};
+  for (const [prelude, body] of rulesOf(text)) {
+    const sels = prelude.split(',').map((x) => x.trim().toLowerCase().replace(/\s+/g, ' '));
+    const decls = declsOf(body);
+    if (sels.some((x) => x === ':root' || x === 'html')) {
+      for (const [k, v] of decls) if (/^--[a-z0-9-]{1,30}$/.test(k) && VALUE_OK.test(v)) rootVars[k] = v;
+    }
+    const target = sels.some((x) => /(?:^|[ >])(?:button)?\.btn\.primary$/.test(x)) ? primary
+      : sels.some((x) => /(?:^|[ >])(?:button\.btn|button|\.btn)$/.test(x)) ? base : null;
+    if (!target) continue;
+    for (const [k, v] of decls) {
+      if (!BUTTON_PROPS.has(k) || !VALUE_OK.test(v) || (k === 'font-family' && !FONT_OK.test(v))) continue;
+      delete target[k];
+      target[k] = v;
+    }
+  }
+  const strong = { ...base };
+  for (const [k, v] of Object.entries(primary)) { delete strong[k]; strong[k] = v; }
+  const need = new Set(), vars = {};
+  const wants = (v) => { for (const m of v.matchAll(/var\(\s*(--[a-z0-9-]+)/g)) need.add(m[1]); };
+  Object.values(base).forEach(wants);
+  Object.values(strong).forEach(wants);
+  for (let pass = 0; pass < 3; pass++) {
+    for (const n of [...need]) if (rootVars[n] !== undefined && !(n in vars)) { vars[n] = rootVars[n]; wants(rootVars[n]); }
+  }
+  const has = (o) => Object.keys(o).length > 0;
+  return { btn: has(base) ? base : null, btnPrimary: has(strong) ? strong : null, vars: has(vars) ? vars : null };
+}
+
 function lookOf(t) {
   const s = scan(String(t.css || ''));
   if (s.error) return null;
@@ -237,7 +294,7 @@ function lookOf(t) {
   const font = find(/--font\s*:\s*([^;}]+)/g, FONT_OK) || find(/(?:^|[;{\s])font-family\s*:\s*([^;}]+)/g, FONT_OK);
   const card = find(/--r-xl\s*:\s*([^;}]+)/g, SIZE_OK) || modalRadius || find(/--r-lg\s*:\s*([^;}]+)/g, SIZE_OK);
   const button = find(/--r-md\s*:\s*([^;}]+)/g, SIZE_OK) || find(/--r-sm\s*:\s*([^;}]+)/g, SIZE_OK) || (card === '0' ? '0' : null);
-  return { font, card, button };
+  return { font, card, button, ...buttonLook(s.out) };
 }
 
 // what everybody sees of a verified theme (no CSS: the app loads it from the theme's own address)

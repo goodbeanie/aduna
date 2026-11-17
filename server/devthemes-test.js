@@ -112,4 +112,13 @@ assert.strictEqual(d.list([t], users, { mode: 'light' }).themes.length, 0); asse
 assert.deepStrictEqual(d.adminList([t, draft], users, 'pending', '').map((x) => x.id), [], 'the queue holds only what was sent');
 step('the gallery lists verified themes only, without their CSS');
 
+const btnCss = ':root { --green: #5aa02c; --edge: #202020; } .btn { background: #6b6b6b; border: 2px solid var(--edge); color: #fff; text-transform: uppercase; padding: 40px; transition: all 1s; }'
+  + ' .btn.primary { background: var(--green); background-image: url("bg.png"); } .btn.danger { background: red; } .btn:hover { background: blue; } @media (max-width: 600px) { .btn { color: pink } }';
+const bl = d.publicView({ ...mk(), css: btnCss }, 'u2', users).look;
+assert.deepStrictEqual(bl.btn, { background: '#6b6b6b', border: '2px solid var(--edge)', color: '#fff', 'text-transform': 'uppercase' }, 'only listed properties of the plain .btn rule');
+assert.strictEqual(bl.btnPrimary.background, 'var(--green)'); assert.strictEqual(bl.btnPrimary.border, '2px solid var(--edge)'); assert.ok(!('background-image' in bl.btnPrimary), 'a picture is not passed along');
+assert.deepStrictEqual(bl.vars, { '--green': '#5aa02c', '--edge': '#202020' }, 'the variables the buttons read come with them');
+assert.strictEqual(d.publicView({ ...mk(), css: '.sidebar { color: red }' }, 'u2', users).look.btn, null, 'a theme that does not style buttons passes nothing');
+step('the card gets the theme\'s button style, without hover, pictures or layout');
+
 console.log('\ndevthemes-test: all passed');

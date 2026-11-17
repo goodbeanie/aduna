@@ -260,12 +260,15 @@ export function DeveloperThemes({ me }) {
 }
 
 // ---------- Explorer > Themes: the verified developer themes ----------
+const camel = (o) => (o ? Object.fromEntries(Object.entries(o).map(([k, v]) => [k.startsWith('--') ? k : k.replace(/-([a-z])/g, (_m, c) => c.toUpperCase()), v])) : undefined);
+
+// the whole card is drawn in the theme's colours, font and corner shape, and its buttons in the theme's own button style
 function Card({ t, active, previewing, onUse, onPreview, onReport, busy }) {
   const c = previewColors({ id: 'dt', ...t.seed });
   const cover = t.coverImage ? `url("/api/images/${t.coverImage}")` : null;
   const look = t.look || {};
-  // the whole card is drawn in the theme's colours, font and corner shape
   const style = { ...cardVars(t.seed), '--tc-font': look.font || undefined, '--tc-r': look.card || undefined, '--tc-rb': look.button || undefined };
+  const themed = !!(look.btn || look.btnPrimary);
   return (
     <div className={'gallery-card dt-card' + (active ? ' on' : '')} style={style}>
       <span className="theme-prev dt-cover" style={{ background: c.bg, borderColor: c.bg2, backgroundImage: cover || undefined }} aria-hidden="true"><i style={{ background: c.bg2, opacity: cover ? 0.7 : 1 }} /><b style={{ background: c.accent }} /></span>
@@ -274,10 +277,11 @@ function Card({ t, active, previewing, onUse, onPreview, onReport, busy }) {
         <span className="gallery-by muted small">by {t.mine ? 'you' : t.author.displayName} · {t.uses} {t.uses === 1 ? 'use' : 'uses'}</span>
         {t.description && <p className="dt-desc muted small">{t.description}</p>}
         <div className="dt-card-acts">
-          <div className="mode-pick">
-            <button type="button" className={active ? 'on' : ''} disabled={busy} aria-pressed={active} onClick={() => onUse(t)}>{active ? 'Applied' : 'Save and apply'}</button>
-            <button type="button" disabled={busy} onClick={() => onPreview(t)}>{previewing ? 'Stop trying' : 'Try'}</button>
+          <div className={'mode-pick' + (themed ? ' dt-themed' : '')} style={themed ? camel(look.vars) : undefined}>
+            <button type="button" className={active ? 'on' : ''} style={camel(look.btnPrimary)} disabled={busy} aria-pressed={active} onClick={() => onUse(t)}>{active ? 'Applied' : 'Save and apply'}</button>
+            <button type="button" style={camel(look.btn)} disabled={busy} onClick={() => onPreview(t)}>{previewing ? 'Stop trying' : 'Try'}</button>
           </div>
+
           {!t.mine && <button type="button" className="gallery-act" disabled={busy} onClick={() => onReport(t)} title="Report this theme" aria-label={'Report ' + t.name}><Icon name="flag" size={14} /></button>}
         </div>
       </div>
