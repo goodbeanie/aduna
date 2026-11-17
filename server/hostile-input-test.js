@@ -62,6 +62,35 @@ ready.then(() => httpServer.listen(0, async () => {
     if (r.status >= 500 || r.status === 200 && path.includes('users/')) bad.push(m2 + ' ' + path.slice(0, 60) + ' -> ' + r.status);
   }
   assert.deepStrictEqual(bad, [], 'odd responses: ' + bad.join('; ')); console.log('✓ odd path parameters (constructor, __proto__, huge, encoded) give no 5xx');
+  // JSON bodies: an object with a toString key used to throw inside String() and answer 500
+  const obj = { toString: 'x' };
+  const sid = s.server.id;
+  const tries = [['/servers/join', 'POST', { code: obj }], ['/servers', 'POST', { name: obj }], ['/servers/' + sid, 'PATCH', { name: obj }], ['/servers/' + sid + '/categories', 'POST', { name: obj }],
+    ['/servers/' + sid + '/channels', 'POST', { name: obj }], ['/servers/' + sid + '/roles', 'POST', { name: obj }], ['/me', 'PATCH', { displayName: obj }], ['/me', 'PATCH', { username: obj }],
+    ['/me', 'PATCH', { email: obj }], ['/me', 'PATCH', { links: [{ label: obj, url: obj }] }], ['/me/device-login/lookup', 'POST', { request: obj }], ['/me/device-login/approve', 'POST', { request: obj }],
+    ['/me/device-login/deny', 'POST', { request: obj }]];
+  const crashed = [];
+  for (const [p, m2, body] of tries) { const r = await call(p, { method: m2, token: a.token, body }); if (r.status >= 500) crashed.push(m2 + ' ' + p + ' -> ' + r.status); }
+  assert.deepStrictEqual(crashed, [], 'an object body crashed: ' + crashed.join('; ')); console.log('✓ an object where text is expected is refused, never a 500');
+  assert.strictEqual((await call('/servers/join', { method: 'POST', token: b.token, body: { code: 123 } })).status, 404, 'a number is not an invite code');
+  // names are plain text: markup and control characters are refused, too long is an error and not a silent cut
+  const html = '<img src=x onerror=alert(1)>';
+  const refused = async (what, p, m2, body) => { const r = await call(p, { method: m2, token: a.token, body }); assert.strictEqual(r.status, 400, what + ' should be refused, got ' + r.status); };
+  await refused('display name with markup', '/me', 'PATCH', { displayName: html });
+  await refused('display name over 32', '/me', 'PATCH', { displayName: 'x'.repeat(5000) });
+  await refused('display name that is not text', '/me', 'PATCH', { displayName: 5 });
+  await refused('server name with markup', '/servers/' + sid, 'PATCH', { name: html });
+  await refused('new server with markup', '/servers', 'POST', { name: html });
+  await refused('category with markup', '/servers/' + sid + '/categories', 'POST', { name: html });
+  await refused('role with markup', '/servers/' + sid + '/roles', 'POST', { name: html, color: '#ffffff' });
+  await refused('role with markup and a short colour', '/servers/' + sid + '/roles', 'POST', { name: html, color: '#fff' });
+  const shortRole = await call('/servers/' + sid + '/roles', { method: 'POST', token: a.token, body: { name: 'Short colour', color: '#FFF' } });
+  assert.strictEqual(shortRole.status, 200, 'a 3-digit colour is accepted');
+  assert.strictEqual(shortRole.server.roles.find((r) => r.name === 'Short colour').color, '#ffffff', 'and stored as 6 digits');
+  await refused('link label with markup', '/me', 'PATCH', { links: [{ label: html, url: 'https://example.com' }] });
+  const okName = await call('/me', { method: 'PATCH', token: a.token, body: { displayName: 'Cool Guy ✨' } });
+  assert.strictEqual(okName.status, 200, 'an ordinary display name with spaces and an emoji still works');
+  console.log('✓ names refuse markup and control characters, and too long is a 400');
   console.log('\nhostile-input-test: all passed');
   httpServer.close(); await cleanup(); process.exit(0);
 }));

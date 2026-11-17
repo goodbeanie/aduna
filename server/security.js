@@ -74,7 +74,8 @@ const BAD = '\\s@<>()\\[\\]\\\\,;:"';
 const EMAIL = new RegExp(`^[^${BAD}]+@[^${BAD}]+\\.[^${BAD}]{2,}$`);
 // A tidy lowercase address, or null if it is not a plausible one
 function cleanEmail(v) {
-  const e = String(v ?? '').trim().toLowerCase();
+  if (typeof v !== 'string') return null;
+  const e = v.trim().toLowerCase();
   if (!e || e.length > 254 || !EMAIL.test(e)) return null;
   const [local, domain] = e.split('@');
   if (local.length > 64 || local.startsWith('.') || local.endsWith('.') || local.includes('..')) return null;

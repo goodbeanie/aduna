@@ -20,7 +20,8 @@ const B64 = /^[A-Za-z0-9+/]+={0,2}$/;
 // "ABCD-EFGH" as shown; what is typed (any case, spaces, dashes) is reduced to 8 symbols, or '' if it cannot be a code
 const formatCode = (c) => c.slice(0, 4) + '-' + c.slice(4);
 function normCode(raw) {
-  const s = String(raw ?? '').toUpperCase().replace(/[\s-]/g, '');
+  if (typeof raw !== 'string') return '';
+  const s = raw.toUpperCase().replace(/[\s-]/g, '');
   return s.length === CODE_LEN && [...s].every((ch) => ALPHABET.includes(ch)) ? s : '';
 }
 const newCode = () => Array.from({ length: CODE_LEN }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join('');

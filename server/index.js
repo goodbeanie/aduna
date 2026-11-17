@@ -154,7 +154,17 @@ function flagGone(gone) {
 }
 const runCleanup = async () => { try { await store.pruneFiles(referencedFiles()); await expireOldAttachments(); } catch (e) { console.error(e); } };
 const hex = /^#[0-9a-fA-F]{6}$/;
-const clip = (s, n) => String(s ?? '').slice(0, n);
+const clip = (s, n) => (typeof s === 'string' || typeof s === 'number' ? String(s) : '').slice(0, n); // an object from a request body must not reach String(): { toString: 'x' } throws
+const str = (v) => (typeof v === 'string' || typeof v === 'number' ? String(v) : '');
+// A name people see (display name, server, channel and role names, link labels): plain text with no angle brackets or control characters.
+// Too long or the wrong type is an error, not a silent cut. The pages escape names when they draw them; this keeps markup out of the data too.
+function cleanName(v, max, what) {
+  if (typeof v !== 'string') return { error: `${what} must be text` };
+  const s = v.trim();
+  if (s.length > max) return { error: `${what} can be up to ${max} characters` };
+  if (/[<>\u0000-\u001f\u007f]/.test(s)) return { error: `${what} cannot contain < or > or control characters` };
+  return { value: s };
+}
 
 // ---------- roles & permissions ----------
 // server.roles = [{ id, name, color, perms: [] }] ordered from highest to lowest (index 0 is the top role).
@@ -426,6 +436,8 @@ const isOnline = (uid) => (online.get(uid) || 0) > 0;
 const app = express();
 // Express 4 does not catch rejected promises from async handlers; this passes them to the error handler.
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+// A few older async routes are not wrapped in ah(): without this, one throw in them ends the whole process.
+process.on('unhandledRejection', (err) => console.error('unhandled rejection', err));
 // Behind Render's (or any) reverse proxy, req.ip must be the visitor, not the proxy, or rate limits would be shared by everyone.
 if (TRUST_PROXY) app.set('trust proxy', 1);
 app.disable('x-powered-by');
@@ -549,6 +561,15 @@ app.get('/api/username-available', (req, res) => {
 // Incoming webhooks (/api/hooks/...) read their own body, with its own size limit (see "webhooks" below): GitHub's events can be bigger than 64 KB.
 const jsonBody = express.json({ limit: '64kb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/credits/webhook')) req.rawBody = buf; } });
 app.use((req, res, next) => (req.originalUrl.startsWith('/api/hooks/') ? next() : jsonBody(req, res, next)));
+// An object with its own toString or valueOf key makes String(value) throw, which turns plain bad input into a 500 (and ends an async handler without an answer).
+// No page sends one, so a JSON body that has such a key anywhere, or is nested absurdly deep, is refused before any route sees it.
+function hasPrimitiveKey(v, depth = 0) {
+  if (!v || typeof v !== 'object') return false;
+  if (depth > 20) return true;
+  if (Array.isArray(v)) return v.some((x) => hasPrimitiveKey(x, depth + 1));
+  return Object.keys(v).some((k) => k === 'toString' || k === 'valueOf' || hasPrimitiveKey(v[k], depth + 1));
+}
+app.use((req, res, next) => (hasPrimitiveKey(req.body) ? res.status(400).json({ error: 'Bad request' }) : next()));
 
 // API answers can hold private data (balances, email): browsers and proxies must not keep them.
 // Images and files set their own caching below, which overrides this.
@@ -826,7 +847,7 @@ app.post('/api/me/verify-email', authLimiter, authAny, (req, res) => {
   const u = req.user;
   if (!needsVerify(u)) return res.json({ user: ownUser(u) });
   const v = u.verify;
-  const code = String(req.body?.code ?? '').replace(/\s/g, '');
+  const code = str(req.body?.code).replace(/\s/g, '');
   if (!v || v.expires < now()) return res.status(400).json({ error: 'That code has expired. Request a new one.' });
   if (v.tries >= CODE_MAX_TRIES) return res.status(429).json({ error: 'Too many wrong codes. Request a new one.' });
   const a = Buffer.from(codeHash(u.id, code)), b = Buffer.from(v.hash);
@@ -952,7 +973,7 @@ app.post('/api/login', authLimiter, ah(async (req, res) => {
   // Two-factor: the password was right, so say a code is needed (nothing is issued yet). Wrong codes feed the same lockout, and the
   // lockout is only cleared after the code passes too, or a correct password would reset the counter on every guess.
   if (user.totp && user.totp.enabled) {
-    const code = String(req.body?.code ?? '').trim();
+    const code = str(req.body?.code).trim();
     if (!code) return res.status(401).json({ error: 'Enter the 6-digit code from your authenticator app.', code: '2fa_required' });
     if (!secondFactorOk(user, code)) { loginGuard.fail(name, req.ip); return res.status(401).json({ error: 'That code is not right.', code: '2fa_invalid' }); }
   }
@@ -1090,7 +1111,7 @@ app.post('/api/auth/google/poll', (req, res) => {
 app.post('/api/auth/google/signin', authLimiter, ah(async (req, res) => {
   const r = googleLogins.get(req.body?.id);
   if (!r || r.status !== 'ready' || !r.profile) return res.status(410).json({ error: 'That Google sign-in expired. Start again.', code: 'google_expired' });
-  const user = googleAccounts(r.profile).find((u) => u.id === String(req.body?.account ?? ''));
+  const user = googleAccounts(r.profile).find((u) => u.id === str(req.body?.account));
   if (!user) return res.status(404).json({ error: 'That account does not match this Google account.' });
   if (user.suspended) return res.status(403).json({ error: user.suspended.reason ? `This account has been suspended: ${user.suspended.reason}` : 'This account has been suspended.', code: 'suspended' });
   const lock = loginGuard.check(user.username, req.ip);
@@ -1099,7 +1120,7 @@ app.post('/api/auth/google/signin', authLimiter, ah(async (req, res) => {
     return res.status(429).json({ error: `Too many failed attempts. Try again in ${Math.ceil(lock.retryAfterSec / 60)} minute${lock.retryAfterSec > 90 ? 's' : ''}.` });
   }
   if (user.totp && user.totp.enabled) {
-    const code = String(req.body?.code ?? '').trim();
+    const code = str(req.body?.code).trim();
     if (!code) return res.status(401).json({ error: 'Enter the 6-digit code from your authenticator app.', code: '2fa_required' });
     if (!secondFactorOk(user, code)) { loginGuard.fail(user.username, req.ip); return res.status(401).json({ error: 'That code is not right.', code: '2fa_invalid' }); }
   }
@@ -1270,7 +1291,7 @@ app.put('/api/me/recovery', auth, ah(async (req, res) => {
 
 // Step 1 of a reset: the wrapped identity key for this name (or a decoy, see decoyRecoveryBlob). The device opens it with the recovery key.
 app.post('/api/recover/start', authLimiter, (req, res) => {
-  const name = String(req.body?.username || '').trim();
+  const name = str(req.body?.username).trim();
   const u = name && Object.values(db().users).find((x) => !x.bot && x.username.toLowerCase() === name.toLowerCase());
   res.json({ blob: u && u.recovery ? u.recovery.blob : decoyRecoveryBlob(name) });
 });
@@ -1340,7 +1361,7 @@ app.put('/api/me/email-recovery', auth, ah(async (req, res) => {
 // The email holds a link (<site>/reset#<token>), not a code: see security.js "password-reset links". Only the token's hash is stored.
 app.post('/api/recover/email/start', authLimiter, (req, res) => {
   res.json({ ok: true });
-  const name = String(req.body?.username || '').trim();
+  const name = str(req.body?.username).trim();
   const u = name && Object.values(db().users).find((x) => !x.bot && x.username.toLowerCase() === name.toLowerCase());
   if (!u || !u.emailRecovery || !emailRecoveryPossible(u)) return;
   if (u.emailReset && now() - u.emailReset.sentAt < RESET_COOLDOWN_MS) return;
@@ -1393,7 +1414,7 @@ app.post('/api/recover/email/finish', authLimiter, ah(async (req, res) => {
   const weak = process.env.NODE_ENV === 'test' ? null : security.weakPassword(newPassword, { username: u.username, email: u.email });
   if (weak) return res.status(400).json({ error: weak });
   if (u.totp && u.totp.enabled) {
-    const c = String(req.body?.twoFactorCode ?? '').trim();
+    const c = str(req.body?.twoFactorCode).trim();
     if (!c) return res.status(401).json({ error: 'Enter the 6-digit code from your authenticator app.', code: '2fa_required' });
     if (!secondFactorOk(u, c)) { loginGuard.fail(u.username, req.ip); return res.status(401).json({ error: 'That code is not right.', code: '2fa_invalid' }); }
   }
@@ -1470,7 +1491,7 @@ function cleanLinks(input) {
   if (input.length > MAX_LINKS) throw new Error(`You can add up to ${MAX_LINKS} links`);
   const out = [];
   for (const item of input) {
-    let raw = String(item?.url ?? '').trim();
+    let raw = str(item?.url).trim();
     if (!raw) continue;
     if (raw.length > 200) throw new Error('A link is too long (max 200 characters)');
     if (!/^[a-z][a-z0-9+.-]*:/i.test(raw)) raw = 'https://' + raw; // "twitter.com/me" -> https://twitter.com/me
@@ -1478,7 +1499,9 @@ function cleanLinks(input) {
     try { url = new URL(raw); } catch { throw new Error(`"${raw}" is not a valid link`); }
     if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('Links must start with http:// or https://');
     if (!url.hostname.includes('.')) throw new Error(`"${raw}" is not a valid link`);
-    const label = clip(item?.label, 24).trim() || url.hostname.replace(/^www\./, '');
+    const named = cleanName(item?.label ?? '', 24, 'A link label');
+    if (named.error) throw new Error(named.error);
+    const label = named.value || url.hostname.replace(/^www\./, '');
     out.push({ label, url: url.href });
   }
   return out;
@@ -1535,11 +1558,15 @@ app.patch('/api/me', authAny, async (req, res) => {
     newTheme = b.profileTheme || null;
     if (newTheme === credits.pthemes.CUSTOM_ID) newGradient = copy.profileGradient; // the cleaned colours and angle
   }
+  if (b.displayName !== undefined) {
+    const n = cleanName(b.displayName, 32, 'Display name');
+    if (n.error) return res.status(400).json({ error: n.error });
+  }
   const badText = (b.displayName !== undefined && appropriate.problem(clip(b.displayName, 32), 'displayName')) || (b.bio !== undefined && appropriate.problem(clip(b.bio, 190), 'bio'));
   if (badText) return res.status(400).json({ error: badText });
   let newUsername;
-  if (b.username !== undefined && String(b.username).trim() !== u.username) {
-    newUsername = String(b.username).trim().replace(/^@/, '');
+  if (b.username !== undefined && str(b.username).trim() !== u.username) {
+    newUsername = str(b.username).trim().replace(/^@/, '');
     if (!/^[a-zA-Z0-9_]{3,20}$/.test(newUsername)) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
     const badUser = appropriate.problem(newUsername, 'username');
     if (badUser) return res.status(400).json({ error: badUser });
@@ -1554,7 +1581,7 @@ app.patch('/api/me', authAny, async (req, res) => {
   }
 
   let newEmail;
-  if (b.email !== undefined && String(b.email).trim().toLowerCase() !== (u.email || '')) {
+  if (b.email !== undefined && str(b.email).trim().toLowerCase() !== (u.email || '')) {
     newEmail = security.cleanEmail(b.email); // an account that has an email cannot clear it
     if (!newEmail) return res.status(400).json({ error: 'Enter a valid email address' });
     if (!mailer.enabled() && emailTaken(newEmail, u.id)) return res.status(409).json({ error: 'An account with this email already exists' }); // see register: with verification on, the answer must not depend on who is registered
@@ -2139,7 +2166,7 @@ app.get('/api/friends', auth, (req, res) => res.json(friendsView(req.user.id)));
 
 app.post('/api/friends/request', auth, (req, res) => {
   const me = req.user;
-  const name = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
+  const name = str(req.body?.username).trim().replace(/^@/, '').toLowerCase();
   if (!name) return res.status(400).json({ error: 'Enter a username' });
   const target = Object.values(db().users).find((u) => !u.bot && u.username.toLowerCase() === name);
   if (!target) return res.status(404).json({ error: "We couldn't find anyone with that username" });
@@ -2268,7 +2295,9 @@ const myServers = (uid) => Object.values(db().servers).filter((s) => s.members.i
 app.get('/api/servers', auth, (req, res) => res.json({ servers: myServers(req.user.id).map(serverView) }));
 
 app.post('/api/servers', auth, (req, res) => {
-  const name = clip(req.body?.name, 40).trim();
+  const named = cleanName(req.body?.name, 40, 'Server name');
+  if (named.error) return res.status(400).json({ error: named.error });
+  const name = named.value;
   if (!name) return res.status(400).json({ error: 'Name required' });
   const badServer = appropriate.problem(name, 'server');
   if (badServer) return res.status(400).json({ error: badServer });
@@ -2309,7 +2338,7 @@ function publishMissing(s, vis) {
 }
 
 app.post('/api/servers/join', inviteLimiter, auth, (req, res) => {
-  const code = String(req.body?.code || '').trim().toLowerCase();
+  const code = (typeof req.body?.code === 'string' ? req.body.code : '').trim().toLowerCase();
   const s = Object.values(db().servers).find((x) => x.inviteCode === code);
   if (!s) return res.status(404).json({ error: 'Invalid invite code' });
   if (!s.members.includes(req.user.id) && !canJoin(s, req.user.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
@@ -2488,7 +2517,9 @@ app.delete('/api/servers/:id/channels/:cid/goals/:gid', auth, (req, res) => {
 app.post('/api/servers/:id/categories', auth, (req, res) => {
   const s = db().servers[req.params.id];
   if (!s || !can(s, req.user.id, 'manageChannels')) return res.status(403).json({ error: 'You need the Manage channels permission to add categories' });
-  const name = clip(req.body?.name, 30).trim();
+  const named = cleanName(req.body?.name, 30, 'Category name');
+  if (named.error) return res.status(400).json({ error: named.error });
+  const name = named.value;
   if (!name) return res.status(400).json({ error: 'Category name required' });
   const badCat = appropriate.problem(name, 'category');
   if (badCat) return res.status(400).json({ error: badCat });
@@ -2557,7 +2588,9 @@ app.patch('/api/servers/:id/categories/:catid', auth, (req, res) => {
   const s = channelsOf(req, res); if (!s) return;
   const cat = (s.categories || []).find((x) => x.id === req.params.catid);
   if (!cat) return res.status(404).json({ error: 'Category not found' });
-  const name = clip(req.body?.name, 30).trim();
+  const named = cleanName(req.body?.name, 30, 'Category name');
+  if (named.error) return res.status(400).json({ error: named.error });
+  const name = named.value;
   if (!name) return res.status(400).json({ error: 'Category name required' });
   const badCat = appropriate.problem(name, 'category');
   if (badCat) return res.status(400).json({ error: badCat });
@@ -2764,7 +2797,7 @@ app.put('/api/servers/:id/publish', auth, (req, res) => {
 });
 app.post('/api/servers/:id/publish/allowed', auth, (req, res) => {
   const s = ownerOf(req, res); if (!s) return;
-  const name = String(req.body?.username || '').trim().replace(/^@/, '').toLowerCase();
+  const name = str(req.body?.username).trim().replace(/^@/, '').toLowerCase();
   const target = Object.values(db().users).find((u) => !u.bot && u.username.toLowerCase() === name);
   if (!name || !target) return res.status(404).json({ error: "We couldn't find anyone with that username" });
   if (isOwner(s, target.id)) return res.status(400).json({ error: 'That person owns this server, so they can always join it' });
@@ -2784,7 +2817,12 @@ app.delete('/api/servers/:id/publish/allowed/:uid', auth, (req, res) => {
 
 // ----- roles (Manage roles) -----
 const rolesOf = permOf('manageRoles', 'Manage roles');
-const cleanColor = (c) => (c === null || c === '' ? null : hex.test(c) ? c.toLowerCase() : undefined);
+const cleanColor = (c) => {
+  if (c === null || c === '') return null;
+  if (typeof c !== 'string') return undefined;
+  if (/^#[0-9a-fA-F]{3}$/.test(c)) return '#' + [...c.slice(1)].map((d) => d + d).join('').toLowerCase(); // #fff is #ffffff
+  return hex.test(c) ? c.toLowerCase() : undefined;
+};
 const cleanPerms = (p) => (Array.isArray(p) && p.every((x) => PERMS.includes(x)) ? [...new Set(p)] : undefined);
 // the person may only switch on or off permissions they hold themselves (the owner holds all of them)
 const permsAllowed = (s, uid, before, after) => {
@@ -2799,7 +2837,9 @@ app.post('/api/servers/:id/roles', auth, (req, res) => {
   s.roles = s.roles || [];
   if (s.roles.length >= MAX_ROLES) return res.status(400).json({ error: `Role limit reached (${MAX_ROLES})` });
   if (!isOwner(s, req.user.id) && rankOf(s, req.user.id) === Infinity) return res.status(403).json({ error: 'You need a role of your own before you can create roles below it' });
-  const name = clip(req.body?.name, 30).trim() || 'new role';
+  const named = req.body?.name === undefined ? { value: '' } : cleanName(req.body.name, 30, 'Role name');
+  if (named.error) return res.status(400).json({ error: named.error });
+  const name = named.value || 'new role';
   const badRole = appropriate.problem(name, 'role');
   if (badRole) return res.status(400).json({ error: badRole });
   const color = req.body?.color === undefined ? null : cleanColor(req.body.color);
@@ -2817,7 +2857,7 @@ app.patch('/api/servers/:id/roles/:rid', auth, (req, res) => {
   if (!r) return res.status(404).json({ error: 'Role not found' });
   if (!belowMe(s, req.user.id, r.id)) return res.status(403).json({ error: 'That role is above your own' });
   const b = req.body || {};
-  if (b.name !== undefined) { const name = clip(b.name, 30).trim(); if (!name) return res.status(400).json({ error: 'Name required' }); const badRole = appropriate.problem(name, 'role'); if (badRole) return res.status(400).json({ error: badRole }); r.name = name; }
+  if (b.name !== undefined) { const named = cleanName(b.name, 30, 'Role name'); if (named.error) return res.status(400).json({ error: named.error }); const name = named.value; if (!name) return res.status(400).json({ error: 'Name required' }); const badRole = appropriate.problem(name, 'role'); if (badRole) return res.status(400).json({ error: badRole }); r.name = name; }
   if (b.color !== undefined) { const color = cleanColor(b.color); if (color === undefined) return res.status(400).json({ error: 'Invalid colour' }); r.color = color; }
   if (b.perms !== undefined) {
     const perms = cleanPerms(b.perms);
@@ -3299,7 +3339,7 @@ app.delete('/api/servers/:id/co-owners/:uid', auth, (req, res) => {
 
 app.delete('/api/servers/:id', auth, ah(async (req, res) => {
   const peek = db().servers[req.params.id];
-  if (peek && peek.ownerId === req.user.id && String(req.body?.name || '').trim() !== peek.name) return res.status(400).json({ error: 'Type the server name exactly to confirm' });
+  if (peek && peek.ownerId === req.user.id && str(req.body?.name).trim() !== peek.name) return res.status(400).json({ error: 'Type the server name exactly to confirm' });
   const s = await ownerConfirmed(req, res); if (!s) return;
   destroyServer(s);
   res.json({ ok: true });
@@ -3396,7 +3436,7 @@ app.post('/api/servers/:id/report', auth, (req, res) => {
   // a public listing can be reported by anyone signed in; any other server only by one of its own members (from inside the server)
   if (!s || (!isPublic && !(s.members || []).includes(req.user.id))) return res.status(404).json({ error: 'That server is not listed publicly' });
   if (s.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot report your own server' });
-  const reason = String(req.body?.reason || '');
+  const reason = str(req.body?.reason);
   if (!listing.REASONS.includes(reason)) return res.status(400).json({ error: 'Pick a reason' });
   const details = clip(req.body?.details, listing.LISTING.maxDetails).trim();
   if (reason === 'other' && !details) return res.status(400).json({ error: 'Tell us what is wrong' });
@@ -3789,7 +3829,7 @@ app.post('/api/clips/:id/report', auth, needClips, (req, res) => {
   const c = db().clips[req.params.id];
   if (!c || !(c.state === 'live' || c.state === 'hidden') || c.purgedAt) return res.status(404).json({ error: 'That clip is gone' });
   if (c.owner === req.user.id) return res.status(400).json({ error: 'You cannot report your own clip' });
-  const reason = String(req.body?.reason || '');
+  const reason = str(req.body?.reason);
   if (!listing.REASONS.includes(reason)) return res.status(400).json({ error: 'Pick a reason' });
   const details = clip(req.body?.details, listing.LISTING.maxDetails).trim();
   if (reason === 'other' && !details) return res.status(400).json({ error: 'Tell us what is wrong' });
@@ -4405,7 +4445,7 @@ app.post('/api/bots/:id/report', auth, (req, res) => {
   const b = db().bots[req.params.id];
   if (!b || b.visibility !== 'public') return res.status(404).json({ error: 'That bot is not listed publicly' });
   if (b.ownerId === req.user.id) return res.status(400).json({ error: 'You cannot report your own bot' });
-  const reason = String(req.body?.reason || '');
+  const reason = str(req.body?.reason);
   if (!listing.REASONS.includes(reason)) return res.status(400).json({ error: 'Pick a reason' });
   const details = clip(req.body?.details, listing.LISTING.maxDetails).trim();
   if (reason === 'other' && !details) return res.status(400).json({ error: 'Tell us what is wrong' });
@@ -4662,7 +4702,7 @@ app.post('/api/admin/devthemes/:id/review', auth, adminOnly, (req, res) => {
 // (GET /api/admin/user-reports, plus the bot and server lists above) and decide. A report keeps a copy of what was reported,
 // in case it is edited or deleted afterwards.
 function readReport(req, res) {
-  const reason = String(req.body?.reason || '');
+  const reason = str(req.body?.reason);
   if (!listing.REASONS.includes(reason)) { res.status(400).json({ error: 'Pick a reason' }); return null; }
   const details = clip(req.body?.details, listing.LISTING.maxDetails).trim();
   if (reason === 'other' && !details) { res.status(400).json({ error: 'Tell us what is wrong' }); return null; }
@@ -5152,7 +5192,7 @@ app.post('/api/admin/users/:id/name-ok', auth, adminOnly, (req, res) => {
 });
 app.post('/api/admin/users/:id/delete', auth, adminOnly, ah(async (req, res) => {
   const u = modTarget(req, res); if (!u) return;
-  if (String(req.body?.confirm || '').trim().toLowerCase() !== u.username.toLowerCase()) return res.status(400).json({ error: 'Type the username exactly to confirm' });
+  if (str(req.body?.confirm).trim().toLowerCase() !== u.username.toLowerCase()) return res.status(400).json({ error: 'Type the username exactly to confirm' });
   const dflt = defaultServer();
   if (dflt && dflt.ownerId === u.id) return res.status(400).json({ error: 'This account owns the official Aduna server. Transfer it first.' });
   const name = u.username;
@@ -5201,7 +5241,7 @@ app.get('/api/admin/admins', auth, adminOnly, (req, res) => {
   res.json({ admins: rows, canManage: isCreator(req.user) });
 });
 app.post('/api/admin/admins', auth, adminOnly, needCreator, (req, res) => {
-  const u = db().users[String(req.body?.userId || '')];
+  const u = db().users[str(req.body?.userId)];
   if (!u || u.bot || u.deleted) return res.status(404).json({ error: 'Not found' });
   if (u.suspended) return res.status(400).json({ error: 'That account is suspended' });
   if (adminRole(u)) return res.status(400).json({ error: 'They are already an admin' });
@@ -5227,7 +5267,7 @@ app.get('/api/admin/moderators', auth, adminOnly, (_req, res) => {
   res.json({ moderators: rows });
 });
 app.post('/api/admin/moderators', auth, adminOnly, (req, res) => {
-  const u = db().users[String(req.body?.userId || '')];
+  const u = db().users[str(req.body?.userId)];
   if (!u || u.bot || u.deleted) return res.status(404).json({ error: 'Not found' });
   if (u.suspended) return res.status(400).json({ error: 'That account is suspended' });
   if (adminRole(u)) return res.status(400).json({ error: 'They are already an admin' });
@@ -5734,7 +5774,9 @@ app.patch('/api/servers/:id', auth, (req, res) => {
     }
   }
   if (b.name !== undefined) {
-    const name = clip(b.name, 40).trim();
+    const named = cleanName(b.name, 40, 'Server name');
+    if (named.error) return res.status(400).json({ error: named.error });
+    const name = named.value;
     if (!name) return res.status(400).json({ error: 'Name required' });
     const badServer = appropriate.problem(name, 'server');
     if (badServer) return res.status(400).json({ error: badServer });
@@ -6175,7 +6217,7 @@ app.post('/api/push/fcm', auth, (req, res) => {
 // The Decline button on the Android ringing screen. Not signed in (the app may be closed), so it is proved by the signature the server put
 // in the push for this call and this person. Declining is all it can do.
 app.post('/api/call/decline-push', (req, res) => {
-  const callId = String(req.body?.callId || ''), tok = String(req.body?.token || '');
+  const callId = str(req.body?.callId), tok = str(req.body?.token);
   const c = calls.get(callId);
   if (!c || c.state !== 'ringing') return res.json({ ok: true }); // already over: nothing to do
   const want = Buffer.from(declineTokenFor(c.id, c.b)), got = Buffer.from(tok);
@@ -6236,7 +6278,11 @@ app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 // JSON errors instead of Express's default HTML page (oversized uploads, malformed JSON, ...)
 app.use((err, req, res, _next) => {
   if (err.code === 'MEDIA_REFUSED') return res.status(422).json({ error: err.message, code: 'media_refused' });
-  if (err.type === 'entity.too.large') return res.status(413).json({ error: req.path.startsWith('/api/emoji') ? 'Emoji is too large (max 256 KB)' : 'File is too large (max 20 MB, or 1 MB for profile pictures)' });
+  if (err.type === 'entity.too.large') {
+    if (req.path.startsWith('/api/emoji')) return res.status(413).json({ error: 'Emoji is too large (max 256 KB)' });
+    if (req.is('json')) return res.status(413).json({ error: 'That is too much text to send in one request' }); // a field far over its limit is not a file
+    return res.status(413).json({ error: 'File is too large (max 20 MB, or 1 MB for profile pictures)' });
+  }
   if (err.code === 'STORAGE_FULL') return res.status(507).json({ error: 'Uploads are paused: the storage limit has been reached. Try again later.' });
   if (err.status && err.status < 500) return res.status(err.status).json({ error: 'Bad request' });
   console.error(err);
