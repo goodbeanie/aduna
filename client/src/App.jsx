@@ -130,9 +130,6 @@ function VoiceDock({ voice, servers, onOpen }) {
 
 export default function App() {
   const { t: tr } = useLang(); // redraws the whole app when the language changes
-  const pan = usePanels(); // where each section sits (Settings > Appearance > Layout); only used on wide screens
-  const wideScreen = useWide();
-  const placeOf = (id) => (wideScreen || id !== 'profile' ? slotOf(pan, id) : 'dock'); // below the wide breakpoint the profile bar always stays in the side list
   const [splashDone, setSplashDone] = useState(() => typeof performance === 'undefined' || performance.now() >= MIN_SPLASH_MS || splashSeen());
   useEffect(() => {
     if (splashDone) { try { sessionStorage.setItem('aduna-splash', '1'); } catch { /* storage blocked: it just plays again next time */ } return undefined; }
@@ -209,6 +206,9 @@ export default function App() {
 
 function Main({ me, setMe, privKey, openServerId }) {
   const { t: tr } = useLang(); // the main screen is its own component, so it needs its own copy
+  const pan = usePanels(); // where each section sits (Settings > Appearance > Layout); only used on wide screens
+  const wideScreen = useWide();
+  const placeOf = (id) => (wideScreen || id !== 'profile' ? slotOf(pan, id) : 'dock'); // below the wide breakpoint the profile bar always stays in the side list
   const firstOpen = useRef(openServerId); // an invite link just joined this server: start there
   // Developer test mode (Settings > Developer): look as if Halloween or Christmas were on, on every device signed in to this account.
   useEffect(() => {
