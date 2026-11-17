@@ -16,6 +16,7 @@ const artistsLib = require('./artists'); // artists: apply, get reviewed, sell b
 const foundingLib = require('./founding'); // the first 1,000 people to join get the Founding Member badge (see founding.js)
 const stickersLib = require('./stickers'); // sticker packs: big pictures sent on their own, sold in the shop (see the "stickers" block below)
 const profileLib = require('./profile'); // pronouns, the games shelf and the profile song (rules only; the routes sit next to the profile image routes)
+const railLib = require('./railfolders'); // the server bar's folders and order, kept on the account (PUT /api/me/rail)
 const musicLib = require('./music'); // song search for the profile song (iTunes Search API, see the file's header)
 const gameCatalog = require('./gamecatalog'); // the game list behind the Favorite games picker
 const soundboardLib = require('./soundboard'); // the voice-channel soundboard: short sounds anyone in the channel can play (see the "soundboard" block below)
@@ -337,7 +338,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()) });
+const ownUser = (u) => ({ ...selfView(u), railLayout: Array.isArray(u.railLayout) ? u.railLayout : null, ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()) });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. An email is optional. An account that gives one (at sign-up or later) gets a 6-digit code by email and
@@ -1470,6 +1471,15 @@ app.post('/api/me/2fa/disable', auth, ah(async (req, res) => {
 }));
 
 app.get('/api/me', authAny, (req, res) => res.json({ user: ownUser(req.user), encPrivKey: req.user.encPrivKey }));
+// The server bar's folders and order follow the account, so a folder made on one device shows on all of them. Only the person's own devices hear about it.
+app.put('/api/me/rail', auth, (req, res) => {
+  const layout = railLib.cleanRail(req.body?.layout);
+  if (!layout) return res.status(400).json({ error: 'That server bar layout is not valid' });
+  req.user.railLayout = layout;
+  store.save();
+  io.to('user:' + req.user.id).emit('rail:update', layout);
+  res.json({ ok: true });
+});
 
 app.put('/api/me/keys', auth, (req, res) => {
   const { publicKey, encPrivKey } = req.body || {};

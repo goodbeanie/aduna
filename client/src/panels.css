@@ -30,18 +30,43 @@
   html[data-pan] .rail[data-slot=bottom] .rail-btn.on::after { bottom: auto; top: -7px; border-radius: 0 0 3px 3px; }
   html[data-pan] .rail::after { display: none; }
 
-  /* the side and member lists only go left or right (panels.js), so they are always a full-height column; the grid cell sets the height */
+  /* side and member lists: a full-height column on the left or right (the grid cell sets the height), a slim strip that scrolls sideways on the top or bottom */
   html[data-pan] :is(.side, .members)[data-panel] { height: auto; min-height: 0; }
+  html[data-pan] :is(.side, .members)[data-panel]:is([data-slot=top], [data-slot=bottom]):not(.collapsed) { width: auto; min-width: 0; height: 60px; flex-direction: row; align-items: center; }
+
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head { flex: none; width: auto; min-width: 160px; max-width: 260px; height: 100%; gap: 12px; border-bottom: 0; border-right: 1px solid var(--line2); }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head.has-banner { padding-bottom: 0; align-items: center; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-list { flex: 1; display: flex; flex-direction: row; align-items: center; gap: 4px; min-width: 0; padding: 0 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-list::-webkit-scrollbar { display: none; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .cat { display: contents; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) :is(.chan, .chan-wrap, .cat-head, .side-label, .add-cat, .voice-member, .pad) { flex: none; width: auto; margin: 0; white-space: nowrap; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) :is(.cat-head, .side-label) { padding: 0 4px 0 12px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .voice-member { padding: 2px 8px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-docks { flex: none; display: flex; align-items: center; max-width: 40%; overflow: hidden; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .call-dock { border-top: 0; border-left: 1px solid var(--line); }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) > .user-panel { flex: none; height: 100%; border-top: 0; border-left: 1px solid var(--line2); }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .menu { left: 8px; right: auto; width: 260px; }
+  html[data-pan] .side[data-slot=top] .menu { top: 100%; }
+  html[data-pan] .side[data-slot=bottom] .menu { top: auto; bottom: 100%; }
+
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]):not(.collapsed) { display: flex; gap: 6px; padding: 0 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom])::-webkit-scrollbar { display: none; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) > * { flex: none; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .member-search { width: 200px; margin: 0; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .member { width: auto; max-width: 220px; padding: 4px 10px 4px 8px; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .side-label { padding: 0 4px 0 12px; white-space: nowrap; }
 
   /* profile and voice on its own: a bar on the top or bottom, a card at the top of a column on the left or right */
-  html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) { width: auto; }
+  html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) { width: auto; padding: 0 16px; gap: 6px; }
+  html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) .me { flex: 0 1 260px; margin-right: auto; }
   html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) { width: 240px; height: auto; min-height: 58px; align-self: start; align-items: center; align-content: flex-start; flex-wrap: wrap; padding: 10px 8px; }
   html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) .me { flex: 1 1 100%; }
 
   /* shortcuts */
   html[data-pan] .quick { display: flex; gap: 4px; padding: 8px; min-width: 0; background: var(--bg2); overflow: auto; }
   html[data-pan] .quick:is([data-slot=left], [data-slot=right]) { width: 240px; flex-direction: column; align-items: stretch; }
-  html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) { flex-direction: row; flex-wrap: nowrap; align-items: center; height: 56px; padding: 0 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) > * { flex: none; }
   html[data-grad][data-pan] .quick { background: color-mix(in srgb, var(--bg2) 62%, transparent); }
 }
 .quick-btn { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--muted); text-align: left; white-space: nowrap; }

@@ -1,18 +1,20 @@
-/* Server bar folders and drag to reorder (ServerRail.jsx). */
+/* Server bar folders and drag to reorder (ServerRail.jsx). The bar draws the drag itself: a copy of the button follows the pointer and one
+   marker (a line, or a ring when it will go onto the one underneath) shows where it lands, so it looks the same on every side of the screen. */
 
-.rail-btn[draggable=true] { cursor: grab; }
-.rail-btn[data-drag] { opacity: .4; }
+.rail-btn[data-rail-key] { cursor: grab; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.rail-btn[data-rail-key] img { -webkit-user-drag: none; }
+.rail-btn[data-drag] { opacity: .35; }
 
-/* where a dragged server will land: a bar before or after, a ring when it will go into the one underneath */
-.rail-list > .rail-btn[data-drop=before]::before,
-.rail-list > .rail-btn[data-drop=after]::before { content: ''; position: absolute; top: -2px; bottom: -2px; width: 3px; border-radius: 2px; background: var(--ink); }
-.rail-list > .rail-btn[data-drop=before]::before { left: -6px; }
-.rail-list > .rail-btn[data-drop=after]::before { right: -6px; }
-.rail-list > .rail-btn[data-drop=into] { box-shadow: inset 0 0 0 2px var(--ink); transform: scale(.92); }
+.rail-btn.rail-ghost { position: fixed; left: 0; top: 0; z-index: 3000; margin: 0; opacity: .95; pointer-events: none; transition: none; box-shadow: 0 10px 28px rgba(0, 0, 0, .35); will-change: transform; }
+.rail-btn.rail-ghost::before, .rail-btn.rail-ghost::after { display: none; }
+
+.rail-drop { position: fixed; z-index: 2999; box-sizing: border-box; pointer-events: none; transition: left .08s ease-out, top .08s ease-out, width .08s ease-out, height .08s ease-out; }
+.rail-drop.line { border-radius: 2px; background: var(--ink); box-shadow: 0 0 0 2px var(--bg3); }
+.rail-drop.ring { border: 2px solid var(--ink); background: color-mix(in srgb, var(--ink) 14%, transparent); }
+@media (prefers-reduced-motion: reduce) { .rail-drop { transition: none; } }
+
+body.rail-dragging, body.rail-dragging * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+body.rail-dragging .tip { display: none; }
 
 .rail-folder .icon { display: block; }
 .rail-exit { color: var(--muted); }
-
-html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-list > .rail-btn:is([data-drop=before], [data-drop=after])::before { left: -2px; right: -2px; top: auto; bottom: auto; width: auto; height: 3px; }
-html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-list > .rail-btn[data-drop=before]::before { top: -6px; }
-html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-list > .rail-btn[data-drop=after]::before { bottom: -6px; }

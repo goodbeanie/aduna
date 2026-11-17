@@ -496,5 +496,16 @@
       { "title": "A map that looks like the app", "text": "The map now draws the server bar thin, the lists wide and the other bars short, in the same order as the real layout." },
       { "title": "Fixed a crash on open", "text": "The first layout update could show a \"placeOf is not defined\" error when Aduna opened. That is fixed." }
     ]
+  },
+  {
+    "id": "2026.11.17",
+    "date": "2026-11-17",
+    "title": "Server bar drag fixes and layout on every side",
+    "items": [
+      { "title": "Server bar drag and drop", "text": "Reordering servers and making folders works on all four bar positions. Dropping in a gap or past the last server now counts, a copy of the button follows the pointer, and Escape cancels. Dragging a server out of an open folder onto the back button takes it out." },
+      { "title": "Touch dragging", "text": "On a touch screen, press and hold a server, then drag. A normal swipe still scrolls the bar, and a long press on a folder opens its edit dialog." },
+      { "title": "Folders sync across devices", "text": "The order and folders of the server bar are saved to your account, so every device shows the same bar." },
+      { "title": "Layout works in every slot", "text": "In Settings > Appearance > Layout, the side list, member list, profile and voice, Shortcuts and Unread now fit properly on the top and bottom as well as the left and right. On the top or bottom they become a slim bar that scrolls sideways." }
+    ]
   }
 ]

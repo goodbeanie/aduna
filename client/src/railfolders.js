@@ -1,9 +1,12 @@
-// Order and folders of the server bar. Kept on this device, one list per account (like panels.js).
+// Order and folders of the server bar. The account keeps the real copy (PUT /api/me/rail, so every device shows the same bar);
+// this device keeps a copy per account (like panels.js) so the bar draws at once and still works offline.
 //
 // A layout is an ordered list of
 //   { s: serverId }
 //   { f: folderId, name, color, ids: [serverId, ...] }
 // Servers that are not in it (just joined) go to the end, servers that are gone drop out, so it never has to be kept in step with the server list.
+
+import { api } from './api.js';
 
 export const FOLDER_COLORS = ['#e8743b', '#e0a526', '#43b581', '#3aa0c9', '#5865f2', '#9b59d0', '#d6577f', '#8a8f98'];
 
@@ -21,6 +24,9 @@ export function saveRail(userId, layout) {
     localStorage.setItem(KEY(userId), JSON.stringify(layout));
   } catch { /* storage blocked: lasts until reload */ }
 }
+
+// Send the layout to the account; the person's other devices hear about it (rail:update). A failure keeps the local copy, and the next change tries again.
+export const pushRail = (layout) => api('/me/rail', { method: 'PUT', body: { layout } }).then(() => true, () => false);
 
 export const keyOf = (it) => (it.s ? 's:' + it.s : 'f:' + it.f);
 

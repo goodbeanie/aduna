@@ -627,6 +627,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('connect', () => { if (connectedBefore) { loadNotes().catch(() => {}); setSyncTick((n) => n + 1); } connectedBefore = true; });
     s.on('presence', ({ userId, status }) => setPresence((p) => ({ ...p, [userId]: status })));
     s.on('user:update', (u) => { addUsers([u]); if (u.id === me.id) setMe((m) => ({ ...m, ...u })); });
+    s.on('rail:update', (layout) => setMe((m) => (m ? { ...m, railLayout: layout } : m))); // the server bar's folders changed on another device
     s.on('features:update', (f) => setMe((m) => (m ? { ...m, features: f || {} } : m))); // a feature was tested, released or pulled back (server/features.js)
     s.on('releases:update', () => window.dispatchEvent(new Event('aduna:releases'))); // a creator published or pulled back a release: What's new reloads (WhatsNew.jsx)
     s.on('links:update', () => window.dispatchEvent(new Event('aduna:links'))); // a creator changed the unsafe link blocklist: links are checked again (LinkGuard.jsx)
@@ -1096,7 +1097,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           <span className="clips-mark" aria-hidden="true" />
         </button>}
         <div className="rail-sep" />
-        <ServerRail key={me?.id} userId={me?.id} servers={servers} activeId={server?.id} fmt={fmtN}
+        <ServerRail key={me?.id} userId={me?.id} remote={me?.railLayout} servers={servers} activeId={server?.id} fmt={fmtN}
           stats={(s) => ({ unread: totalUnreadFor(s), mentions: totalMentionsFor(s) })}
           renderServer={(s, dnd) => (
             <button key={s.id} {...dnd} className={'rail-btn' + (s.iconImage ? ' has-icon' : '') + (server?.id === s.id ? ' on' : '') + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' muted' : '')} title={s.name + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' (muted)' : '')} onClick={() => openServer(s)}>
@@ -1254,6 +1255,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             </div>
           </>
         )}
+        <div className="side-docks">
         <CallDock call={call.call} actions={call.actions} users={users} onOpen={goToCall} />
         <GroupCallDock gcall={gcall.gcall} actions={gcall.actions} titleFor={groups.titleFor} onOpen={openGroup} />
         <FirstRun me={me} serverCount={servers.length} friendCount={fr.friends.length + fr.outgoing.length}
@@ -1267,6 +1269,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onServer={() => setModal({ type: 'server' })} />
         <VoiceDock voice={voice} servers={servers} onOpen={(sv, ch) => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }} />
         <StorageDock storage={storage} setStorage={setStorage} />
+        </div>
         {placeOf('profile') === 'dock' && userPanel}
       </aside>
       {/* profile and voice as a section of its own (Settings > Appearance > Layout): a direct child of the body so it joins the layout grid */}

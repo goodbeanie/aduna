@@ -19,11 +19,11 @@ const LISTS = [...SLOTS, 'dock', 'off'];
 
 // `home` is where a section sits in the standard layout and where it goes when a saved layout does not mention it
 // (so a section added in a later version appears without anyone resetting their layout).
-// `where` is every place the section looks right: the two lists are columns by nature, so they only go left or right.
+// `where` is every place the section is drawn for. All of them go in all four slots: a column on the left or right, a slim bar on the top or bottom (panels.css).
 export const SECTIONS = [
   { id: 'rail', name: 'Server bar', hint: 'Your servers, direct messages and search', home: 'top', where: SLOTS },
-  { id: 'side', name: 'Side list', hint: 'Channels, or your conversations', home: 'left', where: ['left', 'right'] },
-  { id: 'members', name: 'Member list', hint: 'Who is in this server', home: 'right', where: ['left', 'right'] },
+  { id: 'side', name: 'Side list', hint: 'Channels, or your conversations', home: 'left', where: SLOTS },
+  { id: 'members', name: 'Member list', hint: 'Who is in this server', home: 'right', where: SLOTS },
   { id: 'profile', name: 'Profile and voice', hint: 'Your status, mute, deafen and settings', home: 'dock', where: [...SLOTS, 'dock'] },
   { id: 'quick', name: 'Shortcuts', hint: 'Jump to, Friends, Explorer, Shop and Settings', home: 'off', where: SLOTS },
   { id: 'unread', name: 'Unread', hint: 'Every channel, group and message with something new', home: 'off', where: SLOTS },

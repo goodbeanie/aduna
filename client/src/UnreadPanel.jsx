@@ -3,7 +3,7 @@ import { Icon } from './ui.jsx';
 
 // The "Unread" section (Settings > Appearance > Layout): everything with something new, in one list. Off until it is placed in a slot.
 // `items` is [{ key, label, sub, unread, mentions, onOpen }]; App.jsx builds it from the unread and mention counts it already keeps.
-// It reuses the shortcuts panel's look (.quick) so it lays out as a column on the left or right and as a wrapping row on the top or bottom.
+// It reuses the shortcuts panel's look (.quick) so it lays out as a column on the left or right and as a scrolling row on the top or bottom.
 export default function UnreadPanel({ slot, items }) {
   return (
     <aside className="quick unread-panel" data-ui="unread" data-panel="unread" data-slot={slot} aria-label="Unread">
