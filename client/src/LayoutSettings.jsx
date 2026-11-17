@@ -1,45 +1,106 @@
 import React, { useState } from 'react';
-import { PRESETS, SECTIONS, SLOTS, SLOT_NAME, defaultPanels, isDefaultPanels, nudgePanel, placePanel, sectionName, setPanels, slotOf, usePanels, useWide } from './panels.js';
+import { PRESETS, SECTIONS, SLOT_NAME, defaultPanels, isDefaultPanels, placePanel, sectionName, setPanels, slotOf, usePanels, useWide } from './panels.js';
 
-// Settings > Appearance > Layout: a live map of the app (top, left, right, bottom, with the chat in the middle). Tap a section on the map,
-// then choose its slot and its place in that slot. The change is applied as you tap and kept on this device.
+// Settings > Appearance > Layout: a live map of the app (top, left, right, bottom, with the chat in the middle). Drag a part to
+// another slot, or into the Hidden box to turn it off. The change is applied as you drop and kept on this device.
 const AXIS = { top: 'rows', bottom: 'rows', left: 'cols', right: 'cols' };
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// Roughly how big each part is in the real app: the server bar is thin, the lists are wide, the bars are short.
+const THIN = 28;
+const WIDE_LIST = 64;
+const sizeOf = (id, axis) => {
+  const list = id === 'side' || id === 'members';
+  if (axis === 'cols') return id === 'rail' ? THIN : 56;
+  return list ? WIDE_LIST : THIN;
+};
+
+// Where a drop would land in a slot: the number of parts (not counting the one being dragged) that sit before the pointer.
+const indexAt = (slotEl, axis, x, y, dragged) => {
+  let at = 0;
+  for (const c of slotEl.querySelectorAll('[data-chip]')) {
+    if (c.dataset.chip === dragged) continue;
+    const r = c.getBoundingClientRect();
+    const mid = axis === 'rows' ? r.top + r.height / 2 : r.left + r.width / 2;
+    if ((axis === 'rows' ? y : x) > mid) at++;
+  }
+  return at;
+};
 
 export default function LayoutSettings() {
   const pan = usePanels();
   const wide = useWide();
-  const [picked, setPicked] = useState('rail');
+  const [drag, setDrag] = useState(null);
+  const [over, setOver] = useState(null);
 
   if (!wide) {
     return <p className="muted small hint">The layout can be arranged on wide screens (a laptop or desktop window at least 1051 px across). Widen this window to change it; phones and small tablets keep the standard layout.</p>;
   }
 
-  const sec = SECTIONS.find((s) => s.id === picked) || SECTIONS[0];
-  const at = slotOf(pan, sec.id);
-  const list = pan[at] || [];
-  const i = list.indexOf(sec.id);
-  const vertical = at === 'top' || at === 'bottom';
-  const places = [...SLOTS, ...(sec.canDock ? ['dock'] : []), 'off'];
-  const move = (to) => setPanels(placePanel(pan, sec.id, to));
-  const nudge = (d) => setPanels(nudgePanel(pan, sec.id, d));
+  const canDrop = (zone) => !!drag && (zone !== 'dock' || !!SECTIONS.find((s) => s.id === drag)?.canDock);
+  const zone = (name) => ({
+    onDragOver: (e) => {
+      if (!canDrop(name)) return;
+      e.preventDefault();
+      setOver({ zone: name, at: AXIS[name] ? indexAt(e.currentTarget, AXIS[name], e.clientX, e.clientY, drag) : undefined });
+    },
+    onDragLeave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOver((o) => (o?.zone === name ? null : o)); },
+    onDrop: (e) => {
+      if (!canDrop(name)) return;
+      e.preventDefault();
+      const at = AXIS[name] ? indexAt(e.currentTarget, AXIS[name], e.clientX, e.clientY, drag) : undefined;
+      setPanels(placePanel(pan, drag, name, at));
+      setDrag(null); setOver(null);
+    },
+  });
 
-  const chip = (id) => (
-    <button type="button" key={id} className={'lay-chip' + (picked === id ? ' on' : '')} aria-pressed={picked === id} onClick={() => setPicked(id)}>{sectionName(id)}</button>
+  const keyMove = (e, id) => {
+    const k = slotOf(pan, id), axis = AXIS[k];
+    if (!axis) return;
+    const back = axis === 'rows' ? 'ArrowUp' : 'ArrowLeft', fwd = axis === 'rows' ? 'ArrowDown' : 'ArrowRight';
+    if (e.key !== back && e.key !== fwd) return;
+    e.preventDefault();
+    setPanels(placePanel(pan, id, k, pan[k].indexOf(id) + (e.key === fwd ? 1 : -1)));
+  };
+
+  const chip = (id, axis) => (
+    <div key={id} data-chip={id} className={'lay-chip' + (drag === id ? ' drag' : '')} draggable tabIndex={0} role="button" title={SECTIONS.find((s) => s.id === id)?.hint}
+      style={axis ? (axis === 'cols' ? { width: sizeOf(id, axis) } : { height: sizeOf(id, axis) }) : undefined}
+      onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); setDrag(id); }}
+      onDragEnd={() => { setDrag(null); setOver(null); }}
+      onKeyDown={(e) => keyMove(e, id)}>{sectionName(id)}</div>
   );
-  const slot = (name) => (
-    <div className={'lay-slot ' + AXIS[name]} role="group" aria-label={SLOT_NAME[name] + ' slot'}>
-      {pan[name].map(chip)}
-      {pan[name].length === 0 && (
-        <button type="button" className="lay-empty" title={`Put ${sec.name.toLowerCase()} here`} aria-label={`Put ${sec.name.toLowerCase()} in the ${SLOT_NAME[name].toLowerCase()} slot`}
-          onClick={() => move(name)}>{AXIS[name] === 'rows' ? 'Put here' : '+'}</button>
-      )}
+
+  const slot = (name) => {
+    const axis = AXIS[name];
+    const here = over?.zone === name;
+    const items = [];
+    let j = 0;
+    for (const id of pan[name]) {
+      if (here && id !== drag && j === over.at) items.push(<i key="gap" className="lay-gap" />);
+      if (id !== drag) j++;
+      items.push(chip(id, axis));
+    }
+    if (here && j === over.at) items.push(<i key="gap" className="lay-gap" />);
+    return (
+      <div className={'lay-slot ' + axis + (here ? ' over' : '') + (canDrop(name) ? ' ready' : '')} role="group" aria-label={SLOT_NAME[name] + ' slot'} {...zone(name)}>
+        {items}
+        {pan[name].length === 0 && !here && <span className="lay-empty">{axis === 'rows' ? 'Drop here' : '+'}</span>}
+      </div>
+    );
+  };
+
+  const tray = (name, label, note) => (
+    <div className={'lay-zone' + (over?.zone === name ? ' over' : '') + (canDrop(name) ? ' ready' : '')} role="group" aria-label={label} {...zone(name)}>
+      <span className="lay-slot-name">{label}</span>
+      {pan[name].map((id) => chip(id))}
+      {pan[name].length === 0 && <span className="muted small">{note}</span>}
     </div>
   );
 
   return (
     <div className="lay">
-      <p className="muted small hint">Arrange the parts of Aduna on this device. Tap a part on the map, then pick where it goes. Phones and small tablets keep the standard layout.</p>
+      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. With a part focused, the arrow keys move it within its slot. Phones and small tablets keep the standard layout.</p>
 
       <div className="lay-presets" role="group" aria-label="Layout presets">
         {PRESETS.map(([name, l]) => (
@@ -58,26 +119,8 @@ export default function LayoutSettings() {
       </div>
 
       <div className="lay-tray">
-        {pan.dock.length > 0 && <><span className="lay-slot-name">Under side list</span>{pan.dock.map(chip)}</>}
-        <span className="lay-slot-name">Hidden</span>
-        {pan.off.length ? pan.off.map(chip) : <span className="muted small">nothing</span>}
-      </div>
-
-      <div className="lay-picked">
-        <h4>{sec.name}</h4>
-        <p className="muted small hint">{sec.hint}</p>
-        <div className="mode-pick" role="radiogroup" aria-label={`Where the ${sec.name.toLowerCase()} goes`}>
-          {places.map((w) => (
-            <button type="button" role="radio" key={w} aria-checked={at === w} className={at === w ? 'on' : ''} onClick={() => move(w)}>{SLOT_NAME[w]}</button>
-          ))}
-        </div>
-        {list.length > 1 && at !== 'dock' && at !== 'off' && (
-          <div className="lay-moves">
-            <button type="button" className="btn small-btn" disabled={i <= 0} onClick={() => nudge(-1)}>{vertical ? 'Move up' : 'Move left'}</button>
-            <button type="button" className="btn small-btn" disabled={i >= list.length - 1} onClick={() => nudge(1)}>{vertical ? 'Move down' : 'Move right'}</button>
-            <span className="muted small">{i + 1} of {list.length} in this slot</span>
-          </div>
-        )}
+        {tray('dock', 'Under side list', 'Profile and voice only')}
+        {tray('off', 'Hidden', 'nothing')}
       </div>
 
       <div className="lay-moves">

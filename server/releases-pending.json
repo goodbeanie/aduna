@@ -486,5 +486,15 @@
       { "title": "Move parts of the app around", "text": "In Settings > Appearance > Layout, creator accounts can put the server bar, side list, member list, profile and voice, Shortcuts and Unread in the top, left, right or bottom slot, in any order, or hide them. There are presets and a map to tap. It is saved per device and only works on wide windows, at least 1051 px across." },
       { "title": "Creator accounts only for now", "text": "Everyone else keeps the standard layout and does not see the Layout section yet." }
     ]
+  },
+  {
+    "id": "2026.11.16.7",
+    "date": "2026-11-16",
+    "title": "Drag to arrange the layout",
+    "items": [
+      { "title": "Drag and drop", "text": "In Settings > Appearance > Layout, creator accounts now drag a part to where it should go, and a bar shows where it will land. Drag a part into Hidden to turn it off and back out to bring it in. With a part focused, the arrow keys move it within its slot." },
+      { "title": "A map that looks like the app", "text": "The map now draws the server bar thin, the lists wide and the other bars short, in the same order as the real layout." },
+      { "title": "Fixed a crash on open", "text": "The first layout update could show a \"placeOf is not defined\" error when Aduna opened. That is fixed." }
+    ]
   }
 ]

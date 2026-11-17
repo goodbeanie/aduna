@@ -65,23 +65,14 @@ export const slotOf = (l, id) => LISTS.find((k) => l[k].includes(id)) || 'off';
 const DEFAULT = defaultPanels();
 export const isDefaultPanels = (l) => LISTS.every((k) => l[k].length === DEFAULT[k].length && l[k].every((id, i) => id === DEFAULT[k][i]));
 
-// Move a section to another slot (it goes last there).
-export function placePanel(l, id, to) {
+// Move a section to a slot. `at` is its place in that slot counted without the section itself (the end when left out), so the same call also reorders within a slot.
+export function placePanel(l, id, to, at) {
   const s = SECTIONS.find((x) => x.id === id);
-  if (!s || !LISTS.includes(to) || (to === 'dock' && !s.canDock) || slotOf(l, id) === to) return l;
+  if (!s || !LISTS.includes(to) || (to === 'dock' && !s.canDock)) return l;
   const out = emptyLists();
   for (const k of LISTS) out[k] = l[k].filter((x) => x !== id);
-  out[to].push(id);
+  out[to].splice(at === undefined ? out[to].length : Math.max(0, Math.min(at, out[to].length)), 0, id);
   return normalizePanels(out);
-}
-
-// Swap a section with its neighbour in the same slot: delta -1 is up / left, +1 is down / right.
-export function nudgePanel(l, id, delta) {
-  const k = slotOf(l, id), list = l[k], i = list.indexOf(id), j = i + delta;
-  if (i < 0 || j < 0 || j >= list.length) return l;
-  const next = [...list];
-  [next[i], next[j]] = [next[j], next[i]];
-  return { ...l, [k]: next };
 }
 
 export const PRESETS = [
