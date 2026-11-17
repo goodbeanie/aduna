@@ -70,7 +70,8 @@ import { withCalls, mergeRecords } from './callhistory.js';
 import { clearDrafts, hasDraft, useDrafts } from './drafts.js';
 import { clearSeen } from './seen.js';
 import { DialogHost, toast as showToast, askConfirm } from './Dialogs.jsx';
-import { RailList, PopMenu, EmptyState, ListSkeleton, Tooltips } from './ShellBits.jsx';
+import { PopMenu, EmptyState, ListSkeleton, Tooltips } from './ShellBits.jsx';
+import ServerRail from './ServerRail.jsx';
 
 // DM plaintext is a small JSON envelope so text and attachment details are encrypted together.
 // Older messages are plain strings.
@@ -1095,17 +1096,18 @@ function Main({ me, setMe, privKey, openServerId }) {
           <span className="clips-mark" aria-hidden="true" />
         </button>}
         <div className="rail-sep" />
-        <RailList>
-          {servers.map((s) => (
-            <button key={s.id} className={'rail-btn' + (s.iconImage ? ' has-icon' : '') + (server?.id === s.id ? ' on' : '') + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' muted' : '')} title={s.name + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' (muted)' : '')} onClick={() => openServer(s)}>
+        <ServerRail key={me?.id} userId={me?.id} servers={servers} activeId={server?.id} fmt={fmtN}
+          stats={(s) => ({ unread: totalUnreadFor(s), mentions: totalMentionsFor(s) })}
+          renderServer={(s, dnd) => (
+            <button key={s.id} {...dnd} className={'rail-btn' + (s.iconImage ? ' has-icon' : '') + (server?.id === s.id ? ' on' : '') + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' muted' : '')} title={s.name + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' (muted)' : '')} onClick={() => openServer(s)}>
               <ServerIcon server={s} fill />
               {totalUnreadFor(s) > 0 && <span className="badge">{fmtN(totalUnreadFor(s))}</span>}
               {totalMentionsFor(s) > 0 && <span className="badge at" title={totalMentionsFor(s) + ' mention' + (totalMentionsFor(s) > 1 ? 's' : '')}>@{fmtN(totalMentionsFor(s))}</span>}
             </button>
-          ))}
+          )}>
           <button className="rail-btn add" title="Create or join a server" onClick={() => setModal({ type: 'server' })}><Icon name="plus" size={22} /></button>
           <button className="rail-btn add rail-jump" title="Jump to…" data-kbd="Ctrl+K" aria-label="Jump to a channel, person or setting" onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={20} /></button>
-        </RailList>
+        </ServerRail>
         <RailUpdateChip />
       </nav>
 
@@ -1270,7 +1272,8 @@ function Main({ me, setMe, privKey, openServerId }) {
       {/* profile and voice as a section of its own (Settings > Appearance > Layout): a direct child of the body so it joins the layout grid */}
       {wideScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('profile')) && userPanel}
 
-      {/* main */}
+      {/* main: the page itself. .center takes no space of its own until a custom layout is on (panels.css), then it is the middle cell */}
+      <div className="center">
       {server && loungeOpen && (
         <LoungePage key={server.id} server={server} users={users} presence={presence} voiceMembers={voice.members} canManage={can(server, me.id, 'manageServer')}
           onBack={() => setShowList(true)} headerExtra={membersToggle} onChannel={openChannel}
@@ -1354,6 +1357,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && !view.clips && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} blocked={social.blocked} onUnblock={unblockUser} servers={servers} me={me} users={users} voiceMembers={voice.members} onJoinVoice={(sid, cid) => { const sv = servers.find((x) => x.id === sid); const ch = sv?.channels.find((c) => c.id === cid); if (sv && ch) joinEventVoice(sv, ch); }} onSettings={() => setModal({ type: 'edit', tab: 'activity' })} onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }} />
       )}
+      </div>
 
       {/* members */}
       {server && (

@@ -19,16 +19,17 @@ const LISTS = [...SLOTS, 'dock', 'off'];
 
 // `home` is where a section sits in the standard layout and where it goes when a saved layout does not mention it
 // (so a section added in a later version appears without anyone resetting their layout).
+// `where` is every place the section looks right: the two lists are columns by nature, so they only go left or right.
 export const SECTIONS = [
-  { id: 'rail', name: 'Server bar', hint: 'Your servers, direct messages and search', home: 'top' },
-  { id: 'side', name: 'Side list', hint: 'Channels, or your conversations', home: 'left' },
-  { id: 'members', name: 'Member list', hint: 'Who is in this server', home: 'right' },
-  { id: 'profile', name: 'Profile and voice', hint: 'Your status, mute, deafen and settings', home: 'dock', canDock: true },
-  { id: 'quick', name: 'Shortcuts', hint: 'Jump to, Friends, Explorer, Shop and Settings', home: 'off' },
-  { id: 'unread', name: 'Unread', hint: 'Every channel, group and message with something new', home: 'off' },
+  { id: 'rail', name: 'Server bar', hint: 'Your servers, direct messages and search', home: 'top', where: SLOTS },
+  { id: 'side', name: 'Side list', hint: 'Channels, or your conversations', home: 'left', where: ['left', 'right'] },
+  { id: 'members', name: 'Member list', hint: 'Who is in this server', home: 'right', where: ['left', 'right'] },
+  { id: 'profile', name: 'Profile and voice', hint: 'Your status, mute, deafen and settings', home: 'dock', where: [...SLOTS, 'dock'] },
+  { id: 'quick', name: 'Shortcuts', hint: 'Jump to, Friends, Explorer, Shop and Settings', home: 'off', where: SLOTS },
+  { id: 'unread', name: 'Unread', hint: 'Every channel, group and message with something new', home: 'off', where: SLOTS },
 ];
-const IDS = SECTIONS.map((s) => s.id);
 export const sectionName = (id) => SECTIONS.find((s) => s.id === id)?.name || id;
+export const canGo = (id, to) => to === 'off' || !!SECTIONS.find((s) => s.id === id)?.where.includes(to);
 
 const emptyLists = () => ({ top: [], left: [], right: [], bottom: [], dock: [], off: [] });
 
@@ -50,7 +51,7 @@ export function normalizePanels(raw) {
   for (const list of LISTS) {
     for (const id of Array.isArray(src?.[list]) ? src[list] : []) {
       const s = SECTIONS.find((x) => x.id === id);
-      if (!s || seen.has(id) || (list === 'dock' && !s.canDock)) continue;
+      if (!s || seen.has(id) || !canGo(id, list)) continue; // a layout saved before a section got limited goes home
       seen.add(id); out[list].push(id);
     }
   }
@@ -68,7 +69,7 @@ export const isDefaultPanels = (l) => LISTS.every((k) => l[k].length === DEFAULT
 // Move a section to a slot. `at` is its place in that slot counted without the section itself (the end when left out), so the same call also reorders within a slot.
 export function placePanel(l, id, to, at) {
   const s = SECTIONS.find((x) => x.id === id);
-  if (!s || !LISTS.includes(to) || (to === 'dock' && !s.canDock)) return l;
+  if (!s || !LISTS.includes(to) || !canGo(id, to)) return l;
   const out = emptyLists();
   for (const k of LISTS) out[k] = l[k].filter((x) => x !== id);
   out[to].splice(at === undefined ? out[to].length : Math.max(0, Math.min(at, out[to].length)), 0, id);
@@ -86,7 +87,8 @@ export const PRESETS = [
 
 // The grid for the whole app. Top and bottom sections are rows across the window; left and right sections are columns
 // between them; the page sits in the one flexible cell in the middle. `.body` stops being a box (display: contents) so the
-// side list, member list and the rest take part in the same grid as the server bar.
+// side list, member list and the rest take part in the same grid as the server bar. Everything that is not a section lives
+// in `.center` (App.jsx), so it all shares that one middle cell and nothing else is left to be placed by the grid.
 const at = (id) => `html[data-pan] [data-panel="${id}"]`;
 export function panelCss(l) {
   const { top, bottom, left, right } = l;
@@ -97,7 +99,7 @@ export function panelCss(l) {
   return [
     `html[data-pan] .app { display: grid; grid-template-columns: ${cols.join(' ')}; grid-template-rows: ${rows.join(' ')}; }`,
     'html[data-pan] .app > .body { display: contents; }',
-    `html[data-pan] .body > :not([data-panel]) { grid-row: ${cr}; grid-column: ${cc}; min-width: 0; min-height: 0; }`,
+    `html[data-pan] .center { display: flex; grid-row: ${cr}; grid-column: ${cc}; min-width: 0; min-height: 0; }`,
     ...top.map((id, i) => cell(id, i + 1, across)),
     ...bottom.map((id, i) => cell(id, cr + 1 + i, across)),
     ...left.map((id, i) => cell(id, cr, i + 1)),

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PRESETS, SECTIONS, SLOT_NAME, defaultPanels, isDefaultPanels, placePanel, sectionName, setPanels, slotOf, usePanels, useWide } from './panels.js';
+import { PRESETS, SECTIONS, SLOT_NAME, canGo, defaultPanels, isDefaultPanels, placePanel, sectionName, setPanels, slotOf, usePanels, useWide } from './panels.js';
 
 // Settings > Appearance > Layout: a live map of the app (top, left, right, bottom, with the chat in the middle). Drag a part to
 // another slot, or into the Hidden box to turn it off. The change is applied as you drop and kept on this device.
@@ -37,7 +37,7 @@ export default function LayoutSettings() {
     return <p className="muted small hint">The layout can be arranged on wide screens (a laptop or desktop window at least 1051 px across). Widen this window to change it; phones and small tablets keep the standard layout.</p>;
   }
 
-  const canDrop = (zone) => !!drag && (zone !== 'dock' || !!SECTIONS.find((s) => s.id === drag)?.canDock);
+  const canDrop = (zone) => !!drag && canGo(drag, zone);
   const zone = (name) => ({
     onDragOver: (e) => {
       if (!canDrop(name)) return;
@@ -74,6 +74,7 @@ export default function LayoutSettings() {
   const slot = (name) => {
     const axis = AXIS[name];
     const here = over?.zone === name;
+    const blocked = !!drag && !canDrop(name);
     const items = [];
     let j = 0;
     for (const id of pan[name]) {
@@ -83,9 +84,9 @@ export default function LayoutSettings() {
     }
     if (here && j === over.at) items.push(<i key="gap" className="lay-gap" />);
     return (
-      <div className={'lay-slot ' + axis + (here ? ' over' : '') + (canDrop(name) ? ' ready' : '')} role="group" aria-label={SLOT_NAME[name] + ' slot'} {...zone(name)}>
+      <div className={'lay-slot ' + axis + (here ? ' over' : '') + (canDrop(name) ? ' ready' : '') + (blocked ? ' no' : '')} role="group" aria-label={SLOT_NAME[name] + ' slot'} {...zone(name)}>
         {items}
-        {pan[name].length === 0 && !here && <span className="lay-empty">{axis === 'rows' ? 'Drop here' : '+'}</span>}
+        {pan[name].length === 0 && !here && <span className="lay-empty">{SLOT_NAME[name]}</span>}
       </div>
     );
   };
@@ -100,7 +101,7 @@ export default function LayoutSettings() {
 
   return (
     <div className="lay">
-      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. With a part focused, the arrow keys move it within its slot. Phones and small tablets keep the standard layout.</p>
+      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. The side and member lists only go left or right; the other parts go anywhere. With a part focused, the arrow keys move it within its slot. Phones and small tablets keep the standard layout.</p>
 
       <div className="lay-presets" role="group" aria-label="Layout presets">
         {PRESETS.map(([name, l]) => (

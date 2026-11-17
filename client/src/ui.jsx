@@ -157,6 +157,8 @@ const PATHS = {
   headphonesoff: <><path d="M4.5 15v-3a7.5 7.5 0 0115 0v3" /><rect x="3.5" y="14" width="4" height="6.5" rx="1.8" /><rect x="16.5" y="14" width="4" height="6.5" rx="1.8" /><path d="M4 4l16 16" /></>,
   signal: <path d="M5 19v-3M10 19v-6.5M15 19V9M20 19V5" />,
   back: <path d="M15 5l-7 7 7 7" />,
+  folder: <path d="M3.5 7.5a2 2 0 012-2h4l2 2.5h7a2 2 0 012 2v7.5a2 2 0 01-2 2h-13a2 2 0 01-2-2z" />,
+  exit: <><path d="M10 4.5H6.5a2 2 0 00-2 2v11a2 2 0 002 2H10" /><path d="M14 8l4 4-4 4M18 12H9.5" /></>,
   send: <path d="M20.5 3.5L10 14M20.5 3.5l-6.5 17-3.5-6.5L3.5 10.5z" />,
   expand: <path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" />,
   shrink: <path d="M20 10h-6V4M4 14h6v6M14 10l7-7M10 14l-7 7" />,

@@ -3,6 +3,9 @@
    (where it sits now: top, left, right, bottom, dock or off) on each section. This file only says how each section looks in each slot.
    Wide screens only: phones and the members drawer keep their own layout. */
 
+/* the page itself (App.jsx): no box of its own in the standard layout, the middle cell of the grid in a custom one (panels.js) */
+.center { display: contents; }
+
 /* the shortcuts section only exists on wide screens, and only when it is placed */
 .quick { display: none; }
 
@@ -27,13 +30,12 @@
   html[data-pan] .rail[data-slot=bottom] .rail-btn.on::after { bottom: auto; top: -7px; border-radius: 0 0 3px 3px; }
   html[data-pan] .rail::after { display: none; }
 
-  /* side and member lists on the top or bottom run across the page */
-  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) { width: auto; height: 240px; }
-  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) { width: auto; height: 200px; }
+  /* the side and member lists only go left or right (panels.js), so they are always a full-height column; the grid cell sets the height */
+  html[data-pan] :is(.side, .members)[data-panel] { height: auto; min-height: 0; }
 
   /* profile and voice on its own: a bar on the top or bottom, a card at the top of a column on the left or right */
   html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) { width: auto; }
-  html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) { width: 240px; height: auto; min-height: 58px; align-self: stretch; align-items: center; align-content: flex-start; flex-wrap: wrap; padding: 10px 8px; }
+  html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) { width: 240px; height: auto; min-height: 58px; align-self: start; align-items: center; align-content: flex-start; flex-wrap: wrap; padding: 10px 8px; }
   html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) .me { flex: 1 1 100%; }
 
   /* shortcuts */
