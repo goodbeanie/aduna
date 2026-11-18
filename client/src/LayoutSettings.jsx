@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PRESETS, SECTIONS, SLOTS, SLOT_NAME, canGo, canHide, evenPanel, getPanels, isDefaultPanels, defaultPanels, placePanel, sectionName, setPanels, slotOf, splitPanel, useOpts, usePanels, useWide, without } from './panels.js';
+import { PRESETS, SECTIONS, SLOTS, SLOT_NAME, canGo, canHide, evenPanel, getPanels, isDefaultPanels, defaultPanels, placePanel, sectionName, setPanels, slotOf, splitPanel, useOpts, usePanels, useLayoutScreen, usePhone, without } from './panels.js';
 import { openSection } from './SectionOptions.jsx';
 
 // Settings > Appearance > Layout: a live map of the app (top, left, right, bottom, with the chat in the middle). Drag a part to
@@ -16,12 +16,13 @@ const widthOf = (g) => (g.ids.length === 1 && g.ids[0] === 'rail' ? THIN : 56);
 export default function LayoutSettings() {
   const pan = usePanels();
   const opts = useOpts();
-  const wide = useWide();
+  const screen = useLayoutScreen(); // a wide window or a phone
+  const phone = usePhone(); // touch: a part is tapped (it opens its Customize dialog, which has the Place it buttons) rather than dragged
   const [drag, setDrag] = useState(null);
   const [over, setOver] = useState(null); // { slot, kind: 'join', group, at } | { slot, kind: 'new', at } | { slot, kind: 'tray' }
 
-  if (!wide) {
-    return <p className="muted small hint">The layout can be arranged on wide screens (a laptop or desktop window at least 1051 px across). Widen this window to change it; phones and small tablets keep the standard layout.</p>;
+  if (!screen) {
+    return <p className="muted small hint">The layout can be arranged in a wide window (at least 1051 px across) or on a phone held upright (up to 720 px across). This window is in between, so it keeps the standard layout. Make it wider or narrower to change it.</p>;
   }
 
   const canDrop = (zone) => !!drag && canGo(drag, zone) && (zone !== 'off' || canHide(pan, opts, drag)); // the last Settings button can't be hidden
@@ -154,10 +155,11 @@ export default function LayoutSettings() {
   };
 
   const chip = (id, fr) => (
-    <div key={id} data-chip={id} className={'lay-chip' + (drag === id ? ' drag' : '')} draggable tabIndex={0} role="button" title={SECTIONS.find((s) => s.id === id)?.hint}
+    <div key={id} data-chip={id} className={'lay-chip' + (drag === id ? ' drag' : '')} draggable={!phone} tabIndex={0} role="button" title={SECTIONS.find((s) => s.id === id)?.hint}
       style={fr ? { flex: `${fr} 1 0px` } : undefined}
       onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); setDrag(id); }}
       onDragEnd={() => { setDrag(null); setOver(null); }}
+      onClick={phone ? () => openSection(id) : undefined}
       onDoubleClick={() => openSection(id)}
       onKeyDown={(e) => (e.key === 'Enter' ? openSection(id) : keyMove(e, id))}>{sectionName(id)}</div>
   );
@@ -217,7 +219,8 @@ export default function LayoutSettings() {
 
   return (
     <div className="lay">
-      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. Drop it on another part to share that part&rsquo;s space, or between two bars or columns to give it one of its own. Where parts share space, drag the divider between them to size them, or double-click it to even them out. On the top or bottom the lists become a slim bar that scrolls sideways. With a part focused, the arrow keys move it. Double-click a part here (or press Enter on it), or double-click an empty spot of it in the app, to choose how its things line up (left, centre or right), whether it is light or dark, and which of them show.</p>
+      {phone && <p className="muted small hint">Arrange the parts of Aduna on this phone. Tap a part to choose where it goes (top, left, right, bottom, or hidden), whether it is light or dark, and which of its things show. A server bar on the left or right shows only on the Direct messages screen, not inside a chat or a server&rsquo;s channels. The side list stays the list screen and the member list stays a slide-over, so they can&rsquo;t be moved here. Where two parts share a bar or column, drag the divider between them to size them.</p>}
+      {!phone && <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. Drop it on another part to share that part&rsquo;s space, or between two bars or columns to give it one of its own. Where parts share space, drag the divider between them to size them, or double-click it to even them out. On the top or bottom the lists become a slim bar that scrolls sideways. With a part focused, the arrow keys move it. Double-click a part here (or press Enter on it), or double-click an empty spot of it in the app, to choose how its things line up (left, centre or right), whether it is light or dark, and which of them show.</p>}
 
       <div className="lay-presets" role="group" aria-label="Layout presets">
         {PRESETS.map(([name, l]) => (

@@ -1,7 +1,7 @@
 /* Section placement (Settings > Appearance > Layout). panels.js writes the grid itself (a constructed stylesheet, since the CSP
    refuses a <style> element with text) and sets data-pan on <html> when the layout is not the standard one; App.jsx puts data-panel (which section) and data-slot
    (where it sits now: top, left, right, bottom, dock or off) on each section. This file only says how each section looks in each slot.
-   Wide screens only: phones and the members drawer keep their own layout.
+   Wide screens (1051 px and up) and phones (up to 720 px): small tablets and the members drawer keep their own layout. The phone's look is its own block further down.
 
    Every section has two looks:
      column  (left, right)   a full-height column, the way the app has always looked
@@ -12,7 +12,7 @@
 /* the page itself (App.jsx): no box of its own in the standard layout, the middle cell of the grid in a custom one (panels.js) */
 .main-cell { display: contents; }
 
-/* the shortcuts section only exists on wide screens, and only when it is placed */
+/* the shortcuts section only exists where the layout is on (wide screens and phones), and only when it is placed */
 .quick { display: none; }
 
 @media (min-width: 1051px) {
@@ -154,6 +154,78 @@ html[data-grad][data-pan] .quick:is([data-slot=top], [data-slot=bottom]) { backg
   html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head.static { min-width: 190px; max-width: none; }
   html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .storage-bar { display: none; }
   html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) > .user-panel .me > div > .muted { display: none; }
+}
+
+/* ---------- phones (up to 720 px): the same sections in the same four slots ----------
+   The server bar, profile and voice, Shortcuts and Unread move; the side list and the member list keep their phone behaviour (panels.js, phoneLayout).
+   A bar is slim and scrolls sideways; a column is narrow (64 px, icons only) so the page keeps its room. A server bar on the left or right is
+   only there on the Direct messages screen (.app.dm-list, App.jsx), the way Discord shows its server list, and not inside a chat or a server's channels. */
+@media (max-width: 720px) {
+  html[data-pan] :is(.rail, .user-panel, .quick)[data-panel]:not([data-slot=dock]) { border-style: solid; border-color: var(--line); border-width: 0; }
+  html[data-pan] :is(.rail, .user-panel, .quick)[data-slot=top] { border-bottom-width: 1px; }
+  html[data-pan] :is(.rail, .user-panel, .quick)[data-slot=bottom] { border-top-width: 1px; }
+  html[data-pan] :is(.rail, .user-panel, .quick)[data-slot=left] { border-right-width: 1px; }
+  html[data-pan] :is(.rail, .user-panel, .quick)[data-slot=right] { border-left-width: 1px; }
+
+  /* the notch: the server bar carries the padding for it when it is the top bar. When something else is on top, the app does, and the drawers and call strip start below it */
+  html[data-pan]:not([data-pan-rail=top]) { --rail-h: env(safe-area-inset-top, 0px); }
+  html[data-pan]:not([data-pan-rail=top]) .app { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); }
+  html[data-pan]:not([data-pan-rail=top]) .rail { padding-top: 0; }
+  html[data-pan] .body:not(.list-open):has(.call-strip) .main-cell { box-sizing: border-box; padding-top: 52px; } /* .body has no box of its own here, so the strip's room is the page's */
+
+  /* the strips look as they do on a wide screen: edge fades while there is more to scroll to */
+  html[data-pan] [data-edge=start] { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px); mask-image: linear-gradient(to right, transparent, #000 24px); }
+  html[data-pan] [data-edge=end] { -webkit-mask-image: linear-gradient(to left, transparent, #000 24px); mask-image: linear-gradient(to left, transparent, #000 24px); }
+  html[data-pan] [data-edge=both] { -webkit-mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent); mask-image: linear-gradient(to right, transparent, #000 24px, #000 calc(100% - 24px), transparent); }
+
+  /* a bar at the foot sits above the tab bar when that is showing (it carries the home-indicator padding), and carries the padding itself when it is not */
+  html[data-pan] .rail[data-slot=bottom] { height: calc(60px + env(safe-area-inset-bottom, 0px)); padding: 0 max(12px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(12px, env(safe-area-inset-left, 0px)); }
+  html[data-pan] .app:has(.tabbar.show) .rail[data-slot=bottom] { height: 60px; }
+  html[data-pan] .app:has(.tabbar.show) :is(.user-panel, .quick)[data-slot=bottom] { padding-bottom: 0; }
+
+  /* server bar: a row of round tiles on the top or bottom, a column of them on the left or right (Direct messages screen only) */
+  html[data-pan] .rail[data-slot=bottom] .rail-btn.on::after { bottom: auto; top: -9px; border-radius: 0 0 3px 3px; }
+  html[data-pan] .rail:is([data-slot=left], [data-slot=right]) { display: none; }
+  html[data-pan] .app.dm-list .rail:is([data-slot=left], [data-slot=right]) { display: flex; height: auto; width: 64px; flex-direction: column; padding: 8px 0; }
+  html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-list { flex: 0 1 auto; flex-direction: column; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 6px 8px; }
+  html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-sep { width: 32px; height: 2px; margin: 4px 0; }
+  html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-upd { margin: auto 0 0; width: 56px; height: auto; flex-direction: column; gap: 4px; padding: 6px 4px; }
+  html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-upd span,
+  html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-upd .pbar { display: none; }
+  html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-btn.on::after { top: 22%; bottom: 22%; height: auto; width: 3px; margin: 0; border-radius: 3px; }
+  html[data-pan] .rail[data-slot=left] .rail-btn.on::after { left: -8px; right: auto; }
+  html[data-pan] .rail[data-slot=right] .rail-btn.on::after { right: -8px; left: auto; }
+  html[data-pan] .rail-list.fade-t { -webkit-mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); }
+  html[data-pan] .rail-list.fade-b { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+  html[data-pan] .rail-list.fade-t.fade-b { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
+
+  /* profile and voice: a bar on the top or bottom; on the left or right just your picture with its buttons stacked under it */
+  html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) { width: auto; padding: 0 12px; gap: 6px; }
+  html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) .me { flex: 1 1 0; min-width: 0; }
+  html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) .me > div { min-width: 0; overflow: hidden; }
+  html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) .me-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) > :not(.me) { flex: none; }
+  html[data-pan] .user-panel:is([data-slot=top], [data-slot=left], [data-slot=right]) { padding-bottom: 0; }
+  html[data-pan] .user-panel[data-slot=top] { min-height: 56px; }
+  html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) { width: 64px; height: auto; min-height: 0; flex-direction: column; align-items: center; justify-content: flex-start; align-self: start; gap: 6px; padding: 10px 0; }
+  html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) .me { flex: none; padding: 0; }
+  html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) .me > div,
+  html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) .credit-chip,
+  html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) .panel-jump { display: none; }
+
+  /* shortcuts and unread: one slim row on the top or bottom, a narrow column of icons on the left or right (Unread's column is wider, it has names) */
+  html[data-pan] .quick { display: flex; gap: 4px; padding: 8px; min-width: 0; background: var(--bg3); overflow: auto; }
+  html[data-grad][data-pan] .quick { background: color-mix(in srgb, var(--bg3) 62%, transparent); }
+  html[data-pan] .quick-btn { min-height: 44px; }
+  html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) { flex-direction: row; flex-wrap: nowrap; align-items: center; height: 56px; padding: 0 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) > * { flex: none; }
+  html[data-pan] .quick[data-slot=bottom] { height: calc(56px + env(safe-area-inset-bottom, 0px)); padding-bottom: env(safe-area-inset-bottom, 0px); }
+  html[data-pan] .app:has(.tabbar.show) .quick[data-slot=bottom] { height: 56px; }
+  html[data-pan] .quick:is([data-slot=left], [data-slot=right]) { width: 64px; flex-direction: column; align-items: center; align-self: stretch; }
+  html[data-pan] .quick:not(.unread-panel):is([data-slot=left], [data-slot=right]) .quick-btn { justify-content: center; padding: 10px; }
+  html[data-pan] .quick:not(.unread-panel):is([data-slot=left], [data-slot=right]) .quick-btn > span { display: none; }
+  html[data-pan] .quick:not(.unread-panel):is([data-slot=left], [data-slot=right]) .quick-btn > svg { display: block !important; } /* a button in a narrow column is its icon, so "icon off" doesn't apply here */
+  html[data-pan] .unread-panel:is([data-slot=left], [data-slot=right]) { width: min(44vw, 190px); align-items: stretch; }
 }
 
 .quick-btn { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--muted); text-align: left; white-space: nowrap; }

@@ -1,5 +1,8 @@
-// Where the app's sections sit. Kept on this device and only used on wide screens (panels.css);
-// phones and small tablets keep the standard layout (bottom tab bar).
+// Where the app's sections sit. Kept on this device and used on wide screens (a window at least 1051 px across) and on phones
+// (up to 720 px across, panels.css). Small tablets in between keep the standard layout.
+// On a phone the server bar, profile and voice, Shortcuts and Unread go in all four slots. The side list and the member list stay in
+// the page, because on a phone the side list is a screen of its own and the member list slides in from the edge (phoneLayout).
+// A server bar on the left or right only shows on the Direct messages screen (panels.css), not inside a chat or a server's channel list.
 //
 // A layout is one ordered list per slot:
 //   { top: [group], left: [group], right: [group], bottom: [group], dock: [id], off: [id] }
@@ -18,6 +21,11 @@ import { buildPalette, luminance } from './themes.js';
 const KEY = 'aduna-panels';
 const OPTS_KEY = 'aduna-panel-opts';
 const STYLE_ID = 'aduna-panels-style';
+
+// Where the layout applies: a wide window, or a phone. Between the two (small tablets) the standard layout stays.
+const WIDE = '(min-width: 1051px)';
+const PHONE = '(max-width: 720px)';
+const EITHER = `${WIDE}, ${PHONE}`;
 
 export const SLOTS = ['top', 'left', 'right', 'bottom'];
 export const SLOT_NAME = { top: 'Top', left: 'Left', right: 'Right', bottom: 'Bottom', dock: 'Under side list', off: 'Hidden' };
@@ -188,9 +196,27 @@ export const PRESETS = [
 // Sections that share a group all sit in the same grid cell and divide it by their shares, without a wrapper around them:
 //   in a bar, each one gets a width and a left margin as a percentage of the bar (percentages on a grid item are measured against its cell);
 //   in a column, the middle of the grid is cut into rows wherever two stacked sections meet, and each one spans the rows it covers.
+// On a phone the side list is a screen of its own (it takes the whole page while the chat is closed) and the member list is a slide-over, so neither
+// can sit in a bar or beside the page. The layout a phone uses is the saved one without them; they stay in the middle where the standard phone layout has them.
+const PAGE_BOUND = ['side', 'members'];
+function phoneLayout(l) {
+  const out = emptyLayout();
+  for (const k of SLOTS) {
+    out[k] = l[k].map((g) => {
+      const ids = [], fr = [];
+      g.ids.forEach((id, i) => { if (!PAGE_BOUND.includes(id)) { ids.push(id); fr.push(g.fr[i]); } });
+      return ids.length ? mkGroup(ids, fr) : null;
+    }).filter(Boolean);
+  }
+  out.dock = l.dock.slice();
+  out.off = l.off.slice();
+  return out;
+}
+
 const at = (id) => `html[data-pan] [data-panel="${id}"]`;
 const pct = (v) => `${r3(v * 100)}%`;
-export function panelCss(l) {
+export function panelCss(layout, phone = false) {
+  const l = phone ? phoneLayout(layout) : layout;
   const { top, bottom, left, right } = l;
   const cuts = new Set([0, 1]);
   for (const g of [...left, ...right]) {
@@ -201,7 +227,7 @@ export function panelCss(l) {
   const mid = line.length - 1; // rows the page spans
   const lineAt = (v) => Math.max(0, line.findIndex((x) => Math.abs(x - v) < 0.0005));
   const cols = [...left.map(() => 'auto'), 'minmax(0, 1fr)', ...right.map(() => 'auto')];
-  const rows = [...top.map(() => 'auto'), ...(mid === 1 ? ['minmax(0, 1fr)'] : line.slice(1).map((v, i) => `minmax(0, ${r3((v - line[i]) * 1000)}fr)`)), ...bottom.map(() => 'auto')];
+  const rows = [...top.map(() => 'auto'), ...(mid === 1 ? ['minmax(0, 1fr)'] : line.slice(1).map((v, i) => `minmax(0, ${r3((v - line[i]) * 1000)}fr)`)), ...bottom.map(() => 'auto'), ...(phone ? ['auto'] : [])]; // a phone has one more row at the foot: the tab bar under the list
   const cc = left.length + 1, cr = top.length + 1, endMid = cr + mid, across = `1 / ${cols.length + 1}`, down = `${cr} / ${endMid}`;
   const rules = [
     `html[data-pan] .app { display: grid; grid-template-columns: ${cols.join(' ')}; grid-template-rows: ${rows.join(' ')}; }`,
@@ -231,7 +257,13 @@ export function panelCss(l) {
   bottom.forEach((g, i) => strip(g, endMid + i));
   left.forEach((g, i) => column(g, i + 1));
   right.forEach((g, i) => column(g, cc + 1 + i));
-  for (const id of l.off) rules.push(`${at(id)} { display: none !important; }`);
+  if (phone) {
+    // the side list shares the middle cell with the page: one of the two shows at a time (the list while the chat is closed). The tab bar keeps the last row.
+    rules.push(`${at('side')} { grid-row: ${down}; grid-column: ${cc}; }`);
+    rules.push('html[data-pan] .body.list-open .main-cell { display: none; }');
+    rules.push(`html[data-pan] .tabbar { grid-row: ${endMid + bottom.length}; grid-column: ${across}; }`);
+  }
+  for (const id of l.off) if (!(phone && id === 'side')) rules.push(`${at(id)} { display: none !important; }`); // a phone's list screen can't be hidden: nothing else would be left to open
   return rules.join('\n');
 }
 
@@ -242,10 +274,12 @@ export function applyPanels(l) {
   if (isDefaultPanels(l)) {
     el.removeAttribute('data-pan');
     clearSheet('layout');
+    clearSheet('layoutPhone');
     return;
   }
   el.setAttribute('data-pan', '1');
-  writeSheet('layout', `@media (min-width: 1051px) {\n${panelCss(l)}\n}`);
+  writeSheet('layout', `@media ${WIDE} {\n${panelCss(l)}\n}`);
+  writeSheet('layoutPhone', `@media ${PHONE} {\n${panelCss(l, true)}\n}`); // one rule per sheet: a sheet that has to be filled through insertRule takes only one
 }
 
 // ----- what each section shows, and where its content sits (double-click a part in Settings > Appearance > Layout) -----
@@ -403,7 +437,7 @@ export function optsCss(opts) {
     if (q.icons === false) rules.push(`${sc} .quick-btn > svg { display: none !important; }`);
     if (q.order) q.order.forEach((sid, i) => rules.push(`${sc} [data-item="${sid}"] { order: ${i}; }`));
   }
-  return rules.length ? `@media (min-width: 1051px) {\n${rules.join('\n')}\n}` : '';
+  return rules.length ? `@media ${EITHER} {\n${rules.join('\n')}\n}` : '';
 }
 
 // ----- a section that is light or dark whatever the theme is (double-click a part > Colours) -----
@@ -427,7 +461,7 @@ export function schemeCss(opts) {
     rules.push(`${sc} { ${vars}; color-scheme: ${o.scheme}; color: var(--text); }`);
     rules.push(`html[data-grad] ${sc} { background: var(${GRAD_SURFACE[id] || '--bg2'}) !important; }`);
   }
-  return rules.length ? `@media (min-width: 1051px) {\n${rules.join('\n')}\n}` : '';
+  return rules.length ? `@media ${EITHER} {\n${rules.join('\n')}\n}` : '';
 }
 
 // The site's CSP has no 'unsafe-inline' for styles, so a <style> element filled with text is refused. A stylesheet built through the CSSOM is not.
@@ -487,15 +521,19 @@ export const useOpts = () => useSyncExternalStore(subscribePanels, getOpts, getO
 export function setLayoutAllowed(v) { if (!!v !== allowed) { allowed = !!v; refresh(); } }
 export const useLayoutAllowed = () => useSyncExternalStore(subscribePanels, () => allowed, () => allowed);
 
-// The layout only applies on wide screens (the same breakpoint as panels.css). Below it every section stays where the standard layout has it.
-const WIDE = '(min-width: 1051px)';
-const wideNow = () => typeof window === 'undefined' || typeof window.matchMedia !== 'function' || window.matchMedia(WIDE).matches;
-const wideWatch = (fn) => {
-  const m = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(WIDE) : null;
+// Which screens the layout applies on (the same breakpoints as panels.css). Between a phone and a wide window every section stays where the standard layout has it.
+const nowFor = (q) => () => typeof window === 'undefined' || typeof window.matchMedia !== 'function' || window.matchMedia(q).matches;
+const watchFor = (q) => (fn) => {
+  const m = typeof window !== 'undefined' && typeof window.matchMedia === 'function' ? window.matchMedia(q) : null;
   m?.addEventListener?.('change', fn);
   return () => m?.removeEventListener?.('change', fn);
 };
+const wideNow = nowFor(WIDE), wideWatch = watchFor(WIDE);
+const phoneNow = nowFor(PHONE), phoneWatch = watchFor(PHONE);
+const eitherNow = nowFor(EITHER), eitherWatch = watchFor(EITHER);
 export const useWide = () => useSyncExternalStore(wideWatch, wideNow, () => true);
+export const usePhone = () => useSyncExternalStore(phoneWatch, phoneNow, () => false);
+export const useLayoutScreen = () => useSyncExternalStore(eitherWatch, eitherNow, () => true); // wide or phone: the layout is on
 
 // Whatever was loaded or changed, keep a Settings button on screen (see ensureSettings).
 function keepSettings() {

@@ -1,11 +1,11 @@
 // The behaviour a strip needs (the side list, the member list or the shortcuts when they sit on the top or bottom): they scroll sideways,
 // so the mouse wheel scrolls them that way, an edge fades while there is more to see on it, and the channel you are in stays in view.
-// Only the look is in panels.css. Nothing here runs on a phone or in the standard layout (there are no strips there).
+// Only the look is in panels.css. Nothing here runs in the standard layout or on a tablet-sized window (there are no strips there). A phone only has the Shortcuts strip.
 const SEL = [
   'html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) > .side-list',
   'html[data-pan] :is(.members, .quick):is([data-slot=top], [data-slot=bottom])',
 ].join(', ');
-const WIDE = '(min-width: 1051px)';
+const WIDE = '(min-width: 1051px), (max-width: 720px)'; // a wide window or a phone: where the layout is on
 const EDGE = 2; // pixels of slack before an edge counts as reached
 
 const wide = () => typeof window === 'undefined' || typeof window.matchMedia !== 'function' || window.matchMedia(WIDE).matches;

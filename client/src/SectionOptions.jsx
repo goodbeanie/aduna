@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon, Modal } from './ui.jsx';
 import { CLIPS_ENABLED } from './features.js';
-import { ITEMS, QUICK_GAP, QUICK_GAP_MAX, SECTIONS, SLOT_NAME, canAlign, canSwitchOff, getPanels, itemOn, placePanel, quickOrder, sectionName, setPanels, setSection, slotOf, useLayoutAllowed, useOpts, usePanels, useWide } from './panels.js';
+import { ITEMS, QUICK_GAP, QUICK_GAP_MAX, SECTIONS, SLOT_NAME, canAlign, canHide, canSwitchOff, getPanels, itemOn, placePanel, quickOrder, sectionName, setPanels, setSection, slotOf, useLayoutAllowed, useOpts, usePanels, useLayoutScreen, usePhone } from './panels.js';
 
 // Customize one section of the app (the server bar, side list, member list, profile and voice, Shortcuts, Unread): double-click an empty spot of it,
-// or double-click its part in Settings > Appearance > Layout (openSection). Where it sits, whether it is light or dark, whether its things sit left, middle or right,
+// or double-click (on a phone, tap) its part in Settings > Appearance > Layout (openSection). Where it sits, whether it is light or dark, whether its things sit left, middle or right,
 // and which of its things show. Everything applies as it is changed and is kept on this device (panels.js: setSection, setPanels).
-// Only on wide screens and only for the accounts that have the layout editor, like the rest of the layout.
+// On wide screens and phones, and only for the accounts that have the layout editor, like the rest of the layout.
 export const openSection = (id) => window.dispatchEvent(new CustomEvent('aduna:section', { detail: id }));
 
 // a double-click on any of these is their own business (a button, a field, a channel), not a request to customize
@@ -93,7 +93,8 @@ function QuickOrder({ opts }) {
 
 export default function SectionOptions() {
   const allowed = useLayoutAllowed();
-  const wide = useWide();
+  const screen = useLayoutScreen();
+  const phone = usePhone();
   const pan = usePanels();
   const opts = useOpts();
   const [id, setId] = useState(null);
@@ -101,7 +102,7 @@ export default function SectionOptions() {
   useEffect(() => {
     const open = (e) => { if (ITEMS[e.detail]) setId(e.detail); };
     const dbl = (e) => {
-      if (!allowed || !wide || !(e.target instanceof Element) || e.target.closest(OWN)) return;
+      if (!allowed || !screen || !(e.target instanceof Element) || e.target.closest(OWN)) return;
       const sid = e.target.closest('[data-panel]')?.getAttribute('data-panel');
       if (!sid || !ITEMS[sid]) return;
       window.getSelection?.()?.removeAllRanges(); // the double-click would otherwise leave a word selected
@@ -110,13 +111,19 @@ export default function SectionOptions() {
     window.addEventListener('aduna:section', open);
     document.addEventListener('dblclick', dbl);
     return () => { window.removeEventListener('aduna:section', open); document.removeEventListener('dblclick', dbl); };
-  }, [allowed, wide]);
+  }, [allowed, screen]);
 
-  useEffect(() => { if (id && (!allowed || !wide)) setId(null); }, [id, allowed, wide]);
-  if (!id || !allowed || !wide) return null;
+  useEffect(() => { if (id && (!allowed || !screen)) setId(null); }, [id, allowed, screen]);
+  if (!id || !allowed || !screen) return null;
 
   const section = SECTIONS.find((s) => s.id === id);
   const slot = slotOf(pan, id);
+  // Where it can go. Hidden is here too (a phone can't drag a part into the Hidden box), unless that would leave no Settings button.
+  // On a phone the side list is the list screen and the member list is a slide-over, so they stay where they are: the member list can only be shown or hidden.
+  const places = (section?.where || []).filter((k) => !phone || !['side', 'members'].includes(id));
+  if (phone && id === 'members') places.push(slot === 'off' ? 'right' : slot);
+  if (slot === 'off' || (canHide(pan, opts, id) && !(phone && id === 'side'))) places.push('off');
+  const placeLabel = (k) => (phone && id === 'members' && k !== 'off' ? 'Slide-over' : SLOT_NAME[k]);
   const list = ITEMS[id].filter((it) => !it.clips || CLIPS_ENABLED);
   const align = opts[id]?.align || null;
   const textOn = opts.quick?.text !== false;
@@ -128,8 +135,14 @@ export default function SectionOptions() {
       <div className="so">
         <p className="muted small">{section?.hint}. Changes apply at once and are kept on this device.</p>
 
-        <div className="so-label">PLACE IT</div>
-        <Seg label="Where it sits" value={slot} options={(section?.where || []).map((k) => [k, SLOT_NAME[k]])} onPick={(k) => setPanels(placePanel(getPanels(), id, k))} />
+        {places.length > 0 ? (
+          <>
+            <div className="so-label">PLACE IT</div>
+            <Seg label="Where it sits" value={slot} options={places.map((k) => [k, placeLabel(k)])} onPick={(k) => setPanels(placePanel(getPanels(), id, k))} />
+          </>
+        ) : (
+          <p className="muted small">On a phone the side list is the list screen, so it stays where it is.</p>
+        )}
 
         <div className="so-label">COLOURS</div>
         <Seg label="Light or dark" value={opts[id]?.scheme || null} options={SCHEME_OPTIONS} onPick={(v) => setSection(id, { scheme: v })} />

@@ -47,7 +47,7 @@ import NameWarning from './NameWarning.jsx';
 import ModWarning from './ModWarning.jsx';
 import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
-import { slotOf, usePanels, useWide, setLayoutAllowed } from './panels.js';
+import { slotOf, usePanels, useLayoutScreen, setLayoutAllowed } from './panels.js';
 import QuickPanel from './QuickPanel.jsx';
 import SectionOptions from './SectionOptions.jsx';
 import UnreadPanel from './UnreadPanel.jsx';
@@ -207,12 +207,12 @@ export default function App() {
 
 function Main({ me, setMe, privKey, openServerId }) {
   const { t: tr } = useLang(); // the main screen is its own component, so it needs its own copy
-  const pan = usePanels(); // where each section sits (Settings > Appearance > Layout); only used on wide screens
-  const wideScreen = useWide();
+  const pan = usePanels(); // where each section sits (Settings > Appearance > Layout); used on wide screens and on phones
+  const layoutScreen = useLayoutScreen();
   // the layout editor is for moderators, admins and creator accounts; everyone else keeps the standard layout
   const layoutOpen = !!(me.creator || me.canReview);
   useEffect(() => { setLayoutAllowed(layoutOpen); return () => setLayoutAllowed(false); }, [layoutOpen]);
-  const placeOf = (id) => (wideScreen || id !== 'profile' ? slotOf(pan, id) : 'dock'); // below the wide breakpoint the profile bar always stays in the side list
+  const placeOf = (id) => (layoutScreen || id !== 'profile' ? slotOf(pan, id) : 'dock'); // on a small tablet the profile bar always stays in the side list
   const firstOpen = useRef(openServerId); // an invite link just joined this server: start there
   // Developer test mode (Settings > Developer): look as if Halloween or Christmas were on, on every device signed in to this account.
   useEffect(() => {
@@ -1090,7 +1090,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   return (
     <InviteContext.Provider value={inviteCtx}>
-    <div className="app" data-ui="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
+    <div className={'app' + (showList && view.kind === 'dm' ? ' dm-list' : '')} data-ui="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
       {/* server bar (top) */}
       <nav className="rail" data-ui="server-bar" data-panel="rail" data-slot={placeOf('rail')}>
         <button data-item="dms" className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
@@ -1276,7 +1276,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         {placeOf('profile') === 'dock' && userPanel}
       </aside>
       {/* profile and voice as a section of its own (Settings > Appearance > Layout): a direct child of the body so it joins the layout grid */}
-      {wideScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('profile')) && userPanel}
+      {layoutScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('profile')) && userPanel}
 
       {/* main: the page itself. .main-cell takes no space of its own until a custom layout is on (panels.css), then it is the middle cell */}
       <div className="main-cell">
@@ -1386,7 +1386,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         </>
       )}
       {/* shortcuts: a section that is off until it is placed in a slot (Settings > Appearance > Layout) */}
-      {wideScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('quick')) && (
+      {layoutScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('quick')) && (
         <QuickPanel slot={placeOf('quick')}
           onFriends={() => { setView({ kind: 'dm', userId: null }); setShowList(false); setMembersOpen(false); }}
           onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}
@@ -1399,7 +1399,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onAddServer={() => setModal({ type: 'server' })} />
       )}
       {/* unread: every channel, group and message with something new; off until it is placed in a slot */}
-      {wideScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('unread')) && (() => {
+      {layoutScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('unread')) && (() => {
         const items = [];
         for (const sv of servers) {
           for (const c of sv.channels) {
