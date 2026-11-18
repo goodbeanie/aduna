@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { PRESETS, SECTIONS, SLOTS, SLOT_NAME, canGo, evenPanel, getPanels, isDefaultPanels, defaultPanels, placePanel, sectionName, setPanels, slotOf, splitPanel, usePanels, useWide, without } from './panels.js';
+import { PRESETS, SECTIONS, SLOTS, SLOT_NAME, canGo, canHide, evenPanel, getPanels, isDefaultPanels, defaultPanels, placePanel, sectionName, setPanels, slotOf, splitPanel, useOpts, usePanels, useWide, without } from './panels.js';
 import { openSection } from './SectionOptions.jsx';
 
 // Settings > Appearance > Layout: a live map of the app (top, left, right, bottom, with the chat in the middle). Drag a part to
@@ -15,6 +15,7 @@ const widthOf = (g) => (g.ids.length === 1 && g.ids[0] === 'rail' ? THIN : 56);
 
 export default function LayoutSettings() {
   const pan = usePanels();
+  const opts = useOpts();
   const wide = useWide();
   const [drag, setDrag] = useState(null);
   const [over, setOver] = useState(null); // { slot, kind: 'join', group, at } | { slot, kind: 'new', at } | { slot, kind: 'tray' }
@@ -23,7 +24,7 @@ export default function LayoutSettings() {
     return <p className="muted small hint">The layout can be arranged on wide screens (a laptop or desktop window at least 1051 px across). Widen this window to change it; phones and small tablets keep the standard layout.</p>;
   }
 
-  const canDrop = (zone) => !!drag && canGo(drag, zone);
+  const canDrop = (zone) => !!drag && canGo(drag, zone) && (zone !== 'off' || canHide(pan, opts, drag)); // the last Settings button can't be hidden
   // A bar or column that holds only the part being dragged disappears while it is lifted, so every position below counts without it.
   const mine = (g) => g.ids.length === 1 && g.ids[0] === drag;
   const lifted = (slot, upTo) => pan[slot].slice(0, upTo).filter(mine).length;
@@ -241,7 +242,7 @@ export default function LayoutSettings() {
 
       <div className="lay-moves">
         <button type="button" className="btn small-btn" disabled={isDefaultPanels(pan)} onClick={() => setPanels(defaultPanels())}>Reset layout</button>
-        <span className="muted small">Hiding the side list moves Profile and voice to the left edge so it stays within reach.</span>
+        <span className="muted small">Hiding the side list moves Profile and voice to the left edge so it stays within reach. A Settings button always stays on screen, in Profile and voice or in Shortcuts, so Profile and voice can only be hidden while Shortcuts shows Settings.</span>
       </div>
     </div>
   );

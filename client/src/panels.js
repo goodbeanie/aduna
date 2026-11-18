@@ -280,17 +280,17 @@ export const ITEMS = {
     { id: 'settings', name: 'Settings', on: true },
   ],
   quick: [
-    { id: 'search', name: 'Jump to…', on: true },
-    { id: 'friends', name: 'Friends', on: true },
-    { id: 'explorer', name: 'Explorer', on: true },
-    { id: 'shop', name: 'Shop', on: true },
-    { id: 'settings', name: 'Settings', on: true },
-    { id: 'quests', name: 'Quests', on: false },
-    { id: 'dms', name: 'Direct messages', on: false },
-    { id: 'clips', name: 'Clips', on: false, clips: true },
-    { id: 'emoji', name: 'Custom emoji', on: false },
-    { id: 'profile', name: 'Your profile', on: false },
-    { id: 'addserver', name: 'Create or join a server', on: false },
+    { id: 'search', name: 'Jump to…', on: true, icon: 'search' },
+    { id: 'friends', name: 'Friends', on: true, icon: 'users' },
+    { id: 'explorer', name: 'Explorer', on: true, icon: 'globe' },
+    { id: 'shop', name: 'Shop', on: true, icon: 'bag' },
+    { id: 'settings', name: 'Settings', on: true, icon: 'gear' },
+    { id: 'quests', name: 'Quests', on: false, icon: 'flag' },
+    { id: 'dms', name: 'Direct messages', on: false, icon: 'message' },
+    { id: 'clips', name: 'Clips', on: false, clips: true, icon: 'video' },
+    { id: 'emoji', name: 'Custom emoji', on: false, icon: 'smile' },
+    { id: 'profile', name: 'Your profile', on: false, icon: 'user' },
+    { id: 'addserver', name: 'Create or join a server', on: false, icon: 'plus' },
   ],
   unread: [
     { id: 'channels', name: 'Channels', on: true },
@@ -300,6 +300,20 @@ export const ITEMS = {
 };
 const ALIGN = ['start', 'center', 'end'];
 const JUSTIFY = { start: 'safe flex-start', center: 'safe center', end: 'safe flex-end' };
+
+// Shortcuts only (QuickPanel.jsx): the spacing between its buttons in px, whether they show their text and their icon (never both off),
+// and the order they come in. QUICK_ORDER is the order the buttons are drawn in, so it is also the order when nobody has chosen.
+//   quick: { gap: 0..40, text: false, icons: false, order: [item ids] }
+export const QUICK_ORDER = ['search', 'dms', 'friends', 'explorer', 'shop', 'quests', 'clips', 'emoji', 'profile', 'addserver', 'settings'];
+export const QUICK_GAP = 4; // the spacing in panels.css
+export const QUICK_GAP_MAX = 40;
+const fullOrder = (list) => {
+  const seen = new Set();
+  const out = [];
+  for (const id of [...(Array.isArray(list) ? list : []), ...QUICK_ORDER]) if (QUICK_ORDER.includes(id) && !seen.has(id)) { seen.add(id); out.push(id); }
+  return out;
+};
+export const quickOrder = (opts) => fullOrder(opts?.quick?.order);
 
 export function normalizeOpts(raw) {
   const out = {};
@@ -312,12 +326,48 @@ export function normalizeOpts(raw) {
     const items = {};
     for (const it of ITEMS[id]) if (typeof o.items?.[it.id] === 'boolean' && o.items[it.id] !== it.on) items[it.id] = o.items[it.id];
     if (Object.keys(items).length) clean.items = items;
+    if (id === 'quick') {
+      if (Number.isFinite(o.gap)) clean.gap = clamp(Math.round(o.gap), 0, QUICK_GAP_MAX);
+      if (o.text === false) clean.text = false;
+      if (o.icons === false && o.text !== false) clean.icons = false; // a button with neither text nor icon would be empty
+      const order = fullOrder(o.order);
+      if (order.join() !== QUICK_ORDER.join()) clean.order = order;
+    }
     if (Object.keys(clean).length) out[id] = clean;
   }
   return out;
 }
 
 export const itemOn = (opts, id, item) => (typeof opts[id]?.items?.[item.id] === 'boolean' ? opts[id].items[item.id] : item.on);
+
+// ----- a Settings button is always on screen -----
+// Settings is also where the layout is changed, so a layout with no Settings button would lock the person out of undoing it.
+// Two parts carry one: Profile and voice, and Shortcuts. At least one of them must be placed (not Hidden) with its Settings switched on.
+const SETTINGS_IN = ['profile', 'quick'];
+const settingsItem = (id) => ITEMS[id].find((it) => it.id === 'settings');
+const settingsOn = (l, opts, id) => slotOf(l, id) !== 'off' && itemOn(opts, id, settingsItem(id));
+export const settingsReachable = (l, opts) => SETTINGS_IN.some((id) => settingsOn(l, opts, id));
+// Would hiding this part leave no Settings button?
+export function canHide(l, opts, id) {
+  if (!SETTINGS_IN.includes(id)) return true;
+  const h = without(l, id);
+  h.off.push(id);
+  return settingsReachable(h, opts);
+}
+// Would switching this thing off leave no Settings button?
+export function canSwitchOff(l, opts, sectionId, itemId) {
+  if (itemId !== 'settings' || !SETTINGS_IN.includes(sectionId)) return true;
+  const o = { ...opts, [sectionId]: { ...(opts[sectionId] || {}), items: { ...(opts[sectionId]?.items || {}), settings: false } } };
+  return settingsReachable(l, o);
+}
+// A layout or option set that left none gets one back: where Settings already sits if a part is placed, otherwise the Profile and voice bar.
+export function ensureSettings(l, opts) {
+  if (settingsReachable(l, opts)) return { layout: l, opts };
+  const target = slotOf(l, 'profile') !== 'off' ? 'profile' : slotOf(l, 'quick') !== 'off' ? 'quick' : 'profile';
+  const layout = slotOf(l, target) === 'off' ? placePanel(l, target, 'dock') : l;
+  const o = { ...opts, [target]: { ...(opts[target] || {}), items: { ...(opts[target]?.items || {}), settings: true } } };
+  return { layout, opts: normalizeOpts(o) };
+}
 
 // Where the alignment can mean something: a bar (any part of it), or a column for the parts that are a plain stack of buttons.
 export const canAlign = (id, slot) => ((slot === 'top' || slot === 'bottom') && ['rail', 'profile', 'quick', 'unread', 'members'].includes(id)) || ((slot === 'left' || slot === 'right') && ['rail', 'quick', 'unread'].includes(id));
@@ -338,6 +388,17 @@ export function optsCss(opts) {
     // a column: the tiles sit on the left, in the middle or on the right of it
     if (id === 'rail') rules.push(`${sc}:is([data-slot=left], [data-slot=right]), ${sc}:is([data-slot=left], [data-slot=right]) .rail-list { align-items: ${jc} !important; }`);
     else if (id === 'quick' || id === 'unread') rules.push(`${sc}:is([data-slot=left], [data-slot=right]) .quick-btn { justify-content: ${jc} !important; }`);
+  }
+  const q = opts.quick;
+  if (q) {
+    const sc = 'html [data-panel="quick"]';
+    if (typeof q.gap === 'number') rules.push(`${sc} { gap: ${q.gap}px !important; }`);
+    if (q.text === false) {
+      rules.push(`${sc} .quick-btn > span { display: none !important; }`);
+      rules.push(`${sc}:is([data-slot=left], [data-slot=right]) { width: auto !important; }`); // icons only: no need for the wide column
+    }
+    if (q.icons === false) rules.push(`${sc} .quick-btn > svg { display: none !important; }`);
+    if (q.order) q.order.forEach((sid, i) => rules.push(`${sc} [data-item="${sid}"] { order: ${i}; }`));
   }
   return rules.length ? `@media (min-width: 1051px) {\n${rules.join('\n')}\n}` : '';
 }
@@ -404,15 +465,23 @@ const wideWatch = (fn) => {
 };
 export const useWide = () => useSyncExternalStore(wideWatch, wideNow, () => true);
 
+// Whatever was loaded or changed, keep a Settings button on screen (see ensureSettings).
+function keepSettings() {
+  const f = ensureSettings(saved, savedOpts);
+  saved = f.layout;
+  savedOpts = f.opts;
+}
+
 export function initPanels() {
   saved = read();
   savedOpts = readOpts();
+  keepSettings();
   refresh();
   initPanelFx();
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (e) => { // another tab of Aduna changed it
-      if (e.key === KEY) { saved = read(); refresh(); }
-      else if (e.key === OPTS_KEY) { savedOpts = readOpts(); refresh(); }
+      if (e.key === KEY) { saved = read(); keepSettings(); refresh(); }
+      else if (e.key === OPTS_KEY) { savedOpts = readOpts(); keepSettings(); refresh(); }
     });
   }
   return current;
@@ -421,6 +490,7 @@ export function initPanels() {
 export function setPanels(next) {
   if (!allowed) return;
   saved = normalizePanels(next);
+  keepSettings();
   try {
     if (isDefaultPanels(saved)) localStorage.removeItem(KEY);
     else localStorage.setItem(KEY, JSON.stringify(saved));
@@ -436,9 +506,11 @@ export function setSection(id, patch) {
   else {
     if ('align' in patch) { if (patch.align) o.align = patch.align; else delete o.align; }
     if (patch.items) o.items = { ...(o.items || {}), ...patch.items };
+    for (const k of ['gap', 'text', 'icons', 'order']) if (k in patch) { if (patch[k] === null || patch[k] === undefined) delete o[k]; else o[k] = patch[k]; }
     savedOpts = { ...savedOpts, [id]: o };
   }
   savedOpts = normalizeOpts(savedOpts);
+  keepSettings();
   try {
     if (Object.keys(savedOpts).length) localStorage.setItem(OPTS_KEY, JSON.stringify(savedOpts));
     else localStorage.removeItem(OPTS_KEY);

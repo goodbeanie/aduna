@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { Modal } from './ui.jsx';
+import React, { useEffect, useRef, useState } from 'react';
+import { Icon, Modal } from './ui.jsx';
 import { CLIPS_ENABLED } from './features.js';
-import { ITEMS, SECTIONS, SLOT_NAME, canAlign, getPanels, itemOn, placePanel, sectionName, setPanels, setSection, slotOf, useLayoutAllowed, useOpts, usePanels, useWide } from './panels.js';
+import { ITEMS, QUICK_GAP, QUICK_GAP_MAX, SECTIONS, SLOT_NAME, canAlign, canSwitchOff, getPanels, itemOn, placePanel, quickOrder, sectionName, setPanels, setSection, slotOf, useLayoutAllowed, useOpts, usePanels, useWide } from './panels.js';
 
 // Customize one section of the app (the server bar, side list, member list, profile and voice, Shortcuts, Unread): double-click an empty spot of it,
 // or double-click its part in Settings > Appearance > Layout (openSection). Where it sits, whether its things sit left, middle or right,
@@ -20,6 +20,72 @@ function Seg({ value, options, onPick, label }) {
       {options.map(([v, text]) => (
         <button type="button" key={String(v)} role="radio" aria-checked={value === v} className={'so-seg-btn' + (value === v ? ' on' : '')} onClick={() => onPick(v)}>{text}</button>
       ))}
+    </div>
+  );
+}
+
+// The Shortcuts in a row, in the order they come in: drag one to a new place (mouse or touch), or focus one and use the arrow keys.
+// The ones that are switched off stay in the row (dimmed), so turning one on later puts it where it was left.
+function QuickOrder({ opts }) {
+  const [drag, setDrag] = useState(null); // { id, at } while one is being dragged: `at` is the gap it would drop into (0 to list.length)
+  const strip = useRef(null);
+  const order = quickOrder(opts);
+  const byId = Object.fromEntries(ITEMS.quick.map((it) => [it.id, it]));
+  const list = order.filter((sid) => byId[sid] && (!byId[sid].clips || CLIPS_ENABLED));
+  const hidden = order.filter((sid) => !list.includes(sid)); // not available here (Clips while it is off): kept where they are at the end
+
+  const move = (sid, to) => { // `to` counts in the row without the one being moved
+    const rest = list.filter((x) => x !== sid);
+    rest.splice(Math.max(0, Math.min(rest.length, to)), 0, sid);
+    setSection('quick', { order: [...rest, ...hidden] });
+  };
+  const gapAt = (e) => {
+    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('[data-so-chip]');
+    if (!el || !strip.current?.contains(el)) return null;
+    const i = list.indexOf(el.getAttribute('data-so-chip'));
+    if (i < 0) return null;
+    const r = el.getBoundingClientRect();
+    return e.clientX < r.left + r.width / 2 ? i : i + 1;
+  };
+  const down = (e, sid) => {
+    if (e.button) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* the drag still works without it */ }
+    setDrag({ id: sid, at: null });
+  };
+  const over = (e) => {
+    if (!drag) return;
+    const at = gapAt(e);
+    if (at !== null && at !== drag.at) setDrag({ ...drag, at });
+  };
+  const drop = () => {
+    if (drag && drag.at !== null) {
+      const from = list.indexOf(drag.id);
+      move(drag.id, drag.at > from ? drag.at - 1 : drag.at);
+    }
+    setDrag(null);
+  };
+  const key = (e, sid, i) => {
+    const to = e.key === 'ArrowLeft' ? i - 1 : e.key === 'ArrowRight' ? i + 1 : e.key === 'Home' ? 0 : e.key === 'End' ? list.length - 1 : null;
+    if (to === null) return;
+    e.preventDefault();
+    move(sid, to);
+    requestAnimationFrame(() => document.getElementById('so-chip-' + sid)?.focus()); // moving the element can drop focus
+  };
+
+  return (
+    <div className="so-order" ref={strip} role="group" aria-label="Order of the shortcuts">
+      {list.map((sid, i) => {
+        const it = byId[sid];
+        const dragging = drag?.id === sid;
+        const cls = 'so-chip' + (itemOn(opts, 'quick', it) ? '' : ' off') + (dragging ? ' drag' : '') + (drag && drag.at === i ? ' before' : '') + (drag && drag.at === i + 1 ? ' after' : '');
+        return (
+          <div key={sid} id={'so-chip-' + sid} data-so-chip={sid} className={cls} role="button" tabIndex={0}
+            aria-label={`${it.name}, number ${i + 1} of ${list.length}. Use the left and right arrow keys to move it.`}
+            onPointerDown={(e) => down(e, sid)} onPointerMove={over} onPointerUp={drop} onPointerCancel={() => setDrag(null)} onKeyDown={(e) => key(e, sid, i)}>
+            <Icon name={it.icon} size={16} /><span>{it.name}</span>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -52,10 +118,12 @@ export default function SectionOptions() {
   const slot = slotOf(pan, id);
   const list = ITEMS[id].filter((it) => !it.clips || CLIPS_ENABLED);
   const align = opts[id]?.align || null;
+  const textOn = opts.quick?.text !== false;
+  const iconsOn = opts.quick?.icons !== false;
 
   return (
     <div className="dlg-layer">{/* lifts the dialog above full-screen settings (dialogs.css), where it is opened from Appearance > Layout */}
-    <Modal title={'Customize ' + sectionName(id).toLowerCase()} onClose={() => setId(null)}>
+    <Modal title={'Customize ' + sectionName(id).toLowerCase()} onClose={() => setId(null)} wide={id === 'quick'}>
       <div className="so">
         <p className="muted small">{section?.hint}. Changes apply at once and are kept on this device.</p>
 
@@ -69,12 +137,39 @@ export default function SectionOptions() {
           </>
         )}
 
+        {id === 'quick' && (
+          <>
+            <div className="so-label">SPACING</div>
+            <div className="so-row">
+              <input type="range" className="so-range" min="0" max={QUICK_GAP_MAX} step="2" value={opts.quick?.gap ?? QUICK_GAP} aria-label="Space between shortcuts" onChange={(e) => setSection('quick', { gap: Number(e.target.value) })} />
+              <span className="so-val">{opts.quick?.gap ?? QUICK_GAP} px</span>
+            </div>
+
+            <div className="so-label">EACH SHORTCUT SHOWS</div>
+            <div className="so-checks">
+              <label className="so-check">
+                <input type="checkbox" checked={textOn} disabled={textOn && !iconsOn} onChange={(e) => setSection('quick', { text: e.target.checked ? null : false })} />
+                <span>Text</span>
+              </label>
+              <label className="so-check">
+                <input type="checkbox" checked={iconsOn} disabled={iconsOn && !textOn} onChange={(e) => setSection('quick', { icons: e.target.checked ? null : false })} />
+                <span>Icon</span>
+              </label>
+            </div>
+
+            <div className="so-label">ORDER</div>
+            <p className="muted small">Drag to put them in order, or select one and press the left and right arrow keys. Dimmed ones are switched off below.</p>
+            <QuickOrder opts={opts} />
+          </>
+        )}
+
         <div className="so-label">SHOW</div>
         <div className="so-items">
           {list.map((it) => {
             const on = itemOn(opts, id, it);
+            const locked = on && !canSwitchOff(pan, opts, id, it.id); // the last Settings button on screen stays
             return (
-              <button type="button" key={it.id} role="switch" aria-checked={on} className={'so-item' + (on ? ' on' : '')} onClick={() => setSection(id, { items: { [it.id]: !on } })}>
+              <button type="button" key={it.id} role="switch" aria-checked={on} disabled={locked} title={locked ? 'Kept on so Settings is always within reach. Turn on Settings in the other part first.' : undefined} className={'so-item' + (on ? ' on' : '')} onClick={() => setSection(id, { items: { [it.id]: !on } })}>
                 <span className="so-name">{it.name}</span>
                 <span className="so-switch" aria-hidden="true" />
               </button>

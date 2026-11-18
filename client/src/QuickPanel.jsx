@@ -22,7 +22,7 @@ export default function QuickPanel({ slot, onFriends, onExplore, onShop, onSetti
   return (
     <nav className="quick" data-ui="shortcuts" data-panel="quick" data-slot={slot} aria-label="Shortcuts">
       {items.map(([id, icon, label, run]) => (
-        <button type="button" key={id} data-item={id} className="quick-btn" onClick={run}><Icon name={icon} size={18} /><span>{label}</span></button>
+        <button type="button" key={id} data-item={id} className="quick-btn" title={label} aria-label={label} onClick={run}><Icon name={icon} size={18} /><span>{label}</span></button>
       ))}
     </nav>
   );

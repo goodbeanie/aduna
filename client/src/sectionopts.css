@@ -18,4 +18,23 @@
 .so-item.on .so-switch { background: var(--ink); }
 .so-item.on .so-switch::after { transform: translateX(14px); }
 .so-seg-btn:focus-visible, .so-item:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.so-item:disabled { cursor: not-allowed; opacity: .6; }
 @media (prefers-reduced-motion: reduce) { .so-switch, .so-switch::after { transition: none; } }
+
+/* Shortcuts: spacing, text and icon, and the row you drag to reorder */
+.so-row { display: flex; align-items: center; gap: 12px; }
+.so-range { flex: 1; min-width: 0; accent-color: var(--ink); }
+.so-val { flex: none; min-width: 48px; text-align: right; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.so-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.so-check { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border: 1px solid var(--line); border-radius: var(--r-md, 8px); background: var(--bg2); color: var(--head); font-size: 13px; cursor: pointer; }
+.so-check:has(input:disabled) { cursor: not-allowed; opacity: .65; }
+.so-check input { margin: 0; accent-color: var(--ink); }
+.so-order { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r-md, 8px); background: var(--bg2); user-select: none; -webkit-user-select: none; }
+.so-chip { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--line2, var(--line)); border-radius: var(--r-sm, 6px); background: var(--bg); color: var(--head); font-size: 13px; white-space: nowrap; cursor: grab; touch-action: none; }
+.so-chip:hover { background: var(--hover); }
+.so-chip.off { opacity: .5; }
+.so-chip.drag { cursor: grabbing; opacity: .45; }
+.so-chip.before::before, .so-chip.after::after { content: ''; position: absolute; top: -2px; bottom: -2px; width: 3px; border-radius: 2px; background: var(--ink); pointer-events: none; }
+.so-chip.before::before { left: -5px; }
+.so-chip.after::after { right: -5px; }
+.so-chip:focus-visible, .so-check:has(input:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
