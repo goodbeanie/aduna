@@ -54,6 +54,7 @@ export default function SectionOptions() {
   const align = opts[id]?.align || null;
 
   return (
+    <div className="dlg-layer">{/* lifts the dialog above full-screen settings (dialogs.css), where it is opened from Appearance > Layout */}
     <Modal title={'Customize ' + sectionName(id).toLowerCase()} onClose={() => setId(null)}>
       <div className="so">
         <p className="muted small">{section?.hint}. Changes apply at once and are kept on this device.</p>
@@ -87,5 +88,6 @@ export default function SectionOptions() {
         </div>
       </div>
     </Modal>
+    </div>
   );
 }
