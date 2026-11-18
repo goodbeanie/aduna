@@ -82,6 +82,7 @@ export const PRESETS = [
   ['Mirrored', normalizePanels({ top: ['rail'], left: ['members'], right: ['side'] })],
   ['Everything on the right', normalizePanels({ right: ['side', 'members', 'rail'] })],
   ['Compact', normalizePanels({ left: ['rail', 'side'], off: ['members'] })],
+  ['Side list on the bottom', normalizePanels({ top: ['rail'], right: ['members'], bottom: ['side'] })],
   ['With a shortcuts bar', normalizePanels({ top: ['rail'], left: ['side'], right: ['members'], bottom: ['quick'] })],
 ];
 
@@ -127,10 +128,9 @@ function read() {
   try { return normalizePanels(JSON.parse(localStorage.getItem(KEY))); } catch { return defaultPanels(); }
 }
 
-// Creator accounts only for now: until setLayoutAllowed(true) is called (App.jsx does it for creators) everyone gets the standard layout,
-// whatever is saved on the device. Remove the gate by calling setLayoutAllowed(true) for everyone.
+// Open to everyone. setLayoutAllowed(false) puts everyone back on the standard layout, whatever is saved on the device.
 let saved = defaultPanels();
-let allowed = false;
+let allowed = true;
 let current = defaultPanels();
 const subs = new Set();
 const notify = () => subs.forEach((fn) => fn());

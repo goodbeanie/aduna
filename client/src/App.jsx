@@ -47,7 +47,7 @@ import NameWarning from './NameWarning.jsx';
 import ModWarning from './ModWarning.jsx';
 import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
-import { setLayoutAllowed, slotOf, usePanels, useWide } from './panels.js';
+import { slotOf, usePanels, useWide } from './panels.js';
 import QuickPanel from './QuickPanel.jsx';
 import UnreadPanel from './UnreadPanel.jsx';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
@@ -139,7 +139,6 @@ export default function App() {
   }, [splashDone]);
   const [boot, setBoot] = useState('loading');
   const [me, setMe] = useState(null);
-  useEffect(() => { setLayoutAllowed(!!me?.creator); }, [me?.creator]); // the layout editor is for creator accounts only for now (panels.js)
   const [privKey, setPrivKey] = useState(null);
   // opened from an invite link (/invite/<code>): show the join box page first
   const [invite, setInvite] = useState(() => (INVITE_PATH.exec(location.pathname)?.[1] || '').toLowerCase() || null);

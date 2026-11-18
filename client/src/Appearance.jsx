@@ -24,7 +24,7 @@ export function Swatch({ theme, on, onPick }) {
 
 export function AppearancePicker() {
   const { t: tr } = useLang();
-  const layoutAllowed = useLayoutAllowed(); // the layout editor is for creator accounts only for now (panels.js)
+  const layoutAllowed = useLayoutAllowed();
   const [s, setS] = useState(loadTheme);
   const [publishing, setPublishing] = useState(false);
   const choose = (next) => { setS(next); applyTheme(next, { save: true }); };

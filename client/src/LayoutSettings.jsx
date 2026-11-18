@@ -8,12 +8,7 @@ const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // Roughly how big each part is in the real app: the server bar is thin, the lists are wide, the bars are short.
 const THIN = 28;
-const WIDE_LIST = 64;
-const sizeOf = (id, axis) => {
-  const list = id === 'side' || id === 'members';
-  if (axis === 'cols') return id === 'rail' ? THIN : 56;
-  return list ? WIDE_LIST : THIN;
-};
+const sizeOf = (id, axis) => (axis === 'cols' && id !== 'rail' ? 56 : THIN);
 
 // Where a drop would land in a slot: the number of parts (not counting the one being dragged) that sit before the pointer.
 const indexAt = (slotEl, axis, x, y, dragged) => {
@@ -101,7 +96,7 @@ export default function LayoutSettings() {
 
   return (
     <div className="lay">
-      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. The side and member lists only go left or right; the other parts go anywhere. With a part focused, the arrow keys move it within its slot. Phones and small tablets keep the standard layout.</p>
+      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. Every part goes on any side; on the top or bottom the lists become a slim bar that scrolls sideways. With a part focused, the arrow keys move it within its slot. Phones and small tablets keep the standard layout.</p>
 
       <div className="lay-presets" role="group" aria-label="Layout presets">
         {PRESETS.map(([name, l]) => (
