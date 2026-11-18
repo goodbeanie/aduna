@@ -135,6 +135,9 @@
   html[data-pan] .quick:is([data-slot=left], [data-slot=right]) { width: 240px; flex-direction: column; align-items: stretch; }
   html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) { flex-direction: row; flex-wrap: nowrap; align-items: center; height: 56px; padding: 0 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) > * { flex: none; }
+/* in a top or bottom bar the shortcuts sit beside the user panel, so they share its background (--bg3) instead of the lighter --bg2 */
+html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) { background: var(--bg3); }
+html[data-grad][data-pan] .quick:is([data-slot=top], [data-slot=bottom]) { background: color-mix(in srgb, var(--bg3) 62%, transparent); }
   html[data-grad][data-pan] .quick { background: color-mix(in srgb, var(--bg2) 62%, transparent); }
 }
 
