@@ -268,9 +268,9 @@ function read() {
   try { return normalizePanels(JSON.parse(localStorage.getItem(KEY))); } catch { return defaultPanels(); }
 }
 
-// Open to everyone. setLayoutAllowed(false) puts everyone back on the standard layout, whatever is saved on the device.
+// Only for moderators, admins and creator accounts (App.jsx calls setLayoutAllowed). Everyone else stays on the standard layout, whatever is saved on the device.
 let saved = defaultPanels();
-let allowed = true;
+let allowed = false;
 let current = defaultPanels();
 const subs = new Set();
 const notify = () => subs.forEach((fn) => fn());

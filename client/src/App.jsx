@@ -47,7 +47,7 @@ import NameWarning from './NameWarning.jsx';
 import ModWarning from './ModWarning.jsx';
 import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
-import { slotOf, usePanels, useWide } from './panels.js';
+import { slotOf, usePanels, useWide, setLayoutAllowed } from './panels.js';
 import QuickPanel from './QuickPanel.jsx';
 import UnreadPanel from './UnreadPanel.jsx';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
@@ -208,6 +208,9 @@ function Main({ me, setMe, privKey, openServerId }) {
   const { t: tr } = useLang(); // the main screen is its own component, so it needs its own copy
   const pan = usePanels(); // where each section sits (Settings > Appearance > Layout); only used on wide screens
   const wideScreen = useWide();
+  // the layout editor is for moderators, admins and creator accounts; everyone else keeps the standard layout
+  const layoutOpen = !!(me.creator || me.canReview);
+  useEffect(() => { setLayoutAllowed(layoutOpen); return () => setLayoutAllowed(false); }, [layoutOpen]);
   const placeOf = (id) => (wideScreen || id !== 'profile' ? slotOf(pan, id) : 'dock'); // below the wide breakpoint the profile bar always stays in the side list
   const firstOpen = useRef(openServerId); // an invite link just joined this server: start there
   // Developer test mode (Settings > Developer): look as if Halloween or Christmas were on, on every device signed in to this account.
