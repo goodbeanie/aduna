@@ -529,5 +529,16 @@
       { "title": "Layout changes apply", "text": "The browser could block the style the layout editor writes, so a custom layout was sometimes ignored. It now applies." },
       { "title": "Direct messages header", "text": "In a top or bottom side list on a narrow window, the plus button overlapped Explorer. It now has its own space." }
     ]
+  },
+  {
+    "id": "2026.11.17.4",
+    "date": "2026-11-17",
+    "title": "Share a bar or column in the layout editor",
+    "items": [
+      { "title": "Parts can share space", "text": "In Settings > Appearance > Layout, drop a part on another part to put them in the same bar or column. In a bar they sit side by side, in a column they are stacked. Drop a part between two bars or columns to give it one of its own." },
+      { "title": "Resize with a divider", "text": "Where parts share space, drag the divider between them to change their sizes. Double-click it to even them out, or focus it and use the arrow keys." },
+      { "title": "Two new presets", "text": "Server bar and shortcuts together, and Members and unread together." },
+      { "title": "Position list removed", "text": "The Top, Left, Right, Bottom and Hidden buttons under the map are gone. Drag a part, or focus it and use the arrow keys. Saved layouts keep working." }
+    ]
   }
 ]
