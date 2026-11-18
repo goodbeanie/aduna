@@ -1,0 +1,21 @@
+/* Customize one part of the app (SectionOptions.jsx): where it sits, how its things line up, which of them show. */
+.so { display: flex; flex-direction: column; gap: 8px; }
+.so > p { margin: 0 0 4px; }
+.so-label { margin-top: 8px; font-size: 11px; letter-spacing: .08em; color: var(--muted); }
+
+.so-seg { display: flex; flex-wrap: wrap; gap: 4px; padding: 3px; border: 1px solid var(--line); border-radius: var(--r-md, 8px); background: var(--bg2); }
+.so-seg-btn { flex: 1 1 0; min-width: 64px; padding: 7px 10px; border-radius: calc(var(--r-md, 8px) - 2px); background: none; color: var(--muted); font-size: 13px; text-align: center; white-space: nowrap; }
+.so-seg-btn:hover { background: var(--hover); color: var(--head); }
+.so-seg-btn.on, .so-seg-btn.on:hover { background: var(--ink); color: var(--on-ink); }
+
+.so-items { display: flex; flex-direction: column; max-height: min(46vh, 380px); overflow-y: auto; border: 1px solid var(--line); border-radius: var(--r-md, 8px); }
+.so-item { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 10px 12px; border-bottom: 1px solid var(--line); background: none; color: var(--head); text-align: left; }
+.so-item:last-child { border-bottom: 0; }
+.so-item:hover { background: var(--hover); }
+.so-item:not(.on) .so-name { color: var(--muted); }
+.so-switch { position: relative; flex: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line2, var(--line)); transition: background .15s; }
+.so-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--bg); transition: transform .15s; }
+.so-item.on .so-switch { background: var(--ink); }
+.so-item.on .so-switch::after { transform: translateX(14px); }
+.so-seg-btn:focus-visible, .so-item:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+@media (prefers-reduced-motion: reduce) { .so-switch, .so-switch::after { transition: none; } }

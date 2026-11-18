@@ -49,6 +49,7 @@ import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { slotOf, usePanels, useWide, setLayoutAllowed } from './panels.js';
 import QuickPanel from './QuickPanel.jsx';
+import SectionOptions from './SectionOptions.jsx';
 import UnreadPanel from './UnreadPanel.jsx';
 import { loadKey, clearKeys, encryptFor, decryptFrom } from './crypto.js';
 import { wrapDm, unwrapDm } from './envelope.js';
@@ -1076,14 +1077,14 @@ function Main({ me, setMe, privKey, openServerId }) {
       </button>
       {voice.state.channelId && (
         <>
-          <button className={'icon-btn vc-btn' + (voice.state.muted ? ' off' : '')} title={voice.state.muted ? 'Unmute' : 'Mute'} aria-label={voice.state.muted ? 'Unmute' : 'Mute'} aria-pressed={voice.state.muted} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={18} /></button>
-          <button className={'icon-btn vc-btn' + (voice.state.deafened ? ' off' : '')} title={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-label={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-pressed={voice.state.deafened} onClick={voice.actions.toggleDeafen}><Icon name={voice.state.deafened ? 'headphonesoff' : 'headphones'} size={18} /></button>
+          <button data-item="voice" className={'icon-btn vc-btn' + (voice.state.muted ? ' off' : '')} title={voice.state.muted ? 'Unmute' : 'Mute'} aria-label={voice.state.muted ? 'Unmute' : 'Mute'} aria-pressed={voice.state.muted} onClick={voice.actions.toggleMute}><Icon name={voice.state.muted ? 'micoff' : 'mic'} size={18} /></button>
+          <button data-item="voice" className={'icon-btn vc-btn' + (voice.state.deafened ? ' off' : '')} title={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-label={voice.state.deafened ? 'Undeafen' : 'Deafen'} aria-pressed={voice.state.deafened} onClick={voice.actions.toggleDeafen}><Icon name={voice.state.deafened ? 'headphonesoff' : 'headphones'} size={18} /></button>
         </>
       )}
-      <button className="credit-chip" title={tr('shopTab')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
-      <button className="icon-btn" title={tr('customEmoji')} onClick={openManager}><Icon name="smile" size={18} /></button>
+      <button className="credit-chip" data-item="credits" title={tr('shopTab')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); setMembersOpen(false); }}><Icon name="coin" size={16} />{balance !== null ? balance.toLocaleString() : ''}</button>
+      <button className="icon-btn" data-item="emoji" title={tr('customEmoji')} onClick={openManager}><Icon name="smile" size={18} /></button>
       <button className="icon-btn panel-jump" title="Jump to…" aria-label="Jump to a channel, person or setting" onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={18} /></button>
-      <button className="icon-btn" title={tr('settings')} onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
+      <button className="icon-btn" data-item="settings" title={tr('settings')} onClick={() => setModal({ type: 'edit' })}><Icon name="gear" size={18} /></button>
     </div>
   );
 
@@ -1092,10 +1093,10 @@ function Main({ me, setMe, privKey, openServerId }) {
     <div className="app" data-ui="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
       {/* server bar (top) */}
       <nav className="rail" data-ui="server-bar" data-panel="rail" data-slot={placeOf('rail')}>
-        <button className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
+        <button data-item="dms" className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
           <span className="dm-home-mark" aria-hidden="true" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
-        {CLIPS_ENABLED && <button className="rail-btn clips-home" title="Clips" aria-label="Clips" onClick={() => { window.location.assign('/clips'); }}>
+        {CLIPS_ENABLED && <button data-item="clips" className="rail-btn clips-home" title="Clips" aria-label="Clips" onClick={() => { window.location.assign('/clips'); }}>
           <span className="clips-mark" aria-hidden="true" />
         </button>}
         <div className="rail-sep" />
@@ -1108,8 +1109,8 @@ function Main({ me, setMe, privKey, openServerId }) {
               {totalMentionsFor(s) > 0 && <span className="badge at" title={totalMentionsFor(s) + ' mention' + (totalMentionsFor(s) > 1 ? 's' : '')}>@{fmtN(totalMentionsFor(s))}</span>}
             </button>
           )}>
-          <button className="rail-btn add" title="Create or join a server" onClick={() => setModal({ type: 'server' })}><Icon name="plus" size={22} /></button>
-          <button className="rail-btn add rail-jump" title="Jump to…" data-kbd="Ctrl+K" aria-label="Jump to a channel, person or setting" onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={20} /></button>
+          <button data-item="add" className="rail-btn add" title="Create or join a server" onClick={() => setModal({ type: 'server' })}><Icon name="plus" size={22} /></button>
+          <button data-item="search" className="rail-btn add rail-jump" title="Jump to…" data-kbd="Ctrl+K" aria-label="Jump to a channel, person or setting" onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={20} /></button>
         </ServerRail>
         <RailUpdateChip />
       </nav>
@@ -1177,11 +1178,11 @@ function Main({ me, setMe, privKey, openServerId }) {
                 return (
                   <>
                     {loungeVisible && (
-                      <button className={'chan lounge-tab' + (loungeOpen ? ' on' : '')} onClick={openLounge}>
+                      <button data-item="lounge" className={'chan lounge-tab' + (loungeOpen ? ' on' : '')} onClick={openLounge}>
                         <span className="hash"><Icon name={LOUNGE_ICON} size={18} /></span>Lounge{!server.lounge?.enabled && <span className="lg-tag" title="Only people who manage the server can see it">Hidden</span>}
                       </button>
                     )}
-                    <button className={'chan events-tab' + (eventsOpen ? ' on' : '')} onClick={openEvents}>
+                    <button data-item="events" className={'chan events-tab' + (eventsOpen ? ' on' : '')} onClick={openEvents}>
                       <span className="hash"><Icon name="calendar" size={18} /></span>Events
                       {upcomingCount(server, Date.now()) > 0 && <span className={'ev-pill' + (liveNow(server, Date.now()) ? ' live' : '')} title={liveNow(server, Date.now()) ? 'An event is happening now' : 'Upcoming events'}>{liveNow(server, Date.now()) ? 'Live' : upcomingCount(server, Date.now())}</span>}
                     </button>
@@ -1207,7 +1208,7 @@ function Main({ me, setMe, privKey, openServerId }) {
                         </div>
                       );
                     })}
-                    {isOwner && <button className="add-cat" onClick={() => setModal({ type: 'category' })}><Icon name="plus" size={15} /><span>Add category</span></button>}
+                    {isOwner && <button data-item="addcat" className="add-cat" onClick={() => setModal({ type: 'category' })}><Icon name="plus" size={15} /><span>Add category</span></button>}
                   </>
                 );
               })()}
@@ -1220,16 +1221,16 @@ function Main({ me, setMe, privKey, openServerId }) {
               <button className="icon-btn" title={tr('newMessage')} onClick={() => setModal({ type: 'dm' })}><Icon name="plus" size={17} /></button>
             </div>
             <div className="side-list">
-              <button className={'chan' + (view.explore ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}>
+              <button data-item="explorer" className={'chan' + (view.explore ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}>
                 <span className="hash"><Icon name="globe" size={18} /></span>{tr('serverExplorer')}
               </button>
-              <button className={'chan' + (view.shop ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); }}>
+              <button data-item="shop" className={'chan' + (view.shop ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); }}>
                 <span className="hash"><Icon name="bag" size={18} /></span>{tr('shopTab')}{balance !== null && <span className="credit-count">{balance.toLocaleString()}</span>}
               </button>
-              <button className={'chan' + (view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, quests: true }); setShowList(false); }}>
+              <button data-item="quests" className={'chan' + (view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, quests: true }); setShowList(false); }}>
                 <span className="hash"><Icon name="flag" size={18} /></span>{tr('questsTab')}
               </button>
-              <button className={'chan' + (!view.userId && !view.groupId && !view.explore && !view.shop && !view.quests && !view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
+              <button data-item="friends" className={'chan' + (!view.userId && !view.groupId && !view.explore && !view.shop && !view.quests && !view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
                 <span className="hash"><Icon name="users" size={18} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
               <div className="side-label">{tr('lblDMs')}</div>
@@ -1269,8 +1270,8 @@ function Main({ me, setMe, privKey, openServerId }) {
           }}
           onFriend={() => { setView({ kind: 'dm', userId: null }); setShowList(false); setMembersOpen(false); }}
           onServer={() => setModal({ type: 'server' })} />
-        <VoiceDock voice={voice} servers={servers} onOpen={(sv, ch) => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }} />
-        <StorageDock storage={storage} setStorage={setStorage} />
+        <div data-item="voice" style={{ display: 'contents' }}><VoiceDock voice={voice} servers={servers} onOpen={(sv, ch) => { setView({ kind: 'server', serverId: sv.id, channelId: ch.id }); setShowList(false); }} /></div>
+        <div data-item="storage" style={{ display: 'contents' }}><StorageDock storage={storage} setStorage={setStorage} /></div>
         </div>
         {placeOf('profile') === 'dock' && userPanel}
       </aside>
@@ -1369,14 +1370,14 @@ function Main({ me, setMe, privKey, openServerId }) {
         <>
         {membersOpen && <div className="drawer-backdrop" onClick={() => setMembersOpen(false)} />}
         <aside data-ui="members" data-panel="members" data-slot={placeOf('members')} className={'members' + (membersOpen ? ' open' : '') + (membersHidden ? ' collapsed' : '')} aria-label="Members">
-          <div className="member-search">
+          <div className="member-search" data-item="search">
             <Icon name="search" size={15} />
             <input type="search" value={memberQ} onChange={(e) => setMemberQ(e.target.value)} placeholder="Search members" aria-label="Search members" maxLength={40} />
           </div>
           {!loaded && <ListSkeleton rows={6} avatar={32} label="Loading members" />}
           {loaded && memberView.groups.map((g) => (
             <React.Fragment key={g.key}>
-              <div className="side-label member-group">{g.color && <span className="role-dot" style={{ background: g.color }} />}{g.label} · {g.items.length}</div>
+              <div className="side-label member-group" data-item="headings">{g.color && <span className="role-dot" style={{ background: g.color }} />}{g.label} · {g.items.length}</div>
               {g.items.map(memberRow)}
             </React.Fragment>
           ))}
@@ -1390,7 +1391,12 @@ function Main({ me, setMe, privKey, openServerId }) {
           onFriends={() => { setView({ kind: 'dm', userId: null }); setShowList(false); setMembersOpen(false); }}
           onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }}
           onShop={() => { setView({ kind: 'dm', userId: null, shop: true }); setShowList(false); setMembersOpen(false); }}
-          onSettings={() => setModal({ type: 'edit' })} />
+          onSettings={() => setModal({ type: 'edit' })}
+          onQuests={() => { setView({ kind: 'dm', userId: null, quests: true }); setShowList(false); setMembersOpen(false); }}
+          onDms={() => { setView({ kind: 'dm', userId: null }); setShowList(true); setMembersOpen(false); }}
+          onEmoji={openManager}
+          onProfile={() => setModal({ type: 'user', id: me.id })}
+          onAddServer={() => setModal({ type: 'server' })} />
       )}
       {/* unread: every channel, group and message with something new; off until it is placed in a slot */}
       {wideScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('unread')) && (() => {
@@ -1411,6 +1417,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         }
         return <UnreadPanel slot={placeOf('unread')} items={items} />;
       })()}
+      <SectionOptions />
       <VoiceUI voice={voice} />
       {voice.state.channelId && !showList && (!(channel?.id === voice.state.channelId) || eventsOpen) && (() => {
         const sv = servers.find((x) => x.channels.some((c) => c.id === voice.state.channelId)); const ch = sv?.channels.find((c) => c.id === voice.state.channelId);

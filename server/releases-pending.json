@@ -548,5 +548,15 @@
     "items": [
       { "title": "Layout is limited again", "text": "Settings > Appearance > Layout is now only for moderators, admins and creator accounts. Everyone else uses the standard layout, and a layout saved on their device is not applied. If you are made a moderator, your saved layout comes back." }
     ]
+  },
+  {
+    "id": "2026.11.17.6",
+    "date": "2026-11-17",
+    "title": "Customize each part of the layout",
+    "items": [
+      { "title": "Double-click a part", "text": "Double-click an empty spot of the server bar, side list, member list, profile and voice, Shortcuts or Unread (or double-click its box in Settings > Appearance > Layout) to customize it: where it sits, whether its things line up left, centre or right, and which of them show." },
+      { "title": "Turn things on and off", "text": "Every part has switches: the server bar (messages, clips, create a server, jump to), the side list (Lounge, Events, Friends, Explorer, Shop, Quests, the voice and storage bars), the member list (search, role headings), profile and voice (mute and deafen, credits, emoji, settings) and Unread (channels, group chats, messages)." },
+      { "title": "More in Shortcuts", "text": "Shortcuts can now also show Direct messages, Quests, Clips, Custom emoji, Your profile and Create or join a server. They are off until you switch them on." }
+    ]
   }
 ]

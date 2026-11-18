@@ -45,6 +45,7 @@ import './controls.css'; // after checkbox.css: the custom dropdown, date and co
 import './buttons.css'; // last: text on accent-coloured buttons (Leave, etc.) follows --on-ink so it stays readable on light accents (remove this line to undo)
 import './voice-channel.css'; // last: the voice channel page (tiles, soundboard card, control bar); remove this line to undo
 import './panels.css'; // after everything: where the server bar and the side and member lists sit (Settings > Appearance > Layout)
+import './sectionopts.css'; // the Customize dialog of one part of the app (SectionOptions.jsx)
 import './rail-folders.css'; // server bar folders and drag to reorder (ServerRail.jsx)
 import ErrorBoundary from './ErrorBoundary.jsx';
 import { initTheme, applyTheme, loadTheme, DEFAULT_CUSTOM } from './themes.js';

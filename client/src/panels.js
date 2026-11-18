@@ -15,6 +15,7 @@ import { useSyncExternalStore } from 'react';
 import { initPanelFx, strips } from './panelfx.js';
 
 const KEY = 'aduna-panels';
+const OPTS_KEY = 'aduna-panel-opts';
 const STYLE_ID = 'aduna-panels-style';
 
 export const SLOTS = ['top', 'left', 'right', 'bottom'];
@@ -239,47 +240,157 @@ export function applyPanels(l) {
   for (const s of SECTIONS) el.setAttribute(`data-pan-${s.id}`, slotOf(l, s.id));
   if (isDefaultPanels(l)) {
     el.removeAttribute('data-pan');
-    clearSheet();
+    clearSheet('layout');
     return;
   }
   el.setAttribute('data-pan', '1');
-  writeSheet(`@media (min-width: 1051px) {\n${panelCss(l)}\n}`);
+  writeSheet('layout', `@media (min-width: 1051px) {\n${panelCss(l)}\n}`);
+}
+
+// ----- what each section shows, and where its content sits (double-click a part in Settings > Appearance > Layout) -----
+// Every thing a section can show is a [data-item] element inside its [data-panel] (App.jsx, QuickPanel.jsx). A thing that is off is hidden with CSS,
+// so nothing about the app's own logic changes. `on` is whether it shows when nobody has chosen. Kept on this device, wide screens only.
+//   { [section]: { align: 'start' | 'center' | 'end', items: { [item]: true | false } } }
+export const ITEMS = {
+  rail: [
+    { id: 'dms', name: 'Direct messages', on: true },
+    { id: 'clips', name: 'Clips', on: true, clips: true },
+    { id: 'add', name: 'Create or join a server', on: true },
+    { id: 'search', name: 'Jump to…', on: true },
+  ],
+  side: [
+    { id: 'lounge', name: 'Lounge (server)', on: true },
+    { id: 'events', name: 'Events (server)', on: true },
+    { id: 'addcat', name: 'Add category (server)', on: true },
+    { id: 'friends', name: 'Friends', on: true },
+    { id: 'explorer', name: 'Explorer', on: true },
+    { id: 'shop', name: 'Shop', on: true },
+    { id: 'quests', name: 'Quests', on: true },
+    { id: 'voice', name: 'Voice bar', on: true },
+    { id: 'storage', name: 'Storage bar', on: true },
+  ],
+  members: [
+    { id: 'search', name: 'Search box', on: true },
+    { id: 'headings', name: 'Role headings', on: true },
+  ],
+  profile: [
+    { id: 'voice', name: 'Mute and deafen (while in voice)', on: true },
+    { id: 'credits', name: 'Credits', on: true },
+    { id: 'emoji', name: 'Custom emoji', on: true },
+    { id: 'settings', name: 'Settings', on: true },
+  ],
+  quick: [
+    { id: 'search', name: 'Jump to…', on: true },
+    { id: 'friends', name: 'Friends', on: true },
+    { id: 'explorer', name: 'Explorer', on: true },
+    { id: 'shop', name: 'Shop', on: true },
+    { id: 'settings', name: 'Settings', on: true },
+    { id: 'quests', name: 'Quests', on: false },
+    { id: 'dms', name: 'Direct messages', on: false },
+    { id: 'clips', name: 'Clips', on: false, clips: true },
+    { id: 'emoji', name: 'Custom emoji', on: false },
+    { id: 'profile', name: 'Your profile', on: false },
+    { id: 'addserver', name: 'Create or join a server', on: false },
+  ],
+  unread: [
+    { id: 'channels', name: 'Channels', on: true },
+    { id: 'groups', name: 'Group chats', on: true },
+    { id: 'dms', name: 'Direct messages', on: true },
+  ],
+};
+const ALIGN = ['start', 'center', 'end'];
+const JUSTIFY = { start: 'safe flex-start', center: 'safe center', end: 'safe flex-end' };
+
+export function normalizeOpts(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const id of Object.keys(ITEMS)) {
+    const o = raw[id];
+    if (!o || typeof o !== 'object') continue;
+    const clean = {};
+    if (ALIGN.includes(o.align)) clean.align = o.align;
+    const items = {};
+    for (const it of ITEMS[id]) if (typeof o.items?.[it.id] === 'boolean' && o.items[it.id] !== it.on) items[it.id] = o.items[it.id];
+    if (Object.keys(items).length) clean.items = items;
+    if (Object.keys(clean).length) out[id] = clean;
+  }
+  return out;
+}
+
+export const itemOn = (opts, id, item) => (typeof opts[id]?.items?.[item.id] === 'boolean' ? opts[id].items[item.id] : item.on);
+
+// Where the alignment can mean something: a bar (any part of it), or a column for the parts that are a plain stack of buttons.
+export const canAlign = (id, slot) => ((slot === 'top' || slot === 'bottom') && ['rail', 'profile', 'quick', 'unread', 'members'].includes(id)) || ((slot === 'left' || slot === 'right') && ['rail', 'quick', 'unread'].includes(id));
+
+export function optsCss(opts) {
+  const rules = [];
+  for (const [id, list] of Object.entries(ITEMS)) {
+    for (const it of list) if (!itemOn(opts, id, it)) rules.push(`html [data-panel="${id}"] [data-item="${it.id}"] { display: none !important; }`);
+  }
+  for (const [id, o] of Object.entries(opts)) {
+    if (!o.align) continue;
+    const jc = JUSTIFY[o.align];
+    const sc = `html [data-panel="${id}"]`;
+    // a bar: its parts are packed to the left, the middle or the right
+    rules.push(`${sc}:is([data-slot=top], [data-slot=bottom]) { justify-content: ${jc} !important; }`);
+    if (id === 'profile') rules.push('html .user-panel[data-panel="profile"]:is([data-slot=top], [data-slot=bottom]) .me { margin-right: 0 !important; }');
+    if (id === 'rail') rules.push(`${sc}:is([data-slot=top], [data-slot=bottom]) .rail-upd { margin-left: 8px !important; }`);
+    // a column: the tiles sit on the left, in the middle or on the right of it
+    if (id === 'rail') rules.push(`${sc}:is([data-slot=left], [data-slot=right]), ${sc}:is([data-slot=left], [data-slot=right]) .rail-list { align-items: ${jc} !important; }`);
+    else if (id === 'quick' || id === 'unread') rules.push(`${sc}:is([data-slot=left], [data-slot=right]) .quick-btn { justify-content: ${jc} !important; }`);
+  }
+  return rules.length ? `@media (min-width: 1051px) {\n${rules.join('\n')}\n}` : '';
 }
 
 // The site's CSP has no 'unsafe-inline' for styles, so a <style> element filled with text is refused. A stylesheet built through the CSSOM is not.
-let sheet = null;
-function writeSheet(text) {
+const sheets = {};
+function writeSheet(key, text) {
   if (typeof CSSStyleSheet === 'function' && 'adoptedStyleSheets' in document) {
-    if (!sheet) { sheet = new CSSStyleSheet(); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]; }
-    sheet.replaceSync(text);
+    if (!sheets[key]) { sheets[key] = new CSSStyleSheet(); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheets[key]]; }
+    sheets[key].replaceSync(text);
     return;
   }
-  let style = document.getElementById(STYLE_ID);
-  if (!style) { style = document.createElement('style'); style.id = STYLE_ID; document.head.appendChild(style); }
+  const id = STYLE_ID + '-' + key;
+  let style = document.getElementById(id);
+  if (!style) { style = document.createElement('style'); style.id = id; document.head.appendChild(style); }
   while (style.sheet.cssRules.length) style.sheet.deleteRule(0);
   style.sheet.insertRule(text, 0);
 }
-function clearSheet() {
-  if (sheet) { document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet); sheet = null; }
-  document.getElementById(STYLE_ID)?.remove();
+function clearSheet(key) {
+  if (sheets[key]) { const gone = sheets[key]; document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== gone); delete sheets[key]; }
+  document.getElementById(STYLE_ID + '-' + key)?.remove();
 }
 
 function read() {
   try { return normalizePanels(JSON.parse(localStorage.getItem(KEY))); } catch { return defaultPanels(); }
 }
+function readOpts() {
+  try { return normalizeOpts(JSON.parse(localStorage.getItem(OPTS_KEY))); } catch { return {}; }
+}
 
 // Only for moderators, admins and creator accounts (App.jsx calls setLayoutAllowed). Everyone else stays on the standard layout, whatever is saved on the device.
 let saved = defaultPanels();
+let savedOpts = {};
 let allowed = false;
 let current = defaultPanels();
+let currentOpts = {};
 const subs = new Set();
 const notify = () => subs.forEach((fn) => fn());
-const refresh = () => { current = allowed ? saved : defaultPanels(); applyPanels(current); notify(); strips(); };
+const refresh = () => {
+  current = allowed ? saved : defaultPanels();
+  currentOpts = allowed ? savedOpts : {};
+  applyPanels(current);
+  const css = optsCss(currentOpts);
+  if (css) writeSheet('opts', css); else clearSheet('opts');
+  notify(); strips();
+};
 
 export const getPanels = () => current;
+export const getOpts = () => currentOpts;
 export const loadPanels = read;
 export function subscribePanels(fn) { subs.add(fn); return () => subs.delete(fn); }
 export const usePanels = () => useSyncExternalStore(subscribePanels, getPanels, getPanels);
+export const useOpts = () => useSyncExternalStore(subscribePanels, getOpts, getOpts);
 export function setLayoutAllowed(v) { if (!!v !== allowed) { allowed = !!v; refresh(); } }
 export const useLayoutAllowed = () => useSyncExternalStore(subscribePanels, () => allowed, () => allowed);
 
@@ -295,12 +406,13 @@ export const useWide = () => useSyncExternalStore(wideWatch, wideNow, () => true
 
 export function initPanels() {
   saved = read();
+  savedOpts = readOpts();
   refresh();
   initPanelFx();
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (e) => { // another tab of Aduna changed it
-      if (e.key !== KEY) return;
-      saved = read(); refresh();
+      if (e.key === KEY) { saved = read(); refresh(); }
+      else if (e.key === OPTS_KEY) { savedOpts = readOpts(); refresh(); }
     });
   }
   return current;
@@ -312,6 +424,24 @@ export function setPanels(next) {
   try {
     if (isDefaultPanels(saved)) localStorage.removeItem(KEY);
     else localStorage.setItem(KEY, JSON.stringify(saved));
+  } catch { /* storage blocked: applies until reload */ }
+  refresh();
+}
+
+// Change what one section shows or how it sits: patch is { align } (null for the default) and/or { items: { id: bool } }; null for the patch puts the section back as it was.
+export function setSection(id, patch) {
+  if (!allowed || !ITEMS[id]) return;
+  const o = { ...(savedOpts[id] || {}) };
+  if (patch === null) delete savedOpts[id];
+  else {
+    if ('align' in patch) { if (patch.align) o.align = patch.align; else delete o.align; }
+    if (patch.items) o.items = { ...(o.items || {}), ...patch.items };
+    savedOpts = { ...savedOpts, [id]: o };
+  }
+  savedOpts = normalizeOpts(savedOpts);
+  try {
+    if (Object.keys(savedOpts).length) localStorage.setItem(OPTS_KEY, JSON.stringify(savedOpts));
+    else localStorage.removeItem(OPTS_KEY);
   } catch { /* storage blocked: applies until reload */ }
   refresh();
 }
