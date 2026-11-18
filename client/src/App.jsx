@@ -1274,8 +1274,8 @@ function Main({ me, setMe, privKey, openServerId }) {
       {/* profile and voice as a section of its own (Settings > Appearance > Layout): a direct child of the body so it joins the layout grid */}
       {wideScreen && ['top', 'left', 'right', 'bottom'].includes(placeOf('profile')) && userPanel}
 
-      {/* main: the page itself. .center takes no space of its own until a custom layout is on (panels.css), then it is the middle cell */}
-      <div className="center">
+      {/* main: the page itself. .main-cell takes no space of its own until a custom layout is on (panels.css), then it is the middle cell */}
+      <div className="main-cell">
       {server && loungeOpen && (
         <LoungePage key={server.id} server={server} users={users} presence={presence} voiceMembers={voice.members} canManage={can(server, me.id, 'manageServer')}
           onBack={() => setShowList(true)} headerExtra={membersToggle} onChannel={openChannel}

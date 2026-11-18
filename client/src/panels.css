@@ -10,7 +10,7 @@
    Section by section below: 1 shared, 2 server bar, 3 side list, 4 member list, 5 profile and voice, 6 shortcuts and unread, 7 the editor. */
 
 /* the page itself (App.jsx): no box of its own in the standard layout, the middle cell of the grid in a custom one (panels.js) */
-.center { display: contents; }
+.main-cell { display: contents; }
 
 /* the shortcuts section only exists on wide screens, and only when it is placed */
 .quick { display: none; }
@@ -164,29 +164,46 @@
 .lay { display: flex; flex-direction: column; gap: 10px; }
 .lay-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .lay-map { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); background: var(--bg2); max-width: 520px; }
-.lay-mid { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; min-height: 120px; }
-.lay-slot { display: flex; gap: 4px; min-width: 0; min-height: 40px; padding: 4px; border: 1px dashed var(--line); }
+.lay-mid { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 6px; min-height: 150px; }
+.lay-slot { display: flex; gap: 0; min-width: 0; min-height: 40px; padding: 4px; border: 1px dashed var(--line); }
 .lay-slot.rows { flex-direction: column; }
 .lay-slot.cols { flex-direction: row; align-items: stretch; }
+/* a bar or a column: the parts that share it divide it by their shares (the chip's flex-grow is set from the layout) */
+.lay-group { display: flex; min-width: 0; min-height: 0; }
+.lay-slot.rows > .lay-group { flex-direction: row; align-items: stretch; width: 100%; }
+.lay-slot.cols > .lay-group { flex-direction: column; align-self: stretch; }
+/* the thin strip between two bars or columns (and at either end): drop here to give a part a bar or column of its own */
+.lay-ins { flex: none; }
+.lay-slot.rows > .lay-ins { height: 8px; }
+.lay-slot.cols > .lay-ins { width: 8px; }
+.lay-slot.ready .lay-ins { background: color-mix(in srgb, var(--ink) 22%, transparent); }
+.lay-slot .lay-ins.on { background: var(--ink); }
+/* the divider between two parts that share a bar or column */
+.lay-split { flex: none; position: relative; z-index: 1; touch-action: none; }
+.lay-slot.rows .lay-split { width: 10px; cursor: col-resize; background: linear-gradient(var(--line2, var(--line)), var(--line2, var(--line))) 50% 0 / 2px 100% no-repeat; }
+.lay-slot.cols .lay-split { height: 10px; cursor: row-resize; background: linear-gradient(var(--line2, var(--line)), var(--line2, var(--line))) 0 50% / 100% 2px no-repeat; }
+.lay-slot.rows .lay-split:is(:hover, :focus-visible, .on) { background: linear-gradient(var(--ink), var(--ink)) 50% 0 / 3px 100% no-repeat; }
+.lay-slot.cols .lay-split:is(:hover, :focus-visible, .on) { background: linear-gradient(var(--ink), var(--ink)) 0 50% / 100% 3px no-repeat; }
+.lay-split:focus-visible { outline: none; }
+.lay-slot.ready .lay-split { pointer-events: none; }
 .lay-slot.ready, .lay-zone.ready { border-color: var(--muted); }
 .lay-slot.over, .lay-zone.over { border-color: var(--ink); background: var(--hover); }
 .lay-slot-name { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; align-self: center; padding: 0 4px; }
 .lay-center { display: grid; place-items: center; font-size: 12px; color: var(--muted); border: 1px solid var(--line); background: var(--bg); }
-.lay-chip { display: grid; place-items: center; flex: none; box-sizing: border-box; padding: 4px 8px; font-size: 12px; line-height: 1.2; background: var(--bg3); color: var(--head); border: 1px solid var(--line); text-align: center; cursor: grab; user-select: none; }
+.lay-chip { display: grid; place-items: center; flex: 1 1 0px; min-width: 0; min-height: 0; overflow: hidden; box-sizing: border-box; padding: 4px 8px; font-size: 12px; line-height: 1.2; background: var(--bg3); color: var(--head); border: 1px solid var(--line); text-align: center; cursor: grab; user-select: none; }
 .lay-chip:active { cursor: grabbing; }
 .lay-chip:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
 .lay-chip.drag { opacity: .35; }
+.lay-slot.rows .lay-chip { white-space: nowrap; }
 .lay-slot.cols .lay-chip { writing-mode: vertical-rl; padding: 8px 4px; }
+.lay-slot.cols .lay-group.shared .lay-chip { writing-mode: horizontal-tb; padding: 4px; font-size: 11px; }
+.lay-zone .lay-chip { flex: none; }
+/* the line that shows where a part would land inside a group */
 .lay-gap { flex: none; background: var(--ink); }
-.lay-slot.rows .lay-gap { height: 3px; }
-.lay-slot.cols .lay-gap { width: 3px; }
+.lay-slot.rows .lay-gap { width: 3px; }
+.lay-slot.cols .lay-gap { height: 3px; }
 .lay-empty { flex: 1; display: grid; place-items: center; font-size: 12px; color: var(--muted); }
 .lay-tray { display: flex; flex-wrap: wrap; gap: 6px; }
 .lay-zone { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex: 1 1 200px; min-height: 40px; padding: 4px; border: 1px dashed var(--line); }
 .lay-moves { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
-/* a position picker for every part, for when dragging is awkward (a trackpad, a touch screen, a keyboard) */
-.lay-pos { display: grid; gap: 6px; max-width: 520px; }
-.lay-pos-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 6px 0; border-top: 1px solid var(--line); }
-.lay-pos-name { font-size: 13px; color: var(--head); min-width: 120px; }
-.lay-seg { display: flex; flex-wrap: wrap; gap: 4px; }
