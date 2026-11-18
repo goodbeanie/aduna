@@ -540,5 +540,13 @@
       { "title": "Two new presets", "text": "Server bar and shortcuts together, and Members and unread together." },
       { "title": "Position list removed", "text": "The Top, Left, Right, Bottom and Hidden buttons under the map are gone. Drag a part, or focus it and use the arrow keys. Saved layouts keep working." }
     ]
+  },
+  {
+    "id": "2026.11.17.5",
+    "date": "2026-11-17",
+    "title": "Layout editor for moderators and up",
+    "items": [
+      { "title": "Layout is limited again", "text": "Settings > Appearance > Layout is now only for moderators, admins and creator accounts. Everyone else uses the standard layout, and a layout saved on their device is not applied. If you are made a moderator, your saved layout comes back." }
+    ]
   }
 ]
