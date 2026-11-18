@@ -13,6 +13,7 @@
 // A group with one section is how every layout used to work. Every section is in exactly one place. The page (chat) always sits in the middle.
 import { useSyncExternalStore } from 'react';
 import { initPanelFx, strips } from './panelfx.js';
+import { buildPalette, luminance } from './themes.js';
 
 const KEY = 'aduna-panels';
 const OPTS_KEY = 'aduna-panel-opts';
@@ -250,7 +251,7 @@ export function applyPanels(l) {
 // ----- what each section shows, and where its content sits (double-click a part in Settings > Appearance > Layout) -----
 // Every thing a section can show is a [data-item] element inside its [data-panel] (App.jsx, QuickPanel.jsx). A thing that is off is hidden with CSS,
 // so nothing about the app's own logic changes. `on` is whether it shows when nobody has chosen. Kept on this device, wide screens only.
-//   { [section]: { align: 'start' | 'center' | 'end', items: { [item]: true | false } } }
+//   { [section]: { align: 'start' | 'center' | 'end', scheme: 'light' | 'dark', items: { [item]: true | false } } }
 export const ITEMS = {
   rail: [
     { id: 'dms', name: 'Direct messages', on: true },
@@ -299,6 +300,7 @@ export const ITEMS = {
   ],
 };
 const ALIGN = ['start', 'center', 'end'];
+export const SCHEMES = ['light', 'dark']; // a section can be light or dark whatever the app's theme is; no value = it follows the theme
 const JUSTIFY = { start: 'safe flex-start', center: 'safe center', end: 'safe flex-end' };
 
 // Shortcuts only (QuickPanel.jsx): the spacing between its buttons in px, whether they show their text and their icon (never both off),
@@ -323,6 +325,7 @@ export function normalizeOpts(raw) {
     if (!o || typeof o !== 'object') continue;
     const clean = {};
     if (ALIGN.includes(o.align)) clean.align = o.align;
+    if (SCHEMES.includes(o.scheme)) clean.scheme = o.scheme;
     const items = {};
     for (const it of ITEMS[id]) if (typeof o.items?.[it.id] === 'boolean' && o.items[it.id] !== it.on) items[it.id] = o.items[it.id];
     if (Object.keys(items).length) clean.items = items;
@@ -403,6 +406,30 @@ export function optsCss(opts) {
   return rules.length ? `@media (min-width: 1051px) {\n${rules.join('\n')}\n}` : '';
 }
 
+// ----- a section that is light or dark whatever the theme is (double-click a part > Colours) -----
+// The theme is a set of CSS variables on <html> (themes.js). A section that asks for the other scheme gets a palette declared on the section itself,
+// so everything inside it (which only reads those variables) follows. It is built from the theme's own accent, and made again whenever the theme changes.
+const SECTION_BG = { dark: '#1b1b1d', light: '#f6f4ef' };
+const GRAD_SURFACE = { rail: '--bg3', profile: '--bg3' }; // gradient themes paint the panels see-through, so a recoloured part needs a surface of its own
+export function schemeCss(opts) {
+  const root = document.documentElement;
+  const themeDark = root.style.colorScheme === 'dark';
+  const ink = root.style.getPropertyValue('--ink').trim(); // inline on <html> while a theme other than Parchment is on (themes.js paint)
+  const hex = /^#[0-9a-fA-F]{6}$/;
+  const rules = [];
+  for (const [id, o] of Object.entries(opts)) {
+    if (!o.scheme || (o.scheme === 'dark') === themeDark) continue; // follows the theme, or the theme already is what it asked for
+    const dark = o.scheme === 'dark';
+    const accent = hex.test(ink) && (luminance(ink) > 0.35) === dark ? ink : dark ? '#ecd5b6' : '#1c1812'; // the accent has to stand out on the new background
+    const palette = buildPalette({ dark, bg: SECTION_BG[o.scheme], accent });
+    const vars = Object.entries(palette).filter(([k]) => k.startsWith('--')).map(([k, v]) => `${k}: ${v}`).join('; ');
+    const sc = `html [data-panel="${id}"]`;
+    rules.push(`${sc} { ${vars}; color-scheme: ${o.scheme}; color: var(--text); }`);
+    rules.push(`html[data-grad] ${sc} { background: var(${GRAD_SURFACE[id] || '--bg2'}) !important; }`);
+  }
+  return rules.length ? `@media (min-width: 1051px) {\n${rules.join('\n')}\n}` : '';
+}
+
 // The site's CSP has no 'unsafe-inline' for styles, so a <style> element filled with text is refused. A stylesheet built through the CSSOM is not.
 const sheets = {};
 function writeSheet(key, text) {
@@ -437,12 +464,17 @@ let current = defaultPanels();
 let currentOpts = {};
 const subs = new Set();
 const notify = () => subs.forEach((fn) => fn());
+const refreshScheme = () => {
+  const css = schemeCss(currentOpts);
+  if (css) writeSheet('scheme', css); else clearSheet('scheme');
+};
 const refresh = () => {
   current = allowed ? saved : defaultPanels();
   currentOpts = allowed ? savedOpts : {};
   applyPanels(current);
   const css = optsCss(currentOpts);
   if (css) writeSheet('opts', css); else clearSheet('opts');
+  refreshScheme();
   notify(); strips();
 };
 
@@ -479,6 +511,9 @@ export function initPanels() {
   refresh();
   initPanelFx();
   if (typeof window !== 'undefined') {
+    // a new theme (or a server's theme) rewrites the variables on <html>: the sections that are light or dark on their own are made again from it
+    new MutationObserver(() => { if (Object.keys(currentOpts).some((k) => currentOpts[k].scheme)) refreshScheme(); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'data-theme'] });
     window.addEventListener('storage', (e) => { // another tab of Aduna changed it
       if (e.key === KEY) { saved = read(); keepSettings(); refresh(); }
       else if (e.key === OPTS_KEY) { savedOpts = readOpts(); keepSettings(); refresh(); }
@@ -498,7 +533,7 @@ export function setPanels(next) {
   refresh();
 }
 
-// Change what one section shows or how it sits: patch is { align } (null for the default) and/or { items: { id: bool } }; null for the patch puts the section back as it was.
+// Change what one section shows or how it sits: patch is { align } (null for the default), { scheme } ('light', 'dark' or null to follow the theme) and/or { items: { id: bool } }; null for the patch puts the section back as it was.
 export function setSection(id, patch) {
   if (!allowed || !ITEMS[id]) return;
   const o = { ...(savedOpts[id] || {}) };
@@ -506,7 +541,7 @@ export function setSection(id, patch) {
   else {
     if ('align' in patch) { if (patch.align) o.align = patch.align; else delete o.align; }
     if (patch.items) o.items = { ...(o.items || {}), ...patch.items };
-    for (const k of ['gap', 'text', 'icons', 'order']) if (k in patch) { if (patch[k] === null || patch[k] === undefined) delete o[k]; else o[k] = patch[k]; }
+    for (const k of ['gap', 'text', 'icons', 'order', 'scheme']) if (k in patch) { if (patch[k] === null || patch[k] === undefined) delete o[k]; else o[k] = patch[k]; }
     savedOpts = { ...savedOpts, [id]: o };
   }
   savedOpts = normalizeOpts(savedOpts);

@@ -4,7 +4,7 @@ import { CLIPS_ENABLED } from './features.js';
 import { ITEMS, QUICK_GAP, QUICK_GAP_MAX, SECTIONS, SLOT_NAME, canAlign, canSwitchOff, getPanels, itemOn, placePanel, quickOrder, sectionName, setPanels, setSection, slotOf, useLayoutAllowed, useOpts, usePanels, useWide } from './panels.js';
 
 // Customize one section of the app (the server bar, side list, member list, profile and voice, Shortcuts, Unread): double-click an empty spot of it,
-// or double-click its part in Settings > Appearance > Layout (openSection). Where it sits, whether its things sit left, middle or right,
+// or double-click its part in Settings > Appearance > Layout (openSection). Where it sits, whether it is light or dark, whether its things sit left, middle or right,
 // and which of its things show. Everything applies as it is changed and is kept on this device (panels.js: setSection, setPanels).
 // Only on wide screens and only for the accounts that have the layout editor, like the rest of the layout.
 export const openSection = (id) => window.dispatchEvent(new CustomEvent('aduna:section', { detail: id }));
@@ -13,6 +13,7 @@ export const openSection = (id) => window.dispatchEvent(new CustomEvent('aduna:s
 const OWN = 'button, a, input, textarea, select, label, summary, [role=button], [role=slider], [role=switch], [contenteditable=true], .chan, .member';
 
 const ALIGN = [[null, 'Default'], ['start', 'Left'], ['center', 'Center'], ['end', 'Right']];
+const SCHEME_OPTIONS = [[null, 'Match theme'], ['light', 'Light'], ['dark', 'Dark']];
 
 function Seg({ value, options, onPick, label }) {
   return (
@@ -130,6 +131,9 @@ export default function SectionOptions() {
         <div className="so-label">PLACE IT</div>
         <Seg label="Where it sits" value={slot} options={(section?.where || []).map((k) => [k, SLOT_NAME[k]])} onPick={(k) => setPanels(placePanel(getPanels(), id, k))} />
 
+        <div className="so-label">COLOURS</div>
+        <Seg label="Light or dark" value={opts[id]?.scheme || null} options={SCHEME_OPTIONS} onPick={(v) => setSection(id, { scheme: v })} />
+        <p className="muted small">Light or dark for this part only, whatever theme the rest of the app is using.</p>
         {canAlign(id, slot) && (
           <>
             <div className="so-label">ALIGN ITS THINGS</div>

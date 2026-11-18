@@ -217,7 +217,7 @@ export default function LayoutSettings() {
 
   return (
     <div className="lay">
-      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. Drop it on another part to share that part&rsquo;s space, or between two bars or columns to give it one of its own. Where parts share space, drag the divider between them to size them, or double-click it to even them out. On the top or bottom the lists become a slim bar that scrolls sideways. With a part focused, the arrow keys move it. Double-click a part here (or press Enter on it), or double-click an empty spot of it in the app, to choose how its things line up (left, centre or right) and which of them show.</p>
+      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. Drop it on another part to share that part&rsquo;s space, or between two bars or columns to give it one of its own. Where parts share space, drag the divider between them to size them, or double-click it to even them out. On the top or bottom the lists become a slim bar that scrolls sideways. With a part focused, the arrow keys move it. Double-click a part here (or press Enter on it), or double-click an empty spot of it in the app, to choose how its things line up (left, centre or right), whether it is light or dark, and which of them show.</p>
 
       <div className="lay-presets" role="group" aria-label="Layout presets">
         {PRESETS.map(([name, l]) => (
