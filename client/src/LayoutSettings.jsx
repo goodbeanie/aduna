@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { PRESETS, SECTIONS, SLOT_NAME, canGo, defaultPanels, isDefaultPanels, placePanel, sectionName, setPanels, slotOf, usePanels, useWide } from './panels.js';
+import { PRESETS, SECTIONS, SLOTS, SLOT_NAME, canGo, defaultPanels, isDefaultPanels, placePanel, sectionName, setPanels, slotOf, usePanels, useWide } from './panels.js';
 
 // Settings > Appearance > Layout: a live map of the app (top, left, right, bottom, with the chat in the middle). Drag a part to
-// another slot, or into the Hidden box to turn it off. The change is applied as you drop and kept on this device.
+// another slot, or into the Hidden box to turn it off; or pick its position from the list under the map. The change is applied as you drop and kept on this device.
 const AXIS = { top: 'rows', bottom: 'rows', left: 'cols', right: 'cols' };
+const PLACES = [...SLOTS, 'dock', 'off'];
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 // Roughly how big each part is in the real app: the server bar is thin, the lists are wide, the bars are short.
@@ -96,7 +97,7 @@ export default function LayoutSettings() {
 
   return (
     <div className="lay">
-      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off. Every part goes on any side; on the top or bottom the lists become a slim bar that scrolls sideways. With a part focused, the arrow keys move it within its slot. Phones and small tablets keep the standard layout.</p>
+      <p className="muted small hint">Arrange the parts of Aduna on this device. Drag a part to where you want it, or into Hidden to turn it off, or choose a position for it in the list below the map. Every part goes on any side; on the top or bottom the lists become a slim bar that scrolls sideways. With a part focused, the arrow keys move it within its slot. Phones and small tablets keep the standard layout.</p>
 
       <div className="lay-presets" role="group" aria-label="Layout presets">
         {PRESETS.map(([name, l]) => (
@@ -112,6 +113,23 @@ export default function LayoutSettings() {
           {slot('right')}
         </div>
         {slot('bottom')}
+      </div>
+
+      <div className="lay-pos" role="group" aria-label="Position of each part">
+        {SECTIONS.map((s) => {
+          const at = slotOf(pan, s.id);
+          return (
+            <div className="lay-pos-row" key={s.id}>
+              <span className="lay-pos-name" title={s.hint}>{s.name}</span>
+              <div className="lay-seg" role="group" aria-label={s.name + ' position'}>
+                {PLACES.filter((k) => canGo(s.id, k)).map((k) => (
+                  <button type="button" key={k} className={'btn small-btn' + (at === k ? ' primary' : '')} aria-pressed={at === k}
+                    onClick={() => { if (at !== k) setPanels(placePanel(pan, s.id, k)); }}>{SLOT_NAME[k]}</button>
+                ))}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <div className="lay-tray">

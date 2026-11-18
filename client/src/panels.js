@@ -9,6 +9,7 @@
 //   off            hidden
 // Every section is in exactly one list. The page (chat) always sits in the middle.
 import { useSyncExternalStore } from 'react';
+import { initPanelFx, strips } from './panelfx.js';
 
 const KEY = 'aduna-panels';
 const STYLE_ID = 'aduna-panels-style';
@@ -113,15 +114,31 @@ export function panelCss(l) {
 export function applyPanels(l) {
   const el = document.documentElement;
   for (const s of SECTIONS) el.setAttribute(`data-pan-${s.id}`, slotOf(l, s.id));
-  let style = document.getElementById(STYLE_ID);
   if (isDefaultPanels(l)) {
     el.removeAttribute('data-pan');
-    style?.remove();
+    clearSheet();
     return;
   }
   el.setAttribute('data-pan', '1');
+  writeSheet(`@media (min-width: 1051px) {\n${panelCss(l)}\n}`);
+}
+
+// The site's CSP has no 'unsafe-inline' for styles, so a <style> element filled with text is refused. A stylesheet built through the CSSOM is not.
+let sheet = null;
+function writeSheet(text) {
+  if (typeof CSSStyleSheet === 'function' && 'adoptedStyleSheets' in document) {
+    if (!sheet) { sheet = new CSSStyleSheet(); document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet]; }
+    sheet.replaceSync(text);
+    return;
+  }
+  let style = document.getElementById(STYLE_ID);
   if (!style) { style = document.createElement('style'); style.id = STYLE_ID; document.head.appendChild(style); }
-  style.textContent = `@media (min-width: 1051px) {\n${panelCss(l)}\n}`;
+  while (style.sheet.cssRules.length) style.sheet.deleteRule(0);
+  style.sheet.insertRule(text, 0);
+}
+function clearSheet() {
+  if (sheet) { document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== sheet); sheet = null; }
+  document.getElementById(STYLE_ID)?.remove();
 }
 
 function read() {
@@ -134,7 +151,7 @@ let allowed = true;
 let current = defaultPanels();
 const subs = new Set();
 const notify = () => subs.forEach((fn) => fn());
-const refresh = () => { current = allowed ? saved : defaultPanels(); applyPanels(current); notify(); };
+const refresh = () => { current = allowed ? saved : defaultPanels(); applyPanels(current); notify(); strips(); };
 
 export const getPanels = () => current;
 export const loadPanels = read;
@@ -156,6 +173,7 @@ export const useWide = () => useSyncExternalStore(wideWatch, wideNow, () => true
 export function initPanels() {
   saved = read();
   refresh();
+  initPanelFx();
   if (typeof window !== 'undefined') {
     window.addEventListener('storage', (e) => { // another tab of Aduna changed it
       if (e.key !== KEY) return;

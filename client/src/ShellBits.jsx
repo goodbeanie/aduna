@@ -2,24 +2,28 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './ui.jsx';
 
-// The server bar's scrolling list. A mouse wheel scrolls it sideways (it is a horizontal bar, and the scrollbar is hidden),
-// and a soft fade on an edge shows there are more servers that way.
+// The server bar's scrolling list. On a top or bottom bar a mouse wheel scrolls it sideways (the scrollbar is hidden), on a left or right bar it
+// scrolls up and down as usual; a soft fade on an edge shows there are more servers that way.
 export function RailList({ children }) {
   const ref = useRef(null);
-  const [fade, setFade] = useState({ l: false, r: false });
+  const [fade, setFade] = useState({ l: false, r: false, t: false, b: false });
   const sync = useRef(() => {});
   sync.current = () => {
     const el = ref.current;
     if (!el) return;
-    const l = el.scrollLeft > 2, r = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
-    setFade((f) => (f.l === l && f.r === r ? f : { l, r }));
+    const up = getComputedStyle(el).flexDirection === 'column'; // a bar on the left or right stands up
+    const next = up
+      ? { l: false, r: false, t: el.scrollTop > 2, b: el.scrollTop + el.clientHeight < el.scrollHeight - 2 }
+      : { l: el.scrollLeft > 2, r: el.scrollLeft + el.clientWidth < el.scrollWidth - 2, t: false, b: false };
+    setFade((f) => (f.l === next.l && f.r === next.r && f.t === next.t && f.b === next.b ? f : next));
   };
-  useEffect(() => { sync.current(); }); // servers added or removed change the width without a scroll or resize
+  useEffect(() => { sync.current(); }); // servers added or removed, or the bar moved to another side, change the size without a scroll or resize
   useEffect(() => {
     const el = ref.current;
     if (!el) return undefined;
     const onScroll = () => sync.current();
     const onWheel = (e) => {
+      if (getComputedStyle(el).flexDirection === 'column') return; // standing up: the wheel already does the right thing
       if (el.scrollWidth <= el.clientWidth || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return; // nothing to scroll, or already a sideways gesture
       e.preventDefault();
       el.scrollLeft += e.deltaY;
@@ -29,7 +33,7 @@ export function RailList({ children }) {
     window.addEventListener('resize', onScroll);
     return () => { el.removeEventListener('scroll', onScroll); el.removeEventListener('wheel', onWheel); window.removeEventListener('resize', onScroll); };
   }, []);
-  return <div className={'rail-list' + (fade.l ? ' fade-l' : '') + (fade.r ? ' fade-r' : '')} ref={ref}>{children}</div>;
+  return <div className={'rail-list' + (fade.l ? ' fade-l' : '') + (fade.r ? ' fade-r' : '') + (fade.t ? ' fade-t' : '') + (fade.b ? ' fade-b' : '')} ref={ref}>{children}</div>;
 }
 
 // A dropdown that closes on a click or tap outside it, on Escape, and when the pointer leaves it.
@@ -181,15 +185,26 @@ export function Tooltips() {
     };
   }, []);
 
-  // below the button, or above it when there is no room; kept inside the window
+  // Below the button, or above it when there is no room; kept inside the window.
+  // On a server bar standing up on the left or right, below or above would cover the next server, so the tip opens sideways, toward the page.
   useLayoutEffect(() => {
     const b = box.current;
     if (!tip || !b) return;
     const r = tip.el.getBoundingClientRect(), w = b.offsetWidth, h = b.offsetHeight;
-    const below = r.bottom + 8 + h <= window.innerHeight - 8;
-    b.style.top = Math.max(8, below ? r.bottom + 8 : r.top - h - 8) + 'px';
-    b.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8)) + 'px';
-    b.dataset.place = below ? 'below' : 'above';
+    const col = tip.el.closest('.rail[data-slot=left], .rail[data-slot=right]');
+    if (col) {
+      const wantRight = col.getAttribute('data-slot') === 'left';
+      const roomRight = r.right + 8 + w <= window.innerWidth - 8, roomLeft = r.left - 8 - w >= 8;
+      const right = wantRight ? roomRight || !roomLeft : !roomLeft && roomRight;
+      b.style.left = Math.max(8, right ? r.right + 8 : r.left - w - 8) + 'px';
+      b.style.top = Math.max(8, Math.min(r.top + r.height / 2 - h / 2, window.innerHeight - h - 8)) + 'px';
+      b.dataset.place = right ? 'right' : 'left';
+    } else {
+      const below = r.bottom + 8 + h <= window.innerHeight - 8;
+      b.style.top = Math.max(8, below ? r.bottom + 8 : r.top - h - 8) + 'px';
+      b.style.left = Math.max(8, Math.min(r.left + r.width / 2 - w / 2, window.innerWidth - w - 8)) + 'px';
+      b.dataset.place = below ? 'below' : 'above';
+    }
     b.style.visibility = 'visible';
   }, [tip]);
 

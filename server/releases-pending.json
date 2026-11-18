@@ -516,5 +516,18 @@
       { "title": "Move the server bar and the lists", "text": "In Settings > Appearance > Layout, everyone can now put the server bar, side list, member list, profile and voice, Shortcuts and Unread on the top, bottom, left or right, or hide them. It is saved per device and only works on windows at least 1051 px across." },
       { "title": "Side list on the top or bottom", "text": "The side list and member list become a slim bar that scrolls sideways. There is a new preset, Side list on the bottom, and the layout map now draws these bars the way they look in the app." }
     ]
+  },
+  {
+    "id": "2026.11.17.3",
+    "date": "2026-11-17",
+    "title": "Layout editor position list and strip fixes",
+    "items": [
+      { "title": "Pick a position from a list", "text": "In Settings > Appearance > Layout, every part now has a Top, Left, Right, Bottom and Hidden choice under the map, for when dragging is awkward." },
+      { "title": "Bars that scroll sideways", "text": "On the top or bottom, the side list, member list, Shortcuts and Unread fade at an edge when there is more past it, and the mouse wheel scrolls them sideways. Switching channel scrolls the new one into view." },
+      { "title": "More room for channels", "text": "In a top or bottom side list, the voice, storage and profile blocks take less space on narrower windows, so more channels fit." },
+      { "title": "Server bar on the left or right", "text": "Hover tips open beside the button instead of covering the next server, and the list fades at the top or bottom when there are more servers." },
+      { "title": "Layout changes apply", "text": "The browser could block the style the layout editor writes, so a custom layout was sometimes ignored. It now applies." },
+      { "title": "Direct messages header", "text": "In a top or bottom side list on a narrow window, the plus button overlapped Explorer. It now has its own space." }
+    ]
   }
 ]

@@ -1,7 +1,13 @@
-/* Section placement (Settings > Appearance > Layout). panels.js writes the grid itself (a <style id="aduna-panels-style"> in the
-   head) and sets data-pan on <html> when the layout is not the standard one; App.jsx puts data-panel (which section) and data-slot
+/* Section placement (Settings > Appearance > Layout). panels.js writes the grid itself (a constructed stylesheet, since the CSP
+   refuses a <style> element with text) and sets data-pan on <html> when the layout is not the standard one; App.jsx puts data-panel (which section) and data-slot
    (where it sits now: top, left, right, bottom, dock or off) on each section. This file only says how each section looks in each slot.
-   Wide screens only: phones and the members drawer keep their own layout. */
+   Wide screens only: phones and the members drawer keep their own layout.
+
+   Every section has two looks:
+     column  (left, right)   a full-height column, the way the app has always looked
+     strip   (top, bottom)   one slim row across the window that scrolls sideways (panelfx.js adds the edge fades and the mouse wheel)
+   The server bar, the side list and the member list each have both, and the profile bar, shortcuts and unread list follow the same rule.
+   Section by section below: 1 shared, 2 server bar, 3 side list, 4 member list, 5 profile and voice, 6 shortcuts and unread, 7 the editor. */
 
 /* the page itself (App.jsx): no box of its own in the standard layout, the middle cell of the grid in a custom one (panels.js) */
 .center { display: contents; }
@@ -10,65 +16,143 @@
 .quick { display: none; }
 
 @media (min-width: 1051px) {
-  /* one line per section, on the edge that faces the page */
+
+  /* ---------- 1. shared: one line per section, on the edge that faces the page ---------- */
   html[data-pan] [data-panel]:not([data-slot=dock]) { border-style: solid; border-color: var(--line); border-width: 0; }
   html[data-pan] [data-panel][data-slot=top] { border-bottom-width: 1px; }
   html[data-pan] [data-panel][data-slot=bottom] { border-top-width: 1px; }
   html[data-pan] [data-panel][data-slot=left] { border-right-width: 1px; }
   html[data-pan] [data-panel][data-slot=right] { border-left-width: 1px; }
 
-  /* server bar: a strip across the top or bottom, or standing up on the left or right */
+  /* the side list and the member list are columns by default; in a strip they get a fixed slim height (the grid cell sets the width) */
+  html[data-pan] :is(.side, .members)[data-panel] { height: auto; min-height: 0; }
+  html[data-pan] :is(.side, .members)[data-panel]:is([data-slot=top], [data-slot=bottom]):not(.collapsed) { width: auto; min-width: 0; height: 60px; flex-direction: row; }
+
+  /* a strip that is scrolled away from an edge fades out on that edge (panelfx.js sets data-edge to start, end or both) */
+  html[data-pan] [data-edge=start] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px); mask-image: linear-gradient(to right, transparent, #000 32px); }
+  html[data-pan] [data-edge=end] { -webkit-mask-image: linear-gradient(to left, transparent, #000 32px); mask-image: linear-gradient(to left, transparent, #000 32px); }
+  html[data-pan] [data-edge=both] { -webkit-mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); mask-image: linear-gradient(to right, transparent, #000 32px, #000 calc(100% - 32px), transparent); }
+
+  /* ---------- 2. server bar ----------
+     strip (top, bottom): the bar as it always was, a row of round tiles; the sand marker points at the page
+     column (left, right): the same tiles stacked, the marker on the edge that faces the page */
+  html[data-pan] .rail::after { display: none; } /* the seasonal stocking hangs off the bottom edge of a top bar only */
+  html[data-pan] .rail[data-slot=bottom] .rail-btn.on::after { bottom: auto; top: -9px; border-radius: 0 0 3px 3px; }
+
   html[data-pan] .rail:is([data-slot=left], [data-slot=right]) { height: auto; width: 76px; flex-direction: column; padding: 8px 0; }
   html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-list { flex: 0 1 auto; flex-direction: column; min-height: 0; overflow-x: hidden; overflow-y: auto; padding: 6px 8px; }
   html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-sep { width: 32px; height: 2px; margin: 4px 0; }
   html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-upd { margin: auto 0 0; width: 60px; height: auto; flex-direction: column; gap: 4px; padding: 6px 4px; }
   html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-upd span,
   html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-upd .pbar { display: none; }
-  html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-btn.on::after { top: 22%; bottom: 22%; height: auto; width: 3px; border-radius: 3px; }
+  /* the marker is a short bar beside the tile. studio.css centres it with a negative margin for the row, so the margin goes here or the bar slides out of the list and is cut off */
+  html[data-pan] .rail:is([data-slot=left], [data-slot=right]) .rail-btn.on::after { top: 22%; bottom: 22%; height: auto; width: 3px; margin: 0; border-radius: 3px; }
   html[data-pan] .rail[data-slot=left] .rail-btn.on::after { left: -8px; right: auto; }
   html[data-pan] .rail[data-slot=right] .rail-btn.on::after { right: -8px; left: auto; }
-  html[data-pan] .rail[data-slot=bottom] .rail-btn.on::after { bottom: auto; top: -7px; border-radius: 0 0 3px 3px; }
-  html[data-pan] .rail::after { display: none; }
+  /* the list scrolls up and down here: a fade on the edge that has more (RailList in ShellBits.jsx sets fade-t and fade-b) */
+  html[data-pan] .rail-list.fade-t { -webkit-mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to top, #000 calc(100% - 28px), transparent); }
+  html[data-pan] .rail-list.fade-b { -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, #000 calc(100% - 28px), transparent); }
+  html[data-pan] .rail-list.fade-t.fade-b { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to bottom, transparent, #000 28px, #000 calc(100% - 28px), transparent); }
 
-  /* side and member lists: a full-height column on the left or right (the grid cell sets the height), a slim strip that scrolls sideways on the top or bottom */
-  html[data-pan] :is(.side, .members)[data-panel] { height: auto; min-height: 0; }
-  html[data-pan] :is(.side, .members)[data-panel]:is([data-slot=top], [data-slot=bottom]):not(.collapsed) { width: auto; min-width: 0; height: 60px; flex-direction: row; align-items: center; }
+  /* ---------- 3. side list ----------
+     column (left, right): channels or conversations stacked, the docks (voice, storage) and your profile bar at the foot
+     strip (top, bottom): [ server name ] [ channels, scrolling sideways ] [ docks ] [ you ]
+       categories become a small label with a hairline in front of it, channels become pills, voice members become chips,
+       the marker under the active channel points at the page */
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]):not(.collapsed) { align-items: stretch; }
 
-  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head { flex: none; width: auto; min-width: 160px; max-width: 260px; height: 100%; gap: 12px; border-bottom: 0; border-right: 1px solid var(--line2); }
-  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head.has-banner { padding-bottom: 0; align-items: center; }
-  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-list { flex: 1; display: flex; flex-direction: row; align-items: center; gap: 4px; min-width: 0; padding: 0 8px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head { flex: none; width: auto; min-width: 170px; max-width: 250px; height: 100%; gap: 12px; border-bottom: 0; border-right: 1px solid var(--line2); box-shadow: none; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head.static { min-width: 210px; max-width: none; white-space: nowrap; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head.has-banner { height: 100%; padding-bottom: 0; align-items: center; }
+
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-list { flex: 1 1 0; display: flex; flex-direction: row; align-items: center; gap: 4px; min-width: 120px; padding: 0 12px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-list::-webkit-scrollbar { display: none; }
   html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .cat { display: contents; }
   html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) :is(.chan, .chan-wrap, .cat-head, .side-label, .add-cat, .voice-member, .pad) { flex: none; width: auto; margin: 0; white-space: nowrap; }
-  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) :is(.cat-head, .side-label) { padding: 0 4px 0 12px; }
-  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .voice-member { padding: 2px 8px; }
-  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-docks { flex: none; display: flex; align-items: center; max-width: 40%; overflow: hidden; }
-  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .call-dock { border-top: 0; border-left: 1px solid var(--line); }
+
+  /* channels and conversations: pills in one row */
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .chan { height: 36px; min-height: 0; padding: 0 12px 0 10px; gap: 8px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .chan.dm { height: 44px; padding: 0 12px 0 8px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .chan-wrap > .chan.dm { padding-right: 34px; } /* room for the X that closes a conversation */
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .badge.inline { margin-left: 4px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .ev-pill { margin-left: 2px; }
+  /* the active one: a tint and a short sand bar on the edge that faces the page (the column look has it on the left edge) */
+  html[data-pan] .side[data-slot=top] :is(.chan.on, .chan.dm.on) { background: linear-gradient(var(--ink), var(--ink)) 50% 100% / 18px 3px no-repeat, color-mix(in srgb, var(--ink) 13%, transparent); }
+  html[data-pan] .side[data-slot=bottom] :is(.chan.on, .chan.dm.on) { background: linear-gradient(var(--ink), var(--ink)) 50% 0 / 18px 3px no-repeat, color-mix(in srgb, var(--ink) 13%, transparent); }
+
+  /* a category or a section label: a small caption with a hairline in front of it, so where one group ends and the next begins still reads */
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) :is(.cat-head, .side-label) { display: flex; align-items: center; gap: 2px; height: 28px; margin-left: 6px; padding: 0 4px 0 12px; border-left: 1px solid var(--line2); }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-list > :first-child:is(.cat-head, .side-label) { margin-left: 0; padding-left: 0; border-left: 0; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .add-cat { height: 32px; padding: 0 12px; margin-left: 6px; }
+
+  /* voice members under a voice channel: small chips that follow it */
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .voice-member { height: 28px; padding: 0 10px 0 6px; border-radius: 999px; background: color-mix(in srgb, var(--head) 6%, transparent); font-size: 13px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .voice-member span { flex: none; }
+
+  /* the docks (voice connected, a call, storage) sit between the channels and your profile, each one a slim block with a hairline in front */
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-docks { flex: 0 1 auto; display: flex; align-items: stretch; min-width: 0; max-width: 48%; overflow: hidden; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-docks > * { flex: none; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .firstrun { display: none; } /* the getting-started card needs a column */
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .call-dock { display: flex; align-items: center; gap: 8px; width: 250px; border: 0; border-left: 1px solid var(--line); padding: 0 8px 0 10px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .call-dock .cd-row { flex: 1 1 auto; min-width: 0; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .call-dock .cd-who { overflow: hidden; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .call-dock .cd-who :is(b, span) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .call-dock .cd-tools { flex: none; margin: 0; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .call-dock .cd-btn { flex: none; width: 30px; height: 30px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .storage-bar { width: 172px; justify-content: center; border-top: 0; border-left: 1px solid var(--line); padding: 0 12px; }
   html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) > .user-panel { flex: none; height: 100%; border-top: 0; border-left: 1px solid var(--line2); }
-  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .menu { left: 8px; right: auto; width: 260px; }
-  html[data-pan] .side[data-slot=top] .menu { top: 100%; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) > .user-panel .me { flex: 0 1 200px; }
+
+  /* the server menu opens away from the edge: down from a top strip, up from a bottom one */
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .menu { left: 8px; right: auto; width: 260px; z-index: 30; }
+  html[data-pan] .side[data-slot=top] .menu { top: 100%; bottom: auto; }
   html[data-pan] .side[data-slot=bottom] .menu { top: auto; bottom: 100%; }
 
-  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]):not(.collapsed) { display: flex; gap: 6px; padding: 0 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  /* ---------- 4. member list ----------
+     column (left, right): the list as it always was
+     strip (top, bottom): [ search ] [ role label, people... ] with a hairline before every role */
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]):not(.collapsed) { display: flex; align-items: center; gap: 6px; padding: 0 12px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   html[data-pan] .members:is([data-slot=top], [data-slot=bottom])::-webkit-scrollbar { display: none; }
   html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) > * { flex: none; }
-  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .member-search { width: 200px; margin: 0; }
-  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .member { width: auto; max-width: 220px; padding: 4px 10px 4px 8px; }
-  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .side-label { padding: 0 4px 0 12px; white-space: nowrap; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .member-search { flex: 0 0 200px; width: 200px; height: 36px; margin: 0; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .member { width: auto; max-width: 220px; height: 44px; min-height: 0; padding: 0 10px 0 8px; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .member > span:first-of-type { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .side-label { display: flex; align-items: center; height: 28px; margin-left: 4px; padding: 0 4px 0 12px; border-left: 1px solid var(--line2); white-space: nowrap; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .member-search + .side-label { margin-left: 0; border-left: 0; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .skel-rows { display: flex; gap: 8px; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .skel-row { flex: none; width: 150px; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .empty-state { display: flex; align-items: center; gap: 8px; padding: 0 8px; }
+  html[data-pan] .members:is([data-slot=top], [data-slot=bottom]) .empty-state :is(h4, p) { margin: 0; white-space: nowrap; }
 
-  /* profile and voice on its own: a bar on the top or bottom, a card at the top of a column on the left or right */
+  /* ---------- 5. profile and voice on its own: a bar on the top or bottom, a card at the top of a column on the left or right ---------- */
   html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) { width: auto; padding: 0 16px; gap: 6px; }
   html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) .me { flex: 0 1 260px; margin-right: auto; }
   html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) { width: 240px; height: auto; min-height: 58px; align-self: start; align-items: center; align-content: flex-start; flex-wrap: wrap; padding: 10px 8px; }
   html[data-pan] .user-panel:is([data-slot=left], [data-slot=right]) .me { flex: 1 1 100%; }
 
-  /* shortcuts */
+  /* ---------- 6. shortcuts and unread ---------- */
   html[data-pan] .quick { display: flex; gap: 4px; padding: 8px; min-width: 0; background: var(--bg2); overflow: auto; }
   html[data-pan] .quick:is([data-slot=left], [data-slot=right]) { width: 240px; flex-direction: column; align-items: stretch; }
   html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) { flex-direction: row; flex-wrap: nowrap; align-items: center; height: 56px; padding: 0 10px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
   html[data-pan] .quick:is([data-slot=top], [data-slot=bottom]) > * { flex: none; }
   html[data-grad][data-pan] .quick { background: color-mix(in srgb, var(--bg2) 62%, transparent); }
 }
+
+/* a strip spans the whole window, so the window width is how much room it has: narrower windows lose the least needed parts first */
+@media (min-width: 1051px) and (max-width: 1400px) {
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .storage-bar { width: 140px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .storage-bar .st-up { display: none; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .call-dock { width: 220px; }
+  html[data-pan] .user-panel:is([data-slot=top], [data-slot=bottom]) .panel-jump,
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) > .user-panel .panel-jump { display: none; }
+}
+@media (min-width: 1051px) and (max-width: 1220px) {
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head { min-width: 140px; max-width: 180px; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .side-head.static { min-width: 190px; max-width: none; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) .storage-bar { display: none; }
+  html[data-pan] .side:is([data-slot=top], [data-slot=bottom]) > .user-panel .me > div > .muted { display: none; }
+}
+
 .quick-btn { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; color: var(--muted); text-align: left; white-space: nowrap; }
 .quick-btn:hover { background: var(--hover); color: var(--head); }
 .quick-btn svg { flex: none; }
@@ -76,7 +160,7 @@
 .quick-empty { display: flex; align-items: center; gap: 8px; padding: 8px 10px; }
 .unread-panel .quick-btn { max-width: 260px; }
 
-/* ---- the Layout editor in Settings > Appearance (LayoutSettings.jsx) ---- */
+/* ---------- 7. the Layout editor in Settings > Appearance (LayoutSettings.jsx) ---------- */
 .lay { display: flex; flex-direction: column; gap: 10px; }
 .lay-presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .lay-map { display: grid; gap: 6px; padding: 10px; border: 1px solid var(--line); background: var(--bg2); max-width: 520px; }
@@ -100,3 +184,9 @@
 .lay-tray { display: flex; flex-wrap: wrap; gap: 6px; }
 .lay-zone { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex: 1 1 200px; min-height: 40px; padding: 4px; border: 1px dashed var(--line); }
 .lay-moves { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* a position picker for every part, for when dragging is awkward (a trackpad, a touch screen, a keyboard) */
+.lay-pos { display: grid; gap: 6px; max-width: 520px; }
+.lay-pos-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 12px; padding: 6px 0; border-top: 1px solid var(--line); }
+.lay-pos-name { font-size: 13px; color: var(--head); min-width: 120px; }
+.lay-seg { display: flex; flex-wrap: wrap; gap: 4px; }
