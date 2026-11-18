@@ -577,5 +577,15 @@
       { "title": "Light or dark per part", "text": "Double-click a part of the layout and pick Match theme, Light or Dark under Colours. The part uses that look whatever theme the rest of Aduna has, and follows your theme again if you pick Match theme." },
       { "title": "Matching shades in a top or bottom bar", "text": "Shortcuts in a top or bottom bar next to Profile and voice looked lighter than Profile and voice on dark themes. They now share the same background." }
     ]
+  },
+  {
+    "id": "2026.11.18.3",
+    "date": "2026-11-18",
+    "title": "The layout works on phones",
+    "items": [
+      { "title": "Arrange Aduna on your phone", "text": "In Settings > Appearance > Layout on a phone, tap a part to put it on the top, bottom, left or right, make it light or dark, or hide it. This works for the server bar, Profile and voice, Shortcuts and Unread, and it is kept on that phone." },
+      { "title": "Server bar on the side", "text": "A server bar on the left or right only shows on the Direct messages screen, not inside a chat or a server's channels. The side list and member list stay as they are on a phone." },
+      { "title": "Hidden in Customize", "text": "The Customize dialog now has a Hidden choice under Place it, so a part can be hidden without dragging it." }
+    ]
   }
 ]
