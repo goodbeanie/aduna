@@ -1,8 +1,10 @@
-// Fluent 3D emoji pictures, in their own chunk (Emoji.jsx loads it the first time an emoji is drawn).
-const files = import.meta.glob('../node_modules/@lobehub/fluent-emoji-3d/assets/*.webp', { eager: true, query: '?url&no-inline', import: 'default' });
+// Fluent 3D emoji pictures. They are plain files in /fluent (copied there by scripts/fluent-emoji.mjs), plus a short list of their names.
+// Emoji.jsx loads this the first time an emoji is drawn and waits for `ready`.
+let names = new Set();
 
-const urls = new Map();
-for (const [path, url] of Object.entries(files)) urls.set(path.slice(path.lastIndexOf('/') + 1, -5), url);
+export const ready = fetch('/fluent/index.txt')
+  .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+  .then((t) => { names = new Set(t.split(',')); });
 
 // File names are the code points in lowercase hex, joined by "-", with the fe0f selector only where the full emoji has it
 const hex = (s) => Array.from(s, (c) => c.codePointAt(0).toString(16).padStart(4, '0'));
@@ -10,8 +12,6 @@ const hex = (s) => Array.from(s, (c) => c.codePointAt(0).toString(16).padStart(4
 export function fluentUrl(emoji) {
   const all = hex(emoji);
   const bare = all.filter((c) => c !== 'fe0f');
-  return urls.get(all.join('-'))
-    || urls.get(bare.join('-'))
-    || urls.get([bare[0], 'fe0f', ...bare.slice(1)].join('-'))
-    || null;
+  const name = [all.join('-'), bare.join('-'), [bare[0], 'fe0f', ...bare.slice(1)].join('-')].find((n) => names.has(n));
+  return name ? `/fluent/${name}.webp` : null;
 }

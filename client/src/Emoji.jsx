@@ -46,10 +46,11 @@ export function Rich({ text: raw, mention, live }) {
 
 // Unicode emoji are drawn as Fluent pictures once their chunk has loaded (the plain character until then, or if the set has no picture for it)
 let fluent = null, fluentPromise;
-const loadFluent = () => fluentPromise || (fluentPromise = import('./fluent.js').then((m) => (fluent = m)).catch((e) => { fluentPromise = null; throw e; }));
+const loadFluent = () => fluentPromise || (fluentPromise = import('./fluent.js').then((m) => m.ready.then(() => (fluent = m))).catch((e) => { fluentPromise = null; throw e; }));
 
 export function UEmoji({ e, big, className = '', ...rest }) {
   const [, setReady] = useState(!!fluent);
+  const [bad, setBad] = useState(false);
   useEffect(() => {
     if (fluent) return undefined;
     let dead = false;
@@ -57,8 +58,8 @@ export function UEmoji({ e, big, className = '', ...rest }) {
     return () => { dead = true; };
   }, []);
   const src = fluent?.fluentUrl(e);
-  if (!src) return <>{e}</>;
-  return <img src={src} alt={e} draggable={false} className={'uemoji' + (big ? ' big' : '') + (className ? ' ' + className : '')} {...rest} />;
+  if (!src || bad) return <>{e}</>;
+  return <img src={src} alt={e} draggable={false} onError={() => setBad(true)} className={'uemoji' + (big ? ' big' : '') + (className ? ' ' + className : '')} {...rest} />;
 }
 
 // A custom emoji picture. Animated (GIF) emoji sit still on their first frame (?still=1, a small copy; other types are sent as they are)
