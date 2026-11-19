@@ -607,5 +607,15 @@
       { "title": "Everyone sees the same spin", "text": "If the channel is open when the time comes, you watch the wheel spin and the winner shows once it stops. Anyone who opens the channel later sees the wheel already stopped on the same spot." },
       { "title": "Limits", "text": "A wheel needs at least 2 options and can have up to 500. The spin time can be up to 30 days ahead." }
     ]
+  },
+  {
+    "id": "2026.11.18.6",
+    "date": "2026-11-18",
+    "title": "Boosted servers stand out",
+    "items": [
+      { "title": "Boosted servers in Explorer", "text": "Boosted servers now sit at the top of the Servers tab in their own Boosted servers section. The rest are listed under All servers." },
+      { "title": "BOOSTED tag and purple stroke", "text": "A boosted server shows a purple BOOSTED tag next to its name in the side list and on invite and Explorer cards. Its icon in the server bar and its cards get a purple gradient stroke." },
+      { "title": "Booster tag in the member list", "text": "People who are boosting a server now have a Booster tag next to their name in the member list, as well as in chat." }
+    ]
   }
 ]
