@@ -587,5 +587,15 @@
       { "title": "Server bar on the side", "text": "A server bar on the left or right only shows on the Direct messages screen, not inside a chat or a server's channels. The side list and member list stay as they are on a phone." },
       { "title": "Hidden in Customize", "text": "The Customize dialog now has a Hidden choice under Place it, so a part can be hidden without dragging it." }
     ]
+  },
+  {
+    "id": "2026.11.18.4",
+    "date": "2026-11-18",
+    "title": "Server boosts",
+    "items": [
+      { "title": "Boost a server with credits", "text": "Open the server menu and pick Boost server. Level 1 costs 1000 credits, level 2 costs 2000 and level 3 costs 3000. A boost lasts 14 days, and the server runs at the highest level that is active." },
+      { "title": "What each level gives", "text": "Level 1 ranks the server higher in Explore and gives the booster a Booster tag in that server. Level 2 allows 1080p, 60 fps screen sharing for everyone in its voice channels. Level 3 pays 1.5x credits for messages sent in the server." },
+      { "title": "Upgrades and refunds", "text": "You can have one boost per server. Upgrading replaces your own boost at the full price of the new level. If a server is deleted, each running boost gives its unused time back as credits." }
+    ]
   }
 ]
