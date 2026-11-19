@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Avatar, Modal } from './ui.jsx';
-import { useEmoji } from './Emoji.jsx';
+import { UEmoji, useEmoji } from './Emoji.jsx';
 
-// The emoji of a reaction: a Unicode emoji as text, or a custom emoji ("c:<id>") as its picture.
+// The emoji of a reaction: a Unicode emoji as a Fluent picture, or a custom emoji ("c:<id>") as its picture.
 function Glyph({ emoji }) {
-  return emoji.startsWith('c:') ? <img className="cemoji" src={`/api/emoji/${emoji.slice(2)}/image`} alt="" /> : <>{emoji}</>;
+  return emoji.startsWith('c:') ? <img className="cemoji" src={`/api/emoji/${emoji.slice(2)}/image`} alt="" /> : <UEmoji e={emoji} />;
 }
 
 // "Who reacted": opened by clicking a reaction chip. One tab per emoji on the message, the people who used the selected one below,

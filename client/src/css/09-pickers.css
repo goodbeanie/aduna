@@ -31,6 +31,7 @@
 .suggest-glyph { font-size: 18px; line-height: 1; }
 .ep-e:hover, .ep-e:focus-visible { background: var(--hover); }
 .ep-e img { width: 26px; height: 26px; object-fit: contain; }
+.ep-e .uemoji { margin: 0; vertical-align: baseline; }
 .ep-scroll .pop-add { margin: 6px 0 2px; }
 .ep-foot { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-top: 1px solid var(--line); min-height: 38px; }
 .ep-hover { flex: 1; min-width: 0; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

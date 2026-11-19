@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EMOJIS, Icon } from './ui.jsx';
 import { TileSkeleton } from './ShellBits.jsx';
-import { loadShortcodes, useEmoji } from './Emoji.jsx';
+import { UEmoji, loadShortcodes, useEmoji } from './Emoji.jsx';
 
 // The full Unicode emoji set lives in its own chunk and is only fetched the first time a picker opens.
 let dataPromise;
@@ -114,7 +114,7 @@ export default function EmojiPicker({ onPick, onCustom, onManage }) {
   const showHover = (label) => { if (hoverEl.current) hoverEl.current.textContent = label; };
 
   const btn = (emoji, label) => (
-    <button key={emoji} type="button" className="ep-e" title={label} aria-label={label} onMouseEnter={() => showHover(label)} onFocus={() => showHover(label)} onClick={() => choose(emoji)}>{emoji}</button>
+    <button key={emoji} type="button" className="ep-e" title={label} aria-label={label} onMouseEnter={() => showHover(label)} onFocus={() => showHover(label)} onClick={() => choose(emoji)}><UEmoji e={emoji} loading="lazy" /></button>
   );
   const custom = (c) => (
     <button key={c.id} type="button" className="ep-e ep-c" title={':' + c.name + ':'} aria-label={c.name} onMouseEnter={() => showHover(':' + c.name + ':')} onClick={() => chooseCustom(c)}>

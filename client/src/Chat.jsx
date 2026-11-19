@@ -6,7 +6,7 @@ import EmojiPicker from './EmojiPicker.jsx';
 import { Attachments, EmojiPop, GifPop, Lightbox } from './Attachments.jsx';
 import { StickerMessage, StickerPop } from './Stickers.jsx';
 import { stickerIdOf, stickerToken } from './stickers.js';
-import { EmojiImg, Rich, useEmoji } from './Emoji.jsx';
+import { EmojiImg, Rich, UEmoji, useEmoji } from './Emoji.jsx';
 import { InviteCard, inviteCodesIn } from './Invite.jsx';
 import { clipIdsIn, isOnlyClipLink } from './clipLinks.js';
 import { CLIPS_ENABLED } from './features.js';
@@ -279,7 +279,7 @@ function Message({ m, users, roleColors, boosters, me, byId, presence, onVote, o
                 <button key={emoji} className={'chip' + (ids.includes(me.id) ? ' on' : '')} onClick={() => setWho(emoji)} aria-haspopup="dialog"
                   onContextMenu={emoji.startsWith('c:') ? (e) => { e.preventDefault(); e.stopPropagation(); openMenu(emoji.slice(2), lib.find((x) => x.id === emoji.slice(2))?.name || 'emoji', e.clientX, e.clientY); } : undefined}
                   title={(emoji.startsWith('c:') ? ':' + (lib.find((x) => x.id === emoji.slice(2))?.name || 'custom emoji') + ': (right-click to save or report)\n' : '') + ids.map((i) => users[i]?.displayName || '?').join(', ')}>
-                  {emoji.startsWith('c:') ? <EmojiImg id={emoji.slice(2)} className="cemoji" /> : emoji} <span>{ids.length}</span>
+                  {emoji.startsWith('c:') ? <EmojiImg id={emoji.slice(2)} className="cemoji" /> : <UEmoji e={emoji} />} <span>{ids.length}</span>
                 </button>
               ))}
               <button className="chip add" title="Add reaction" aria-label="Add reaction" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); setCtxPicker({ x: r.left, y: r.bottom }); }}><Icon name="plus" size={14} /></button>
@@ -717,7 +717,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
         {suggestions.length > 0 && (
           <div className="suggest">
             {suggestions.map((e, i) => (
-              <button key={e.id} onClick={() => pickSuggestion(e)}>{e.glyph ? <span className="suggest-glyph">{e.glyph}</span> : <img className="cemoji" src={`/api/emoji/${e.id}/image`} alt="" />}:{e.name}:{i === 0 && <span className="muted small"> Tab</span>}</button>
+              <button key={e.id} onClick={() => pickSuggestion(e)}>{e.glyph ? <UEmoji e={e.glyph} className="suggest-glyph" /> : <img className="cemoji" src={`/api/emoji/${e.id}/image`} alt="" />}:{e.name}:{i === 0 && <span className="muted small"> Tab</span>}</button>
             ))}
           </div>
         )}

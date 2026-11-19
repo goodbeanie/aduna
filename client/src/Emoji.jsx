@@ -16,10 +16,14 @@ export function Linkified({ text }) {
 }
 
 const TOKEN = /<:([a-z0-9_]{2,32}):([0-9a-f]{16})>/g;
-const ONLY_EMOJI = /^(\s*<:[a-z0-9_]{2,32}:[0-9a-f]{16}>\s*){1,5}$/;
 
-// emoji token | <@userId> mention | <#channelId> channel tag | a plain @everyone
-const RICH = /<:([a-z0-9_]{2,32}):([0-9a-f]{16})>|<@([0-9a-f]{16})>|<#([0-9a-f]{16})>|(?<![\w<@])@everyone(?![\w])/g;
+// One Unicode emoji: flag, keycap, or a picture emoji with its skin tone, selector, ZWJ parts and tag letters. Plain text like © or 5 does not match.
+const PICTURE = '(?:\\p{Emoji_Presentation}|\\p{Extended_Pictographic}(?=[\\uFE0F\\p{Emoji_Modifier}]))\\uFE0F?\\p{Emoji_Modifier}?';
+const UNICODE_EMOJI = `\\p{Regional_Indicator}{2}|[#*0-9]\\uFE0F\\u20E3|${PICTURE}(?:\\u200D\\p{Extended_Pictographic}\\uFE0F?\\p{Emoji_Modifier}?)*[\\u{E0020}-\\u{E007F}]*`;
+const ONLY_EMOJI = new RegExp(`^(?:\\s*(?:<:[a-z0-9_]{2,32}:[0-9a-f]{16}>|${UNICODE_EMOJI})\\s*){1,5}$`, 'u');
+
+// emoji token | <@userId> mention | <#channelId> channel tag | a plain @everyone | a Unicode emoji
+const RICH = new RegExp(`<:([a-z0-9_]{2,32}):([0-9a-f]{16})>|<@([0-9a-f]{16})>|<#([0-9a-f]{16})>|(?<![\\w<@])@everyone(?![\\w])|(${UNICODE_EMOJI})`, 'gu');
 
 // mention: { users, meId, onUser, channels, onChannel, everyone } - everyone is true only when the server accepted this message's @everyone;
 // channels ({ id: channel }) and onChannel are only given inside a server channel, where a channel tag can be shown and opened
@@ -34,9 +38,27 @@ export function Rich({ text: raw, mention, live }) {
       if (m[2]) return <CustomEmoji id={m[2]} name={m[1]} big={big} />;
       if (m[3]) return <Mention id={m[3]} ctx={mention} />;
       if (m[4]) return <ChannelMention id={m[4]} ctx={mention} />;
+      if (m[5]) return <UEmoji e={m[5]} big={big} />;
       return mention?.everyone ? <EveryoneMention /> : m[0];
     },
   });
+}
+
+// Unicode emoji are drawn as Fluent pictures once their chunk has loaded (the plain character until then, or if the set has no picture for it)
+let fluent = null, fluentPromise;
+const loadFluent = () => fluentPromise || (fluentPromise = import('./fluent.js').then((m) => (fluent = m)).catch((e) => { fluentPromise = null; throw e; }));
+
+export function UEmoji({ e, big, className = '', ...rest }) {
+  const [, setReady] = useState(!!fluent);
+  useEffect(() => {
+    if (fluent) return undefined;
+    let dead = false;
+    loadFluent().then(() => !dead && setReady(true)).catch(() => {});
+    return () => { dead = true; };
+  }, []);
+  const src = fluent?.fluentUrl(e);
+  if (!src) return <>{e}</>;
+  return <img src={src} alt={e} draggable={false} className={'uemoji' + (big ? ' big' : '') + (className ? ' ' + className : '')} {...rest} />;
 }
 
 // A custom emoji picture. Animated (GIF) emoji sit still on their first frame (?still=1, a small copy; other types are sent as they are)
