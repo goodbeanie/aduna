@@ -597,5 +597,15 @@
       { "title": "What each level gives", "text": "Level 1 ranks the server higher in Explore and gives the booster a Booster tag in that server. Level 2 allows 1080p, 60 fps screen sharing for everyone in its voice channels. Level 3 pays 1.5x credits for messages sent in the server." },
       { "title": "Upgrades and refunds", "text": "You can have one boost per server. Upgrading replaces your own boost at the full price of the new level. If a server is deleted, each running boost gives its unused time back as credits." }
     ]
+  },
+  {
+    "id": "2026.11.18.5",
+    "date": "2026-11-18",
+    "title": "Spin the wheel",
+    "items": [
+      { "title": "Spin the wheel in a channel", "text": "In a text or announcements channel, open the + menu and pick Spin the wheel. Give it a title, one option per line, and the time it should spin. The server picks the winner at that time, so nobody knows it beforehand." },
+      { "title": "Everyone sees the same spin", "text": "If the channel is open when the time comes, you watch the wheel spin and the winner shows once it stops. Anyone who opens the channel later sees the wheel already stopped on the same spot." },
+      { "title": "Limits", "text": "A wheel needs at least 2 options and can have up to 500. The spin time can be up to 30 days ahead." }
+    ]
   }
 ]
