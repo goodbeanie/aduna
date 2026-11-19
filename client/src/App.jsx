@@ -566,6 +566,10 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('poll:update', ({ channelId, messageId, poll }) => {
       setChan((p) => (p[channelId] && p[channelId].some((x) => x.id === messageId) ? { ...p, [channelId]: p[channelId].map((x) => (x.id === messageId ? { ...x, poll } : x)) } : p));
     });
+    // A wheel stopped: the server picked the winner at the poster's time and sends the whole wheel. A card that is showing plays the spin.
+    s.on('wheel:update', ({ channelId, messageId, wheel }) => {
+      setChan((p) => (p[channelId] && p[channelId].some((x) => x.id === messageId) ? { ...p, [channelId]: p[channelId].map((x) => (x.id === messageId ? { ...x, wheel } : x)) } : p));
+    });
     // A call with someone has finished: it becomes a line in that DM ("Voice call · 4 min", "Missed video call").
     s.on('call:log', (rec) => {
       if (rec.group || String(rec.convo || '').startsWith('g:')) return; // a group call: useGroups puts it in that group
@@ -899,6 +903,8 @@ function Main({ me, setMe, privKey, openServerId }) {
   const sendPoll = (poll) => emitAck(socketRef.current, 'message:send', { channelId: view.channelId, content: '', poll });
   const votePoll = (messageId, options) => emitAck(socketRef.current, 'poll:vote', { messageId, options });
   const closePoll = (messageId) => emitAck(socketRef.current, 'poll:close', { messageId });
+  // A wheel is a channel message with no text; the server cleans it (wheels.js) and spins it at the chosen time.
+  const sendWheel = (wheel) => emitAck(socketRef.current, 'message:send', { channelId: view.channelId, content: '', wheel });
   const react = (messageId, emoji) => (group ? groups.react(messageId, emoji)
     : emitAck(socketRef.current, 'reaction:toggle', { kind: view.kind === 'server' ? 'channel' : 'dm', messageId, emoji }).catch(() => {}));
   const editMsg = async (messageId, text) => {
@@ -1313,6 +1319,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       {server && !loungeOpen && !eventsOpen && channel && !['voice', 'rules', 'todo', 'goals'].includes(channel.type) && (
         <Chat title={channel.name} draftKey={'c:' + channel.id} loading={!loadedKeys['c:' + channel.id]} unreadCount={unread['c:' + channel.id] || 0} unreadExact={unreadCountsAll(server, channel)} onBack={() => setShowList(true)} messages={messages} users={users} me={me} presence={presence}
           onSend={send} onPoll={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
+          onWheel={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendWheel : undefined}
           wordle={{ scopes: [{ id: 'global', label: 'Aduna daily' }, { id: server.id, label: server.name }] }}
           onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={can(server, me.id, 'manageMessages')} canPin={can(server, me.id, 'manageMessages')} onPin={pinMsg} pinsFor={channel.id}
           bell={{ muted: np.effective(notePrefs[server.id], channel.id, Date.now()).muted, onClick: () => setModal({ type: 'notes', channelId: channel.id }) }} roleColors={roleColors} boosters={boosters} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}

@@ -149,6 +149,12 @@ const BOOK = [
   // polls
   ['Add an answer', 'Ajouter une réponse', 'Añadir una respuesta'], ['Allow picking more than one answer', 'Autoriser plusieurs choix', 'Permitir elegir más de una respuesta'], ['Create a poll', 'Créer un sondage', 'Crear una encuesta'],
   ['End poll', 'Terminer le sondage', 'Terminar encuesta'], ['Every answer must be different.', 'Chaque réponse doit être différente.', 'Cada respuesta debe ser distinta.'], ['What should we play tonight?', 'À quoi joue-t-on ce soir ?', '¿A qué jugamos esta noche?'], ['· time is up', '· temps écoulé', '· se acabó el tiempo'],
+  // spin the wheel
+  ['Spin the wheel', 'Tourner la roue', 'Girar la ruleta'], ['Post wheel', 'Publier la roue', 'Publicar la ruleta'], ['Who picks the game?', 'Qui choisit le jeu ?', '¿Quién elige el juego?'],
+  ['TITLE', 'TITRE', 'TÍTULO'], ['OPTIONS', 'OPTIONS', 'OPCIONES'], ['SPINS AT', 'TOURNE À', 'GIRA A LAS'], ['Spinning…', 'La roue tourne…', 'Girando…'], ['Waiting for the result…', 'En attente du résultat…', 'Esperando el resultado…'],
+  ['In 5 min', 'Dans 5 min', 'En 5 min'], ['In 30 min', 'Dans 30 min', 'En 30 min'], ['In 1 hour', 'Dans 1 heure', 'En 1 hora'], ['Tomorrow', 'Demain', 'Mañana'],
+  ['Pick a time in the future, up to 30 days away.', 'Choisissez une heure dans le futur, jusqu’à 30 jours.', 'Elige una hora en el futuro, hasta 30 días.'],
+  ['The wheel spins on its own at that time and the winner is picked then, so nobody knows it beforehand. Everyone in the channel sees the result.', 'La roue tourne toute seule à cette heure et le gagnant est choisi à ce moment-là, donc personne ne le connaît d’avance. Tout le monde dans le salon voit le résultat.', 'La ruleta gira sola a esa hora y el ganador se elige entonces, así que nadie lo sabe antes. Todos en el canal ven el resultado.'],
   // badges, themes
   ['Badge name', 'Nom du badge', 'Nombre de la insignia'], ['Creator', 'Créateur', 'Creador'], ['Founder', 'Fondateur', 'Fundador'], ['Give', 'Donner', 'Dar'], ['Give to username', 'Donner à (nom d’utilisateur)', 'Dar a (nombre de usuario)'], ['New badge', 'Nouveau badge', 'Nueva insignia'],
   ['No badges yet.', 'Aucun badge pour l’instant.', 'Aún no hay insignias.'], ['Nobody has this badge yet.', 'Personne n’a encore ce badge.', 'Nadie tiene esta insignia todavía.'], ['Remove picture', 'Retirer l’image', 'Quitar imagen'], ['Take the badge back', 'Reprendre le badge', 'Quitar la insignia'],

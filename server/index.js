@@ -39,6 +39,7 @@ const activityLib = require('./activity');
 const clipsLib = require('./clips'); // clips: short vertical videos (see the "clips" block below)
 const screenLib = require('./screen'); // clip screening: OpenAI moderation of frames, music recognition, re-post matching (see POST /api/clips/:id/complete)
 const polls = require('./polls');
+const wheels = require('./wheels'); // spin the wheel: a poster's options and a spin time; the server picks the winner at that time (see wheels.js)
 const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global) and one for each server (see the "wordle" block below)
 const contextoLib = require('./contexto'); // Contexto: a daily word guessed by meaning, same scopes as Wordle (see the "contexto" block below)
 const salesReport = require('./sales-report'); // sales to Canada and the US in CAD against the sales tax registration limits (/admin > Sales)
@@ -6505,7 +6506,7 @@ function voiceLeave(uid, sid) {
 const imgPath = (id) => (id ? `/api/images/${id}` : undefined);
 function pushChannelMessage(f, msg, kind, uid) {
   const author = db().users[uid];
-  const preview = stickersLib.idOf(msg.content) ? stickersLib.LABEL : clip(msg.content.replace(MENTION_TOKEN, '@someone'), 120) || 'Sent an attachment';
+  const preview = stickersLib.idOf(msg.content) ? stickersLib.LABEL : clip(msg.content.replace(MENTION_TOKEN, '@someone'), 120) || wheels.wheelPreview(msg.wheel) || 'Sent an attachment';
   const url = `/app?n=c:${f.server.id}:${f.channel.id}`;
   const who = author?.displayName || 'Someone';
   const where = `${f.server.name} \u00b7 #${f.channel.name}`;
@@ -6525,6 +6526,23 @@ function pushChannelMessage(f, msg, kind, uid) {
   for (const id of msg.mentions || []) to(id, 'mention', 'mention', ' \u00b7 mentioned you');
   if (msg.everyone) for (const id of f.server.members) to(id, 'mention', 'everyone', ' \u00b7 @everyone');
   if (kind === 'announcements') for (const id of f.server.members) to(id, 'announcement', 'announcement', ' \u00b7 announcement');
+}
+
+// Spin the wheel (wheels.js): the winner is picked here when the poster's time comes and not before, then everyone in the channel gets the finished wheel.
+const pendingWheels = new Set(); // ids of messages whose wheel has not spun yet
+function wheelSweep(at = now()) {
+  const spun = [];
+  for (const id of [...pendingWheels]) {
+    const msg = db().messages[id];
+    if (!msg || !wheels.isWheel(msg.wheel) || wheels.isSpun(msg.wheel)) { pendingWheels.delete(id); continue; }
+    if (!wheels.spinDue(msg.wheel, crypto.randomInt, at)) continue;
+    pendingWheels.delete(id);
+    spun.push(msg);
+  }
+  if (!spun.length) return 0;
+  store.save();
+  for (const msg of spun) io.to('channel:' + msg.channelId).emit('wheel:update', { channelId: msg.channelId, messageId: msg.id, wheel: msg.wheel });
+  return spun.length;
 }
 
 io.on('connection', (socket) => {
@@ -6614,18 +6632,27 @@ io.on('connection', (socket) => {
       if (made.error) return reply({ error: made.error });
       poll = made.poll;
     }
-    if (!content && !atts.length && !poll) return reply({ error: 'Cannot send' });
-    const stkErr = stickerProblem(uid, content, { hasAtts: atts.length > 0, hasPoll: !!poll });
+    let wheel; // optional spin-the-wheel on this message, same channels as polls (see wheels.js)
+    if (p.wheel !== undefined && p.wheel !== null) {
+      if (kind !== 'text' && kind !== 'announcements') return reply({ error: 'Wheels can only be posted in text and announcement channels' });
+      if (poll) return reply({ error: 'A message holds a poll or a wheel, not both' });
+      const made = wheels.cleanWheel(p.wheel, now());
+      if (made.error) return reply({ error: made.error });
+      wheel = made.wheel;
+    }
+    if (!content && !atts.length && !poll && !wheel) return reply({ error: 'Cannot send' });
+    const stkErr = stickerProblem(uid, content, { hasAtts: atts.length > 0, hasPoll: !!poll || !!wheel });
     if (stkErr) return reply({ error: stkErr });
     try { await store.markAttached(atts.map((a) => a.id).filter(Boolean)); } catch (e) { console.error(e); return reply({ error: 'Cannot send' }); }
     const ping = parseMentions(content, f.server, uid);
     const msg = {
       id: store.id(), channelId: f.channel.id, serverId: f.server.id, authorId: uid, content, attachments: atts,
-      mentions: ping.mentions, everyone: ping.everyone, ...(poll ? { poll } : {}),
+      mentions: ping.mentions, everyone: ping.everyone, ...(poll ? { poll } : {}), ...(wheel ? { wheel } : {}),
       replyTo: validReply(db().messages, p.replyTo, (m) => m.channelId === f.channel.id),
       reactions: {}, createdAt: now(),
     };
     db().messages[msg.id] = msg;
+    if (wheel) pendingWheels.add(msg.id);
     // Credits for real, typed, different messages (see credits.js). Checked before this message counts as "someone spoke".
     const earned = credits.rewardMessage({ user: db().users[uid], content, proof: p.typing, server: f.server, channel: f.channel, humans: humanCount(f.server), plus: storagePlan.isSubscriber(db().users[uid], now()) });
     credits.noteChannelMessage(f.channel.id, uid);
@@ -6739,9 +6766,9 @@ io.on('connection', (socket) => {
       const f = msg && findChannel(msg.channelId);
       if (!f || !f.server.members.includes(uid) || msg.authorId !== uid) return reply({ error: 'Forbidden' });
       const content = clip(p.content, maxChars(db().users[uid])).trim();
-      if (!content && !msg.attachments?.length && !msg.poll) return reply({ error: 'Message cannot be empty' });
+      if (!content && !msg.attachments?.length && !msg.poll && !msg.wheel) return reply({ error: 'Message cannot be empty' });
       if (content !== msg.content) { const held = automodGate(f.server, f.channel, uid, content); if (held) return reply({ error: held }); }
-      if (content !== msg.content) { const stkErr = stickerProblem(uid, content, { hasAtts: !!msg.attachments?.length, hasPoll: !!msg.poll }); if (stkErr) return reply({ error: stkErr }); }
+      if (content !== msg.content) { const stkErr = stickerProblem(uid, content, { hasAtts: !!msg.attachments?.length, hasPoll: !!msg.poll || !!msg.wheel }); if (stkErr) return reply({ error: stkErr }); }
       msg.content = content;
       Object.assign(msg, parseMentions(content, f.server, uid)); // an edit refreshes the highlight but never pings again
       msg.editedAt = now();
@@ -7023,6 +7050,9 @@ async function start() {
   const eventSweep = () => { try { gatheringSweep(); } catch (e) { console.error('Event reminder sweep failed:', e.message); } };
   eventSweep(); // an event that came due while the server was off: a late "starting now" is dropped, one that is still useful goes out
   if (process.env.NODE_ENV !== 'test') setInterval(eventSweep, 30_000).unref(); // tests call gatheringSweep() themselves
+  for (const m of Object.values(db().messages)) if (wheels.isWheel(m.wheel) && !wheels.isSpun(m.wheel)) pendingWheels.add(m.id);
+  wheelSweep(); // a wheel whose time came while the server was off spins now
+  if (process.env.NODE_ENV !== 'test') setInterval(() => wheelSweep(), 1000).unref(); // tests call wheelSweep() themselves
   if (process.env.NODE_ENV !== 'test') botHost.startTimers(); // due bot timers are looked for every few seconds (tests call botHost.tick() themselves)
 }
 const ready = start();
@@ -7038,7 +7068,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, nameSweep, moderationSweep, ready, loginGuard, inviteLookups, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, wheelSweep, nameSweep, moderationSweep, ready, loginGuard, inviteLookups, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep, wheelSweep: for the tests
 
 
 

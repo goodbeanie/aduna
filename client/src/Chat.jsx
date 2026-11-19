@@ -19,6 +19,7 @@ import { useTypingProof } from './typing.js';
 import { BotTag } from './Bots.jsx';
 import { ServerTagChip } from './ServerTag.jsx';
 import { PollCard, PollModal } from './Polls.jsx';
+import { WheelCard, WheelModal } from './Wheels.jsx';
 import { WordleModal, WordleShareCard, parseWordleShare } from './Wordle.jsx';
 import { ContextoModal, ContextoShareCard, parseContextoShare } from './Contexto.jsx';
 import { callSummary } from './callhistory.js';
@@ -261,12 +262,13 @@ function Message({ m, users, roleColors, boosters, me, byId, presence, onVote, o
             </div>
           )}
           {editing
-            ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} limit={charLimit(me)} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll} onSave={(t) => { const x = encode(t); if (x.length > charLimit(me)) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
+            ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} limit={charLimit(me)} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll || !!m.wheel} onSave={(t) => { const x = encode(t); if (x.length > charLimit(me)) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
             : (m.content || m.editedAt) && !wshare && !cshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} live={!dm} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
           {wshare && !editing && <WordleShareCard share={wshare} />}
         {cshare && !editing && <ContextoShareCard share={cshare} />}
           {m.poll && <PollCard m={m} users={users} me={me} onVote={onVote} onClose={onClosePoll} canClose={canDelete} />}
+          {m.wheel && <WheelCard m={m} />}
           {m.invite && <InviteCard code={m.invite} />}
           {!editing && inviteCodesIn(m.content).filter((c) => c !== m.invite).map((c) => <InviteCard key={c} code={c} />)}
           {CLIPS_ENABLED && !editing && clipIdsIn(m.content).map((id) => <React.Suspense key={id} fallback={null}><ClipEmbed id={id} /></React.Suspense>)}
@@ -300,7 +302,7 @@ function Message({ m, users, roleColors, boosters, me, byId, presence, onVote, o
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, boosters, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, botCommands, channels, onChannel, draftKey, unreadCount, unreadExact }) {
+export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, onWheel, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, boosters, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, botCommands, channels, onChannel, draftKey, unreadCount, unreadExact }) {
   const convoKey = draftKey || title; // which conversation this composer belongs to (titles can repeat, so App passes a real key)
   const limit = charLimit(me); // 2,000 characters, 4,000 with Aduna Plus
   const [text, setText] = useState(() => getDraft(convoKey));
@@ -323,6 +325,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const [dragging, setDragging] = useState(false);
   const [tapped, setTapped] = useState(null); // touch screens: tap a message to show its actions
   const [pollOpen, setPollOpen] = useState(false);
+  const [wheelOpen, setWheelOpen] = useState(false);
   const [wordleOpen, setWordleOpen] = useState(false);
   const [contextoOpen, setContextoOpen] = useState(false);
   const attachWrap = useRef(null), camInput = useRef(null);
@@ -600,7 +603,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent?.isComposing && e.keyCode !== 229 && !window.matchMedia?.('(pointer: coarse)').matches) { e.preventDefault(); submit(); }
     if (e.key === 'Escape') setReplyTo(null);
     if (e.key === 'ArrowUp' && !text) {
-      const last = [...messages].reverse().find((m) => !m.system && !m.poll && !stickerIdOf(m.content) && m.authorId === me.id);
+      const last = [...messages].reverse().find((m) => !m.system && !m.poll && !m.wheel && !stickerIdOf(m.content) && m.authorId === me.id);
       if (last) { e.preventDefault(); setEditing(last.id); }
     }
   }
@@ -737,12 +740,13 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
         {err && <div className="composer-err" role="alert"><span>{err}</span><button className="icon-btn" aria-label="Dismiss" onClick={() => setErr('')}><Icon name="close" size={14} /></button></div>}
         <div className="composer-row" style={recording ? { display: 'none' } : undefined}>
           <div className="attach-wrap" ref={attachWrap}>
-            <button className="icon-btn" title="Attach" aria-label="Attach" aria-haspopup="menu" aria-expanded={pop === 'attach' || pop === 'games'} disabled={!files?.scope && !onPoll && !wordle} onClick={() => setPop(pop === 'attach' ? null : 'attach')}><Icon name="plus" size={20} /></button>
+            <button className="icon-btn" title="Attach" aria-label="Attach" aria-haspopup="menu" aria-expanded={pop === 'attach' || pop === 'games'} disabled={!files?.scope && !onPoll && !onWheel && !wordle} onClick={() => setPop(pop === 'attach' ? null : 'attach')}><Icon name="plus" size={20} /></button>
             {pop === 'attach' && (
               <div className="pop attach-pop" role="menu">
                 <button role="menuitem" disabled={!files?.scope} onClick={() => { setPop(null); camInput.current?.click(); }}><Icon name="camera" size={18} />Camera</button>
                 <button role="menuitem" disabled={!files?.scope} title={`Max 20 MB each (bigger videos can be compressed); removed after ${FILE_DAYS} days (${LARGE_FILE_DAYS} if over 10 MB)`} onClick={() => { setPop(null); fileInput.current?.click(); }}><Icon name="file" size={18} />Files</button>
                 {onPoll && <button role="menuitem" onClick={() => { setPop(null); setPollOpen(true); }}><Icon name="poll" size={18} />Poll</button>}
+                {onWheel && <button role="menuitem" onClick={() => { setPop(null); setWheelOpen(true); }}><Icon name="wheel" size={18} />Spin the wheel</button>}
                 {wordle && <button role="menuitem" aria-haspopup="menu" onClick={() => setPop('games')}><Icon name="gamepad" size={18} />Minigames<span className="menu-more" style={{ marginLeft: 'auto', opacity: 0.6 }} aria-hidden="true">›</span></button>}
               </div>
             )}
@@ -775,6 +779,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
       {dragging && <div className="drop-hint"><Icon name="clip" size={28} />Drop files to send</div>}
       {lightbox && <Lightbox view={lightbox} onClose={() => setLightbox(null)} />}
       {pollOpen && onPoll && <PollModal onSubmit={onPoll} onClose={() => setPollOpen(false)} />}
+      {wheelOpen && onWheel && <WheelModal onSubmit={onWheel} onClose={() => setWheelOpen(false)} />}
       {wordleOpen && wordle && <WordleModal scopes={wordle.scopes} users={users} onShare={async (token) => { await onSend(token, null, []); stick.current = true; }} onClose={() => setWordleOpen(false)} />}
       {contextoOpen && wordle && <ContextoModal scopes={wordle.scopes} users={users} onShare={async (token) => { await onSend(token, null, []); stick.current = true; }} onClose={() => setContextoOpen(false)} />}
       {bigVideos[0] && (
