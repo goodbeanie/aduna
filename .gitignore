@@ -1,6 +1,5 @@
 node_modules
 client/dist
-client/public/fluent
 data
 *.log
 .env

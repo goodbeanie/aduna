@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Avatar, Modal } from './ui.jsx';
 import { UEmoji, useEmoji } from './Emoji.jsx';
 
-// The emoji of a reaction: a Unicode emoji as a Fluent picture, or a custom emoji ("c:<id>") as its picture.
+// The emoji of a reaction: a Unicode emoji as a Tossface picture, or a custom emoji ("c:<id>") as its picture.
 function Glyph({ emoji }) {
   return emoji.startsWith('c:') ? <img className="cemoji" src={`/api/emoji/${emoji.slice(2)}/image`} alt="" /> : <UEmoji e={emoji} />;
 }

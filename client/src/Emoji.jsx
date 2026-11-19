@@ -44,20 +44,20 @@ export function Rich({ text: raw, mention, live }) {
   });
 }
 
-// Unicode emoji are drawn as Fluent pictures once their chunk has loaded (the plain character until then, or if the set has no picture for it)
-let fluent = null, fluentPromise;
-const loadFluent = () => fluentPromise || (fluentPromise = import('./fluent.js').then((m) => m.ready.then(() => (fluent = m))).catch((e) => { fluentPromise = null; throw e; }));
+// Unicode emoji are drawn as Tossface pictures once the list of them has loaded (the plain character until then, or if the set has no picture for it)
+let tossface = null, tossfacePromise;
+const loadTossface = () => tossfacePromise || (tossfacePromise = import('./tossface.js').then((m) => m.ready.then(() => (tossface = m))).catch((e) => { tossfacePromise = null; throw e; }));
 
 export function UEmoji({ e, big, className = '', ...rest }) {
-  const [, setReady] = useState(!!fluent);
+  const [, setReady] = useState(!!tossface);
   const [bad, setBad] = useState(false);
   useEffect(() => {
-    if (fluent) return undefined;
+    if (tossface) return undefined;
     let dead = false;
-    loadFluent().then(() => !dead && setReady(true)).catch(() => {});
+    loadTossface().then(() => !dead && setReady(true)).catch(() => {});
     return () => { dead = true; };
   }, []);
-  const src = fluent?.fluentUrl(e);
+  const src = tossface?.tossfaceUrl(e);
   if (!src || bad) return <>{e}</>;
   return <img src={src} alt={e} draggable={false} onError={() => setBad(true)} className={'uemoji' + (big ? ' big' : '') + (className ? ' ' + className : '')} {...rest} />;
 }

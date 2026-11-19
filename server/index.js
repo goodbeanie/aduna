@@ -6397,7 +6397,7 @@ if (fs.existsSync(dist)) {
     setHeaders: (res, file) => { // Vite puts a hash of the content in the name of everything under assets/, so a browser never needs to ask again; the rest is checked with its ETag as before
       const top = path.relative(dist, file).split(path.sep)[0];
       if (top === 'assets') res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
-      else if (['fonts', 'sounds', 'icons', 'deco', 'badges', 'fluent'].includes(top)) res.setHeader('Cache-Control', 'public, max-age=86400');
+      else if (['fonts', 'sounds', 'icons', 'deco', 'badges', 'tossface'].includes(top)) res.setHeader('Cache-Control', 'public, max-age=86400');
     },
   }));
   app.use('/updates', (_req, res) => res.status(404).type('text/plain').send('Not found')); // anything else under /updates that is not a file
