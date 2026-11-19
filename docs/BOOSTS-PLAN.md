@@ -1,54 +1,46 @@
-# Server boosts plan (planning notes, nothing built yet)
+# Server boosts
 
-Members can boost a server with credits or with real money. Either way the boost is the same.
+Members boost a server with credits. Rules live in `server/boosts.js`; tests in `server/boosts-test.js` (`npm run test:boosts`). Real-money boosting is not built.
 
 ## Tiers
 
 All boosts last 14 days. Perks stack upward.
 
-| Level | Credits | Real money | Perks |
-|-------|---------|------------|-------|
-| 1 | 1000 | 2.99 | Server explorer boost, booster tag |
-| 2 | 2000 | 5.99 | Level 1 perks, 1080p 60fps screenshare for everyone in the server's voice channels |
-| 3 | 3000 | 7.99 | Level 2 perks, 1.5x credit multiplier on messages in the server |
-
-Each money price is 1.00 below what the same credits would cost to buy, so paying with money directly is always the cheaper way to boost.
-
-The 1.5x multiplier: credits earned from messages in the server add to the user's message credit limit.
+| Level | Credits | Perks |
+|-------|---------|-------|
+| 1 | 1000 | Server explorer boost (ranks above an equal match in `GET /api/explore`), booster tag |
+| 2 | 2000 | Level 1 perks, 1080p 60fps screenshare for everyone in the server's voice channels |
+| 3 | 3000 | Level 2 perks, 1.5x credits on messages sent in the server |
 
 ## Rules
 
 - Boosts don't combine. 3 x level 1 is still level 1.
-- Upgrading means paying the full price of the new level (a level 1 booster who wants level 3 pays 3000 credits or 7.99).
-- The server runs at the highest active level. While level 3 is active, levels 1 and 2 can't be bought.
-- If someone buys level 1 and someone else then buys level 3, the level 1 booster keeps their tag until their own boost would have ended.
+- The server runs at the highest running boost. While a higher level runs, a lower one can't be bought.
+- A person has one boost per server. A higher level replaces their own lower boost at the full price (nothing is given back). To renew, wait until it has ended.
+- Different people can overlap at the same level. There is no queueing or extending.
+- A boost hidden behind a higher one keeps running. When the higher one ends, the server falls back to the highest boost still running, and the hidden booster keeps their tag until their own boost ends.
 - The booster tag belongs to the person and only shows in that server.
-- A boost paid with credits and one paid with money count the same. Nothing is gated on how it was paid for.
+
+## Message multiplier (decision)
+
+At level 3 a message pays 1.5x (rounded). Only the base amount counts against the 40-credit daily cap. The extra is paid on top of the cap; the cap itself does not rise. Change this in `credits.js` (`rewardMessage`) if the cap should rise instead.
 
 ## Refunds
 
 - No refunds when a user asks.
-- If the server is deleted, every booster gets the unused part of their boost back.
-- refund = price x (time remaining / 14 days), rounded down at the end, not per day.
-- Use exact time remaining (hours or minutes), not whole days, so a boost deleted the same day can't return 100%.
-- Credit example: 1000 credits, server deleted after 3 days. 1000 x 11/14 = 785.7, refund 785.
-- This applies to boosts hidden behind a higher level too, based on their own timer.
-- Boosts that are queued and haven't started get a full refund.
-- Refund goes to the person who paid. Credit refunds are not counted as earned credits, so they don't touch the message credit limit.
-- Real money boosts: see the open decision below.
+- If the server is deleted, every running boost gives back its unused time to the person who paid: price x (exact time left / 14 days), rounded down at the end. A boost hidden behind a higher level is refunded on its own timer.
+- Example: 1000 credits, server deleted after 3 days: 1000 x 11/14 = 785.7, refund 785.
+- Refunds use the `refund` grant kind in `credits.js`: they reduce `spent` and count as neither earned nor bought, so they don't touch the message cap.
+
+## Where it plugs in
+
+- `server/index.js`: `serverView` includes `boost: { level, boosters }`; `GET` and `POST /api/servers/:id/boost`; `destroyServer` refunds; `/api/explore` sorts and returns `boostLevel`.
+- Client: "Boost server" in the server menu (`BoostModal.jsx`), the Booster tag in chat (`Chat.jsx`), and `useVoice` takes `boostLevel` so level 2+ servers share at Plus quality.
 
 ## Still to decide
 
-- **Real money refunds.** Deleting a server could return the unused part as credits instead of money. That avoids card refunds and chargeback handling but needs to be stated clearly at checkout. Full cash refunds are possible but cost payment fees and extra work.
-- **Currency and tax.** The prices need a currency (USD?), and the payment provider has to handle sales tax or VAT.
-- **Payment provider.** Stripe or similar for web and desktop. On the iOS and Android apps, selling digital perks usually has to go through Apple and Google in-app purchase, which take a cut. Check before building the mobile side.
-- **Messaging.** The line "everything that costs money on Discord is free here" needs rewording if boosts can be bought. The credit price keeps a free path, which helps, but say so plainly in the video and description.
-- **Credit-to-money gap.** 1000 credits vs 2.99 sets what a credit is worth. The "1.00 cheaper than buying credits" rule assumes there is a credit pack to compare against, and the repo has none yet. Decide the credit pack prices first, then the boost prices follow (pack price for the same credits minus 1.00). If credits are easy to earn, the paid option is a convenience. If they are slow to earn, it reads as pay to win. Worth checking against how fast people actually earn credits.
-- **Hidden boosts.** When level 3 covers a level 1, does the level 1 timer keep running or pause? Leaning towards pause, so the booster doesn't lose time they paid for. Either way, when level 3 ends the server should fall back to the highest boost still running.
-- **Same-level buys.** Can a second level 2 extend the first (28 days, queued) or just overlap? Queueing is simplest.
-- **Renewing your own boost early.** Extend from the current end date or restart?
-- **Upgrade discount.** Full price on upgrade means the lower boost's value is mostly wasted. Option: credit for the remaining time.
-- **Multiplier cap.** Does 1.5x apply to everyone's messages or only the booster's? Add a cap so it can't inflate credits.
-- **Booster leaves or gets banned.** Does the boost keep running or end?
-- **Abuse.** Create a server, boost it, delete it for the refund. A minimum server age before boosting, or a delay before deletion finalizes, would stop most of it. Also check whether owners boosting their own server can be farmed.
-- **Where it plugs in.** Explorer sorting is in `GET /api/explore` in `server/index.js` (tags and name matches already boost ranking there). Credits and the Shop are the other places to read before sketching the changes.
+- **Real money.** The credit packs already cost 2.99 USD for 1000 credits (3.99 CAD), so a level 1 money boost at 2.99 is the same price as buying the credits. To undercut, money boosts need a lower price (for example 1.99 for level 1). Also open: refunds as credits vs cash, tax, and Apple/Google in-app purchase rules for the mobile apps.
+- **Booster leaves or gets banned.** Currently the boost keeps running.
+- **Abuse.** Create a server, boost it, delete it for the refund. Consider a minimum server age before boosting, or a delay before deletion finalizes.
+- **Upgrade discount.** Full price on upgrade wastes the lower boost's remaining value. Option: credit the remaining time.
+- **Messaging.** "Everything that costs money on Discord is free here" needs rewording if money boosts are ever sold.

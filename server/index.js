@@ -51,6 +51,7 @@ const gallery = require('./themegallery');
 const devthemes = require('./devthemes');
 const nameStyle = require('./namestyle'); // the font and gradient a display name is drawn in (see namestyle.js)
 const serverTagLib = require('./servertag'); // server tags: a 4-character badge a server designs and members choose to wear (see servertag.js)
+const boostsLib = require('./boosts'); // server boosts: members spend credits to boost a server for 14 days (see boosts.js)
 const loungeLib = require('./lounge'); // a server's info page: template, look and widgets, validated here (see lounge.js)
 const automodLib = require('./automod'); // per-server word bans, link/invite/caps/mention/repeat rules, and the strikes and timeouts they lead to (see automod.js)
 const templatesLib = require('./templates'); // what a new server starts with: standard, business, community, chill (see templates.js)
@@ -417,6 +418,7 @@ function serverView(s) {
     description: s.description || '',
     tags: s.tags || [],
     serverTag: serverTagLib.view(s), // { text, bg, frame, fg } or null: the 4-character tag members can wear (Server settings > Server tag)
+    boost: boostsLib.view(s, now()), // { level, boosters: [{ userId, level, endsAt }] }: what the server gets and who has a boost running
     roles: s.roles || [],
     everyone: s.everyone || [],
     memberRoles: s.memberRoles || {},
@@ -3248,6 +3250,12 @@ function destroyServer(s) {
     }
   }
   for (const i of s.installedBots || []) { const bt = db().bots[i.botId]; if (bt) bt.installs = (bt.installs || []).filter((id) => id !== s.id); }
+  for (const r of boostsLib.refunds(s, now())) { // every running boost gives back its unused time
+    const payer = db().users[r.userId];
+    if (!payer) continue;
+    const balance = credits.grant(payer, r.amount, 'boost_refund', { note: `${s.name} was deleted`, kind: 'refund' });
+    io.to('user:' + payer.id).emit('credits:update', { balance, delta: r.amount, reason: 'refund' });
+  }
   delete db().servers[s.id];
   store.save();
   store.deleteFiles(fileIds).catch((e) => console.error(e));
@@ -5758,16 +5766,39 @@ app.get('/api/explore', auth, (req, res) => {
   const sort = ['popular', 'az', 'za'].includes(req.query.sort) ? req.query.sort : 'popular';
   const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
   let list = Object.values(db().servers).filter((s) => s.visibility === 'public' && !s.listingHold && !listing.listingProblem(s, BLOCKED_WORDS)) // (content that predates the checks is kept out too)
-    .map((s) => ({ s, score: tokens.length ? matchScore(s, tokens) : 1 })).filter((x) => x.score > 0);
+    .map((s) => ({ s, score: tokens.length ? matchScore(s, tokens) : 1, boost: boostsLib.levelOf(s, now()) })).filter((x) => x.score > 0);
   const byName = (a, b) => a.s.name.localeCompare(b.s.name, undefined, { sensitivity: 'base' });
   if (sort === 'az') list.sort(byName);
   else if (sort === 'za') list.sort((a, b) => byName(b, a));
-  else list.sort((a, b) => b.score - a.score || humanCount(b.s) - humanCount(a.s) || byName(a, b));
-  const page = list.slice(offset, offset + EXPLORE_PAGE).map(({ s }) => ({
+  else list.sort((a, b) => b.score - a.score || b.boost - a.boost || humanCount(b.s) - humanCount(a.s) || byName(a, b)); // a boosted server comes before an equal match
+  const page = list.slice(offset, offset + EXPLORE_PAGE).map(({ s, boost }) => ({
     code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null,
-    theme: s.theme || null, memberCount: humanCount(s), description: s.description || '', tags: s.tags || [], mine: s.ownerId === req.user.id,
+    theme: s.theme || null, memberCount: humanCount(s), description: s.description || '', tags: s.tags || [], mine: s.ownerId === req.user.id, boostLevel: boost,
   }));
   res.json({ servers: page, total: list.length, next: offset + EXPLORE_PAGE < list.length ? offset + EXPLORE_PAGE : null });
+});
+
+// ----- server boosts (any member): spend credits to boost a server for 14 days (server/boosts.js) -----
+const boostMember = (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !s.members.includes(req.user.id)) { res.status(404).json({ error: 'Not found' }); return null; }
+  return s;
+};
+app.get('/api/servers/:id/boost', auth, (req, res) => {
+  const s = boostMember(req, res);
+  if (!s) return;
+  res.json({ ...boostsLib.info(s, req.user.id, now()), balance: credits.acct(req.user).balance });
+});
+app.post('/api/servers/:id/boost', auth, (req, res) => {
+  const s = boostMember(req, res);
+  if (!s) return;
+  const r = boostsLib.buy(s, req.user, Number(req.body?.level), credits.spend, { now: now() });
+  if (!r.ok) return res.status(r.status).json({ error: r.error, ...(r.code ? { code: r.code } : {}) });
+  store.save();
+  const balance = credits.acct(req.user).balance;
+  io.to('user:' + req.user.id).emit('credits:update', { balance, delta: -r.boost.credits, reason: 'boost' });
+  broadcastServer(s); // everyone in the server sees the new level, and the booster tag, straight away
+  res.json({ ...boostsLib.info(s, req.user.id, now()), balance });
 });
 
 app.patch('/api/servers/:id', auth, (req, res) => {

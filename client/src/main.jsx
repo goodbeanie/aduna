@@ -25,6 +25,7 @@ import './clips.css';
 import './wordle.css';
 import './contexto.css';
 import './events.css';
+import './boost.css';
 import AdminPage from './AdminPage.jsx';
 import Payments from './Payments.jsx';
 import { CLIPS_ENABLED } from './features.js';

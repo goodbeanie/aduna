@@ -25,6 +25,8 @@ import { can, canManageAny, roleColorOf, rankOf, heldRoles, memberGroups, isOwne
 import { EmojiProvider, useEmoji } from './Emoji.jsx';
 import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
 import { useVoice, VoiceUI, VoicePanel, SHARE_FEATURE } from './Voice.jsx';
+import { boostLevelNow } from './boost.js';
+import { BoostModal } from './BoostModal.jsx';
 import { useBackStack } from './useBackStack.js';
 import RulesView from './Rules.jsx';
 import TodoView from './Todo.jsx';
@@ -641,7 +643,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     s.on('bot:update', (b) => window.dispatchEvent(new CustomEvent('aduna:bot', { detail: b }))); // Settings > Developer listens
     s.on('server:removed', ({ serverId, reason, name }) => { // you were kicked, or the owner deleted the server
       setServers((prev) => prev.filter((x) => x.id !== serverId));
-      setModal((m) => (m && ['serverSettings', 'invite', 'notes', 'onboarding', 'channel', 'category'].includes(m.type) ? null : m));
+      setModal((m) => (m && ['serverSettings', 'invite', 'boost', 'notes', 'onboarding', 'channel', 'category'].includes(m.type) ? null : m));
       if (reason === 'deleted') showToast(`${name || 'A server'} was deleted by its owner.`);
       setView((v) => (v?.kind === 'server' && v.serverId === serverId ? { kind: 'dm', userId: null } : v));
       setShowList(true);
@@ -655,7 +657,7 @@ function Main({ me, setMe, privKey, openServerId }) {
     return () => { clearInterval(iv); unwatch(); s.disconnect(); };
   }, [me.id, setMe, addUsers, logout, loadFriends, loadNotes, loadSocial]);
 
-  const voice = useVoice({ socketRef, ready: me.id, isPlus: () => !!meRef.current?.plus, canShare: () => hasFeature(meRef.current, SHARE_FEATURE), canZoom: () => hasFeature(meRef.current, ZOOM_FEATURE) });
+  const voice = useVoice({ socketRef, ready: me.id, isPlus: () => !!meRef.current?.plus, boostLevel: (serverId) => boostLevelNow(serversRef.current.find((x) => x.id === serverId)), canShare: () => hasFeature(meRef.current, SHARE_FEATURE), canZoom: () => hasFeature(meRef.current, ZOOM_FEATURE) });
   useEffect(() => { if (!toast) return undefined; const t = setTimeout(() => setToast(null), 8000); return () => clearTimeout(t); }, [toast]);
   useEffect(() => { if (!evToast) return undefined; const t = setTimeout(() => setEvToast(null), 60000); return () => clearTimeout(t); }, [evToast]);
 
@@ -1055,6 +1057,7 @@ function Main({ me, setMe, privKey, openServerId }) {
 
   if (!view) return <BootSplash />;
 
+  const boosters = server ? Object.fromEntries((server.boost?.boosters || []).filter((b) => b.endsAt > Date.now()).map((b) => [b.userId, b.level])) : {}; // who has a boost running here: shows the Booster tag in chat
   const roleColors = server ? Object.fromEntries(server.members.map((m) => [m.id, roleColorOf(server, m.id)]).filter(([, c]) => c)) : {};
   const groupKey = group ? groups.currentKey(group.id) : null; // the current epoch's key: files sent to the group are encrypted with it
   const memberRow = (u) => (
@@ -1146,6 +1149,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             {menu && (
               <PopMenu onClose={() => setMenu(false)}>
                 <button onClick={() => { setMenu(false); setModal({ type: 'invite' }); }}>Invite people</button>
+                <button onClick={() => { setMenu(false); setModal({ type: 'boost' }); }}>Boost server</button>
                 <div className="menu-sep" role="separator" />
                 <div className="menu-label">Notifications</div>
                 {np.muteActive(notePrefs[server.id]?.mute, Date.now())
@@ -1311,7 +1315,7 @@ function Main({ me, setMe, privKey, openServerId }) {
           onSend={send} onPoll={!channel.type || channel.type === 'text' || channel.type === 'announcements' ? sendPoll : undefined} onVote={votePoll} onClosePoll={closePoll}
           wordle={{ scopes: [{ id: 'global', label: 'Aduna daily' }, { id: server.id, label: server.name }] }}
           onReact={react} onEdit={editMsg} onDelete={deleteMsg} canModerate={can(server, me.id, 'manageMessages')} canPin={can(server, me.id, 'manageMessages')} onPin={pinMsg} pinsFor={channel.id}
-          bell={{ muted: np.effective(notePrefs[server.id], channel.id, Date.now()).muted, onClick: () => setModal({ type: 'notes', channelId: channel.id }) }} roleColors={roleColors} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
+          bell={{ muted: np.effective(notePrefs[server.id], channel.id, Date.now()).muted, onClick: () => setModal({ type: 'notes', channelId: channel.id }) }} roleColors={roleColors} boosters={boosters} onTyping={onTyping} typingNames={typingNames} onUser={showUser} onUserMenu={userMenu}
           files={{ scope: { kind: 'channel', target: channel.id }, dm: null }} gifEnabled={gifEnabled}
           mentionables={server.members} canEveryone={can(server, me.id, 'mentionEveryone') && channel.type !== 'announcements'}
           botCommands={!channel.type || channel.type === 'text' ? commandsFor(server, channel) : undefined}
@@ -1464,6 +1468,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       )}
       {modal?.type === 'notes' && server && <ServerNotifications server={server} prefs={notePrefs[server.id]} focusChannel={modal.channelId} onSave={(next) => saveNotes(server.id, next)} onMarkRead={() => markServerRead(server)} onClose={() => setModal(null)} />}
       {modal?.type === 'invite' && server && <InviteModal server={server} friends={fr.friends} isOwner={can(server, me.id, 'manageServer')} onSend={sendInvite} onClose={() => setModal(null)} />}
+      {modal?.type === 'boost' && server && <BoostModal server={server} users={users} onBalance={(b) => { setBalance(b); setCreditsRev((n) => n + 1); }} onClose={() => setModal(null)} />}
       {modal?.type === 'dm' && <NewDmModal friends={fr.friends} onClose={() => setModal(null)} onPick={openDm} />}
       {modal?.type === 'newGroup' && <NewGroupModal friends={fr.friends} onClose={() => setModal(null)} onCreate={createGroup} />}
       {modal?.type === 'groupInfo' && groups.byId[modal.id] && (

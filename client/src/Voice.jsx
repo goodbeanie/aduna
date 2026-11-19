@@ -26,7 +26,8 @@ export const SHARE_FEATURE = 'vc-screenshare';
 // so a person who deafens themselves simply does not hear it (rules: server/soundboard.js, buttons: Soundboard.jsx).
 const IDLE = { channelId: null, serverId: null, connecting: false, muted: false, deafened: false, error: '', notice: '', sharing: false, picker: false, preview: null, local: null, startedAt: 0 };
 
-export function useVoice({ socketRef, ready, isPlus = () => false, canShare = () => true, canZoom = () => false }) {
+// boostLevel(serverId): the boost level of the server the voice channel belongs to. From level 2 everybody in its voice channels shares at Plus quality (1080p / 60 fps).
+export function useVoice({ socketRef, ready, isPlus = () => false, boostLevel = () => 0, canShare = () => true, canZoom = () => false }) {
   const [state, setState] = useState(IDLE);
   const [members, setMembers] = useState({}); // channelId -> [userId], for the whole server list
   const [remote, setRemote] = useState({});   // userId -> MediaStream with their voice (rendered by <VoiceAudio>)
@@ -214,11 +215,12 @@ export function useVoice({ socketRef, ready, isPlus = () => false, canShare = ()
     set({ picker: !s.picker });
     return undefined;
   }
+  const hdShare = () => isPlus() || boostLevel(sRef.current.serverId) >= 2; // Plus, or a voice channel in a server boosted to level 2 or higher
   async function startShare({ sourceId, quality } = {}) {
     const r = rt.current;
     set({ picker: false });
     if (!sRef.current.channelId || sRef.current.connecting || r.screen || !canShare()) return;
-    const q = shareSpec(quality, isPlus()); // what this person's plan allows: 720p / 30 fps for everyone, up to 1080p / 60 fps with Aduna Plus
+    const q = shareSpec(quality, hdShare()); // 720p / 30 fps for everyone, up to 1080p / 60 fps with Aduna Plus or in a server boosted to level 2
     try {
       // Aduna desktop: tell the app which screen or window was picked, so its handler can answer the request below.
       if (sourceId && desktopScreen()) {
@@ -306,7 +308,7 @@ export function useVoice({ socketRef, ready, isPlus = () => false, canShare = ()
       }
       announce();
     },
-    toggleShare, startShare, stopShare, isPlus,
+    toggleShare, startShare, stopShare, isPlus: hdShare,
     closePicker: () => set({ picker: false }),
     clearNotice: () => set({ notice: '' }),
   };

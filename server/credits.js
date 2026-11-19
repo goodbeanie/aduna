@@ -17,6 +17,7 @@ const shop = require('./shop');     // what credits can be spent on (profile bad
 const artists = require('./artists'); // artists sell badges in the shop and earn a share of each sale (cutFor)
 const pthemes = require('./profilethemes'); // gradient profile themes: free for everybody (animated ones can be switched on later)
 const ads = require('./ads');       // opt-in "watch a sponsor, earn credits" and the quiet sponsored card (off unless ADS_JSON is set)
+const boosts = require('./boosts'); // server boosts: a level 3 server pays more for messages (multiplierOf), the credits are spent through spend() below
 
 // ---------- tunables ----------
 const EARN = {
@@ -101,12 +102,14 @@ function log(c, amount, reason, note, now) {
   if (c.ledger.length > LEDGER_KEEP) c.ledger.length = LEDGER_KEEP;
 }
 
-// kind: 'earn' | 'buy'
+// kind: 'earn' | 'buy' | 'refund' (credits that were spent and come back: they take away from `spent` and count as neither earned nor bought)
 function grant(u, amount, reason, { note, kind = 'earn', now = Date.now() } = {}) {
   if (!Number.isInteger(amount) || amount <= 0) throw new Error('grant needs a positive whole number');
   const c = acct(u);
   c.balance += amount;
-  if (kind === 'buy') c.bought += amount; else c.earned += amount;
+  if (kind === 'buy') c.bought += amount;
+  else if (kind === 'refund') c.spent = Math.max(0, c.spent - amount);
+  else c.earned += amount;
   log(c, amount, reason, note, now);
   return c.balance;
 }
@@ -233,10 +236,11 @@ function rewardMessage({ user: u, content, proof, server, channel, humans, plus 
   if (tp) return no(tp);
   if (!othersSpoke(channel.id, u.id, now)) return no('nobody to talk to');
 
-  const amount = messagePay(d, plus);
+  const base = messagePay(d, plus);
+  const amount = Math.round(base * boosts.multiplierOf(server, now)); // a level 3 server pays 1.5x; the extra does not count against the daily cap
   c.lastMsgAt = now;
   c.msgTotal++;
-  d.msg += amount;
+  d.msg += base;
   d.msgs++;
   grant(u, amount, 'message', { now });
   return { ok: true, amount, balance: c.balance };

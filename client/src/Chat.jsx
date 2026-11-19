@@ -160,7 +160,7 @@ function CallEntry({ m, users, me }) {
   );
 }
 
-function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onUserMenu, onEdit, onDelete, editing, setEditing, grouped, canDelete, canPin, onPin, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone, channels, channelMap, onChannel, convoKey, convoTitle }) {
+function Message({ m, users, roleColors, boosters, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onUserMenu, onEdit, onDelete, editing, setEditing, grouped, canDelete, canPin, onPin, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone, channels, channelMap, onChannel, convoKey, convoTitle }) {
   const [picker, setPicker] = useState(false);
   const [ctxPicker, setCtxPicker] = useState(null); // { x, y }: the emoji picker opened from the right-click menu, placed where you clicked
   const [who, setWho] = useState(null); // the reaction chip that was clicked: opens the "who reacted" list on that emoji
@@ -256,6 +256,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
               <button className="name" {...nameProps(author, roleColors?.[m.authorId])} onClick={openAuthor} onContextMenu={authorMenu}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
               {(author?.bot || m.bot) && <BotTag />}
               <ServerTagChip tag={author?.serverTag} />
+              {boosters?.[m.authorId] && <span className="booster-tag" title={`Boosting this server, level ${boosters[m.authorId]}`}>Booster</span>}
               <span className="time">{timeLabel(m.createdAt)}</span>
             </div>
           )}
@@ -299,7 +300,7 @@ function Message({ m, users, roleColors, me, byId, presence, onVote, onClosePoll
   );
 }
 
-export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, botCommands, channels, onChannel, draftKey, unreadCount, unreadExact }) {
+export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, boosters, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, botCommands, channels, onChannel, draftKey, unreadCount, unreadExact }) {
   const convoKey = draftKey || title; // which conversation this composer belongs to (titles can repeat, so App passes a real key)
   const limit = charLimit(me); // 2,000 characters, 4,000 with Aduna Plus
   const [text, setText] = useState(() => getDraft(convoKey));
@@ -684,7 +685,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           if (m.system === 'call') return <React.Fragment key={m.id}>{day}<CallEntry m={m} users={users} me={me} /></React.Fragment>;
           const prev = shownMessages[i - 1];
           const grouped = prev && !prev.system && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60000 && !m.replyTo;
-          return <React.Fragment key={m.id}>{day}{m.id === divider && <div className="new-divider" role="separator"><span>New messages</span></div>}<Message m={m} grouped={grouped && m.id !== divider && !day} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence} onVote={onVote} onClosePoll={onClosePoll}
+          return <React.Fragment key={m.id}>{day}{m.id === divider && <div className="new-divider" role="separator"><span>New messages</span></div>}<Message m={m} boosters={boosters} grouped={grouped && m.id !== divider && !day} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence} onVote={onVote} onClosePoll={onClosePoll}
             onReact={onReact} onReply={(x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }} onUser={onUser} onUserMenu={onUserMenu}
             onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone} channels={channels} channelMap={channelMap} onChannel={onChannel} convoKey={convoKey} convoTitle={title}
             canDelete={m.authorId === me.id || !!canModerate} canPin={!!canPin && !m.system} onPin={onPin} dm={files?.dm} onOpen={setLightbox}

@@ -1,0 +1,14 @@
+/* Server boosts: the "Boost server" dialog (BoostModal.jsx) and the Booster tag in chat (Chat.jsx). */
+.boost-body { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.boost-note { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.boost-note b { color: var(--head); font-variant-numeric: tabular-nums; }
+.boost-note.small { font-size: 12px; }
+.boost-tiers { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.boost-tier { display: flex; flex-direction: column; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); min-width: 0; }
+.boost-tier.on { border-color: var(--accent); }
+.boost-tier b { font-size: 15px; color: var(--head); }
+.boost-price { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.boost-tier ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.45; color: var(--text); flex: 1; }
+.boost-tier .btn { margin-top: 4px; width: 100%; }
+.boost-err { margin: 0; font-size: 13px; color: var(--danger); }
+.booster-tag { flex: none; margin-left: 2px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; text-transform: uppercase; border: 1px solid var(--accent); color: var(--accent); }
