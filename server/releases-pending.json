@@ -647,5 +647,13 @@
       { "title": "Fullscreen in the desktop app", "text": "The fullscreen button now fills the whole desktop window, not just the chat area. This needs desktop 1.4.118." },
       { "title": "Emoji fixes", "text": "Emoji pictures still show if the emoji list fails to load, and one emoji that fails no longer turns other emoji in the same place into plain text. The emoji picker no longer hides some multi-part emoji." }
     ]
+  },
+  {
+    "id": "2026.11.19.3",
+    "date": "2026-11-19",
+    "title": "Smaller video players",
+    "items": [
+      { "title": "Smaller video players", "text": "Videos in chats are now at most 480 pixels wide and 360 pixels tall, with smaller buttons and a thinner control bar. Tall phone recordings no longer fill the whole chat." }
+    ]
   }
 ]
