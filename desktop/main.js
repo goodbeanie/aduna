@@ -80,6 +80,13 @@ function createWindow() {
   bar.webContents.loadFile(path.join(__dirname, 'titlebar.html'));
 
   const wc = page.webContents;
+  // The page is a view under our own title bar, so an element that asks for fullscreen (the video player's button) would only fill that view.
+  // Take the whole window fullscreen with it (layout() then hides the title bar and stretches the view over the window), and back when it ends.
+  // A window that is already fullscreen (F11) is left alone.
+  let htmlFs = false;
+  wc.on('enter-html-full-screen', () => { if (win && !win.isDestroyed() && !win.isFullScreen()) { htmlFs = true; win.setFullScreen(true); } });
+  wc.on('leave-html-full-screen', () => { if (htmlFs && win && !win.isDestroyed()) { htmlFs = false; win.setFullScreen(false); } });
+  win.on('leave-full-screen', () => { htmlFs = false; });
   wc.setWindowOpenHandler(({ url }) => { openExternal(url); return { action: 'deny' }; });
   wc.on('will-navigate', (e, url) => {
     if (url.startsWith('file://') || new URL(url).origin === ORIGIN) return;

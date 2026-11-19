@@ -98,7 +98,7 @@ html:has(.app), html:has(.app) body { overflow: hidden; }
   .reply-text { max-width: 55vw; }
   .reply-ref { margin-left: 8px; }
   .att-file { width: 100%; }
-  .att-img, .att-video { max-width: 100%; }
+  .att-img { max-width: 100%; }
   .composer-wrap { padding: 0 8px env(safe-area-inset-bottom, 0px); }
   .composer-row { padding: 2px 4px; }
   .typing { height: 18px; }

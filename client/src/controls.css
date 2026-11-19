@@ -112,21 +112,21 @@
 .cx-presets button.on { box-shadow: 0 0 0 2px var(--raised, var(--bg)), 0 0 0 4px var(--ink); }
 
 /* ---------- sliders (the players' own seek bars keep their own look) ---------- */
-input:where([type=range]:not(.ap-seek):not(.vp-seek)) {
+input:where([type=range]:not(.ap-seek):not(.mv-seek):not(.voice-seek)) {
   -webkit-appearance: none; appearance: none; height: 20px; margin: 0; padding: 0; border: 0; background: transparent; cursor: pointer;
 }
-input:where([type=range]:not(.ap-seek):not(.vp-seek))::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line2, var(--line)); }
-input:where([type=range]:not(.ap-seek):not(.vp-seek))::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line2, var(--line)); }
-input:where([type=range]:not(.ap-seek):not(.vp-seek))::-webkit-slider-thumb {
+input:where([type=range]:not(.ap-seek):not(.mv-seek):not(.voice-seek))::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line2, var(--line)); }
+input:where([type=range]:not(.ap-seek):not(.mv-seek):not(.voice-seek))::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line2, var(--line)); }
+input:where([type=range]:not(.ap-seek):not(.mv-seek):not(.voice-seek))::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none; width: 16px; height: 16px; margin-top: -6px; border: 2px solid var(--raised, var(--bg)); border-radius: 50%;
   background: var(--ink); box-shadow: 0 0 0 1px var(--line2, var(--line)); transition: transform .1s ease;
 }
-input:where([type=range]:not(.ap-seek):not(.vp-seek))::-moz-range-thumb {
+input:where([type=range]:not(.ap-seek):not(.mv-seek):not(.voice-seek))::-moz-range-thumb {
   width: 12px; height: 12px; border: 2px solid var(--raised, var(--bg)); border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 1px var(--line2, var(--line));
 }
-input:where([type=range]:not(.ap-seek):not(.vp-seek)):hover::-webkit-slider-thumb { transform: scale(1.12); }
-input:where([type=range]:not(.ap-seek):not(.vp-seek)):focus-visible { outline: none; }
-input:where([type=range]:not(.ap-seek):not(.vp-seek)):focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 25%, transparent); }
+input:where([type=range]:not(.ap-seek):not(.mv-seek):not(.voice-seek)):hover::-webkit-slider-thumb { transform: scale(1.12); }
+input:where([type=range]:not(.ap-seek):not(.mv-seek):not(.voice-seek)):focus-visible { outline: none; }
+input:where([type=range]:not(.ap-seek):not(.mv-seek):not(.voice-seek)):focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px color-mix(in srgb, var(--ink) 25%, transparent); }
 input:where([type=range]):disabled { opacity: .45; cursor: not-allowed; }
 
 /* ---------- number boxes: no browser spinner arrows ---------- */

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from './ui.jsx';
 import { TileSkeleton } from './ShellBits.jsx';
 import EmojiPicker from './EmojiPicker.jsx';
@@ -77,62 +78,201 @@ const clock = (s) => {
   return Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
 };
 
-// Our own video player: play/pause, a seek bar, download, and maximize/minimize (instead of the browser's default controls).
-function VideoAtt({ att, dm, url }) {
+// Our own video player: play/pause, a seek bar, the time, download and fullscreen (instead of the browser's default controls).
+// Its class names start with mv- on purpose: the clips player (VideoPlayer.jsx, videoplayer.css) already owns .vp and .vp-seek.
+// The in-page full view (for browsers that cannot do real fullscreen) is a second player in a portal on <body>: a position: fixed box inside
+// the chat can be clipped or covered by the layers around it. It carries on from where the one in the chat was, and hands the position back.
+function VideoAtt(props) {
+  const [lift, setLift] = useState(null); // { t, play } while the full view is open
+  const [back, setBack] = useState(null); // where the full view was closed: the player in the chat carries on from there
+  return (
+    <>
+      <MvPlayer {...props} held={!!lift} resume={back} onLift={(t, play) => { setBack(null); setLift({ t, play }); }} />
+      {lift && createPortal(
+        <MvPlayer {...props} overlay start={lift} onClose={(t, play) => { setLift(null); setBack({ t, play }); }} />,
+        document.body,
+      )}
+    </>
+  );
+}
+
+function MvPlayer({ att, dm, url, overlay = false, start = null, held = false, resume = null, onLift, onClose }) {
+  const box = useRef(null);
   const vref = useRef(null);
+  const scrub = useRef({ down: false, probing: false, release: null });
   const [playing, setPlaying] = useState(false);
   const [cur, setCur] = useState(0);
   const [dur, setDur] = useState(0);
-  const [max, setMax] = useState(false);
+  const [ar, setAr] = useState(att.w && att.h ? att.w / att.h : 0); // width / height of the picture: the player takes the video's shape
+  const [drag, setDrag] = useState(false);
+  const [idle, setIdle] = useState(false); // playing and nobody has touched it for a moment: the bar steps aside so it does not cover the picture
+  const idleT = useRef({ id: 0, on: false });
+  const [full, setFull] = useState(false); // real fullscreen
   const [busy, setBusy] = useState(false);
+  const isFull = full || overlay;
 
+  // Any touch, click, key or mouse movement brings the bar back; a moment after the last one, while it plays, it goes again.
+  const wake = () => {
+    const t = idleT.current;
+    t.on = false; setIdle(false);
+    window.clearTimeout(t.id);
+    t.id = window.setTimeout(() => { t.on = true; setIdle(true); }, 2500);
+  };
+  const calm = () => { const t = idleT.current; window.clearTimeout(t.id); t.on = false; setIdle(false); };
+
+  // The in-page full view closes with Escape.
   useEffect(() => {
-    if (!max) return undefined;
-    const h = (e) => e.key === 'Escape' && setMax(false);
+    if (!overlay) return undefined;
+    const h = (e) => e.key === 'Escape' && close();
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
-  }, [max]);
+  }, [overlay]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const h = () => setFull((document.fullscreenElement || document.webkitFullscreenElement) === box.current);
+    document.addEventListener('fullscreenchange', h);
+    document.addEventListener('webkitfullscreenchange', h);
+    return () => {
+      document.removeEventListener('fullscreenchange', h); document.removeEventListener('webkitfullscreenchange', h);
+      const u = scrub.current.release;
+      if (u) { window.removeEventListener('pointerup', u); window.removeEventListener('pointercancel', u); }
+      window.clearTimeout(idleT.current.id);
+    };
+  }, []);
+
+  // A full view is open over this player: it stops here, and carries on from where the full view was closed.
+  useEffect(() => { if (held) vref.current?.pause(); }, [held]);
+  useEffect(() => {
+    const v = vref.current;
+    if (!resume || !v) return;
+    try { v.currentTime = resume.t; } catch { /* not ready yet: it stays where it was */ }
+    setCur(resume.t);
+    if (resume.play) v.play().catch(() => {});
+  }, [resume]);
+
+  // The one place the shown position is read from the video. It skips reads that cannot be trusted: while the handle is being dragged
+  // (the person owns the position), while the video is still seeking (it can report its old position until the seek lands) and while
+  // the length is being probed (see onMeta). A file that reports a position a few milliseconds behind the last one as it plays never
+  // makes the handle step back.
+  const sync = () => {
+    const v = vref.current, s = scrub.current;
+    if (!v || s.down || s.probing || v.seeking) return;
+    const t = v.currentTime;
+    if (!Number.isFinite(t) || t < 0 || t >= 86400) return;
+    setCur((prev) => (!v.paused && t < prev && prev - t < 0.3 ? prev : t));
+  };
+
+  // While it plays, the bar follows the video's own clock every frame (timeupdate only fires a few times a second, so the handle
+  // would jump).
+  useEffect(() => {
+    if (!playing) return undefined;
+    let id = 0;
+    const tick = () => { sync(); id = requestAnimationFrame(tick); };
+    id = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(id);
+  }, [playing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const toggle = () => {
     const v = vref.current;
     if (!v) return;
     if (v.paused) v.play().catch(() => {}); else v.pause();
   };
+  // A tap on the picture while the bar is away only brings the bar back (on a phone there is no mouse movement to do that first).
+  const tap = () => { if (playing && idleT.current.on) { wake(); return; } toggle(); };
+  // The in-page full view carries on from where the player in the chat was.
+  const begin = (v) => {
+    if (!start) return;
+    if (start.t > 0) { try { v.currentTime = start.t; } catch { /* ignore */ } setCur(start.t); }
+    if (start.play) v.play().catch(() => {});
+  };
   // Recorded .webm files often report an infinite length until the end has been reached once; jump there and back to learn it.
+  // Nothing is read from the video's clock while that happens, or the handle would flash to the end and back.
   const onMeta = (e) => {
-    const v = e.currentTarget;
-    if (v.duration === Infinity) {
-      const fix = () => { v.removeEventListener('timeupdate', fix); v.currentTime = 0; setDur(Number.isFinite(v.duration) ? v.duration : 0); };
-      v.addEventListener('timeupdate', fix);
-      v.currentTime = 1e101;
-    } else setDur(v.duration || 0);
+    const v = e.currentTarget, s = scrub.current;
+    if (v.videoWidth && v.videoHeight) setAr(v.videoWidth / v.videoHeight);
+    if (v.duration !== Infinity) { setDur(v.duration || 0); begin(v); return; }
+    s.probing = true;
+    const fix = () => {
+      v.removeEventListener('timeupdate', fix);
+      window.clearTimeout(safety);
+      setDur(Number.isFinite(v.duration) ? v.duration : 0);
+      v.currentTime = 0; // the video counts as seeking from here, which keeps the clock out of the way until it has landed
+      s.probing = false;
+      setCur(0);
+      begin(v);
+    };
+    const safety = window.setTimeout(() => { v.removeEventListener('timeupdate', fix); s.probing = false; }, 4000);
+    v.addEventListener('timeupdate', fix);
+    v.currentTime = 1e101;
   };
   const seek = (e) => {
     const v = vref.current, t = Number(e.target.value);
-    if (v) v.currentTime = t;
+    if (v && Number.isFinite(t)) v.currentTime = t;
     setCur(t);
+  };
+  // The handle belongs to the person from the moment it is pressed until it is let go, wherever the pointer ends up: the release is
+  // listened for on the window, because a drag that ends outside the bar never reaches the bar itself (the handle would stay frozen).
+  // After it, nothing is read from the video until it has finished seeking (see sync).
+  const grab = () => {
+    const s = scrub.current;
+    s.down = true; setDrag(true);
+    if (s.release) return;
+    const up = () => {
+      window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+      s.release = null; s.down = false; setDrag(false); sync();
+    };
+    s.release = up;
+    window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   };
   async function download() {
     setBusy(true);
     try { await saveAttachment(att, dm); } catch { /* expired or offline: nothing more to show on a player */ }
     setBusy(false);
   }
+  const where = () => { const v = vref.current; return [v ? v.currentTime : 0, v ? !v.paused : false]; };
+  const close = () => onClose && onClose(...where());
+  const lift = () => onLift && onLift(...where());
+  // Real fullscreen of the whole player (so our controls stay). iPhone Safari only allows it for the bare video. A browser with neither,
+  // or one that refuses, gets the in-page full view (a second player over everything, see VideoAtt).
+  const fullscreen = () => {
+    const el = box.current, v = vref.current;
+    if (!el || !v) return;
+    if (overlay) { close(); return; }
+    if (document.fullscreenElement || document.webkitFullscreenElement) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) {
+      try { Promise.resolve(req.call(el)).catch(lift); } catch { lift(); }
+      return;
+    }
+    if (v.webkitEnterFullscreen) { v.webkitEnterFullscreen(); return; }
+    lift();
+  };
+  const pct = dur ? Math.min(100, (cur / dur) * 100) : 0;
 
   return (
-    <div className={'vp' + (max ? ' max' : '')}>
+    <div
+      ref={box} className={'mv' + (overlay ? ' max' : '') + (playing ? ' playing' : '') + (playing && idle && !drag ? ' idle' : '')} style={ar ? { '--ar': ar } : undefined}
+      onPointerMove={() => playing && wake()} onPointerDown={() => playing && wake()} onFocus={() => playing && wake()}
+    >
       <video
-        ref={vref} className="att-video" src={url} playsInline preload="metadata" onClick={toggle}
-        onPlay={() => setPlaying(true)} onPause={() => setPlaying(false)} onEnded={() => setPlaying(false)}
+        ref={vref} className="mv-video" src={url} playsInline preload="metadata" onClick={tap}
+        onPlay={() => { setPlaying(true); wake(); }} onPause={() => { setPlaying(false); calm(); }} onEnded={() => { setPlaying(false); calm(); sync(); }}
         onLoadedMetadata={onMeta} onDurationChange={(e) => Number.isFinite(e.currentTarget.duration) && setDur(e.currentTarget.duration)}
-        onTimeUpdate={(e) => setCur(e.currentTarget.currentTime)}
+        onTimeUpdate={sync} onSeeked={sync}
       />
-      {!playing && <button className="vp-big" onClick={toggle} aria-label="Play"><Icon name="playc" size={26} className="fill" /></button>}
-      <div className="vp-bar">
-        <button className="icon-btn" title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'} onClick={toggle}><Icon name={playing ? 'pause' : 'play'} size={18} className="fill" /></button>
-        <input className="vp-seek" type="range" min="0" max={dur || 0} step="0.05" value={Math.min(cur, dur || 0)} onChange={seek} disabled={!dur} aria-label="Seek" />
-        <span className="vp-time">{clock(cur)} / {clock(dur)}</span>
-        <button className="icon-btn" title="Download" aria-label="Download" onClick={download} disabled={busy}><Icon name="download" size={18} /></button>
-        <button className="icon-btn" title={max ? 'Minimize' : 'Maximize'} aria-label={max ? 'Minimize' : 'Maximize'} onClick={() => setMax(!max)}><Icon name={max ? 'shrink' : 'expand'} size={18} /></button>
+      {!playing && <button className="mv-big" onClick={toggle} aria-label="Play"><Icon name="playc" size={34} className="fill" /></button>}
+      <div className="mv-bar">
+        <input
+          className="mv-seek" type="range" min="0" max={dur || 0} step="0.05" value={Math.min(cur, dur || 0)} style={{ '--p': pct + '%' }}
+          onChange={seek} onPointerDown={grab} disabled={!dur} aria-label="Seek"
+        />
+        <div className="mv-row">
+          <button className="icon-btn" title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause' : 'Play'} onClick={toggle}><Icon name={playing ? 'pause' : 'play'} size={22} className="fill" /></button>
+          <span className="mv-time">{clock(cur)} / {clock(dur)}</span>
+          <span className="mv-gap" />
+          <button className="icon-btn mv-dl" title="Download" aria-label="Download" onClick={download} disabled={busy}><Icon name="download" size={22} /></button>
+          <button className="icon-btn" title={isFull ? 'Exit fullscreen' : 'Fullscreen'} aria-label={isFull ? 'Exit fullscreen' : 'Fullscreen'} onClick={fullscreen}><Icon name={isFull ? 'shrink' : 'expand'} size={22} /></button>
+        </div>
       </div>
     </div>
   );
@@ -182,7 +322,7 @@ function VoiceAtt({ att, url }) {
         onLoadedMetadata={onMeta} onTimeUpdate={(e) => { if (e.currentTarget.currentTime < 86400) setCur(e.currentTarget.currentTime); }}
       />
       <button className="icon-btn" title={playing ? 'Pause' : 'Play'} aria-label={playing ? 'Pause voice message' : 'Play voice message'} onClick={toggle}><Icon name={playing ? 'pause' : 'play'} size={18} className="fill" /></button>
-      <input className="vp-seek" type="range" min="0" max={dur || 0} step="0.05" value={Math.min(cur, dur || 0)} onChange={seek} disabled={!dur} aria-label="Seek voice message" />
+      <input className="voice-seek" type="range" min="0" max={dur || 0} step="0.05" value={Math.min(cur, dur || 0)} onChange={seek} disabled={!dur} aria-label="Seek voice message" />
       <span className="voice-time">{clock(playing || cur > 0 ? cur : dur)}</span>
       <button className="voice-rate" onClick={faster} title="Playback speed" aria-label={`Playback speed ${rate}x`}>{rate}x</button>
     </div>
