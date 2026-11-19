@@ -3415,7 +3415,7 @@ function sendInvite(req, res, me) {
   const s = Object.values(db().servers).find((x) => x.inviteCode === cleanInvite(req.params.code));
   if (!s) return res.status(404).json({ error: 'This invite is no longer valid' });
   if (!(me && s.members.includes(me.id)) && !canJoin(s, me?.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
-  res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, iconAnim: s.iconAnim || null, bannerAnim: s.bannerAnim || null, theme: s.theme || null, memberCount: humanCount(s) } });
+  res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, iconAnim: s.iconAnim || null, bannerAnim: s.bannerAnim || null, theme: s.theme || null, memberCount: humanCount(s), boostLevel: boostsLib.levelOf(s, now()) } });
 }
 
 // Tags help people find a public server. Up to 5, each 2-20 characters of a-z 0-9 and -, stored lowercase.
@@ -5772,11 +5772,13 @@ app.get('/api/explore', auth, (req, res) => {
   if (sort === 'az') list.sort(byName);
   else if (sort === 'za') list.sort((a, b) => byName(b, a));
   else list.sort((a, b) => b.score - a.score || b.boost - a.boost || humanCount(b.s) - humanCount(a.s) || byName(a, b)); // a boosted server comes before an equal match
+  const boostedCount = list.filter((x) => x.boost > 0).length;
+  list = [...list.filter((x) => x.boost > 0), ...list.filter((x) => !x.boost)]; // boosted servers lead, the explorer shows them as their own section
   const page = list.slice(offset, offset + EXPLORE_PAGE).map(({ s, boost }) => ({
     code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null,
     theme: s.theme || null, memberCount: humanCount(s), description: s.description || '', tags: s.tags || [], mine: s.ownerId === req.user.id, boostLevel: boost,
   }));
-  res.json({ servers: page, total: list.length, next: offset + EXPLORE_PAGE < list.length ? offset + EXPLORE_PAGE : null });
+  res.json({ servers: page, total: list.length, boosted: boostedCount, next: offset + EXPLORE_PAGE < list.length ? offset + EXPLORE_PAGE : null });
 });
 
 // ----- server boosts (any member): spend credits to boost a server for 14 days (server/boosts.js) -----

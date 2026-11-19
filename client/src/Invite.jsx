@@ -3,6 +3,7 @@ import { api } from './api.js';
 import { imageUrl } from './image.js';
 import { buildPalette } from './themes.js';
 import { Icon, ServerIcon } from './ui.jsx';
+import { BoostedTag } from './BoostTags.jsx';
 
 // App provides { servers, onJoined, onOpen } so a card in any message can join or open the server.
 // onNeedAuth is only set on the public invite page for a visitor who is not signed in: Join then asks them to sign in first.
@@ -87,14 +88,14 @@ export function InviteBox({ info, label, extra }) {
   }
 
   return (
-    <div className="invite-card" style={themeVars(info.theme)}>
+    <div className={'invite-card' + (info.boostLevel > 0 ? ' boosted-ring' : '')} style={themeVars(info.theme)}>
       <div className="ic-banner" style={info.bannerImage ? { backgroundImage: `url("${imageUrl(info.bannerAnim || info.bannerImage)}")` } : undefined} />
       <div className="ic-icon"><ServerIcon server={{ name: info.name, iconImage: info.iconImage, iconAnim: info.iconAnim }} fill play /></div>
       <div className="ic-body">
         <div className="ic-label">{label}</div>
         <div className="ic-row">
           <div className="ic-text">
-            <div className="ic-name">{info.name}</div>
+            <div className="ic-name">{info.name}{info.boostLevel > 0 && <BoostedTag level={info.boostLevel} />}</div>
             <div className="ic-meta"><Icon name="users" size={14} /> {info.memberCount} member{info.memberCount === 1 ? '' : 's'}</div>
           </div>
           {member

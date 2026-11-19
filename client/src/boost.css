@@ -1,4 +1,4 @@
-/* Server boosts: the "Boost server" dialog (BoostModal.jsx) and the Booster tag in chat (Chat.jsx). */
+/* Server boosts: the "Boost server" dialog (BoostModal.jsx), the BOOSTED and Booster tags (BoostTags.jsx) and the purple ring on a boosted server. */
 .boost-body { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .boost-note { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
 .boost-note b { color: var(--head); font-variant-numeric: tabular-nums; }
@@ -11,4 +11,11 @@
 .boost-tier ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.45; color: var(--text); flex: 1; }
 .boost-tier .btn { margin-top: 4px; width: 100%; }
 .boost-err { margin: 0; font-size: 13px; color: var(--danger); }
-.booster-tag { flex: none; margin-left: 2px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; text-transform: uppercase; border: 1px solid var(--accent); color: var(--accent); }
+.boosted-tag, .booster-tag { flex: none; margin-left: 2px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; text-transform: uppercase; color: #fff; background: linear-gradient(135deg, #8b5cf6, #c026d3); }
+.ic-name .boosted-tag { margin-left: 8px; vertical-align: middle; }
+.side-name .boosted-tag { margin-left: 0; }
+/* the purple gradient stroke on a boosted server: a ring drawn inside the box, so the box keeps its own background */
+.boosted-ring:not(.rail-btn)::after, .rail-btn.boosted-ring::before { content: ''; position: absolute; inset: 0; z-index: 1; padding: 2px; border-radius: inherit; background: linear-gradient(135deg, #a78bfa, #7c3aed 50%, #d946ef); pointer-events: none; -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude; }
+.invite-card.boosted-ring { border-color: transparent; }
+.explore-section { margin: 18px 4px 10px; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.explore-section:first-of-type { margin-top: 4px; }

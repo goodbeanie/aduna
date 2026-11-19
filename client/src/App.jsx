@@ -27,6 +27,7 @@ import { CallUI, CallStage, CallDock, inCall, useCall } from './Call.jsx';
 import { useVoice, VoiceUI, VoicePanel, SHARE_FEATURE } from './Voice.jsx';
 import { boostLevelNow } from './boost.js';
 import { BoostModal } from './BoostModal.jsx';
+import { BoostedTag, BoosterTag } from './BoostTags.jsx';
 import { useBackStack } from './useBackStack.js';
 import RulesView from './Rules.jsx';
 import TodoView from './Todo.jsx';
@@ -1073,6 +1074,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       <BadgeIcons user={users[u.id] || u} size={16} />
       {(users[u.id] || u).bot && <BotTag />}
       <ServerTagChip tag={(users[u.id] || u).serverTag} />
+      {boosters[u.id] && <BoosterTag level={boosters[u.id]} />}
       {server?.ownerId === u.id && <span className="owner" title="Server owner"><Icon name="crown" size={15} /></span>}{isCoOwner(server, u.id) && <span className="owner" title="Server co-owner"><Icon name="crown" size={15} /></span>}
     </button>
   );
@@ -1112,7 +1114,7 @@ function Main({ me, setMe, privKey, openServerId }) {
         <ServerRail key={me?.id} userId={me?.id} remote={me?.railLayout} servers={servers} activeId={server?.id} fmt={fmtN}
           stats={(s) => ({ unread: totalUnreadFor(s), mentions: totalMentionsFor(s) })}
           renderServer={(s, dnd) => (
-            <button key={s.id} {...dnd} className={'rail-btn' + (s.iconImage ? ' has-icon' : '') + (server?.id === s.id ? ' on' : '') + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' muted' : '')} title={s.name + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' (muted)' : '')} onClick={() => openServer(s)}>
+            <button key={s.id} {...dnd} className={'rail-btn' + (s.iconImage ? ' has-icon' : '') + (boostLevelNow(s) > 0 ? ' boosted-ring' : '') + (server?.id === s.id ? ' on' : '') + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' muted' : '')} title={s.name + (np.muteActive(notePrefs[s.id]?.mute, Date.now()) ? ' (muted)' : '')} onClick={() => openServer(s)}>
               <ServerIcon server={s} fill />
               {totalUnreadFor(s) > 0 && <span className="badge">{fmtN(totalUnreadFor(s))}</span>}
               {totalMentionsFor(s) > 0 && <span className="badge at" title={totalMentionsFor(s) + ' mention' + (totalMentionsFor(s) > 1 ? 's' : '')}>@{fmtN(totalMentionsFor(s))}</span>}
@@ -1149,7 +1151,7 @@ function Main({ me, setMe, privKey, openServerId }) {
             {/* an animated banner (server.bannerAnim) plays while the pointer is over the header: the hover rule in 11-server-settings.css swaps in --banner-anim */}
             <button className={'side-head' + (server.bannerImage ? ' has-banner' : '') + (server.bannerImage && server.bannerAnim ? ' anim-banner' : '')} onClick={() => setMenu((m) => !m)}
               style={server.bannerImage ? { backgroundImage: `url("${imageUrl(server.bannerImage)}")`, ...(server.bannerAnim ? { '--banner-anim': `url("${imageUrl(server.bannerAnim)}")` } : null) } : undefined}>
-              <span className="side-name">{server.iconImage && <ServerIcon server={server} size={24} />}<span className="side-title">{server.name}</span></span>
+              <span className="side-name">{server.iconImage && <ServerIcon server={server} size={24} />}<span className="side-title">{server.name}</span>{boostLevelNow(server) > 0 && <BoostedTag level={boostLevelNow(server)} />}</span>
               <Icon name={menu ? 'close' : 'chevron'} size={16} />
             </button>
             {menu && (

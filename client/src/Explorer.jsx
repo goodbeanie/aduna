@@ -46,6 +46,19 @@ function ServerList() {
     setMore(false);
   }
 
+  // the server already sends boosted servers first, so they split cleanly into their own section
+  const boostedItems = items.filter((i) => i.boostLevel > 0);
+  const otherItems = items.filter((i) => !(i.boostLevel > 0));
+  const card = (info) => (
+    <InviteBox key={info.serverId} info={info} label="Public server" extra={(
+      <>
+        {info.description && <p className="ex-desc">{info.description}</p>}
+        {info.tags.length > 0 && <div className="tag-row">{info.tags.map((t) => <button key={t} className="tag" onClick={() => setQ(t)} title={`Search #${t}`}>#{t}</button>)}</div>}
+        {!info.mine && <button className="link-btn report-link" onClick={() => setReporting(info)}><Icon name="flag" size={13} /> Report</button>}
+      </>
+    )} />
+  );
+
   return (
     <>
       <div className="explore-body">
@@ -67,17 +80,10 @@ function ServerList() {
         {state === 'ready' && items.length === 0 && (
           <div className="empty">{q.trim() ? <>{`No public servers match “${q.trim()}”.`} <button className="btn" onClick={() => setQ('')}>Clear search</button></> : 'No public servers yet. Owners can publish theirs from Server settings > Publish.'}</div>
         )}
-        <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>
-          {items.map((info) => (
-            <InviteBox key={info.serverId} info={info} label="Public server" extra={(
-              <>
-                {info.description && <p className="ex-desc">{info.description}</p>}
-                {info.tags.length > 0 && <div className="tag-row">{info.tags.map((t) => <button key={t} className="tag" onClick={() => setQ(t)} title={`Search #${t}`}>#{t}</button>)}</div>}
-                {!info.mine && <button className="link-btn report-link" onClick={() => setReporting(info)}><Icon name="flag" size={13} /> Report</button>}
-              </>
-            )} />
-          ))}
-        </div>
+        {boostedItems.length > 0 && <h4 className="explore-section">Boosted servers</h4>}
+        {boostedItems.length > 0 && <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>{boostedItems.map(card)}</div>}
+        {boostedItems.length > 0 && otherItems.length > 0 && <h4 className="explore-section">All servers</h4>}
+        {otherItems.length > 0 && <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>{otherItems.map(card)}</div>}
         {state === 'ready' && next !== null && <div className="explore-more"><button className="btn" disabled={more} onClick={loadMore}>{more ? 'Loading…' : 'Show more'}</button></div>}
       </div>
       {reporting && <ReportModal info={reporting} path={`/servers/${reporting.serverId}/report`} onClose={() => setReporting(null)} />}
