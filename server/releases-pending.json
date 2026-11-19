@@ -636,5 +636,16 @@
       { "title": "Tossface emoji", "text": "Emoji in messages, reactions, the emoji picker and the :name: suggestions now use the Tossface set instead of the Fluent set from the last update. Emoji that Tossface does not have yet show as the normal emoji." },
       { "title": "Emoji pictures load as small files", "text": "The pictures are no longer packed into one large script, which should help the emoji picker open faster on slow connections." }
     ]
+  },
+  {
+    "id": "2026.11.19.2",
+    "date": "2026-11-19",
+    "desktop": "1.4.118",
+    "title": "New video player and emoji fixes",
+    "items": [
+      { "title": "New video player", "text": "Videos in chats have bigger buttons, a seek bar with a handle that is easy to grab, the time, download and fullscreen. The controls fade out while a video plays and come back when you touch or move the mouse over it. The player takes the shape of the video." },
+      { "title": "Fullscreen in the desktop app", "text": "The fullscreen button now fills the whole desktop window, not just the chat area. This needs desktop 1.4.118." },
+      { "title": "Emoji fixes", "text": "Emoji pictures still show if the emoji list fails to load, and one emoji that fails no longer turns other emoji in the same place into plain text. The emoji picker no longer hides some multi-part emoji." }
+    ]
   }
 ]

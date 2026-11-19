@@ -1,6 +1,6 @@
 {
   "name": "aduna-desktop",
-  "version": "1.4.117",
+  "version": "1.4.118",
   "description": "Aduna desktop app: opens aduna.dpdns.org/app",
   "main": "main.js",
   "author": "Aduna",
