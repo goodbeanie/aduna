@@ -10,6 +10,8 @@
 .boost-price { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .boost-tier ul { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.45; color: var(--text); flex: 1; }
 .boost-tier .btn { margin-top: 4px; width: 100%; }
+.boost-free { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); min-width: 0; }
+.boost-free b { font-size: 15px; color: var(--head); }
 .boost-err { margin: 0; font-size: 13px; color: var(--danger); }
 .boosted-tag, .booster-tag { flex: none; margin-left: 2px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; text-transform: uppercase; color: #fff; background: linear-gradient(135deg, #8b5cf6, #c026d3); }
 .ic-name .boosted-tag { margin-left: 8px; vertical-align: middle; }

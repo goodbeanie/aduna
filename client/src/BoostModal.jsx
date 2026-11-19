@@ -30,6 +30,18 @@ export function BoostModal({ server, users = {}, onClose, onBalance }) {
     setBusy(0);
   }
 
+  async function useFree() {
+    setErr('');
+    setBusy(-1);
+    try {
+      const r = await api(`/servers/${server.id}/boost/free`, { method: 'POST' });
+      setInfo(r);
+    } catch (e) {
+      setErr(e.message);
+    }
+    setBusy(0);
+  }
+
   const top = info ? info.level : 0;
   const mine = info ? info.mine : null;
   const others = info ? info.boosters.filter((b) => !mine || b.userId !== mine.userId) : [];
@@ -45,6 +57,19 @@ export function BoostModal({ server, users = {}, onClose, onBalance }) {
               {top ? `${server.name} is at level ${top}.` : `${server.name} has no boost yet.`} A boost lasts {info.days} days and is paid with credits.
               Your balance: <b>{info.balance}</b>.
             </p>
+            {info.free && (
+              <div className="boost-free">
+                <b>Free with Aduna Plus</b>
+                {!info.free.plus && <p className="boost-note">Aduna Plus members get a free level 3 boost every month, on any server they are in.</p>}
+                {info.free.plus && !info.free.used && <p className="boost-note">Your free level 3 boost for this month is ready. It lasts {info.days} days.</p>}
+                {info.free.plus && info.free.used && <p className="boost-note">You used this month’s free boost. The next one is ready on {new Date(info.free.resetsAt).toLocaleDateString(undefined, { month: 'long', day: 'numeric' })}.</p>}
+                {info.free.plus && !info.free.used && (
+                  <button className="btn primary" disabled={(mine && mine.level >= 3) || busy !== 0} onClick={useFree}>
+                    {busy === -1 ? 'Boosting…' : mine && mine.level >= 3 ? 'Level 3 already running' : mine ? 'Upgrade to level 3 for free' : 'Use my free level 3 boost'}
+                  </button>
+                )}
+              </div>
+            )}
             <div className="boost-tiers">
               {info.tiers.map((t) => {
                 const ownRunning = mine && mine.level >= t.level;
@@ -55,7 +80,7 @@ export function BoostModal({ server, users = {}, onClose, onBalance }) {
                     <b>{LEVEL_NAME[t.level]}</b>
                     <span className="boost-price">{t.credits} credits</span>
                     <ul>{t.perks.map((p) => <li key={p}>{p}</li>)}</ul>
-                    <button className="btn primary" disabled={ownRunning || blocked || busy > 0} onClick={() => buy(t.level)}>
+                    <button className="btn primary" disabled={ownRunning || blocked || busy !== 0} onClick={() => buy(t.level)}>
                       {busy === t.level ? 'Boosting…' : label}
                     </button>
                   </div>

@@ -21,6 +21,10 @@ All boosts last 14 days. Perks stack upward.
 - A boost hidden behind a higher one keeps running. When the higher one ends, the server falls back to the highest boost still running, and the hidden booster keeps their tag until their own boost ends.
 - The booster tag belongs to the person and only shows in that server.
 
+## Free boost for Aduna Plus
+
+Every calendar month (UTC) a Plus member gets one free level 3 boost for 14 days on any server they are in (`buyFree` in `boosts.js`, `POST /api/servers/:id/boost/free`). The month used is kept on the person as `freeBoostMonth`. It follows the normal rules: one boost per person per server, it replaces their own lower boost, and it can't be started on a server where they already have level 3 (that refusal doesn't use up the month). It is stored with `credits: 0`, so deleting the server refunds nothing for it. If Plus ends while it runs, the boost keeps running to its end.
+
 ## Message multiplier (decision)
 
 At level 3 a message pays 1.5x (rounded). Only the base amount counts against the 40-credit daily cap. The extra is paid on top of the cap; the cap itself does not rise. Change this in `credits.js` (`rewardMessage`) if the cap should rise instead.

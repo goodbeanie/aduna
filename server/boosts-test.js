@@ -171,4 +171,50 @@ const step = (m) => console.log('ok -', m);
   step('the server view and the boost screen show the level, the boosters and your own boost');
 }
 
+// ---- the free monthly boost for Aduna Plus ----
+{
+  const free = (s, u, plus, at = T0) => B.buyFree(s, u, plus, { now: at });
+  const s = newServer(), a = person('a', 0);
+  const none = free(s, a, false);
+  assert.deepStrictEqual([none.status, none.code], [403, 'plus_only']);
+  assert.strictEqual(B.levelOf(s, T0), 0, 'no Plus, no boost');
+
+  const r = free(s, a, true);
+  assert.ok(r.ok);
+  assert.strictEqual(r.boost.level, 3);
+  assert.strictEqual(r.boost.endsAt - r.boost.startedAt, 14 * DAY);
+  assert.strictEqual(C.acct(a).balance, 0, 'no credits are taken');
+  assert.strictEqual(B.levelOf(s, T0 + DAY), 3);
+  assert.strictEqual(B.levelOf(s, T0 + 14 * DAY), 0, 'and it ends after 14 days');
+  assert.deepStrictEqual(B.refunds(s, T0 + DAY), [], 'a free boost refunds nothing');
+
+  const again = free(newServer(), a, true, T0 + DAY);
+  assert.deepStrictEqual([again.status, again.code], [409, 'free_used']);
+  assert.deepStrictEqual(B.freeState(a, true, T0 + DAY), { plus: true, used: true, resetsAt: Date.UTC(2026, 11, 1) });
+
+  const next = free(newServer(), a, true, Date.UTC(2026, 11, 1));
+  assert.ok(next.ok, 'a new month brings a new free boost');
+  assert.strictEqual(B.freeState(a, true, Date.UTC(2026, 11, 2)).used, true);
+  assert.strictEqual(B.freeState(person('z'), true, T0).used, false);
+  step('Plus members get one free level 3 boost a month, for 14 days, at no cost');
+}
+
+// ---- the free boost and a boost you already have ----
+{
+  const s = newServer(), a = person('a');
+  assert.ok(buy(s, a, 1).ok);
+  const up = B.buyFree(s, a, true, { now: T0 + DAY });
+  assert.ok(up.ok);
+  assert.strictEqual(up.replaced.level, 1);
+  assert.strictEqual(s.boosts.filter((x) => x.userId === 'a').length, 1, 'still one boost per person');
+  assert.strictEqual(B.levelOf(s, T0 + 2 * DAY), 3);
+
+  const t = newServer(), b = person('b');
+  assert.ok(buy(t, b, 3).ok);
+  const dup = B.buyFree(t, b, true, { now: T0 + DAY });
+  assert.strictEqual(dup.status, 409, 'cannot use it on a server where you already have level 3');
+  assert.ok(!b.freeBoostMonth, 'and the free boost is not used up by the refusal');
+  step('a free boost upgrades your own lower boost and is not spent when refused');
+}
+
 console.log('boosts: all good');

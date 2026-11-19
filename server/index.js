@@ -5790,7 +5790,17 @@ const boostMember = (req, res) => {
 app.get('/api/servers/:id/boost', auth, (req, res) => {
   const s = boostMember(req, res);
   if (!s) return;
-  res.json({ ...boostsLib.info(s, req.user.id, now()), balance: credits.acct(req.user).balance });
+  res.json({ ...boostsLib.info(s, req.user.id, now()), balance: credits.acct(req.user).balance, free: boostsLib.freeState(req.user, storagePlan.isSubscriber(req.user, now()), now()) });
+});
+app.post('/api/servers/:id/boost/free', auth, (req, res) => {
+  const s = boostMember(req, res);
+  if (!s) return;
+  const plus = storagePlan.isSubscriber(req.user, now());
+  const r = boostsLib.buyFree(s, req.user, plus, { now: now() });
+  if (!r.ok) return res.status(r.status).json({ error: r.error, ...(r.code ? { code: r.code } : {}) });
+  store.save();
+  broadcastServer(s);
+  res.json({ ...boostsLib.info(s, req.user.id, now()), balance: credits.acct(req.user).balance, free: boostsLib.freeState(req.user, plus, now()) });
 });
 app.post('/api/servers/:id/boost', auth, (req, res) => {
   const s = boostMember(req, res);
@@ -5801,7 +5811,7 @@ app.post('/api/servers/:id/boost', auth, (req, res) => {
   const balance = credits.acct(req.user).balance;
   io.to('user:' + req.user.id).emit('credits:update', { balance, delta: -r.boost.credits, reason: 'boost' });
   broadcastServer(s); // everyone in the server sees the new level, and the booster tag, straight away
-  res.json({ ...boostsLib.info(s, req.user.id, now()), balance });
+  res.json({ ...boostsLib.info(s, req.user.id, now()), balance, free: boostsLib.freeState(req.user, storagePlan.isSubscriber(req.user, now()), now()) });
 });
 
 app.patch('/api/servers/:id', auth, (req, res) => {

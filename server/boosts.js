@@ -14,6 +14,7 @@
 //   * A person has one boost per server. A higher level replaces their own lower one (the full price is paid, nothing is given back).
 //     To renew, wait until it has ended.
 //   * A boost hidden behind a higher one keeps running. When the higher one ends the server drops back to the highest that is left.
+//   * Aduna Plus members get one free level 3 boost a month (buyFree). It follows the same rules, and the month's free boost is used up once started.
 //   * Nobody can ask for a refund. When the server is deleted every running boost gives back its unused time (see refunds).
 
 const DAY = 24 * 3600 * 1000;
@@ -38,6 +39,29 @@ function perksOf(level) {
   return { explorer: level >= 1, tag: level >= 1, hdShare: level >= 2, messageMultiplier: level >= 3 ? MESSAGE_MULTIPLIER : 1 };
 }
 const multiplierOf = (server, now = Date.now()) => perksOf(levelOf(server, now)).messageMultiplier;
+
+// Aduna Plus members get one free level 3 boost each calendar month (UTC), on any server they are in. It is stored like a paid boost
+// with credits 0, so it also refunds nothing. The month that was used is kept on the person as user.freeBoostMonth ("2026-11").
+const monthOf = (now) => new Date(now).toISOString().slice(0, 7);
+const freeUsed = (user, now) => !!user && user.freeBoostMonth === monthOf(now);
+const nextMonthAt = (now) => { const d = new Date(now); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1); };
+
+function freeState(user, plus, now = Date.now()) {
+  return { plus: !!plus, used: freeUsed(user, now), resetsAt: nextMonthAt(now) };
+}
+
+function buyFree(server, user, plus, { now = Date.now(), id } = {}) {
+  if (!plus) return { status: 403, error: 'The free monthly boost is part of Aduna Plus', code: 'plus_only' };
+  if (freeUsed(user, now)) return { status: 409, error: 'You already used your free boost this month', code: 'free_used' };
+  server.boosts = running(server, now);
+  const own = server.boosts.find((b) => b.userId === user.id);
+  if (own && own.level >= 3) return { status: 409, error: 'You already have a level 3 boost running on this server.' };
+  if (own) server.boosts = server.boosts.filter((b) => b !== own);
+  const boost = { id: id || `${now.toString(36)}${Math.random().toString(36).slice(2, 8)}`, userId: user.id, level: 3, credits: 0, free: true, startedAt: now, endsAt: now + DURATION_MS };
+  server.boosts.push(boost);
+  user.freeBoostMonth = monthOf(now);
+  return { ok: true, boost, replaced: own || null };
+}
 
 // Takes the credits and starts the boost. `spend` is credits.spend. Everything is checked before any credits move,
 // and the payment and the new boost happen in one synchronous step.
@@ -81,4 +105,4 @@ function info(server, userId, now = Date.now()) {
   return { tiers: TIERS, days: DURATION_MS / DAY, level: v.level, boosters: v.boosters, mine: v.boosters.find((b) => b.userId === userId) || null };
 }
 
-module.exports = { DURATION_MS, TIERS, MESSAGE_MULTIPLIER, tierOf, running, levelOf, perksOf, multiplierOf, buy, refundOf, refunds, view, info };
+module.exports = { DURATION_MS, TIERS, MESSAGE_MULTIPLIER, tierOf, running, levelOf, perksOf, multiplierOf, buy, buyFree, freeState, refundOf, refunds, view, info };

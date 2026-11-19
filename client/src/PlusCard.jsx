@@ -28,6 +28,7 @@ export function plusPerks(bytes) {
     'Screen share at 1080p, or 60 fps in Smooth mode',
     'Earn 1.5x credits from messages and quests, no daily cap',
     'Quests only Plus members can do',
+    'A free level 3 server boost every month, on any server you are in',
     'A Plus badge on your profile',
     'Cancel whenever you want',
   ];
