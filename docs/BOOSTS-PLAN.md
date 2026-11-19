@@ -8,16 +8,18 @@ All boosts last 14 days. Perks stack upward.
 
 | Level | Credits | Real money | Perks |
 |-------|---------|------------|-------|
-| 1 | 1000 | 3.99 | Server explorer boost, booster tag |
-| 2 | 2000 | 6.99 | Level 1 perks, 1080p 60fps screenshare for everyone in the server's voice channels |
-| 3 | 3000 | 8.99 | Level 2 perks, 1.5x credit multiplier on messages in the server |
+| 1 | 1000 | 2.99 | Server explorer boost, booster tag |
+| 2 | 2000 | 5.99 | Level 1 perks, 1080p 60fps screenshare for everyone in the server's voice channels |
+| 3 | 3000 | 7.99 | Level 2 perks, 1.5x credit multiplier on messages in the server |
+
+Each money price is 1.00 below what the same credits would cost to buy, so paying with money directly is always the cheaper way to boost.
 
 The 1.5x multiplier: credits earned from messages in the server add to the user's message credit limit.
 
 ## Rules
 
 - Boosts don't combine. 3 x level 1 is still level 1.
-- Upgrading means paying the full price of the new level (a level 1 booster who wants level 3 pays 3000 credits or 8.99).
+- Upgrading means paying the full price of the new level (a level 1 booster who wants level 3 pays 3000 credits or 7.99).
 - The server runs at the highest active level. While level 3 is active, levels 1 and 2 can't be bought.
 - If someone buys level 1 and someone else then buys level 3, the level 1 booster keeps their tag until their own boost would have ended.
 - The booster tag belongs to the person and only shows in that server.
@@ -41,7 +43,7 @@ The 1.5x multiplier: credits earned from messages in the server add to the user'
 - **Currency and tax.** The prices need a currency (USD?), and the payment provider has to handle sales tax or VAT.
 - **Payment provider.** Stripe or similar for web and desktop. On the iOS and Android apps, selling digital perks usually has to go through Apple and Google in-app purchase, which take a cut. Check before building the mobile side.
 - **Messaging.** The line "everything that costs money on Discord is free here" needs rewording if boosts can be bought. The credit price keeps a free path, which helps, but say so plainly in the video and description.
-- **Credit-to-money gap.** 1000 credits vs 3.99 sets what a credit is worth. If credits are easy to earn, the paid option is a convenience. If they are slow to earn, it reads as pay to win. Worth checking against how fast people actually earn credits.
+- **Credit-to-money gap.** 1000 credits vs 2.99 sets what a credit is worth. The "1.00 cheaper than buying credits" rule assumes there is a credit pack to compare against, and the repo has none yet. Decide the credit pack prices first, then the boost prices follow (pack price for the same credits minus 1.00). If credits are easy to earn, the paid option is a convenience. If they are slow to earn, it reads as pay to win. Worth checking against how fast people actually earn credits.
 - **Hidden boosts.** When level 3 covers a level 1, does the level 1 timer keep running or pause? Leaning towards pause, so the booster doesn't lose time they paid for. Either way, when level 3 ends the server should fall back to the highest boost still running.
 - **Same-level buys.** Can a second level 2 extend the first (28 days, queued) or just overlap? Queueing is simplest.
 - **Renewing your own boost early.** Extend from the current end date or restart?
