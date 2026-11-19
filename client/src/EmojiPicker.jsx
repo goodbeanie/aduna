@@ -25,25 +25,6 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode: just don't remember */ } },
 };
 
-// Emoji are drawn with the bundled Noto Color Emoji font where the browser can use it, so the system's emoji support does not matter there.
-const NOTO = typeof CSS !== 'undefined' && !!CSS.supports?.('font-tech(color-COLRv1)');
-
-// Without it, newer multi-part emoji (ZWJ sequences) show up as several separate glyphs on systems that predate them; hide those.
-let probe;
-const rendersCache = new Map();
-function renders(emoji, version) {
-  if (NOTO || version < 11 || !emoji.includes('\u200d')) return true;
-  if (rendersCache.has(emoji)) return rendersCache.get(emoji);
-  let ok = true;
-  try {
-    probe = probe || document.createElement('canvas').getContext('2d');
-    probe.font = '32px sans-serif';
-    ok = probe.measureText(emoji).width < probe.measureText('\u{1F600}').width * 1.6;
-  } catch { /* if the check itself fails, show everything */ }
-  rendersCache.set(emoji, ok);
-  return ok;
-}
-
 export default function EmojiPicker({ onPick, onCustom, onManage }) {
   const { lib } = useEmoji();
   const [data, setData] = useState(null);
@@ -64,7 +45,7 @@ export default function EmojiPicker({ onPick, onCustom, onManage }) {
     return () => { dead = true; };
   }, []);
 
-  const groups = useMemo(() => data && data.groups.map((g) => ({ ...g, items: g.items.filter((it) => renders(it[0], it[3])) })), [data]);
+  const groups = data && data.groups;
   const names = useMemo(() => {
     const m = new Map();
     if (codes) for (const [name, emoji] of Object.entries(codes)) m.set(emoji, (m.get(emoji) || '') + ' ' + name);

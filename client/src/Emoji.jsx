@@ -50,7 +50,7 @@ const loadTossface = () => tossfacePromise || (tossfacePromise = import('./tossf
 
 export function UEmoji({ e, big, className = '', ...rest }) {
   const [, setReady] = useState(!!tossface);
-  const [bad, setBad] = useState(false);
+  const [bad, setBad] = useState(null); // the picture address that failed; a different emoji in the same spot gets its own try
   useEffect(() => {
     if (tossface) return undefined;
     let dead = false;
@@ -58,8 +58,8 @@ export function UEmoji({ e, big, className = '', ...rest }) {
     return () => { dead = true; };
   }, []);
   const src = tossface?.tossfaceUrl(e);
-  if (!src || bad) return <>{e}</>;
-  return <img src={src} alt={e} draggable={false} onError={() => setBad(true)} className={'uemoji' + (big ? ' big' : '') + (className ? ' ' + className : '')} {...rest} />;
+  if (!src || bad === src) return <>{e}</>;
+  return <img src={src} alt={e} draggable={false} onError={() => setBad(src)} className={'uemoji' + (big ? ' big' : '') + (className ? ' ' + className : '')} {...rest} />;;
 }
 
 // A custom emoji picture. Animated (GIF) emoji sit still on their first frame (?still=1, a small copy; other types are sent as they are)
