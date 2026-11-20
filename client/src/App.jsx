@@ -69,6 +69,7 @@ import { UpdatePrompt, SiteUpdateNotice } from './UpdatePrompt.jsx';
 import { ConnectionBar } from './ConnectionBar.jsx';
 import { watchSocket } from './connection.js';
 import { RailUpdateChip } from './RailUpdate.jsx';
+import StatusBanner from './StatusBanner.jsx';
 import { WhatsNewPopup } from './WhatsNew.jsx';
 import { withCalls, mergeRecords } from './callhistory.js';
 import { clearDrafts, hasDraft, useDrafts } from './drafts.js';
@@ -1102,6 +1103,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   return (
     <InviteContext.Provider value={inviteCtx}>
     <div className={'app' + (showList && view.kind === 'dm' ? ' dm-list' : '')} data-ui="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
+      <StatusBanner />
       {/* server bar (top) */}
       <nav className="rail" data-ui="server-bar" data-panel="rail" data-slot={placeOf('rail')}>
         <button data-item="dms" className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>

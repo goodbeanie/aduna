@@ -1,0 +1,4 @@
+/* The status notice bar across the top of the app (StatusBanner.jsx). order: -100 keeps it first inside the flex column whatever the layout slots do. */
+.status-banner { order: -100; flex: none; padding: 8px 16px; text-align: center; font-size: 14px; font-weight: 600; line-height: 1.35; }
+.status-banner.down { background: #b3261e; color: #fff; }
+.status-banner.warn { background: #f1d98a; color: #3b2f00; }
