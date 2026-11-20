@@ -1026,6 +1026,8 @@ function statusText(n, backAt) {
   }
   return text;
 }
+// what the toast says after a change: `saved` is whether the copy on the status site (kept for when this server is off) was written
+const savedText = (base) => (r) => (r && r.saved === true ? base + ' and saved on the status site' : r && r.saved === false ? base + ', but saving it on the status site failed, so it will not show while the server is off' : base + '. Set STATUS_GITHUB_TOKEN on the server to also keep it on the status site for when the server is off');
 function StatusBar({ down, text }) {
   const style = text
     ? { background: down ? '#b3261e' : '#f1d98a', color: down ? '#fff' : '#3b2f00' }
@@ -1049,11 +1051,11 @@ function StatusNotice() {
     if (!msg.trim()) return say('Write a message first.', 'error');
     if (t.time === 'ask' && !back) return say('Pick when the server will be back up.', 'error');
     const ok = await ask({ title: 'Post this notice?', body: 'It shows on the home page and the connect page right away.', lines: [statusText({ message: msg }, backIso)], confirmLabel: 'Post notice' });
-    if (ok) await run(() => api('/admin/status-notice', { method: 'POST', body: { down, message: msg.trim(), backAt: backIso, template: tpl } }).then(setNow), 'Notice posted');
+    if (ok) await run(() => api('/admin/status-notice', { method: 'POST', body: { down, message: msg.trim(), backAt: backIso, template: tpl } }).then((r) => { setNow(r); return r; }), savedText('Notice posted'));
   };
   const clear = async () => {
     const ok = await ask({ title: 'Clear the notice?', body: 'The bar is hidden everywhere.', confirmLabel: 'Clear notice', danger: true });
-    if (ok) await run(() => api('/admin/status-notice', { method: 'DELETE' }).then(setNow), 'Notice cleared');
+    if (ok) await run(() => api('/admin/status-notice', { method: 'DELETE' }).then((r) => { setNow(r); return r; }), savedText('Notice cleared'));
   };
   const live = now && now.message ? statusText(now, now.backAt) : '';
   return (

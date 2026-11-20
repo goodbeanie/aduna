@@ -5468,10 +5468,28 @@ app.post('/api/admin/shop/:id/remove', auth, adminOnly, (req, res) => {
 // Public to read (the status pages on another address fetch it, so it allows any origin), admins only to change. Stored in the database as
 // db().statusNotice = { down, message, backAt (ISO or null), template, updatedAt }; no notice means nothing is shown.
 const STATUS_EMPTY = { down: false, message: '', backAt: null, template: '', updatedAt: null };
+// A copy of the notice is also saved on the status site (the adunastatus repo's status.json), so the home page and the connecting page can still show
+// it while this server is off. Set STATUS_GITHUB_TOKEN (a fine-grained GitHub token with Contents: read and write on that one repo) to turn it on;
+// STATUS_GITHUB_REPO overrides the repo ("goodbeanie/adunastatus"). Returns true when saved, false when it failed, null when it is not set up.
+async function saveStatusCopy(notice) {
+  const token = String(process.env.STATUS_GITHUB_TOKEN || '').trim();
+  if (!token) return null;
+  const repo = String(process.env.STATUS_GITHUB_REPO || 'goodbeanie/adunastatus').trim();
+  const url = `https://api.github.com/repos/${repo}/contents/status.json`;
+  const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'User-Agent': 'aduna-status', 'X-GitHub-Api-Version': '2022-11-28' };
+  try {
+    const cur = await fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+    const sha = cur.ok ? (await cur.json()).sha : undefined;
+    const body = { message: notice.message ? 'Status notice: ' + notice.message.slice(0, 60) : 'Status notice cleared', content: Buffer.from(JSON.stringify(notice, null, 2) + '\n').toString('base64'), sha };
+    const put = await fetch(url, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: AbortSignal.timeout(8000) });
+    if (!put.ok) console.error('status copy: GitHub answered', put.status);
+    return put.ok;
+  } catch (e) { console.error('status copy failed:', e.message); return false; }
+}
 app.get('/api/public/status-notice', (_req, res) => {
   res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }).json(db().statusNotice || STATUS_EMPTY);
 });
-app.post('/api/admin/status-notice', auth, adminOnly, (req, res) => {
+app.post('/api/admin/status-notice', auth, adminOnly, ah(async (req, res) => {
   const b = req.body || {};
   const message = String(b.message || '').trim().slice(0, 300);
   if (!message) return res.status(400).json({ error: 'Write a message first.' });
@@ -5484,16 +5502,16 @@ app.post('/api/admin/status-notice', auth, adminOnly, (req, res) => {
   db().statusNotice = { down: !!b.down, message, backAt, template: String(b.template || '').slice(0, 30), updatedAt: new Date().toISOString() };
   store.save();
   adminLogAdd(req.user, 'status notice posted', db().statusNotice.template || 'custom', message.slice(0, 80));
-  res.json(db().statusNotice);
-});
-app.delete('/api/admin/status-notice', auth, adminOnly, (req, res) => {
+  res.json({ ...db().statusNotice, saved: await saveStatusCopy(db().statusNotice) });
+}));
+app.delete('/api/admin/status-notice', auth, adminOnly, ah(async (req, res) => {
   if (db().statusNotice) {
     delete db().statusNotice;
     store.save();
     adminLogAdd(req.user, 'status notice cleared', '', '');
   }
-  res.json(STATUS_EMPTY);
-});
+  res.json({ ...STATUS_EMPTY, saved: await saveStatusCopy(STATUS_EMPTY) });
+}));
 
 // ----- switches: turn a part of Aduna off for the public (creator accounts only; admins and creators are never closed out) -----
 app.get('/api/admin/sales', auth, adminOnly, needCreator, (_req, res) => res.json(salesReport.report(db())));
