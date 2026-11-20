@@ -8,7 +8,7 @@ import './admin.css';
 // visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['bots', 'Bots'], ['themes', 'Themes'], ['reports', 'Reports'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['bots', 'Bots'], ['themes', 'Themes'], ['reports', 'Reports'], ['status', 'Status'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin', moderator: 'Moderator' };
 const MOD_TABS = ['overview', 'reports', 'people']; // a moderator reads and reviews reports, looks people up, and warns or mutes
@@ -1002,6 +1002,102 @@ function Sales() {
   );
 }
 
+// ---------- status notice ----------
+// The bar on the home page and the connect page (server/index.js: /api/public/status-notice). Any admin can post or clear it. Pages that are open
+// pick it up within about 30 seconds. If the server itself is down nobody can post, so the status pages also show their own "server not answering" bar.
+const STATUS_TEMPLATES = {
+  restart: { label: 'Server restart', down: true, time: 'optional', msg: 'Server restart. Aduna will be back shortly.' },
+  maintenance: { label: 'Server maintenance', down: true, time: 'ask', msg: 'Server maintenance in progress.' },
+  crash: { label: 'Server crash', down: true, time: 'optional', msg: 'The server crashed. We’re working on it.' },
+  slow: { label: 'Slow / degraded', down: false, time: false, msg: 'Aduna is running slowly right now. We’re looking into it.' },
+  custom: { label: 'Custom', down: false, time: 'optional', msg: '' },
+};
+const pad2 = (n) => (n < 10 ? '0' : '') + n;
+const localInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function statusText(n, backAt) {
+  if (!n || !n.message) return '';
+  let text = n.message.trim();
+  if (backAt) {
+    const t = Date.parse(backAt);
+    if (!isNaN(t)) {
+      if (!/[.!?]$/.test(text)) text += '.';
+      text += t > Date.now() ? ' Back up around ' + new Date(t).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + '.' : ' Should be back any moment.';
+    }
+  }
+  return text;
+}
+function StatusBar({ down, text }) {
+  const style = text
+    ? { background: down ? '#b3261e' : '#f1d98a', color: down ? '#fff' : '#3b2f00' }
+    : { border: '1px dashed var(--line)', color: 'var(--muted)' };
+  return <div style={{ padding: '10px 14px', borderRadius: 8, textAlign: 'center', ...style }}>{text || 'Nothing to show'}</div>;
+}
+function StatusNotice() {
+  const { say, ask, run } = useAdm();
+  const [now, setNow] = useState(undefined); // undefined while loading
+  const [tpl, setTpl] = useState('restart');
+  const [msg, setMsg] = useState(STATUS_TEMPLATES.restart.msg);
+  const [kind, setKind] = useState('down');
+  const [back, setBack] = useState('');
+  const load = useCallback(() => fetch('/api/public/status-notice', { cache: 'no-store' }).then((r) => r.json()).then(setNow).catch(() => { setNow(null); say('Could not read the current notice.', 'error'); }), [say]);
+  useEffect(() => { load(); }, [load]);
+  const t = STATUS_TEMPLATES[tpl];
+  const down = tpl === 'custom' ? kind === 'down' : t.down;
+  const backIso = t.time && back ? new Date(back).toISOString() : null;
+  const pick = (k) => { setTpl(k); setMsg(STATUS_TEMPLATES[k].msg); setKind(STATUS_TEMPLATES[k].down ? 'down' : 'warn'); setBack(''); };
+  const post = async () => {
+    if (!msg.trim()) return say('Write a message first.', 'error');
+    if (t.time === 'ask' && !back) return say('Pick when the server will be back up.', 'error');
+    const ok = await ask({ title: 'Post this notice?', body: 'It shows on the home page and the connect page right away.', lines: [statusText({ message: msg }, backIso)], confirmLabel: 'Post notice' });
+    if (ok) await run(() => api('/admin/status-notice', { method: 'POST', body: { down, message: msg.trim(), backAt: backIso, template: tpl } }).then(setNow), 'Notice posted');
+  };
+  const clear = async () => {
+    const ok = await ask({ title: 'Clear the notice?', body: 'The bar is hidden everywhere.', confirmLabel: 'Clear notice', danger: true });
+    if (ok) await run(() => api('/admin/status-notice', { method: 'DELETE' }).then(setNow), 'Notice cleared');
+  };
+  const live = now && now.message ? statusText(now, now.backAt) : '';
+  return (
+    <>
+      <div className="adm-card">
+        <h3>On the site now</h3>
+        {now === undefined ? <p className="adm-muted">Loading…</p> : <StatusBar down={!!(now && now.down)} text={live} />}
+        {now && now.updatedAt && <p className="adm-muted">Posted {when(now.updatedAt)}</p>}
+      </div>
+      <div className="adm-card">
+        <h3>Post a notice</h3>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '10px 0' }}>
+          {Object.entries(STATUS_TEMPLATES).map(([k, v]) => (
+            <button key={k} type="button" className={'adm-btn small' + (tpl === k ? ' primary' : '')} onClick={() => pick(k)}>{v.label}</button>
+          ))}
+        </div>
+        <label className="adm-field"><span>Message</span><textarea className="adm-input" maxLength={300} rows={3} value={msg} onChange={(e) => setMsg(e.target.value)} /></label>
+        {tpl === 'custom' && (
+          <label className="adm-field" style={{ marginTop: 10 }}><span>Bar colour</span>
+            <select className="adm-input" value={kind} onChange={(e) => setKind(e.target.value)}><option value="down">Red (server is down)</option><option value="warn">Yellow (warning)</option></select>
+          </label>
+        )}
+        {t.time && (
+          <div style={{ marginTop: 10 }}>
+            <label className="adm-field"><span>Server back up {t.time === 'ask' ? '(needed)' : '(optional)'}</span><input type="datetime-local" className="adm-input" value={back} onChange={(e) => setBack(e.target.value)} /></label>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+              {[[15, '+15 min'], [60, '+1 hour'], [180, '+3 hours'], [0, 'No time']].map(([m, name]) => (
+                <button key={m} type="button" className="adm-btn small" onClick={() => setBack(m ? localInput(new Date(Date.now() + m * 60000)) : '')}>{name}</button>
+              ))}
+            </div>
+            <p className="adm-muted">In your time zone. Visitors see it in theirs.</p>
+          </div>
+        )}
+        <h3 style={{ marginTop: 16 }}>Preview</h3>
+        <StatusBar down={down} text={statusText({ message: msg }, backIso)} />
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+          <button type="button" className="adm-btn primary" onClick={post}>Post notice</button>
+          <button type="button" className="adm-btn danger" onClick={clear}>Clear notice</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ---------- switches ----------
 // Creator accounts only (server/switches.js). A switch that is off closes that part of Aduna for everybody who is not an admin; admins and creators
 // can still use it, so they can test and fix it while it is closed. Everything is on until someone turns it off. Changes apply to the next request.
@@ -1280,6 +1376,7 @@ export default function AdminPage() {
           {cur === 'bots' && <BotVerify />}
           {cur === 'themes' && <ThemeReview />}
           {cur === 'reports' && <Reports sub={sub} setSub={setSub} openUser={openUser} />}
+          {cur === 'status' && <StatusNotice />}
           {cur === 'releases' && <Releases />}
           {cur === 'switches' && <Switches />}
 {cur === 'sales' && <Sales />}

@@ -5464,6 +5464,37 @@ app.post('/api/admin/shop/:id/remove', auth, adminOnly, (req, res) => {
   res.json({ ok: true, ...shopAdminView() });
 });
 
+// ----- status notice: the red/yellow bar on the home page and connect page (/admin > Status) -----
+// Public to read (the status pages on another address fetch it, so it allows any origin), admins only to change. Stored in the database as
+// db().statusNotice = { down, message, backAt (ISO or null), template, updatedAt }; no notice means nothing is shown.
+const STATUS_EMPTY = { down: false, message: '', backAt: null, template: '', updatedAt: null };
+app.get('/api/public/status-notice', (_req, res) => {
+  res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }).json(db().statusNotice || STATUS_EMPTY);
+});
+app.post('/api/admin/status-notice', auth, adminOnly, (req, res) => {
+  const b = req.body || {};
+  const message = String(b.message || '').trim().slice(0, 300);
+  if (!message) return res.status(400).json({ error: 'Write a message first.' });
+  let backAt = null;
+  if (b.backAt) {
+    const t = Date.parse(b.backAt);
+    if (isNaN(t)) return res.status(400).json({ error: 'That back-up time is not a valid date.' });
+    backAt = new Date(t).toISOString();
+  }
+  db().statusNotice = { down: !!b.down, message, backAt, template: String(b.template || '').slice(0, 30), updatedAt: new Date().toISOString() };
+  store.save();
+  adminLogAdd(req.user, 'status notice posted', db().statusNotice.template || 'custom', message.slice(0, 80));
+  res.json(db().statusNotice);
+});
+app.delete('/api/admin/status-notice', auth, adminOnly, (req, res) => {
+  if (db().statusNotice) {
+    delete db().statusNotice;
+    store.save();
+    adminLogAdd(req.user, 'status notice cleared', '', '');
+  }
+  res.json(STATUS_EMPTY);
+});
+
 // ----- switches: turn a part of Aduna off for the public (creator accounts only; admins and creators are never closed out) -----
 app.get('/api/admin/sales', auth, adminOnly, needCreator, (_req, res) => res.json(salesReport.report(db())));
 app.get('/api/admin/switches', auth, adminOnly, needCreator, (_req, res) => res.json({ switches: switchesLib.list(db().switches) }));
