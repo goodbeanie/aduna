@@ -27,6 +27,7 @@ const CSP = [
 // Clips: when CLIPS_PUBLIC_URL is set, the clips address is allowed for pictures and video, and (with CLIPS_R2_BUCKET) the R2 upload
 // address for the signed upload links. Without them the policy is unchanged.
 const originOf = (u) => { try { return new URL(String(u || '')).origin; } catch { return ''; } };
+const DEFAULT_STATUS_NOTICE_URL = 'https://adunafront.nathankennethvc2.workers.dev/status-notice';
 function cspFor(env) {
   const add = {};
   const put = (k, v) => { add[k] = add[k] ? `${add[k]} ${v}` : v; };
@@ -43,6 +44,8 @@ function cspFor(env) {
     put('connect-src', 'https://pagead2.googlesyndication.com https://*.google.com https://*.doubleclick.net https://*.adtrafficquality.google');
     put('img-src', 'https://pagead2.googlesyndication.com https://*.google.com https://*.doubleclick.net https://*.adtrafficquality.google');
   }
+  // The top banner reads the posted notice from the status site on Cloudflare (client/src/statusNotice.js has the same address).
+  put('connect-src', originOf(env.STATUS_NOTICE_URL || DEFAULT_STATUS_NOTICE_URL));
   const clips = originOf(env.CLIPS_PUBLIC_URL);
   if (clips) { put('img-src', clips); put('media-src', clips); }
   if (clips && env.CLIPS_R2_BUCKET) {

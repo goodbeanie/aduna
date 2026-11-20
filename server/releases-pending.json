@@ -655,5 +655,14 @@
     "items": [
       { "title": "Smaller video players", "text": "Videos in chats are now at most 480 pixels wide and 360 pixels tall, with smaller buttons and a thinner control bar. Tall phone recordings no longer fill the whole chat." }
     ]
+  },
+  {
+    "id": "2026.11.19.4",
+    "date": "2026-11-19",
+    "title": "Server notices in the app",
+    "items": [
+      { "title": "Server notices at the top", "text": "When the team posts a notice about a restart, maintenance or a crash, it now shows as a banner at the top of the app, with the time the server should be back when there is one." },
+      { "title": "One banner for connection problems", "text": "Offline, reconnecting and back online now use the same banner. If a notice is up, the connection message sits under it." }
+    ]
   }
 ]
