@@ -90,4 +90,4 @@ Found a bug or a security problem? Open an issue on this repository.
 
 ---
 
-© 2026 Nathan VanCaeseele. All rights reserved. See [LICENSE](LICENSE).
+© 2026 Aduna. All rights reserved. See [LICENSE](LICENSE).
