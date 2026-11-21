@@ -699,5 +699,14 @@
       { "title": "Two boxes at sign-up", "text": "The last step of sign-up now asks you to agree to the Terms of Service, with a link to read them, and to say you are 13 or older. You need both to make an account." },
       { "title": "Agree again when the terms change", "text": "When you open Aduna after the Terms of Service have been updated, you see a screen asking you to agree to them. Everyone sees it once for the current terms. If you don't agree, you can log out." }
     ]
+  },
+  {
+    "id": "2026.11.21.1",
+    "date": "2026-11-21",
+    "title": "Chess puzzles",
+    "items": [
+      { "title": "Daily chess puzzle", "text": "Minigames now has a chess puzzle: find the checkmate in 1, 2 or 3 moves. There is one puzzle a day for everyone on Aduna and one for each server, with standings for its members. You get three wrong moves, and a daily streak counts the days in a row you solve it. Share your result into a chat." },
+      { "title": "Practice", "text": "Practice gives you as many puzzles as you like. Pick mate in 1, 2 or 3, and a fresh puzzle is made each time. Sometimes you play Black." }
+    ]
   }
 ]
