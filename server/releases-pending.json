@@ -682,5 +682,13 @@
     "items": [
       { "title": "Footer on the home, download and terms pages", "text": "These pages now share a footer with links to Home, Open Aduna, Download, the Terms of Service, the source code and where to report a problem." }
     ]
+  },
+  {
+    "id": "2026.11.20.3",
+    "date": "2026-11-20",
+    "title": "Terms no longer name a person",
+    "items": [
+      { "title": "Terms wording", "text": "The Terms of Service now say Aduna is run by one person instead of naming them. The license and README credit Aduna." }
+    ]
   }
 ]
