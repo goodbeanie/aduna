@@ -20,7 +20,9 @@ step('move generation matches the standard counts');
 let g = C.parseFen(C.START);
 for (const u of ['f2f3', 'e7e5', 'g2g4', 'd8h4']) g = C.make(g, C.findUci(g, u));
 assert.ok(C.isMate(g), 'fool’s mate');
-assert.strictEqual(C.san(C.parseFen('rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3'), C.findUci(C.parseFen('rnb1kbnr/pppp1ppp/8/4p3/6Pq/5P2/PPPPP2P/RNBQKBNR w KQkq - 1 3'), 'e2e3')), 'e3');
+const st0 = C.parseFen(C.START);
+assert.strictEqual(C.san(st0, C.findUci(st0, 'e2e3')), 'e3');
+assert.strictEqual(C.san(st0, C.findUci(st0, 'g1f3')), 'Nf3');
 const castle = C.parseFen('r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1');
 assert.ok(C.findUci(castle, 'e1g1') && C.findUci(castle, 'e1c1'), 'both ways of castling');
 assert.strictEqual(C.san(castle, C.findUci(castle, 'e1g1')), 'O-O');
@@ -141,5 +143,97 @@ const st = P.standings(recs, 's1', 20, ['a', 'b', 'c', 'd', 'e', 'f']);
 assert.deepStrictEqual(st.rows.map((r) => r.userId), ['d', 'b', 'a', 'c'], 'fewest wrong moves first, then earliest; those who gave up last');
 assert.strictEqual(st.finished, 4); assert.strictEqual(st.members, 6);
 step('standings');
+
+// ---- turning a puzzle around ----
+const G = require('./puzzle-gen');
+for (const n of [1, 2, 3]) {
+  for (const fen of [P.BANK[n][0], P.BANK[n][P.BANK[n].length - 1]]) {
+    for (const [mirror, swap] of [[true, false], [false, true], [true, true]]) {
+      const t = G.transform(fen, mirror, swap), p = C.parseFen(t);
+      assert.strictEqual(p.turn, swap ? 'b' : 'w');
+      assert.ok(!C.inCheck(p, p.turn === 'w' ? 'b' : 'w'), 'the side that just moved is not in check: ' + t);
+      assert.strictEqual(M.firstMoves(p, n).length, 1, `mate in ${n}, mirror ${mirror}, swap ${swap}: still exactly one first move: ${t}`);
+      if (n > 1) assert.strictEqual(M.firstMoves(p, n - 1, true).length, 0, 'no shorter mate: ' + t);
+    }
+    assert.strictEqual(G.transform(G.transform(fen, true, true), true, true), fen, 'doing it twice gives the puzzle back');
+  }
+}
+const withCastling = 'r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1';
+assert.strictEqual(G.transform(withCastling, true, true), withCastling, 'a position where castling is possible is left alone');
+step('mirroring and swapping colours keep a puzzle a puzzle');
+
+// ---- making puzzles ----
+assert.strictEqual(G.makeOne(1, G.rngFrom(5), 5000), G.makeOne(1, G.rngFrom(5), 5000), 'the same seed makes the same puzzle');
+assert.notStrictEqual(G.makeOne(1, G.rngFrom(5), 5000), G.makeOne(1, G.rngFrom(6), 5000));
+for (const n of [1, 2, 3]) {
+  const fen = G.makeOne(n, G.rngFrom(100 + n), 60000);
+  assert.ok(fen, `a mate in ${n} was made`);
+  const p = C.parseFen(fen);
+  assert.strictEqual(p.turn, 'w'); assert.ok(!C.inCheck(p, 'b'));
+  assert.strictEqual(M.firstMoves(p, n).length, 1); if (n > 1) assert.strictEqual(M.firstMoves(p, n - 1, true).length, 0);
+}
+step('random puzzles are forced mates with one first move and no shorter mate');
+
+const sup = G.createSupply(P.BANK, G.rngFrom(7), { 1: 2, 2: 1 });
+assert.ok(sup.needsMore());
+for (let i = 0; i < 400 && sup.fill(100); i++);
+assert.ok(!sup.needsMore() && sup.pool[1].length === 2 && sup.pool[2].length === 1, 'the pool fills up to its targets');
+const made = sup.supply(1);
+assert.strictEqual(sup.pool[1].length, 1, 'a ready puzzle is used up');
+assert.strictEqual(M.firstMoves(C.parseFen(made), 1).length, 1);
+sup.supply(1); sup.supply(2);
+const fallback = sup.supply(3); // nothing ready for mate in 3: a bank puzzle, turned around
+assert.strictEqual(M.firstMoves(C.parseFen(fallback), 3).length, 1);
+assert.strictEqual(M.firstMoves(C.parseFen(sup.supply(1)), 1).length, 1, 'the bank fills in when the pool is empty');
+step('practice supply: ready puzzles first, the bank when none is ready');
+
+// ---- practice ----
+assert.ok(P.isLevel(1) && P.isLevel(3) && !P.isLevel(0) && !P.isLevel(4) && !P.isLevel('1'));
+let pr = P.blank();
+assert.strictEqual(P.practiceView(pr), null, 'nothing before the first puzzle');
+const A = P.BANK[1][0], B = P.BANK[1][1], pa = C.parseFen(A);
+const winA = C.uci(M.firstMoves(pa, 1)[0]), wrongA = C.legal(pa).map(C.uci).filter((u) => u !== winA);
+P.practiceNext(pr, 1, () => A);
+let pv = P.practiceView(pr);
+assert.strictEqual(pv.mode, 'practice'); assert.strictEqual(pv.n, 1); assert.strictEqual(pv.status, 'playing'); assert.ok(!('solution' in pv));
+assert.deepStrictEqual(pv.stats, { solved: 0, failed: 0, streak: 0, best: 0 });
+assert.deepStrictEqual(P.practicePlay(pr, 'e2e9'), { error: 'That is not a legal move' });
+assert.deepStrictEqual(P.practicePlay(pr, wrongA[0]), { ok: true, wrong: true });
+assert.strictEqual(P.practiceView(pr).wrong, 1);
+assert.deepStrictEqual(P.practicePlay(pr, winA), { ok: true });
+pv = P.practiceView(pr);
+assert.strictEqual(pv.status, 'solved'); assert.deepStrictEqual(pv.stats, { solved: 1, failed: 0, streak: 1, best: 1 });
+assert.ok(P.practicePlay(pr, winA).error, 'a finished puzzle takes no more moves');
+let asked = 0;
+P.practiceNext(pr, 1, () => (asked++ < 3 ? A : B));
+assert.strictEqual(pr.practice.puzzle.fen, B, 'a puzzle you just had is not served again when another is available');
+assert.strictEqual(P.practiceView(pr).status, 'playing'); assert.strictEqual(P.practiceView(pr).wrong, 0); assert.strictEqual(P.practiceView(pr).moves.length, 0);
+assert.strictEqual(P.practiceView(pr).stats.streak, 1, 'the run goes on into the next puzzle');
+P.practiceNext(pr, 2, () => P.BANK[2][0]);
+assert.strictEqual(P.practiceView(pr).stats.streak, 0, 'skipping a puzzle that was not solved ends the run');
+assert.strictEqual(P.practiceView(pr).n, 2);
+// three wrong moves: failed, the answer is shown, the run ends
+P.practiceNext(pr, 1, () => A);
+for (const u of wrongA.slice(0, 3)) P.practicePlay(pr, u);
+pv = P.practiceView(pr);
+assert.strictEqual(pv.status, 'failed'); assert.deepStrictEqual(pv.solution, [{ san: C.san(pa, C.findUci(pa, winA)), by: 'you' }]);
+assert.strictEqual(pv.stats.failed, 1); assert.strictEqual(pv.stats.solved, 1); assert.strictEqual(pv.stats.best, 1);
+// a mate in 2 with the opponent replying, and a puzzle where Black moves first
+const A2 = P.BANK[2][0], pa2 = C.parseFen(A2);
+P.practiceNext(pr, 2, () => A2);
+P.practicePlay(pr, C.uci(M.firstMoves(pa2, 2)[0]));
+pv = P.practiceView(pr);
+assert.strictEqual(pv.status, 'playing'); assert.deepStrictEqual(pv.moves.map((m) => m.by), ['you', 'them']);
+P.practicePlay(pr, C.uci(M.firstMoves(P.positionOf({ n: 2, fen: A2 }, pr.practice.moves), 1)[0]));
+assert.strictEqual(P.practiceView(pr).status, 'solved');
+const Ab = G.transform(A, false, true), pab = C.parseFen(Ab);
+P.practiceNext(pr, 1, () => Ab);
+pv = P.practiceView(pr);
+assert.strictEqual(pv.side, 'b'); assert.strictEqual(pv.legal.length, C.legal(pab).length);
+P.practicePlay(pr, C.uci(M.firstMoves(pab, 1)[0]));
+assert.strictEqual(P.practiceView(pr).status, 'solved');
+for (let i = 0; i < 200; i++) P.practiceNext(pr, 1, () => P.BANK[1][i % P.BANK[1].length]);
+assert.ok(pr.practice.seen.length <= 60, 'only the recent positions are remembered');
+step('practice: unlimited puzzles, any depth, a run of solved ones, wrong moves, skipping, Black to move');
 
 console.log('puzzle: ok');

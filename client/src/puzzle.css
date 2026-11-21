@@ -1,0 +1,41 @@
+/* Chess puzzle (Puzzle.jsx). It reuses Wordle's dialog layout (wordle.css: .wd, .wd-main, .wd-tabs, .wd-side, .wd-stats ...);
+   this adds the board, the practice level buttons and the shared result. Colours come from the theme variables. */
+.pz-levels { display: flex; gap: 6px; width: 100%; max-width: 360px; margin: 0 0 8px; }
+.pz-levels button { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line2); border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; white-space: nowrap; }
+.pz-levels button.on { background: var(--raised); color: var(--text); border-color: var(--muted); }
+@media (hover: hover) { .pz-levels button:not(.on):hover { background: var(--hover); } }
+
+.pz-info { margin-bottom: 8px; text-align: center; font-size: 14px; min-height: 20px; }
+.pz-info b { font-weight: 600; color: var(--head); }
+
+/* The board shrinks on short screens so the board, the message and the buttons fit; the side of the player who moves is at the bottom. */
+.pz-board { display: grid; grid-template-columns: repeat(8, 1fr); width: min(100%, 420px, max(240px, calc(92vh - 360px))); width: min(100%, 420px, max(240px, calc(92dvh - 360px))); margin: 0 auto 10px;
+  aspect-ratio: 1; container-type: inline-size; border: 2px solid var(--line2); border-radius: 6px; overflow: hidden; user-select: none; -webkit-user-select: none; }
+.pz-sq { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; padding: 0; border: 0; border-radius: 0; cursor: pointer; font: inherit;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.pz-sq.l { background: color-mix(in srgb, var(--muted) 20%, var(--bg2)); }
+.pz-sq.d { background: color-mix(in srgb, var(--muted) 52%, var(--bg2)); }
+.pz-sq.last { box-shadow: inset 0 0 0 100px rgba(255, 214, 0, .26); }
+.pz-sq.sel { box-shadow: inset 0 0 0 100px rgba(60, 170, 90, .45); }
+.pz-sq.bad { box-shadow: inset 0 0 0 100px rgba(230, 60, 60, .5); }
+.pz-sq.dot::after { content: ''; width: 28%; height: 28%; border-radius: 50%; background: rgba(40, 140, 70, .55); }
+.pz-sq.cap::after { content: ''; position: absolute; inset: 6%; border-radius: 50%; border: 3px solid rgba(40, 140, 70, .65); }
+.pz-sq:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
+@media (hover: hover) { .pz-sq:hover { filter: brightness(1.08); } }
+
+/* The pieces are the solid drawings for both sides, filled white or black with an outline so they show on any square. */
+.pz-p { font-size: 8vw; line-height: 1; font-family: 'Segoe UI Symbol', 'Noto Sans Symbols 2', 'Apple Symbols', 'DejaVu Sans', sans-serif; pointer-events: none; }
+@supports (font-size: 1cqw) { .pz-board .pz-p { font-size: 10.4cqw; } }
+.pz-p.w { color: #fff; text-shadow: 0 0 1px #000, 0 0 1px #000, 0 1px 2px rgba(0, 0, 0, .6); }
+.pz-p.b { color: #14110f; text-shadow: 0 0 1px rgba(255, 255, 255, .55), 0 1px 1px rgba(255, 255, 255, .25); }
+.pz-promo .pz-p { font-size: 26px; }
+
+.pz-promo { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
+.pz-promo .btn { padding: 4px 12px; }
+.pz-solution, .pz-moves { max-width: 420px; margin: 0 0 8px; text-align: center; }
+.pz-actions { display: flex; gap: 8px; align-items: center; justify-content: center; min-height: 36px; }
+.pz-card-body { font-size: 15px; color: var(--head); }
+.pz-card-body b { font-weight: 600; }
+
+@media (min-width: 760px) { .pz .wd-main { padding-top: 2px; } }
+@media (max-height: 600px) { .pz-info { margin-bottom: 4px; } }

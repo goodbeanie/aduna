@@ -22,6 +22,7 @@ import { PollCard, PollModal } from './Polls.jsx';
 import { WheelCard, WheelModal } from './Wheels.jsx';
 import { WordleModal, WordleShareCard, parseWordleShare } from './Wordle.jsx';
 import { ContextoModal, ContextoShareCard, parseContextoShare } from './Contexto.jsx';
+import { PuzzleModal, PuzzleShareCard, parsePuzzleShare } from './Puzzle.jsx';
 import { callSummary } from './callhistory.js';
 import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, MAX_FILE, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
 import { canCompress, compressVideo } from './compress.js';
@@ -175,6 +176,7 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
   const author = authorOf(users, m);
   const wshare = parseWordleShare(m.content); // a shared Wordle result is drawn as a card instead of its text
   const cshare = parseContextoShare(m.content); // and so is a shared Contexto result
+  const pzshare = parsePuzzleShare(m.content); // and a shared chess puzzle result
   const sticker = stickerIdOf(m.content); // a sticker is drawn as a big picture (the text is just its token), and cannot be edited as text
   const ref = m.replyTo ? byId[m.replyTo] : null;
   const refAuthor = ref ? authorOf(users, ref) : null;
@@ -265,10 +267,11 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
           )}
           {editing
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} limit={charLimit(me)} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll || !!m.wheel} onSave={(t) => { const x = encode(t); if (x.length > charLimit(me)) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
-            : (m.content || m.editedAt) && !wshare && !cshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} live={!dm} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+            : (m.content || m.editedAt) && !wshare && !cshare && !pzshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} live={!dm} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
           {wshare && !editing && <WordleShareCard share={wshare} />}
         {cshare && !editing && <ContextoShareCard share={cshare} />}
+      {pzshare && !editing && <PuzzleShareCard share={pzshare} />}
           {m.poll && <PollCard m={m} users={users} me={me} onVote={onVote} onClose={onClosePoll} canClose={canDelete} />}
           {m.wheel && <WheelCard m={m} />}
           {m.invite && <InviteCard code={m.invite} />}
@@ -330,6 +333,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const [wheelOpen, setWheelOpen] = useState(false);
   const [wordleOpen, setWordleOpen] = useState(false);
   const [contextoOpen, setContextoOpen] = useState(false);
+  const [puzzleOpen, setPuzzleOpen] = useState(false);
   const attachWrap = useRef(null), camInput = useRef(null);
   useEffect(() => { // the attach menu closes when you tap anywhere else
     if (pop !== 'attach') return undefined;
@@ -765,6 +769,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
                 <button role="menuitem" onClick={() => setPop('attach')}><Icon name="reply" size={18} />Back</button>
                 <button role="menuitem" onClick={() => { setPop(null); setWordleOpen(true); }}><Icon name="wordle" size={18} />Wordle</button>
                 <button role="menuitem" onClick={() => { setPop(null); setContextoOpen(true); }}><Icon name="contexto" size={18} />Contexto</button>
+                <button role="menuitem" onClick={() => { setPop(null); setPuzzleOpen(true); }}><Icon name="chess" size={18} />Chess puzzle</button>
               </div>
             )}
           </div>
@@ -792,6 +797,7 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
       {wheelOpen && onWheel && <WheelModal onSubmit={onWheel} onClose={() => setWheelOpen(false)} />}
       {wordleOpen && wordle && <WordleModal scopes={wordle.scopes} users={users} onShare={async (token) => { await onSend(token, null, []); stick.current = true; }} onClose={() => setWordleOpen(false)} />}
       {contextoOpen && wordle && <ContextoModal scopes={wordle.scopes} users={users} onShare={async (token) => { await onSend(token, null, []); stick.current = true; }} onClose={() => setContextoOpen(false)} />}
+      {puzzleOpen && wordle && <PuzzleModal scopes={wordle.scopes} users={users} onShare={async (token) => { await onSend(token, null, []); stick.current = true; }} onClose={() => setPuzzleOpen(false)} />}
       {bigVideos[0] && (
         <Modal title="Compress this video?" onClose={() => answerBigVideo(false)}>
           <p className="muted"><b>{bigVideos[0].name || 'This video'}</b> is {sizeLabel(bigVideos[0].size)}, over the 20 MB limit. Would you like to compress it so it can be sent?</p>

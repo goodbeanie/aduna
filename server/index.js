@@ -43,6 +43,8 @@ const polls = require('./polls');
 const wheels = require('./wheels'); // spin the wheel: a poster's options and a spin time; the server picks the winner at that time (see wheels.js)
 const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global) and one for each server (see the "wordle" block below)
 const contextoLib = require('./contexto'); // Contexto: a daily word guessed by meaning, same scopes as Wordle (see the "contexto" block below)
+const puzzleLib = require('./puzzle'); // Chess puzzle: a daily mate in 1, 2 or 3, same scopes as Wordle, and practice (see the "chess puzzle" block below)
+const puzzleGen = require('./puzzle-gen'); // makes fresh puzzles for practice, a little at a time in the background
 const salesReport = require('./sales-report'); // sales to Canada and the US in CAD against the sales tax registration limits (/admin > Sales)
 const switchesLib = require('./switches'); // kill switches a creator flips in /admin > Switches (payments, ...): closed for the public, never for admins
 const featuresLib = require('./features'); // feature releases: off / testing (creator accounts only) / live (see the "feature releases" block below)
@@ -3108,6 +3110,73 @@ app.get('/api/contexto/:scope', auth, (req, res) => {
 app.post('/api/contexto/:scope/guess', auth, contextoAct((rec, scope, day, answer, body, at) => contextoLib.play(rec, scope, day, answer, body.word, at)));
 app.post('/api/contexto/:scope/hint', auth, contextoAct((rec, scope, day, answer, body, at) => contextoLib.hint(rec, scope, day, answer, at)));
 app.post('/api/contexto/:scope/giveup', auth, contextoAct((rec, scope, day, answer, body, at) => contextoLib.giveUp(rec, scope, day, answer, at)));
+
+// ----- chess puzzle (rules and storage: puzzle.js, chess.js, mate.js; fresh practice puzzles: puzzle-gen.js) -----
+// Daily: one mate-in-1/2/3 puzzle a day for 'global' (Aduna's own, played alone or shared into a chat) and one for each server (members only,
+// with standings). Practice: as many puzzles as a person wants at the depth they pick, kept per person, nothing shared. In both, moves are
+// checked here and the opponent's replies are chosen here: the browser only draws the board it is sent and says which move was tried.
+// The solution is not sent until the player has failed the puzzle.
+const puzzleHits = new security.RateWindow(120, 60_000); // moves and refreshes per person per minute
+function puzzleReply(uid, t, extra) {
+  const day = puzzleLib.dayOf(now());
+  const out = puzzleLib.view(db().puzzle[uid] || puzzleLib.blank(), t.scope, day, puzzleLib.puzzleFor(t.scope, day, SECRET));
+  if (t.server) out.server = { id: t.server.id, name: t.server.name, standings: puzzleLib.standings(db().puzzle, t.scope, day, humansOf(t.server)) };
+  return extra ? Object.assign(out, extra) : out;
+}
+// Fresh puzzles for practice are made in the background, about 12 ms at a time with pauses between, so nobody's request waits for the
+// search. Until some are ready, practice uses the bank puzzles in a random orientation (see puzzle-gen.js).
+const puzzleSupply = puzzleGen.createSupply(puzzleLib.BANK);
+let puzzlePumping = false;
+function puzzlePump() {
+  puzzlePumping = false;
+  try { if (puzzleSupply.fill(12)) { puzzlePumping = true; setTimeout(puzzlePump, 100).unref(); } }
+  catch (e) { console.warn('Puzzle practice pool skipped:', e.message); }
+}
+function practiceSupply(n) {
+  const fen = puzzleSupply.supply(n);
+  if (!puzzlePumping) { puzzlePumping = true; setTimeout(puzzlePump, 100).unref(); }
+  return fen;
+}
+const practiceRec = (uid) => db().puzzle[uid] || (db().puzzle[uid] = puzzleLib.blank());
+const practiceLevel = (v, fallback) => { const n = Number(v); return puzzleLib.isLevel(n) ? n : fallback; };
+// These come before the /api/puzzle/:scope routes so "practice" is not read as a scope.
+app.get('/api/puzzle/practice', auth, (req, res) => {
+  if (!puzzleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const rec = practiceRec(req.user.id);
+  if (!puzzleLib.practiceView(rec)) { puzzleLib.practiceNext(rec, practiceLevel(req.query.n, 1), practiceSupply); store.save(); }
+  res.json(puzzleLib.practiceView(rec));
+});
+app.post('/api/puzzle/practice/move', auth, (req, res) => {
+  if (!puzzleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const rec = practiceRec(req.user.id);
+  const r = puzzleLib.practicePlay(rec, req.body && req.body.move);
+  if (r.error) return res.status(400).json({ error: r.error });
+  store.save();
+  res.json(Object.assign(puzzleLib.practiceView(rec), r.wrong ? { wrongMove: String(req.body.move).toLowerCase() } : {}));
+});
+app.post('/api/puzzle/practice/next', auth, (req, res) => {
+  if (!puzzleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const rec = practiceRec(req.user.id);
+  const cur = rec.practice && rec.practice.puzzle ? rec.practice.puzzle.n : 1;
+  puzzleLib.practiceNext(rec, practiceLevel(req.body && req.body.n, cur), practiceSupply);
+  store.save();
+  res.json(puzzleLib.practiceView(rec));
+});
+app.get('/api/puzzle/:scope', auth, (req, res) => {
+  const t = wordleTarget(req, res); if (!t) return;
+  if (!puzzleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  res.json(puzzleReply(req.user.id, t));
+});
+app.post('/api/puzzle/:scope/move', auth, (req, res) => {
+  const t = wordleTarget(req, res); if (!t) return;
+  if (!puzzleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const day = puzzleLib.dayOf(now());
+  const rec = db().puzzle[req.user.id] || (db().puzzle[req.user.id] = puzzleLib.blank());
+  const r = puzzleLib.play(rec, t.scope, day, puzzleLib.puzzleFor(t.scope, day, SECRET), req.body && req.body.move, now());
+  if (r.error) return res.status(400).json({ error: r.error });
+  store.save();
+  res.json(puzzleReply(req.user.id, t, r.wrong ? { wrongMove: String(req.body.move).toLowerCase() } : null));
+});
 
 app.get('/api/servers/:id/onboarding', auth, (req, res) => {
   const s = db().servers[req.params.id];

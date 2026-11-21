@@ -12,7 +12,8 @@
 //
 // A player's record (store.db.puzzle[userId]):
 //   { boards: { [scope]: { day, moves: [uci], wrong, status: 'playing' | 'solved' | 'failed', finishedAt? } },
-//     stats:  { [scope]: { played, solved, streak, best, lastWonDay, lastDay, dist: [solved with 0, 1, 2 wrong moves] } } }
+//     stats:  { [scope]: { played, solved, streak, best, lastWonDay, lastDay, dist: [solved with 0, 1, 2 wrong moves] } },
+//     practice: { ... } (see "practice" below) }
 // `moves` holds the moves played so far, the player's and the opponent's replies, in order. Only today's board is kept for each scope.
 
 const crypto = require('crypto');
@@ -92,10 +93,9 @@ function finish(rec, scope, b, day, now) {
   b.finishedAt = now;
 }
 
-// One move. Returns { error } or { ok: true, wrong? } (the board changed in place).
-function play(rec, scope, day, puzzle, raw, now = Date.now()) {
-  const b = boardOf(rec, scope, day);
-  if (b.status !== 'playing') return { error: 'You have already finished today’s puzzle' };
+// One move on a board, daily or practice. Returns { error } or { ok: true, wrong?: true }. The board changes in place: a wrong move is
+// counted (and ends the puzzle on the third), a right move is played with the opponent's reply, and b.status says when it is over.
+function applyMove(b, puzzle, raw) {
   const p = positionOf(puzzle, b.moves);
   const m = C.findUci(p, String(raw || '').trim().toLowerCase());
   if (!m) return { error: 'That is not a legal move' };
@@ -103,14 +103,23 @@ function play(rec, scope, day, puzzle, raw, now = Date.now()) {
   const q = C.make(p, m);
   if (!M.movePasses(q, remaining)) {
     b.wrong++;
-    if (b.wrong >= MAX_WRONG) { b.status = 'failed'; finish(rec, scope, b, day, now); }
+    if (b.wrong >= MAX_WRONG) b.status = 'failed';
     return { ok: true, wrong: true };
   }
   b.moves.push(C.uci(m));
-  if (C.isMate(q)) { b.status = 'solved'; finish(rec, scope, b, day, now); return { ok: true }; }
+  if (C.isMate(q)) { b.status = 'solved'; return { ok: true }; }
   const reply = chooseReply(q, remaining - 1);
   b.moves.push(C.uci(reply));
   return { ok: true };
+}
+
+// One move of the daily puzzle. Returns { error } or { ok: true, wrong? }.
+function play(rec, scope, day, puzzle, raw, now = Date.now()) {
+  const b = boardOf(rec, scope, day);
+  if (b.status !== 'playing') return { error: 'You have already finished today’s puzzle' };
+  const r = applyMove(b, puzzle, raw);
+  if (!r.error && b.status !== 'playing') finish(rec, scope, b, day, now);
+  return r;
 }
 
 // The way through from the current position: [{ san, by: 'you' | 'them' }]
@@ -136,22 +145,68 @@ const sans = (puzzle, moves) => {
   return moves.map((u, i) => { const m = C.findUci(p, u), s = C.san(p, m); p = C.make(p, m); return { san: s, by: i % 2 === 0 ? 'you' : 'them' }; });
 };
 
-// What the player may see. The solution is included only once they are done.
-function view(rec, scope, day, puzzle) {
-  const b = rec.boards[scope] && rec.boards[scope].day === day ? rec.boards[scope] : { day, moves: [], wrong: 0, status: 'playing' };
-  const s = rec.stats[scope] || blankStats();
-  const live = s.lastWonDay >= day - 1 && b.status !== 'failed';
+// What the player may see of a board. The solution is included only once they have failed.
+function viewBoard(b, puzzle) {
   const p = positionOf(puzzle, b.moves);
   const lastU = b.moves.length ? b.moves[b.moves.length - 1] : null;
   return {
-    scope, day, resetsAt: resetsAt(day), n: puzzle.n, label: LABEL[puzzle.n], status: b.status, wrong: b.wrong, maxWrong: MAX_WRONG,
+    n: puzzle.n, label: LABEL[puzzle.n], status: b.status, wrong: b.wrong, maxWrong: MAX_WRONG,
     side: C.parseFen(puzzle.fen).turn, fen: C.toFen(p).split(' ')[0],
     last: lastU ? { from: lastU.slice(0, 2), to: lastU.slice(2, 4) } : null,
     legal: b.status === 'playing' ? C.legal(p).map(C.uci) : [],
     moves: sans(puzzle, b.moves),
     ...(b.status === 'failed' ? { solution: solutionLine(puzzle, b.moves) } : {}),
+  };
+}
+
+function view(rec, scope, day, puzzle) {
+  const b = rec.boards[scope] && rec.boards[scope].day === day ? rec.boards[scope] : { day, moves: [], wrong: 0, status: 'playing' };
+  const s = rec.stats[scope] || blankStats();
+  const live = s.lastWonDay >= day - 1 && b.status !== 'failed';
+  return {
+    scope, day, resetsAt: resetsAt(day), ...viewBoard(b, puzzle),
     stats: { played: s.played, solved: s.solved, streak: live ? s.streak : 0, best: s.best, dist: s.dist.slice() },
   };
+}
+
+// ---- practice: as many puzzles as you like, any depth ----
+// A player's practice record (rec.practice) holds the puzzle in front of them and their run: { puzzle: { n, fen } | null, moves, wrong,
+// status, stats: { solved, failed, streak, best }, seen: [recent positions, so the next one is not one they just had] }.
+// Nothing here is a daily: no day, no standings, no share. The rules are the same (three wrong moves end it and show the answer).
+const LEVELS = [1, 2, 3];
+const isLevel = (n) => LEVELS.includes(n);
+const SEEN_KEEP = 60;
+const seenKey = (fen) => fen.split(' ').slice(0, 2).join(' ');
+
+function practiceOf(rec) {
+  return rec.practice || (rec.practice = { puzzle: null, moves: [], wrong: 0, status: 'playing', stats: { solved: 0, failed: 0, streak: 0, best: 0 }, seen: [] });
+}
+// The next puzzle of depth n. supply(n) returns a FEN; it is asked again a few times if the player has just had that one.
+function practiceNext(rec, n, supply) {
+  const pr = practiceOf(rec);
+  if (pr.puzzle && pr.status === 'playing') pr.stats.streak = 0; // moving on from one that was not solved ends the run
+  let fen = null;
+  for (let i = 0; i < 8; i++) { fen = supply(n); if (!pr.seen.includes(seenKey(fen))) break; }
+  pr.puzzle = { n, fen };
+  pr.moves = []; pr.wrong = 0; pr.status = 'playing';
+  pr.seen.push(seenKey(fen));
+  if (pr.seen.length > SEEN_KEEP) pr.seen.splice(0, pr.seen.length - SEEN_KEEP);
+  return pr;
+}
+function practicePlay(rec, raw) {
+  const pr = practiceOf(rec);
+  if (!pr.puzzle) return { error: 'There is no puzzle to play' };
+  if (pr.status !== 'playing') return { error: 'That puzzle is finished: start a new one' };
+  const r = applyMove(pr, pr.puzzle, raw);
+  if (!r.error && pr.status === 'solved') { const s = pr.stats; s.solved++; s.streak++; s.best = Math.max(s.best, s.streak); }
+  else if (!r.error && pr.status === 'failed') { pr.stats.failed++; pr.stats.streak = 0; }
+  return r;
+}
+function practiceView(rec) {
+  const pr = rec.practice;
+  if (!pr || !pr.puzzle) return null;
+  const s = pr.stats;
+  return { mode: 'practice', ...viewBoard(pr, pr.puzzle), stats: { solved: s.solved, failed: s.failed, streak: s.streak, best: s.best } };
 }
 
 // Who finished today in a server: solved first (fewest wrong moves, then earliest), then those who gave up.
@@ -168,4 +223,4 @@ function standings(records, scope, day, memberIds, limit = 10) {
   return { finished: rows.length, members: memberIds.length, rows: rows.slice(0, limit).map(({ userId, status, wrong, streak }) => ({ userId, status, wrong, streak })) };
 }
 
-module.exports = { BANK, MAX_WRONG, EPOCH, LABEL, dayOf, resetsAt, depthFor, isScope, puzzleFor, blank, boardOf, positionOf, play, view, solutionLine, standings };
+module.exports = { BANK, MAX_WRONG, EPOCH, LABEL, LEVELS, dayOf, resetsAt, depthFor, isScope, isLevel, puzzleFor, blank, boardOf, positionOf, play, view, solutionLine, standings, practiceNext, practicePlay, practiceView };
