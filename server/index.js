@@ -35,6 +35,7 @@ const np = require('./notifprefs');
 const listing = require('./listing');
 const appropriate = require('./appropriate'); // the checker for usernames, display names, bios and server names (and the 3-day warning)
 const moderation = require('./moderation'); // warnings, mutes, timed suspensions and IP bans for the admin page
+const terms = require('./terms'); // the current Terms of Service version and who has agreed to it
 const activityLib = require('./activity');
 const clipsLib = require('./clips'); // clips: short vertical videos (see the "clips" block below)
 const screenLib = require('./screen'); // clip screening: OpenAI moderation of frames, music recognition, re-post matching (see POST /api/clips/:id/complete)
@@ -340,7 +341,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), railLayout: Array.isArray(u.railLayout) ? u.railLayout : null, ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()), canReview: canReview(u) });
+const ownUser = (u) => ({ ...selfView(u), railLayout: Array.isArray(u.railLayout) ? u.railLayout : null, ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()), canReview: canReview(u), terms: { version: terms.VERSION, needed: terms.needed(u) } });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. An email is optional. An account that gives one (at sign-up or later) gets a 6-digit code by email and
@@ -725,6 +726,7 @@ function newUserFromSignup(f) {
     // Signed up with Google: Google already proved the address, so there is no emailed code, and the creator address works with no mail provider.
     ...(f.googleSub ? { googleSub: f.googleSub, emailVerified: true, ...(isCreatorEmail(f.email) ? { developer: { at: now() } } : {}) } : {}),
     lang: cleanLang(f.lang),
+    ...(f.terms ? { termsAccepted: f.terms } : {}), // the Terms of Service version they ticked at sign-up (see terms.js); without it the agree screen shows on first open
     // The app's sign-up sends setup:true: the person then picks a language and whether to join the Aduna server on the setup screen
     // (POST /api/me/setup). Other callers keep the old behaviour of joining it straight away.
     ...(f.setup === true ? { setupPending: true, joinAduna: false } : {}),
@@ -753,6 +755,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
   const recovery = req.body?.recovery == null ? null : recoveryRecord(req.body.recovery);
   if (req.body?.recovery != null && !recovery) return res.status(400).json({ error: 'Bad recovery key backup' });
   const applying = applicationsOn() && !isCreatorEmail(email);
+  const agreed = req.body?.acceptTerms === true && req.body?.over13 === true ? terms.stamp(now()) : null; // the sign-up page sends both ticks
   const reason = clip(req.body?.reason, REASON_MAX).trim();
   if (applying && reason.length < REASON_MIN) return res.status(400).json({ error: `Tell us why you want to join (at least ${REASON_MIN} characters)` });
   if (usernameTaken(username)) return res.status(409).json({ error: 'Username already taken' });
@@ -787,6 +790,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
       ...(recovery ? { recovery } : {}),
       ...(req.body?.emailRecovery === true ? { emailRecovery: true } : {}),
       lang: cleanLang(req.body?.lang), setup: req.body?.setup === true,
+      ...(agreed ? { terms: agreed } : {}),
       design: {
         displayName: clip(d.displayName, 32).trim(),
         avatarColor: AVATAR_HUES.includes(d.avatarColor) ? d.avatarColor : '',
@@ -802,7 +806,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
   }
 
   if (g) googleLogins.consume(gid); // used once, before the slow password hash (see above)
-  const user = newUserFromSignup({ username, email, googleSub: g ? g.profile.sub : '', passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey, recovery, emailRecovery: req.body?.emailRecovery, lang: req.body?.lang, setup: req.body?.setup, deviceKey: devKey });
+  const user = newUserFromSignup({ username, email, googleSub: g ? g.profile.sub : '', passHash: await bcrypt.hash(password, 10), publicKey, encPrivKey, recovery, emailRecovery: req.body?.emailRecovery, lang: req.body?.lang, setup: req.body?.setup, deviceKey: devKey, terms: agreed });
   if (overLimit()) return res.status(403).json({ error: ACCOUNT_LIMIT_MSG, code: 'account_limit' }); // checked again after the slow password hash
   db().users[user.id] = user;
 
@@ -5044,6 +5048,14 @@ app.post('/api/me/warnings/ack', auth, (req, res) => {
   if (moderation.acknowledge(u, now())) { store.save(); emitUserUpdate(u); }
   res.json({ user: ownUser(u) });
 });
+// The person pressed "I agree" on the Terms of Service screen. They send the version they were shown, so a screen left open
+// across a change of the terms cannot accept the new ones by accident.
+app.post('/api/me/terms/accept', auth, (req, res) => {
+  const u = req.user;
+  if (req.body?.version !== terms.VERSION) return res.status(409).json({ error: 'The terms changed while this was open. Please read them again.', code: 'terms_changed', user: ownUser(u) });
+  if (terms.needed(u)) { u.termsAccepted = terms.stamp(now()); store.save(); emitUserUpdate(u); }
+  res.json({ user: ownUser(u) });
+});
 // IP bans (creator accounts only). Aduna keeps no address per account, so a ban is typed in by hand (from the host's logs, say). `yourIp` lets the page
 // show what the server sees for the creator, and a ban that would cover that address is refused. hours: left out = 30 days, null = until lifted.
 const ipBanRows = () => ipBans.active(now()).sort((a, b) => b.at - a.at).map((b) => ({ id: b.id, rule: b.rule, reason: b.reason, at: b.at, until: b.until, by: b.by ? db().users[b.by]?.username || null : null }));
@@ -6497,7 +6509,7 @@ function broadcastPresence(uid) {
 // The audience sees the public profile (Invisible shows as offline); the person's own devices get the real status.
 function emitUserUpdate(u) {
   toAudience(u.id).except('user:' + u.id).emit('user:update', publicUser(u));
-  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), showActivity: u.showActivity !== false, nameWarning: nameWarningView(u), modState: moderation.view(u, now()), canReview: canReview(u) }); // their own devices also learn which badges they own and wear, whether their game is shown, and whether a name warning, a moderator warning or a mute is open
+  io.to('user:' + u.id).emit('user:update', { ...selfView(u), ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), showActivity: u.showActivity !== false, nameWarning: nameWarningView(u), modState: moderation.view(u, now()), canReview: canReview(u), terms: { version: terms.VERSION, needed: terms.needed(u) } }); // their own devices also learn which badges they own and wear, whether their game is shown, and whether a name warning, a moderator warning or a mute is open
 }
 // Two people just became able to see each other (friend request, joining a server): each learns the other's current presence.
 function introduce(a, b) {

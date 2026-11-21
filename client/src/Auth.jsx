@@ -49,7 +49,7 @@ export default function Auth({ onAuthed }) {
       const ident = await createIdentity(form.password);
       const { user: made, applied } = await api('/register', {
         method: 'POST',
-        body: { username: form.username, email: form.email, password: form.password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, design: form.design, ...(form.google ? { google: form.google } : {}), ...(form.turnstile ? { turnstile: form.turnstile } : {}), ...(form.reason ? { reason: form.reason, source: form.source } : {}), ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail ? { emailRecovery: true } : {}) },
+        body: { username: form.username, email: form.email, password: form.password, lang: getLang(), setup: true, publicKey: ident.publicKey, encPrivKey: ident.encPrivKey, design: form.design, ...(form.acceptTerms === true && form.over13 === true ? { acceptTerms: true, over13: true } : {}), ...(form.google ? { google: form.google } : {}), ...(form.turnstile ? { turnstile: form.turnstile } : {}), ...(form.reason ? { reason: form.reason, source: form.source } : {}), ...(useKey ? { recovery: { blob: ident.recovery.blob, auth: ident.recovery.auth } } : {}), ...(useMail ? { emailRecovery: true } : {}) },
       });
       if (form.google) { clearGoogle(); setGprofile(null); setGid(''); } // used up: the account (or application) exists now
       if (applied) { // no account yet: an admin decides. The recovery key is shown now because it cannot be shown later.

@@ -48,6 +48,7 @@ import { OnboardingFlow } from './Onboarding.jsx';
 import Setup from './Setup.jsx';
 import NameWarning from './NameWarning.jsx';
 import ModWarning from './ModWarning.jsx';
+import TermsGate from './TermsGate.jsx';
 import { setLang, useLang } from './i18n.js';
 import { layoutOf, moveChannel, moveCategory, saveLayout, sameLayout } from './layout.js';
 import { slotOf, usePanels, useLayoutScreen, setLayoutAllowed } from './panels.js';
@@ -197,6 +198,9 @@ export default function App() {
   }
   if (me?.emailVerified === false) {
     return <VerifyEmail me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
+  }
+  if (me?.terms?.needed) { // has not agreed to the current Terms of Service (server/terms.js): nothing else until they do
+    return <TermsGate me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;
   }
   if (me?.modState?.pending?.length) { // a moderator warning that has not been read: nothing else until they press "I understand" (server/moderation.js)
     return <ModWarning me={me} onUpdate={(u) => setMe((m) => ({ ...m, ...u }))} onLogout={async () => { await endSession(); setMe(null); setPrivKey(null); setBoot('auth'); }} />;

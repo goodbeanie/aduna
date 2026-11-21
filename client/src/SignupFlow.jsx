@@ -112,6 +112,8 @@ export default function SignupFlow({ mailOk, apply, turnstileKey, onSubmit, onLo
   const [showPw, setShowPw] = useState(false);       // the Show / Hide button on the password box
   const [useKey, setUseKey] = useState(true);
   const [useMail, setUseMail] = useState(false);
+  const [terms, setTerms] = useState(false);         // step 3: accepted the Terms of Service
+  const [age13, setAge13] = useState(false);         // step 3: says they are 13 or older
   const [err, setErr] = useState(null);              // { step, msg }
   const [busy, setBusy] = useState(false);
   const [ts, setTs] = useState('');                  // the Cloudflare check's token for this sign-up
@@ -183,11 +185,13 @@ export default function SignupFlow({ mailOk, apply, turnstileKey, onSubmit, onLo
     setErr(null);
     const mailUsable = useMail && mailAvail;
     if (!useKey && !mailUsable) { setErr({ step: 3, msg: 'Pick at least one way to get back into your account.' }); return; }
+    if (!terms) { setErr({ step: 3, msg: 'Accept the Terms of Service to make an account.' }); return; }
+    if (!age13) { setErr({ step: 3, msg: 'You need to be 13 or older to use Aduna.' }); return; }
     if (needCheck && !ts) { setErr({ step: 3, msg: 'Finish the check above first.' }); return; }
     setBusy(true);
     try {
       await onSubmit({
-        username: trimmed, email: google ? google.email : email.trim(), password, useKey, useMail: mailUsable,
+        username: trimmed, email: google ? google.email : email.trim(), password, useKey, useMail: mailUsable, acceptTerms: terms, over13: age13,
         ...(google ? { google: google.id } : {}),
         ...(needCheck ? { turnstile: ts } : {}),
         ...(apply ? { reason: reason.trim(), source: source.trim() } : {}),
@@ -393,6 +397,17 @@ export default function SignupFlow({ mailOk, apply, turnstileKey, onSubmit, onLo
                   <input type="checkbox" checked={useMail && mailAvail} disabled={!mailAvail} onChange={(e) => { if (!e.target.checked && !useKey) return; setUseMail(e.target.checked); setErr(null); }} />
                   <span className="su-opt-box" aria-hidden="true"><Tick /></span>
                   <span className="su-opt-text"><strong>{t('mailOptionB')}</strong><span>{lead(t('mailOptionT'))}{!mailOk ? t('mailUnavailable') : !email.trim() ? ' Not available because you did not enter an email. Go back to add one.' : ''}</span></span>
+                </label>
+              </div>
+
+              <div className="su-agree">
+                <label className="su-check">
+                  <input type="checkbox" checked={terms} onChange={(e) => { setTerms(e.target.checked); setErr(null); }} />
+                  <span>I agree to the <a href="/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a></span>
+                </label>
+                <label className="su-check">
+                  <input type="checkbox" checked={age13} onChange={(e) => { setAge13(e.target.checked); setErr(null); }} />
+                  <span>I am 13 years old or older</span>
                 </label>
               </div>
 
