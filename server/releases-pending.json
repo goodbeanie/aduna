@@ -664,5 +664,15 @@
       { "title": "Server notices at the top", "text": "When the team posts a notice about a restart, maintenance or a crash, it now shows as a banner at the top of the app, with the time the server should be back when there is one." },
       { "title": "One banner for connection problems", "text": "Offline, reconnecting and back online now use the same banner. If a notice is up, the connection message sits under it." }
     ]
+  },
+  {
+    "id": "2026.11.20",
+    "date": "2026-11-20",
+    "title": "Terms of Service and smoother typing",
+    "items": [
+      { "title": "Terms of Service", "text": "Aduna now has its Terms of Service at aduna.dpdns.org/terms. There is a link to it at the bottom of the home page." },
+      { "title": "Smoother typing in busy chats", "text": "Typing in a long chat no longer redraws every message on each keystroke, so the message box keeps up." },
+      { "title": "Server notices are kept", "text": "Notices posted by the team are now stored in the database and are still there after a restart. A copy is also saved on the status site so it can show while the server is off." }
+    ]
   }
 ]
