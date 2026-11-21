@@ -27,5 +27,4 @@ h1{font-weight:400;font-size:clamp(34px,6vw,54px);line-height:1.05;letter-spacin
 #other .step{display:block;text-align:left}
 #other .step::before{display:none}
 .hide{display:none}
-footer{text-align:center;color:var(--muted);font-size:15px;margin-top:30px}
 @media(max-width:560px){.step{grid-template-columns:1fr}.step::before{grid-row:auto}}

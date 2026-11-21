@@ -1,0 +1,8 @@
+.site-footer{display:block;margin-top:44px;padding:26px 0 44px;border-top:1px solid var(--line,#e7dfc8);text-align:center;color:var(--muted,#6d675a);font-size:16px;line-height:1.5}
+.site-footer p{margin:0}
+.sf-tag{font-size:18px;color:var(--fg,var(--ink,#111112))}
+.sf-links{display:flex;flex-wrap:wrap;justify-content:center;gap:6px 22px;margin:12px 0 14px}
+.sf-links a{color:inherit;text-decoration:none}
+.sf-links a:hover{color:var(--fg,var(--ink,#111112));text-decoration:underline;text-decoration-color:var(--gold,#e0b04a);text-underline-offset:3px}
+.sf-links a:focus-visible{outline:2px solid var(--fg,var(--ink,#111112));outline-offset:3px;border-radius:4px}
+.sf-copy{font-size:14px}
