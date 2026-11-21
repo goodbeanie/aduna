@@ -674,5 +674,13 @@
       { "title": "Smoother typing in busy chats", "text": "Typing in a long chat no longer redraws every message on each keystroke, so the message box keeps up." },
       { "title": "Server notices are kept", "text": "Notices posted by the team are now stored in the database and are still there after a restart. A copy is also saved on the status site so it can show while the server is off." }
     ]
+  },
+  {
+    "id": "2026.11.20.2",
+    "date": "2026-11-20",
+    "title": "Footer links on the public pages",
+    "items": [
+      { "title": "Footer on the home, download and terms pages", "text": "These pages now share a footer with links to Home, Open Aduna, Download, the Terms of Service, the source code and where to report a problem." }
+    ]
   }
 ]
