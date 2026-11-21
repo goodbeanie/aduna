@@ -147,6 +147,7 @@ const PATHS = {
   wheel: <><circle cx="12" cy="12" r="8.5" /><circle cx="12" cy="12" r="1.6" /><path d="M12 3.5v7M12 13.5v7M4.6 7.8l6 3.5M13.4 12.7l6 3.5M4.6 16.2l6-3.5M13.4 11.3l6-3.5" /></>,
   wordle: <><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>,
   contexto: <><circle cx="12" cy="12" r="2" /><circle cx="12" cy="12" r="5.5" /><circle cx="12" cy="12" r="9" /></>,
+  chess: <><circle cx="12" cy="6.5" r="2.7" /><path d="M10.2 9.6c.4 1.6.2 3.4-1.1 5.1M13.8 9.6c-.4 1.6-.2 3.4 1.1 5.1M8 17.5h8M6.5 21h11M9.1 14.7c-.6 1-1.1 1.9-1.1 2.8M14.9 14.7c.6 1 1.1 1.9 1.1 2.8" /></>,
   gamepad: <><rect x="3" y="7.5" width="18" height="10" rx="5" /><path d="M8 10.5v4M6 12.5h4" /><path d="M15.5 11.5v.1M17.5 13.5v.1" /></>,
   phone: <path d="M6.5 4h3l1.5 4-2 1.3a11 11 0 005.7 5.7L16 13l4 1.5v3a2 2 0 01-2.2 2A15.5 15.5 0 014.5 6.2 2 2 0 016.5 4z" />,
   video: <><rect x="3.5" y="6.5" width="12" height="11" rx="2.5" /><path d="M15.5 10.5l5-3v9l-5-3" /></>,

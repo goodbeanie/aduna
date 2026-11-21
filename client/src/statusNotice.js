@@ -1,8 +1,9 @@
 import { useEffect, useSyncExternalStore } from 'react';
 
-// The notice posted from the status site's admin page (adunastatus). It is stored on Cloudflare, so it still loads while
-// this server is down. Keep the address in step with STATUS_NOTICE_URL in server/security.js, which lets the page reach it.
-const NOTICE_URL = 'https://adunafront.nathankennethvc2.workers.dev/status-notice';
+// The notice posted in /admin > Status. The server answers it live; the server also saves a copy on the status site (Cloudflare), which still
+// loads while this server is down. Keep the copy's address in step with STATUS_NOTICE_URL in server/security.js, which lets the page reach it.
+const NOTICE_URL = '/api/public/status-notice';
+const COPY_URL = 'https://adunafront.nathankennethvc2.workers.dev/status.json';
 const POLL_MS = 30000;
 const TIMEOUT_MS = 5000;
 
@@ -18,14 +19,21 @@ function setNotice(next) {
   subs.forEach((f) => f());
 }
 
-export async function refreshNotice() {
+async function readJson(url) {
   const ctl = typeof AbortController === 'function' ? new AbortController() : null;
   const stop = ctl ? setTimeout(() => ctl.abort(), TIMEOUT_MS) : 0;
   try {
-    const r = await fetch(NOTICE_URL + '?t=' + Date.now(), { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
-    if (r.ok) setNotice(await r.json());
-  } catch { /* keep the last notice */ }
-  clearTimeout(stop);
+    const r = await fetch(url + '?t=' + Date.now(), { cache: 'no-store', signal: ctl ? ctl.signal : undefined });
+    return r.ok ? await r.json() : null;
+  } catch { return null; } finally { clearTimeout(stop); }
+}
+
+// Live from the server first; when it does not answer (it is off or restarting), the copy saved on the status site. If neither answers, keep the last notice.
+export async function refreshNotice() {
+  const live = await readJson(NOTICE_URL);
+  if (live && typeof live === 'object') return setNotice(live);
+  const copy = await readJson(COPY_URL);
+  if (copy && typeof copy === 'object') setNotice(copy);
 }
 
 const subscribe = (fn) => {

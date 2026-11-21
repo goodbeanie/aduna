@@ -42,6 +42,7 @@ const polls = require('./polls');
 const wheels = require('./wheels'); // spin the wheel: a poster's options and a spin time; the server picks the winner at that time (see wheels.js)
 const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global) and one for each server (see the "wordle" block below)
 const contextoLib = require('./contexto'); // Contexto: a daily word guessed by meaning, same scopes as Wordle (see the "contexto" block below)
+const puzzleLib = require('./puzzle'); // Chess puzzle: a daily mate in 1, 2 or 3, same scopes as Wordle (see the "chess puzzle" block below)
 const salesReport = require('./sales-report'); // sales to Canada and the US in CAD against the sales tax registration limits (/admin > Sales)
 const switchesLib = require('./switches'); // kill switches a creator flips in /admin > Switches (payments, ...): closed for the public, never for admins
 const featuresLib = require('./features'); // feature releases: off / testing (creator accounts only) / live (see the "feature releases" block below)
@@ -3105,6 +3106,33 @@ app.post('/api/contexto/:scope/guess', auth, contextoAct((rec, scope, day, answe
 app.post('/api/contexto/:scope/hint', auth, contextoAct((rec, scope, day, answer, body, at) => contextoLib.hint(rec, scope, day, answer, at)));
 app.post('/api/contexto/:scope/giveup', auth, contextoAct((rec, scope, day, answer, body, at) => contextoLib.giveUp(rec, scope, day, answer, at)));
 
+// ----- chess puzzle (rules and storage: puzzle.js, chess.js, mate.js) -----
+// One mate-in-1/2/3 puzzle a day for 'global' (Aduna's own, played alone or shared into a chat) and one for each server (members only, with
+// standings). Moves are checked here and the opponent's replies are chosen here: the browser only draws the board it is sent and says which
+// move was tried. The solution is not sent until the player has finished.
+const puzzleHits = new security.RateWindow(120, 60_000); // moves and refreshes per person per minute
+function puzzleReply(uid, t, extra) {
+  const day = puzzleLib.dayOf(now());
+  const out = puzzleLib.view(db().puzzle[uid] || puzzleLib.blank(), t.scope, day, puzzleLib.puzzleFor(t.scope, day, SECRET));
+  if (t.server) out.server = { id: t.server.id, name: t.server.name, standings: puzzleLib.standings(db().puzzle, t.scope, day, humansOf(t.server)) };
+  return extra ? Object.assign(out, extra) : out;
+}
+app.get('/api/puzzle/:scope', auth, (req, res) => {
+  const t = wordleTarget(req, res); if (!t) return;
+  if (!puzzleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  res.json(puzzleReply(req.user.id, t));
+});
+app.post('/api/puzzle/:scope/move', auth, (req, res) => {
+  const t = wordleTarget(req, res); if (!t) return;
+  if (!puzzleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const day = puzzleLib.dayOf(now());
+  const rec = db().puzzle[req.user.id] || (db().puzzle[req.user.id] = puzzleLib.blank());
+  const r = puzzleLib.play(rec, t.scope, day, puzzleLib.puzzleFor(t.scope, day, SECRET), req.body && req.body.move, now());
+  if (r.error) return res.status(400).json({ error: r.error });
+  store.save();
+  res.json(puzzleReply(req.user.id, t, r.wrong ? { wrongMove: String(req.body.move).toLowerCase() } : null));
+});
+
 app.get('/api/servers/:id/onboarding', auth, (req, res) => {
   const s = db().servers[req.params.id];
   if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Not found' });
@@ -5465,8 +5493,8 @@ app.post('/api/admin/shop/:id/remove', auth, adminOnly, (req, res) => {
 });
 
 // ----- status notice: the red/yellow bar on the home page and connect page (/admin > Status) -----
-// Public to read (the status pages on another address fetch it, so it allows any origin), admins only to change. Stored in the database as
-// db().statusNotice = { down, message, backAt (ISO or null), template, updatedAt }; no notice means nothing is shown.
+// Public to read (the status pages on another address fetch it, so it allows any origin), admins only to change. Stored in the database's "notices"
+// collection as db().notices.status = { down, message, backAt (ISO or null), template, updatedAt }, so it survives restarts; none means nothing is shown.
 const STATUS_EMPTY = { down: false, message: '', backAt: null, template: '', updatedAt: null };
 // A copy of the notice is also saved on the status site (the adunastatus repo's status.json), so the home page and the connecting page can still show
 // it while this server is off. Set STATUS_GITHUB_TOKEN (a fine-grained GitHub token with Contents: read and write on that one repo) to turn it on;
@@ -5487,7 +5515,7 @@ async function saveStatusCopy(notice) {
   } catch (e) { console.error('status copy failed:', e.message); return false; }
 }
 app.get('/api/public/status-notice', (_req, res) => {
-  res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }).json(db().statusNotice || STATUS_EMPTY);
+  res.set({ 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-store' }).json(db().notices.status || STATUS_EMPTY);
 });
 app.post('/api/admin/status-notice', auth, adminOnly, ah(async (req, res) => {
   const b = req.body || {};
@@ -5499,14 +5527,14 @@ app.post('/api/admin/status-notice', auth, adminOnly, ah(async (req, res) => {
     if (isNaN(t)) return res.status(400).json({ error: 'That back-up time is not a valid date.' });
     backAt = new Date(t).toISOString();
   }
-  db().statusNotice = { down: !!b.down, message, backAt, template: String(b.template || '').slice(0, 30), updatedAt: new Date().toISOString() };
+  db().notices.status = { down: !!b.down, message, backAt, template: String(b.template || '').slice(0, 30), updatedAt: new Date().toISOString() };
   store.save();
-  adminLogAdd(req.user, 'status notice posted', db().statusNotice.template || 'custom', message.slice(0, 80));
-  res.json({ ...db().statusNotice, saved: await saveStatusCopy(db().statusNotice) });
+  adminLogAdd(req.user, 'status notice posted', db().notices.status.template || 'custom', message.slice(0, 80));
+  res.json({ ...db().notices.status, saved: await saveStatusCopy(db().notices.status) });
 }));
 app.delete('/api/admin/status-notice', auth, adminOnly, ah(async (req, res) => {
-  if (db().statusNotice) {
-    delete db().statusNotice;
+  if (db().notices.status) {
+    delete db().notices.status;
     store.save();
     adminLogAdd(req.user, 'status notice cleared', '', '');
   }
@@ -6418,6 +6446,7 @@ if (fs.existsSync(dist)) {
   // 80 MB file never touches this server. The file name always comes from updates/latest.yml, so the link never goes stale.
   const DL_BASE = String(process.env.DOWNLOAD_BASE_URL || '').trim().replace(/\/+$/, '');
   const readFeed = () => { try { return fs.readFileSync(path.join(dist, 'updates', 'latest.yml'), 'utf8'); } catch { return null; } };
+  app.get('/terms', (_req, res) => res.sendFile(path.join(dist, 'terms.html')));
   app.get('/download', (_req, res) => res.sendFile(path.join(dist, 'download.html'))); // instructions page; it starts the download
   app.get('/download/file', (_req, res) => {
     const file = ((readFeed() || '').match(/^path:\s*(\S+)\s*$/m) || [])[1];

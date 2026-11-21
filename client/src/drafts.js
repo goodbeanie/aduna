@@ -18,13 +18,14 @@ export function setDraft(key, text) {
   const t = String(text || '');
   if (!t.trim()) { if (store.delete(key)) emit(); return; }
   if (store.get(key) === t) return;
+  const isNew = !store.has(key);
   store.set(key, t);
-  emit();
+  if (isNew) emit(); // listeners only show a "Draft" tag, so more typing in an existing draft must not re-render the app
 }
 
 export const clearDrafts = () => { if (store.size) { store.clear(); emit(); } }; // on sign-out
 
-// Re-renders the component whenever any draft changes, so a list can show its "Draft" tag.
+// Re-renders the component when a draft appears or goes away, so a list can show its "Draft" tag.
 export function useDrafts() {
   return useSyncExternalStore((cb) => { listeners.add(cb); return () => listeners.delete(cb); }, () => version);
 }

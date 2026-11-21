@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Avatar, BadgeIcons, Icon, Modal, timeLabel } from './ui.jsx';
 import ReportModal from './ReportModal.jsx';
 import { nameProps } from './namestyle.js';
@@ -37,6 +37,7 @@ import { api } from './api.js';
 import { EmptyState, ListSkeleton, kbd } from './ShellBits.jsx';
 
 const QUICK_REACTION = '\u2764\uFE0F'; // what a double-tap / double-click on a message reacts with
+const NO_PEOPLE = [];
 
 // A webhook message has no account behind it (authorId 'hook:<id>', `hook` holds the name), so it gets a stand-in author: its name, the BOT tag,
 // no picture, no profile. Everything that looks an author up goes through this, so "Unknown" never shows for a webhook.
@@ -161,7 +162,8 @@ function CallEntry({ m, users, me }) {
   );
 }
 
-function Message({ m, users, roleColors, boosters, me, byId, presence, onVote, onClosePoll, onReact, onReply, onUser, onUserMenu, onEdit, onDelete, editing, setEditing, grouped, canDelete, canPin, onPin, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone, channels, channelMap, onChannel, convoKey, convoTitle }) {
+// Memoized: the composer re-renders Chat on every keystroke, and every row would otherwise be rebuilt with it. Chat keeps the props stable.
+const Message = memo(function Message({ m, users, roleColors, boosters, me, byId, status, onVote, onClosePoll, onReact, onReply, onUser, onUserMenu, onEdit, onDelete, editing, setEditing, grouped, canDelete, canPin, onPin, dm, onOpen, tapped, onTap, encode, decode, people, canEveryone, channels, channelMap, onChannel, convoKey, convoTitle }) {
   const [picker, setPicker] = useState(false);
   const [ctxPicker, setCtxPicker] = useState(null); // { x, y }: the emoji picker opened from the right-click menu, placed where you clicked
   const [who, setWho] = useState(null); // the reaction chip that was clicked: opens the "who reacted" list on that emoji
@@ -192,7 +194,7 @@ function Message({ m, users, roleColors, boosters, me, byId, presence, onVote, o
       return;
     }
     lastTap.current = now;
-    onTap?.();
+    onTap?.(m.id);
   }
 
   // Right-click (or long-press on a phone) on the message. Links, pictures, video, text boxes and selected text keep the browser's own menu.
@@ -249,7 +251,7 @@ function Message({ m, users, roleColors, boosters, me, byId, presence, onVote, o
       )}
       <div className="msg-row">
         {grouped ? <div className="gutter"><span className="hover-time">{new Date(m.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span></div>
-          : <button className="avatar-btn" onClick={openAuthor} onContextMenu={authorMenu}><Avatar user={author} size={40} presence={presence[m.authorId] && presence[m.authorId] !== 'offline' ? presence[m.authorId] : undefined} /></button>}
+          : <button className="avatar-btn" onClick={openAuthor} onContextMenu={authorMenu}><Avatar user={author} size={40} presence={status && status !== 'offline' ? status : undefined} /></button>}
         <div className="msg-body">
           {m.pinnedAt && <div className="pin-flag"><Icon name="pushpin" size={12} /> Pinned</div>}
           {!grouped && (
@@ -300,7 +302,7 @@ function Message({ m, users, roleColors, boosters, me, byId, presence, onVote, o
       {reporting && <ReportModal kind="message" info={{ name: author?.displayName || 'this person' }} path={`/messages/${m.id}/report`} onClose={() => setReporting(false)} />}
     </div>
   );
-}
+});
 
 export default function Chat({ title, subtitle, headerExtra, stage, onBack, messages, loading, users, me, presence, onSend, onPoll, onVote, onClosePoll, onWheel, wordle, onReact, onEdit, onDelete, canModerate, canPin, onPin, pinsFor, bell, roleColors, boosters, onTyping, typingNames, placeholder, notice, onUser, onUserMenu, files, gifEnabled, readOnly, mentionables, canEveryone, botCommands, channels, onChannel, draftKey, unreadCount, unreadExact }) {
   const convoKey = draftKey || title; // which conversation this composer belongs to (titles can repeat, so App passes a real key)
@@ -338,11 +340,17 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const fileInput = useRef(null);
   const { lib, toTokens, fromTokens, codes, ensureShortcodes } = useEmoji();
   const codeList = useMemo(() => (codes ? Object.entries(codes) : []), [codes]);
-  const people = mentionables || [];
+  const people = mentionables || NO_PEOPLE;
   // channels only exist inside a server channel; in DMs and group chats "#name" stays plain text
-  const channelMap = channels ? Object.fromEntries(channels.map((c) => [c.id, c])) : undefined;
-  const encode = (t) => toChannelTokens(toMentionTokens(toTokens(t), people), channels); // :emoji:, @username and #channel -> tokens, as stored
-  const decode = (t) => fromChannelTokens(fromMentionTokens(fromTokens(t), users), channels); // and back, for editing
+  const channelMap = useMemo(() => (channels ? Object.fromEntries(channels.map((c) => [c.id, c])) : undefined), [channels]);
+  // The message rows are memoized, so what they are given has to keep its identity between renders: these read the latest lists from a ref.
+  const tokenCtx = useRef(null);
+  tokenCtx.current = { people, channels, users };
+  const encode = useCallback((t) => toChannelTokens(toMentionTokens(toTokens(t), tokenCtx.current.people), tokenCtx.current.channels), [toTokens]); // :emoji:, @username and #channel -> tokens, as stored
+  const decode = useCallback((t) => fromChannelTokens(fromMentionTokens(fromTokens(t), tokenCtx.current.users), tokenCtx.current.channels), [fromTokens]); // and back, for editing
+  const latest = useRef(null);
+  latest.current = { onVote, onClosePoll, onReact, onEdit, onPin, onUser, onUserMenu, onChannel };
+  const call = useMemo(() => Object.fromEntries(['onVote', 'onClosePoll', 'onReact', 'onEdit', 'onPin', 'onUser', 'onUserMenu', 'onChannel'].map((k) => [k, (...a) => latest.current[k]?.(...a)])), []);
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   useEffect(() => () => { Object.values(aborts.current).forEach((c) => c.abort()); }, []); // leaving the chat stops any compressing
@@ -360,7 +368,9 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
   const cc = useCommandComplete({ text, setText, inputRef, commands: botCommands }); // "/" at the start of the message lists the commands of the server's bots
   const typed = useTypingProof(inputRef, !!readOnly); // how this message was written, sent along so the server can decide if it earns credits
 
-  const byId = Object.fromEntries(messages.map((m) => [m.id, m]));
+  const byId = useMemo(() => Object.fromEntries(messages.map((m) => [m.id, m])), [messages]);
+  const startReply = useCallback((x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }, []);
+  const tapMsg = useCallback((id) => setTapped((t) => (t === id ? null : id)), []);
   const q = searching ? query.trim().toLowerCase() : '';
   const shownMessages = q ? messages.filter((m) => !m.system && decode(m.content || '').toLowerCase().includes(q)) : messages;
 
@@ -688,11 +698,11 @@ export default function Chat({ title, subtitle, headerExtra, stage, onBack, mess
           if (m.system === 'call') return <React.Fragment key={m.id}>{day}<CallEntry m={m} users={users} me={me} /></React.Fragment>;
           const prev = shownMessages[i - 1];
           const grouped = prev && !prev.system && prev.authorId === m.authorId && m.createdAt - prev.createdAt < 5 * 60000 && !m.replyTo;
-          return <React.Fragment key={m.id}>{day}{m.id === divider && <div className="new-divider" role="separator"><span>New messages</span></div>}<Message m={m} boosters={boosters} grouped={grouped && m.id !== divider && !day} users={users} roleColors={roleColors} me={me} byId={byId} presence={presence} onVote={onVote} onClosePoll={onClosePoll}
-            onReact={onReact} onReply={(x) => { setReplyTo(x); setEditing(null); inputRef.current?.focus(); }} onUser={onUser} onUserMenu={onUserMenu}
-            onEdit={onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone} channels={channels} channelMap={channelMap} onChannel={onChannel} convoKey={convoKey} convoTitle={title}
-            canDelete={m.authorId === me.id || !!canModerate} canPin={!!canPin && !m.system} onPin={onPin} dm={files?.dm} onOpen={setLightbox}
-            tapped={tapped === m.id} onTap={() => setTapped((t) => (t === m.id ? null : m.id))} /></React.Fragment>;
+          return <React.Fragment key={m.id}>{day}{m.id === divider && <div className="new-divider" role="separator"><span>New messages</span></div>}<Message m={m} boosters={boosters} grouped={grouped && m.id !== divider && !day} users={users} roleColors={roleColors} me={me} byId={byId} status={presence[m.authorId]} onVote={onVote && call.onVote} onClosePoll={onClosePoll && call.onClosePoll}
+            onReact={call.onReact} onReply={startReply} onUser={call.onUser} onUserMenu={onUserMenu && call.onUserMenu}
+            onEdit={call.onEdit} onDelete={setConfirmDel} editing={editing === m.id} setEditing={setEditing} encode={encode} decode={decode} people={people} canEveryone={canEveryone} channels={channels} channelMap={channelMap} onChannel={onChannel && call.onChannel} convoKey={convoKey} convoTitle={title}
+            canDelete={m.authorId === me.id || !!canModerate} canPin={!!canPin && !m.system} onPin={onPin && call.onPin} dm={files?.dm} onOpen={setLightbox}
+            tapped={tapped === m.id} onTap={tapMsg} /></React.Fragment>;
         })}
         {(away || fresh > 0) && (
           <div className="jump-wrap">
