@@ -708,5 +708,14 @@
       { "title": "Daily chess puzzle", "text": "Minigames now has a chess puzzle: find the checkmate in 1, 2 or 3 moves. There is one puzzle a day for everyone on Aduna and one for each server, with standings for its members. You get three wrong moves, and a daily streak counts the days in a row you solve it. Share your result into a chat." },
       { "title": "Practice", "text": "Practice gives you as many puzzles as you like. Pick mate in 1, 2 or 3, and a fresh puzzle is made each time. Sometimes you play Black." }
     ]
+  },
+  {
+    "id": "2026.11.21.2",
+    "date": "2026-11-21",
+    "title": "Chess board fixes",
+    "items": [
+      { "title": "Even squares", "text": "Rows on the chess puzzle board no longer grow or shrink depending on which pieces are on them. All 64 squares are the same size." },
+      { "title": "New pieces", "text": "The chess pieces are now drawn as clean flat icons, white and black, so they look the same on every phone and browser. The promotion picker uses them too." }
+    ]
   }
 ]
