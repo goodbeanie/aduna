@@ -72,7 +72,7 @@ export function InviteCard({ code }) {
 
 // The box itself: banner, icon and name in the server's own theme, with Join / Open. Used for invite cards in
 // messages (InviteCard above) and for the server explorer, which passes `info` straight from the explorer list.
-export function InviteBox({ info, label, extra }) {
+export function InviteBox({ info, label, extra, compact }) {
   const { servers, onJoined, onOpen, onNeedAuth } = useContext(InviteContext);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -88,15 +88,16 @@ export function InviteBox({ info, label, extra }) {
   }
 
   return (
-    <div className={'invite-card' + (info.boostLevel > 0 ? ' boosted-ring' : '')} style={themeVars(info.theme)}>
+    <div className={'invite-card' + (compact ? ' mini' : '') + (info.boostLevel > 0 ? ' boosted-ring' : '')} style={themeVars(info.theme)}>
       <div className="ic-banner" style={info.bannerImage ? { backgroundImage: `url("${imageUrl(info.bannerAnim || info.bannerImage)}")` } : undefined} />
       <div className="ic-icon"><ServerIcon server={{ name: info.name, iconImage: info.iconImage, iconAnim: info.iconAnim }} fill play /></div>
       <div className="ic-body">
-        <div className="ic-label">{label}</div>
+        {label && <div className="ic-label">{label}</div>}
         <div className="ic-row">
           <div className="ic-text">
             <div className="ic-name">{info.name}{info.boostLevel > 0 && <BoostedTag level={info.boostLevel} />}</div>
             <div className="ic-meta"><Icon name="users" size={14} /> {info.memberCount} member{info.memberCount === 1 ? '' : 's'}</div>
+            {compact && info.tags?.length > 0 && <div className="ic-tags">{info.tags.map((t) => <span key={t}>#{t}</span>)}</div>}
           </div>
           {member
             ? <button className="btn ic-join" onClick={() => onOpen(member)}>Open</button>

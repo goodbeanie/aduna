@@ -1,5 +1,7 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ColorInput } from './Controls.jsx';
+import { InviteBox } from './Invite.jsx';
 import { api } from './api.js';
 
 // Server tags: a short badge (up to 4 characters) a server designs and its members can choose to wear beside their name.
@@ -19,12 +21,89 @@ export function textOn(bg) {
 }
 
 // tag: { text, bg, frame, fg, name? }. Draws nothing when there is no tag.
-export function ServerTagChip({ tag, className = '' }) {
+// With `card` set, clicking the tag opens a small invite card for its server under it (the tag has to carry a serverId).
+export function ServerTagChip({ tag, className = '', card = false }) {
+  const [anchor, setAnchor] = useState(null);
+  const chipRef = useRef(null);
+  const close = useCallback(() => setAnchor(null), []);
   if (!tag || !tag.text) return null;
+  const clickable = card && !!tag.serverId;
+  const toggle = (e) => {
+    e.stopPropagation();
+    if (anchor) return setAnchor(null);
+    const r = chipRef.current.getBoundingClientRect();
+    setAnchor({ left: r.left, top: r.top, bottom: r.bottom });
+  };
   return (
-    <span className={'stag ' + className} style={{ background: tag.bg, color: tag.fg || textOn(tag.bg), borderColor: tag.frame || 'transparent' }}
-      title={tag.name ? `${tag.name} server tag` : 'Server tag'}>{tag.text}</span>
+    <>
+      <span ref={chipRef} className={'stag ' + className + (clickable ? ' clickable' : '')} style={{ background: tag.bg, color: tag.fg || textOn(tag.bg), borderColor: tag.frame || 'transparent' }}
+        title={tag.name ? `${tag.name} server tag` : 'Server tag'}
+        {...(clickable ? { role: 'button', tabIndex: 0, onClick: toggle, onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); } } } : {})}>{tag.text}</span>
+      {anchor && createPortal(<TagCard serverId={tag.serverId} anchor={anchor} chipEl={chipRef.current} onClose={close} />, document.body)}
+    </>
   );
+}
+
+const cardCache = new Map(); // serverId -> { at, info }; info is null when the server can't be shown
+const CARD_TTL = 60_000;
+const CLOSE_DELAY = 140;
+
+// The small invite card under a tag. It closes when the pointer has left both the tag and the card, when you tap or press
+// outside, on Escape, and when the page scrolls or resizes.
+function TagCard({ serverId, anchor, chipEl, onClose }) {
+  const [info, setInfo] = useState(() => { const c = cardCache.get(serverId); return c && Date.now() - c.at < CARD_TTL ? c.info : undefined; });
+  const [pos, setPos] = useState({ left: anchor.left, top: anchor.bottom + 6 });
+  const box = useRef(null);
+
+  useEffect(() => {
+    if (info !== undefined) return undefined;
+    let live = true;
+    api(`/servers/${encodeURIComponent(serverId)}/tag-card`)
+      .then((r) => { cardCache.set(serverId, { at: Date.now(), info: r.invite }); if (live) setInfo(r.invite); })
+      .catch(() => { cardCache.set(serverId, { at: Date.now(), info: null }); if (live) setInfo(null); });
+    return () => { live = false; };
+  }, [serverId, info]);
+
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const w = el.offsetWidth, h = el.offsetHeight;
+    const left = Math.max(8, Math.min(anchor.left, window.innerWidth - w - 8));
+    let top = anchor.bottom + 6;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, anchor.top - h - 6);
+    setPos({ left, top });
+  }, [info, anchor]);
+
+  useEffect(() => {
+    let timer = 0;
+    const inside = (t) => !!t && (box.current?.contains(t) || chipEl?.contains(t));
+    const move = (e) => {
+      if (inside(e.target)) { clearTimeout(timer); timer = 0; } else if (!timer) timer = setTimeout(onClose, CLOSE_DELAY);
+    };
+    const down = (e) => { if (!inside(e.target)) onClose(); };
+    const key = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('pointermove', move);
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('keydown', key);
+    window.addEventListener('scroll', onClose, true);
+    window.addEventListener('resize', onClose);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerdown', down, true);
+      document.removeEventListener('keydown', key);
+      window.removeEventListener('scroll', onClose, true);
+      window.removeEventListener('resize', onClose);
+    };
+  }, [chipEl, onClose]);
+
+  let body;
+  if (info === undefined) body = <div className="invite-card mini loading" aria-busy="true"><div className="ic-banner" /><div className="ic-body"><div className="ic-meta">Loading…</div></div></div>;
+  else if (info === null) body = <div className="invite-card mini dead"><div className="ic-body"><div className="ic-name">Server not available</div><div className="ic-meta">It may be private or gone.</div></div></div>;
+  else body = <InviteBox info={info} compact />;
+
+  const stop = (e) => e.stopPropagation(); // the card sits in a portal, but React events still travel up to the message or member row
+  return <div ref={box} className="tag-card" style={{ left: pos.left, top: pos.top }} onClick={stop} onDoubleClick={stop} onContextMenu={stop}>{body}</div>;
 }
 
 // Server settings > Server tag. Applies with its own button (like Channels and Roles) rather than the Overview "Save changes".

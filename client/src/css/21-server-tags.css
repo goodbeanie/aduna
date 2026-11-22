@@ -14,3 +14,18 @@
 .stag-opt .stag { margin-left: 0; font-size: 12px; padding: 3px 7px; }
 .stag-opt.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .stag-opt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stag.clickable { cursor: pointer; }
+.stag.clickable:hover { filter: brightness(1.12); }
+
+/* the small invite card that opens under a clicked tag (TagCard in ServerTag.jsx; the card itself is InviteBox with `compact`) */
+.tag-card { position: fixed; z-index: 3000; width: 300px; max-width: calc(100vw - 16px); }
+.tag-card .invite-card.mini { width: 100%; margin: 0; border-radius: 14px; box-shadow: 0 12px 32px var(--shadow, rgba(0,0,0,.3)); }
+.tag-card .mini .ic-banner { aspect-ratio: auto; height: 72px; }
+.tag-card .mini .ic-icon { width: 48px; height: 48px; margin: -24px 0 0 12px; border-radius: 14px; border-width: 3px; font-size: 16px; }
+.tag-card .mini .ic-body { padding: 8px 12px 12px; }
+.tag-card .mini.dead .ic-body, .tag-card .mini.loading .ic-body { padding-top: 12px; }
+.tag-card .mini .ic-row { align-items: flex-end; gap: 10px; }
+.tag-card .mini .ic-name { font-size: 15px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tag-card .mini .ic-meta { font-size: 12px; }
+.tag-card .mini .ic-tags { display: flex; flex-wrap: wrap; gap: 2px 8px; margin-top: 4px; font-size: 12px; color: var(--muted); }
+.tag-card .mini .ic-join { min-width: 64px; padding: 6px 14px; }

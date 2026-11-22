@@ -260,7 +260,7 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
             <div className="msg-head">
               <button className="name" {...nameProps(author, roleColors?.[m.authorId])} onClick={openAuthor} onContextMenu={authorMenu}>{author?.displayName || 'Unknown'}</button><BadgeIcons user={author} size={16} />
               {(author?.bot || m.bot) && <BotTag />}
-              <ServerTagChip tag={author?.serverTag} />
+              <ServerTagChip tag={author?.serverTag} card />
               {boosters?.[m.authorId] && <span className="booster-tag" title={`Boosting this server, level ${boosters[m.authorId]}`}>Booster</span>}
               <span className="time">{timeLabel(m.createdAt)}</span>
             </div>

@@ -264,7 +264,7 @@ export function UserCard({ user, presence, relation, canMessage = false, onClose
         <div className="card-avatar"><Avatar user={user} size={80} presence={presence} play /></div>
         {user.plus && <PlusBadge />}
         <div className="card-body">
-          <h3><span {...nameProps(user)}>{user.displayName}</span>{user.bot && <> <BotTag /></>}<ServerTagChip tag={user.serverTag} /> <BadgeIcons user={user} size={20} /></h3>
+          <h3><span {...nameProps(user)}>{user.displayName}</span>{user.bot && <> <BotTag /></>}<ServerTagChip tag={user.serverTag} card /> <BadgeIcons user={user} size={20} /></h3>
           <div className="muted">{user.bot ? 'A bot. It only reads and answers in the channels it was added to.' : `@${user.username}${user.pronouns ? ` · ${user.pronouns}` : ''} · ${STATUS_LABEL[presence || 'offline']}`}</div>
           {user.bio && (<><h4>ABOUT ME</h4><p className="bio">{user.bio}</p></>)}
           {/* the game they are playing right now; the server only sends it when they are online and have it switched on */}

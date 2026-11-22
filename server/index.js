@@ -3490,8 +3490,16 @@ function sendInvite(req, res, me) {
   const s = Object.values(db().servers).find((x) => x.inviteCode === cleanInvite(req.params.code));
   if (!s) return res.status(404).json({ error: 'This invite is no longer valid' });
   if (!(me && s.members.includes(me.id)) && !canJoin(s, me?.id)) return res.status(403).json({ error: 'This server is private. Ask the owner to add you.' });
-  res.json({ invite: { code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, iconAnim: s.iconAnim || null, bannerAnim: s.bannerAnim || null, theme: s.theme || null, memberCount: humanCount(s), boostLevel: boostsLib.levelOf(s, now()) } });
+  res.json({ invite: inviteView(s) });
 }
+const inviteView = (s) => ({ code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null, iconAnim: s.iconAnim || null, bannerAnim: s.bannerAnim || null, theme: s.theme || null, memberCount: humanCount(s), boostLevel: boostsLib.levelOf(s, now()) });
+
+// the small card that opens when someone clicks a server tag: the invite details, found by server id instead of by code
+app.get('/api/servers/:id/tag-card', auth, inviteLimiter, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s || !(s.members.includes(req.user.id) || canJoin(s, req.user.id))) return res.status(404).json({ error: 'Not found' });
+  res.json({ invite: { ...inviteView(s), tags: (s.tags || []).slice(0, 3) } });
+});
 
 // Tags help people find a public server. Up to 5, each 2-20 characters of a-z 0-9 and -, stored lowercase.
 const MAX_TAGS = 5;
