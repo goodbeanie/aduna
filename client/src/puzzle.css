@@ -1,6 +1,6 @@
 /* Chess puzzle (Puzzle.jsx). It reuses Wordle's dialog layout (wordle.css: .wd, .wd-main, .wd-tabs, .wd-side, .wd-stats ...);
    this adds the board, the practice level buttons and the shared result. Colours come from the theme variables. */
-.pz-levels { display: flex; gap: 6px; width: 100%; max-width: 360px; margin: 0 0 8px; }
+.pz-levels { display: flex; gap: 6px; width: 100%; max-width: 420px; margin: 0 0 8px; }
 .pz-levels button { flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--line2); border-radius: 8px; background: transparent; color: var(--muted); font-size: 13px; cursor: pointer; white-space: nowrap; }
 .pz-levels button.on { background: var(--raised); color: var(--text); border-color: var(--muted); }
 @media (hover: hover) { .pz-levels button:not(.on):hover { background: var(--hover); } }
@@ -9,22 +9,22 @@
 .pz-info b { font-weight: 600; color: var(--head); }
 
 /* The board shrinks on short screens so the board, the message and the buttons fit; the side of the player who moves is at the bottom. */
-.pz-board { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); width: min(100%, 420px, max(240px, calc(92vh - 360px))); width: min(100%, 420px, max(240px, calc(92dvh - 360px))); margin: 0 auto 10px;
+.pz-board { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); width: min(100%, 540px, max(240px, calc(92vh - 330px))); width: min(100%, 540px, max(240px, calc(92dvh - 330px))); margin: 0 auto 10px;
   aspect-ratio: 1; container-type: inline-size; border: 2px solid var(--line2); border-radius: 6px; overflow: hidden; user-select: none; -webkit-user-select: none; }
 .pz-sq { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: hidden; padding: 0; border: 0; border-radius: 0; cursor: pointer; font: inherit;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .pz-sq.l { background: color-mix(in srgb, var(--muted) 20%, var(--bg2)); }
 .pz-sq.d { background: color-mix(in srgb, var(--muted) 52%, var(--bg2)); }
-.pz-sq.last { box-shadow: inset 0 0 0 100px rgba(255, 214, 0, .26); }
-.pz-sq.sel { box-shadow: inset 0 0 0 100px rgba(60, 170, 90, .45); }
+.pz-sq.last { box-shadow: inset 0 0 0 100px rgba(255, 214, 0, .22); }
+.pz-sq.sel { box-shadow: inset 0 0 0 100px rgba(150, 200, 60, .6); }
 .pz-sq.bad { box-shadow: inset 0 0 0 100px rgba(230, 60, 60, .5); }
-.pz-sq.dot::after { content: ''; width: 28%; height: 28%; border-radius: 50%; background: rgba(40, 140, 70, .55); }
-.pz-sq.cap::after { content: ''; position: absolute; inset: 6%; border-radius: 50%; border: 3px solid rgba(40, 140, 70, .65); }
+.pz-sq.dot::after { content: ''; width: 30%; height: 30%; border-radius: 50%; background: rgba(0, 0, 0, .22); }
+.pz-sq.cap::after { content: ''; position: absolute; inset: 0; background: radial-gradient(circle, transparent 62%, rgba(0, 0, 0, .24) 63%); }
 .pz-sq:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
-@media (hover: hover) { .pz-sq:hover { filter: brightness(1.08); } }
+@media (hover: hover) { .pz-sq:hover { filter: brightness(1.08); } .pz-sq.dot:hover, .pz-sq.cap:hover { box-shadow: inset 0 0 0 100px rgba(150, 200, 60, .35); } }
 
 /* Pieces are SVG (ChessPiece.jsx). The outline colour keeps both sides readable on light and dark squares. */
-.pz-p { width: 90%; height: 90%; display: block; pointer-events: none; overflow: visible; }
+.pz-p { position: relative; z-index: 1; width: 90%; height: 90%; display: block; pointer-events: none; overflow: visible; }
 .pz-p .f, .pz-p .s { stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
 .pz-p .s { fill: none; }
 .pz-p.w .f { fill: #fafafa; stroke: #1c1c1c; }
@@ -37,10 +37,10 @@
 
 .pz-promo { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
 .pz-promo .btn { padding: 4px 12px; }
-.pz-solution, .pz-moves { max-width: 420px; margin: 0 0 8px; text-align: center; }
+.pz-solution, .pz-moves { max-width: 540px; margin: 0 0 8px; text-align: center; }
 .pz-actions { display: flex; gap: 8px; align-items: center; justify-content: center; min-height: 36px; }
 .pz-card-body { font-size: 15px; color: var(--head); }
 .pz-card-body b { font-weight: 600; }
 
-@media (min-width: 760px) { .pz .wd-main { padding-top: 2px; } }
+@media (min-width: 760px) { .pz .wd-main { padding-top: 2px; } .modal.wide:has(.pz) { max-width: 940px; } }
 @media (max-height: 600px) { .pz-info { margin-bottom: 4px; } }
