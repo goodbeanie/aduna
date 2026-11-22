@@ -623,7 +623,7 @@ function decoyRecoveryBlob(username) {
 }
 const validKeyBlob = (b) => b && typeof b === 'object' && ['salt', 'iv', 'data'].every((k) => typeof b[k] === 'string' && b[k].length < 4000);
 
-const LANGS = ['en', 'fr', 'es']; // languages the app can be shown in (client/src/i18n.js has the words)
+const LANGS = ['en', 'fr', 'es', 'de', 'ru', 'zh']; // languages the app can be shown in (client/src/i18n.js has the words)
 const cleanLang = (v) => (LANGS.includes(v) ? v : 'en');
 
 function defaultServer() {

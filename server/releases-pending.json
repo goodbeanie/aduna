@@ -744,5 +744,14 @@
     "items": [
       { "title": "Server card on tags", "text": "Click a server tag in chat, the member list or a profile card to open a small card under it with the server's banner, icon, name, member count and tags. Press Join, or Open if you are already in the server. Move the pointer away, press Escape or click elsewhere to close it." }
     ]
+  },
+  {
+    "id": "2026.11.21.6",
+    "date": "2026-11-21",
+    "title": "German, Russian and Chinese",
+    "items": [
+      { "title": "Three new languages", "text": "Aduna can now be shown in German, Russian and Simplified Chinese. Pick one in Settings > Language. The choice is saved to your account, so it follows you to your other devices." },
+      { "title": "More of the app in French and Spanish", "text": "About 570 more screens and buttons are translated, including voice, calls, groups, security, the shop, payments, storage, Wordle and sign-up. A few pages are still in English, such as the admin and developer pages." }
+    ]
   }
 ]

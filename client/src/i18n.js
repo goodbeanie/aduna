@@ -1,7 +1,14 @@
 import { useSyncExternalStore } from 'react';
+import de from './locales/de.js';
+import ru from './locales/ru.js';
+import zh from './locales/zh.js';
+
+// Languages with their own file in locales/: { name, dict (the t('key') words), book (the phrasebook, keyed by the English text) }.
+const EXTRA = { de, ru, zh };
 
 // Languages Aduna can be shown in. The server keeps the same list (LANGS in server/index.js).
-export const LANGS = [['en', 'English'], ['fr', 'Français'], ['es', 'Español']];
+export const LANGS = [['en', 'English'], ['fr', 'Français'], ['es', 'Español'], ...Object.entries(EXTRA).map(([code, l]) => [code, l.name])];
+export const EXTRA_BOOKS = Object.fromEntries(Object.entries(EXTRA).map(([code, l]) => [code, l.book]));
 
 const KEY = 'aduna-lang';
 const ok = (c) => LANGS.some(([k]) => k === c);
@@ -649,3 +656,22 @@ Object.assign(D.es, {
  "nUnsupported": "Este navegador no admite notificaciones. Chrome, Edge, Firefox y Safari sí.",
  "nDesktop": "Aduna sigue ejecutándose en la bandeja cuando cierras la ventana. Los mensajes directos, menciones y llamadas aparecen como una tarjeta en la esquina inferior derecha de la pantalla; al hacer clic se abre ese chat. Haz clic derecho en el icono de la bandeja para desactivar «Iniciar con Windows» o para salir."
 });
+
+Object.assign(D.fr, {
+  tabVoice: 'Voix et vidéo', vvMic: 'MICROPHONE', vvOut: 'HAUT-PARLEURS', vvCam: 'CAMÉRA', vvDefault: 'Par défaut du système', vvStop: 'Arrêter',
+  vvTestMic: 'Tester le micro', vvTestSpk: 'Tester les haut-parleurs', vvTestCam: 'Tester la caméra',
+  vvMicHint: 'Appuyez sur le bouton et parlez : la barre bouge avec votre voix. Rien n’est enregistré ni envoyé.', vvMicOn: 'J’écoute. La barre devrait bouger quand vous parlez.',
+  vvSpkHint: 'Joue une fois la sonnerie du jour sur les haut-parleurs choisis.', vvNoOut: 'Ce navigateur ne peut pas choisir les haut-parleurs (Chrome, Edge et l’appli Android le peuvent). Aduna utilise les haut-parleurs du système.',
+  vvApply: 'Les changements s’appliquent à votre prochain appel. Les haut-parleurs changent aussi dans un appel en cours.',
+  limitedLbl: 'DURÉE LIMITÉE', limitedUntil: 'Jusqu’au {date}'
+});
+Object.assign(D.es, {
+  tabVoice: 'Voz y vídeo', vvMic: 'MICRÓFONO', vvOut: 'ALTAVOCES', vvCam: 'CÁMARA', vvDefault: 'Predeterminado del sistema', vvStop: 'Detener',
+  vvTestMic: 'Probar micrófono', vvTestSpk: 'Probar altavoces', vvTestCam: 'Probar cámara',
+  vvMicHint: 'Pulsa el botón y habla: la barra se mueve con tu voz. No se graba ni se envía nada.', vvMicOn: 'Escuchando. La barra debería moverse cuando hables.',
+  vvSpkHint: 'Reproduce una vez el tono de llamada de hoy por los altavoces que elegiste.', vvNoOut: 'Este navegador no puede elegir altavoces (Chrome, Edge y la app de Android sí). Aduna usa los altavoces del sistema.',
+  vvApply: 'Los cambios se aplican en tu próxima llamada. Los altavoces también cambian en una llamada en curso.',
+  limitedLbl: 'TIEMPO LIMITADO', limitedUntil: 'Hasta el {date}'
+});
+
+for (const [code, l] of Object.entries(EXTRA)) D[code] = l.dict;
