@@ -23,12 +23,17 @@
 .pz-sq:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 @media (hover: hover) { .pz-sq:hover { filter: brightness(1.08); } }
 
-/* The pieces are the solid drawings for both sides, filled white or black with an outline so they show on any square. */
-.pz-p { font-size: 8vw; line-height: 1; font-family: 'Segoe UI Symbol', 'Noto Sans Symbols 2', 'Apple Symbols', 'DejaVu Sans', sans-serif; pointer-events: none; }
-@supports (font-size: 1cqw) { .pz-board .pz-p { font-size: 10.4cqw; } }
-.pz-p.w { color: #fff; text-shadow: 0 0 1px #000, 0 0 1px #000, 0 1px 2px rgba(0, 0, 0, .6); }
-.pz-p.b { color: #14110f; text-shadow: 0 0 1px rgba(255, 255, 255, .55), 0 1px 1px rgba(255, 255, 255, .25); }
-.pz-promo .pz-p { font-size: 26px; }
+/* Pieces are SVG (ChessPiece.jsx). The outline colour keeps both sides readable on light and dark squares. */
+.pz-p { width: 90%; height: 90%; display: block; pointer-events: none; overflow: visible; }
+.pz-p .f, .pz-p .s { stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.pz-p .s { fill: none; }
+.pz-p.w .f { fill: #fafafa; stroke: #1c1c1c; }
+.pz-p.w .s { stroke: #1c1c1c; }
+.pz-p.w .e { fill: #1c1c1c; }
+.pz-p.b .f { fill: #2d2d2d; stroke: #0b0b0b; }
+.pz-p.b .s { stroke: #e8e8e8; }
+.pz-p.b .e { fill: #e8e8e8; }
+.pz-promo .pz-p { width: 34px; height: 34px; }
 
 .pz-promo { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
 .pz-promo .btn { padding: 4px 12px; }

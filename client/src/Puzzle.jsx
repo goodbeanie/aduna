@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Avatar, Icon, Modal } from './ui.jsx';
 import { api } from './api.js';
+import ChessPiece from './ChessPiece.jsx';
 
 // Chess puzzle: a forced mate in 1, 2 or 3 moves. The server owns the truth (the rules, the opponent's replies, the answer and the standings
 // are in server/puzzle.js): this only sends the move you tried and draws the board it sends back, so the answer is never in the browser until
@@ -9,11 +10,9 @@ import { api } from './api.js';
 // from a channel) and practice, which gives you as many puzzles as you like at the depth you pick.
 // "scopes" is what can be played as a daily from here, like Wordle.
 
-const GLYPH = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
 const NAME = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
 const PROMO = { q: 'queen', r: 'rook', b: 'bishop', n: 'knight' };
 const LEVELS = [[1, 'Mate in 1'], [2, 'Mate in 2'], [3, 'Mate in 3']];
-const TEXT = '\uFE0E'; // asks for the plain text drawing of a piece: some phones draw the pawn as an emoji otherwise
 
 // A result shared into a chat is a plain message: puzzle:1:<g|s>:<day>:<1|2|3>:<S|X>:<wrong moves 0-3>
 // (g = Aduna's puzzle, s = a server's puzzle; S = solved, X = not solved). Clients draw it as a card, so it works in end-to-end encrypted chats too.
@@ -163,7 +162,7 @@ export function PuzzleModal({ scopes, users = {}, onShare, onClose }) {
               return (
                 <button key={name} role="gridcell" className={cls} onMouseDown={noFocus} onClick={() => pressSquare(name)} tabIndex={-1}
                   aria-label={name + (ch ? `, ${isW ? 'white' : 'black'} ${NAME[kind]}` : ', empty') + (sel === name ? ', selected' : targets.includes(name) ? ', you can move here' : '')}>
-                  {ch && <span className={'pz-p ' + (isW ? 'w' : 'b')} aria-hidden="true">{GLYPH[kind] + TEXT}</span>}
+                  {ch && <ChessPiece kind={kind} white={isW} />}
                 </button>
               );
             })}
@@ -171,7 +170,7 @@ export function PuzzleModal({ scopes, users = {}, onShare, onClose }) {
           {promo && (
             <div className="pz-promo" role="group" aria-label="Promote the pawn to">
               <span className="muted small">Promote to</span>
-              {promo.options.map((o) => <button key={o} className="btn" onClick={() => send(promo.from + promo.to + o)} aria-label={PROMO[o]}><span className={'pz-p ' + (data.side === 'w' ? 'w' : 'b')} aria-hidden="true">{GLYPH[o] + TEXT}</span></button>)}
+              {promo.options.map((o) => <button key={o} className="btn" onClick={() => send(promo.from + promo.to + o)} aria-label={PROMO[o]}><ChessPiece kind={o} white={data.side === 'w'} /></button>)}
               <button className="link-btn" onClick={() => setPromo(null)}>Cancel</button>
             </div>
           )}
