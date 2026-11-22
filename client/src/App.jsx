@@ -216,8 +216,8 @@ function Main({ me, setMe, privKey, openServerId }) {
   const { t: tr } = useLang(); // the main screen is its own component, so it needs its own copy
   const pan = usePanels(); // where each section sits (Settings > Appearance > Layout); used on wide screens and on phones
   const layoutScreen = useLayoutScreen();
-  // the layout editor is for moderators, admins and creator accounts; everyone else keeps the standard layout
-  const layoutOpen = !!(me.creator || me.canReview);
+  // the layout editor is open to every account
+  const layoutOpen = true;
   useEffect(() => { setLayoutAllowed(layoutOpen); return () => setLayoutAllowed(false); }, [layoutOpen]);
   const placeOf = (id) => (layoutScreen || id !== 'profile' ? slotOf(pan, id) : 'dock'); // on a small tablet the profile bar always stays in the side list
   const firstOpen = useRef(openServerId); // an invite link just joined this server: start there

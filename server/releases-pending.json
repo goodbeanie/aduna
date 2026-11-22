@@ -727,5 +727,14 @@
       { "title": "Bigger board", "text": "The chess puzzle window is wider and the board is larger on desktop." },
       { "title": "Clearer moves", "text": "Picking a piece now shows a small dot on each square it can go to. Squares where it can capture get shaded corners, and the pieces are no longer covered by the markers." }
     ]
+  },
+  {
+    "id": "2026.11.21.4",
+    "date": "2026-11-21",
+    "title": "Layout editor for everyone",
+    "items": [
+      { "title": "Layout editor for all accounts", "text": "Settings > Appearance > Layout is now open to everyone. You can move the sections around and change the bars and columns. Until you save a layout of your own you keep the standard one." },
+      { "title": "Chess puzzle tells you why a tap does nothing", "text": "If you tap a square that can't move, the chess puzzle now says why: the puzzle is finished, the piece isn't yours, or it has no legal moves." }
+    ]
   }
 ]

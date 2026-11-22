@@ -108,14 +108,24 @@ export function PuzzleModal({ scopes, users = {}, onShare, onClose }) {
   const legal = data?.legal || [];
   const targets = sel ? legal.filter((u) => u.startsWith(sel)).map((u) => u.slice(2, 4)) : [];
   function pressSquare(name) {
-    if (!data || data.status !== 'playing' || busy.current) return;
+    if (!data) return;
+    if (data.status !== 'playing') { setMsg(practice ? 'This puzzle is finished. Tap Next puzzle for another.' : 'This puzzle is finished. A new one comes tomorrow.'); return; }
+    if (busy.current) return;
     if (sel && targets.includes(name)) {
       const options = legal.filter((u) => u.startsWith(sel + name) && u.length === 5).map((u) => u[4]);
       if (options.length) setPromo({ from: sel, to: name, options }); else send(sel + name);
       return;
     }
     setPromo(null);
-    setSel(name !== sel && legal.some((u) => u.startsWith(name)) ? name : null);
+    const canMove = legal.some((u) => u.startsWith(name));
+    setSel(name !== sel && canMove ? name : null);
+    if (!canMove) {
+      const ch = cells[(8 - Number(name[1])) * 8 + name.charCodeAt(0) - 97];
+      const mine = ch && (ch === ch.toUpperCase()) === (data.side === 'w');
+      setMsg(!legal.length ? 'No moves came with this board. Close the puzzle and open it again.'
+        : mine ? 'That piece has no legal moves.'
+        : ch ? `You play ${data.side === 'w' ? 'White' : 'Black'}: tap one of your own pieces.` : '');
+    } else setMsg('');
   }
 
   const cells = data ? parsePlacement(data.fen) : Array(64).fill('');

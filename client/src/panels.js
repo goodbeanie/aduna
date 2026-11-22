@@ -490,7 +490,7 @@ function readOpts() {
   try { return normalizeOpts(JSON.parse(localStorage.getItem(OPTS_KEY))); } catch { return {}; }
 }
 
-// Only for moderators, admins and creator accounts (App.jsx calls setLayoutAllowed). Everyone else stays on the standard layout, whatever is saved on the device.
+// Open to every account (App.jsx calls setLayoutAllowed). The standard layout is used until someone saves their own.
 let saved = defaultPanels();
 let savedOpts = {};
 let allowed = false;
