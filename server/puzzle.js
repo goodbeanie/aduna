@@ -169,25 +169,30 @@ function view(rec, scope, day, puzzle) {
   };
 }
 
-// ---- practice: as many puzzles as you like, any depth ----
-// A player's practice record (rec.practice) holds the puzzle in front of them and their run: { puzzle: { n, fen } | null, moves, wrong,
+// ---- practice: as many puzzles as you like, any depth, easy to hard ----
+// A player's practice record (rec.practice) holds the puzzle in front of them and their run: { puzzle: { n, fen, h? } | null, moves, wrong,
 // status, stats: { solved, failed, streak, best }, seen: [recent positions, so the next one is not one they just had] }.
 // Nothing here is a daily: no day, no standings, no share. The rules are the same (three wrong moves end it and show the answer).
 const LEVELS = [1, 2, 3];
 const isLevel = (n) => LEVELS.includes(n);
+const HARDNESS = ['easy', 'medium', 'hard']; // practice only: how hard the position looks, whatever the depth (see hardness in puzzle-gen.js)
+const HARD_LABEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
+const isHardness = (h) => HARDNESS.includes(h);
 const SEEN_KEEP = 60;
 const seenKey = (fen) => fen.split(' ').slice(0, 2).join(' ');
 
 function practiceOf(rec) {
   return rec.practice || (rec.practice = { puzzle: null, moves: [], wrong: 0, status: 'playing', stats: { solved: 0, failed: 0, streak: 0, best: 0 }, seen: [] });
 }
-// The next puzzle of depth n. supply(n) returns a FEN; it is asked again a few times if the player has just had that one.
-function practiceNext(rec, n, supply) {
+// The next puzzle of depth n, and of hardness h (easy, medium or hard) when given. supply(n, tier) returns a FEN (tier 0, 1 or 2, or undefined
+// for any); it is asked again a few times if the player has just had that one.
+function practiceNext(rec, n, supply, h) {
   const pr = practiceOf(rec);
   if (pr.puzzle && pr.status === 'playing') pr.stats.streak = 0; // moving on from one that was not solved ends the run
+  const tier = isHardness(h) ? HARDNESS.indexOf(h) : undefined;
   let fen = null;
-  for (let i = 0; i < 8; i++) { fen = supply(n); if (!pr.seen.includes(seenKey(fen))) break; }
-  pr.puzzle = { n, fen };
+  for (let i = 0; i < 8; i++) { fen = supply(n, tier); if (!pr.seen.includes(seenKey(fen))) break; }
+  pr.puzzle = tier === undefined ? { n, fen } : { n, fen, h };
   pr.moves = []; pr.wrong = 0; pr.status = 'playing';
   pr.seen.push(seenKey(fen));
   if (pr.seen.length > SEEN_KEEP) pr.seen.splice(0, pr.seen.length - SEEN_KEEP);
@@ -205,8 +210,8 @@ function practicePlay(rec, raw) {
 function practiceView(rec) {
   const pr = rec.practice;
   if (!pr || !pr.puzzle) return null;
-  const s = pr.stats;
-  return { mode: 'practice', ...viewBoard(pr, pr.puzzle), stats: { solved: s.solved, failed: s.failed, streak: s.streak, best: s.best } };
+  const s = pr.stats, h = pr.puzzle.h, v = viewBoard(pr, pr.puzzle);
+  return { mode: 'practice', ...v, ...(h ? { hardness: h, label: `${v.label} · ${HARD_LABEL[h]}` } : {}), stats: { solved: s.solved, failed: s.failed, streak: s.streak, best: s.best } };
 }
 
 // Who finished today in a server: solved first (fewest wrong moves, then earliest), then those who gave up.
@@ -223,4 +228,4 @@ function standings(records, scope, day, memberIds, limit = 10) {
   return { finished: rows.length, members: memberIds.length, rows: rows.slice(0, limit).map(({ userId, status, wrong, streak }) => ({ userId, status, wrong, streak })) };
 }
 
-module.exports = { BANK, MAX_WRONG, EPOCH, LABEL, LEVELS, dayOf, resetsAt, depthFor, isScope, isLevel, puzzleFor, blank, boardOf, positionOf, play, view, solutionLine, standings, practiceNext, practicePlay, practiceView };
+module.exports = { BANK, MAX_WRONG, EPOCH, LABEL, LEVELS, HARDNESS, dayOf, resetsAt, depthFor, isScope, isLevel, isHardness, puzzleFor, blank, boardOf, positionOf, play, view, solutionLine, standings, practiceNext, practicePlay, practiceView };

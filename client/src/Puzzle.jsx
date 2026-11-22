@@ -13,6 +13,7 @@ import ChessPiece from './ChessPiece.jsx';
 const NAME = { k: 'king', q: 'queen', r: 'rook', b: 'bishop', n: 'knight', p: 'pawn' };
 const PROMO = { q: 'queen', r: 'rook', b: 'bishop', n: 'knight' };
 const LEVELS = [[1, 'Mate in 1'], [2, 'Mate in 2'], [3, 'Mate in 3']];
+const HARDNESS = [['easy', 'Easy'], ['medium', 'Medium'], ['hard', 'Hard']];
 
 // A result shared into a chat is a plain message: puzzle:1:<g|s>:<day>:<1|2|3>:<S|X>:<wrong moves 0-3>
 // (g = Aduna's puzzle, s = a server's puzzle; S = solved, X = not solved). Clients draw it as a card, so it works in end-to-end encrypted chats too.
@@ -95,10 +96,10 @@ export function PuzzleModal({ scopes, users = {}, onShare, onClose }) {
     finally { busy.current = false; }
   }
 
-  async function newPuzzle(n) {
+  async function newPuzzle(n, h) {
     if (busy.current) return;
     busy.current = true; reset();
-    try { const r = await api('/puzzle/practice/next', { method: 'POST', body: n ? { n } : {} }); if (modeRef.current === 'practice') setData(r); }
+    try { const r = await api('/puzzle/practice/next', { method: 'POST', body: { ...(n ? { n } : {}), ...(h ? { h } : {}) } }); if (modeRef.current === 'practice') setData(r); }
     catch (e) { setMsg(e.message || 'Could not get a new puzzle'); }
     finally { busy.current = false; }
   }
@@ -139,9 +140,14 @@ export function PuzzleModal({ scopes, users = {}, onShare, onClose }) {
             <button role="tab" aria-selected={practice} className={practice ? 'on' : ''} onMouseDown={noFocus} onClick={() => setMode('practice')}>Practice</button>
           </div>
           {practice && (
-            <div className="pz-levels" role="group" aria-label="How many moves to mate">
-              {LEVELS.map(([n, label]) => <button key={n} className={data && data.n === n ? 'on' : ''} aria-pressed={!!data && data.n === n} onMouseDown={noFocus} onClick={() => newPuzzle(n)}>{label}</button>)}
-            </div>
+            <>
+              <div className="pz-levels" role="group" aria-label="How many moves to mate">
+                {LEVELS.map(([n, label]) => <button key={n} className={data && data.n === n ? 'on' : ''} aria-pressed={!!data && data.n === n} onMouseDown={noFocus} onClick={() => newPuzzle(n)}>{label}</button>)}
+              </div>
+              <div className="pz-levels" role="group" aria-label="How hard the puzzle is">
+                {HARDNESS.map(([h, label]) => <button key={h} className={data && data.hardness === h ? 'on' : ''} aria-pressed={!!data && data.hardness === h} onMouseDown={noFocus} onClick={() => newPuzzle(undefined, h)}>{label}</button>)}
+              </div>
+            </>
           )}
           <div className="wd-sub muted small">
             {practice ? 'As many puzzles as you like' : mode === 'global' ? 'The same puzzle for everyone on Aduna' : `A puzzle just for ${scopeName}`}{data && data.day ? ` · No. ${data.day}` : ''}
@@ -213,7 +219,7 @@ export function PuzzleModal({ scopes, users = {}, onShare, onClose }) {
               </div>
             </>
           )}
-          {practice && <p className="muted small">Practice puzzles are made fresh each time. Three wrong moves end one and show the answer. Nothing here is shared or counts toward the daily streak.</p>}
+          {practice && <p className="muted small">Practice puzzles are made fresh each time. Easy, Medium and Hard go by how many pieces are on the board and how far the king is from the edge. Three wrong moves end one and show the answer. Nothing here is shared or counts toward the daily streak.</p>}
           {!practice && st && (
             <>
               <h3>Today in {data.server.name}</h3>

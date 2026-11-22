@@ -87,15 +87,48 @@ function transform(fen, mirror, swap) {
 }
 const variant = (fen, rng) => transform(fen, rng() < 0.5, rng() < 0.5);
 
-// What practice mode draws from. supply(n) is a fresh puzzle of the depth n (1, 2 or 3): a ready one from the pool if there is one,
-// otherwise a bank puzzle in a random orientation. fill(ms) tops the pool up for about `ms` and says whether it still needs more.
+// How hard a position looks, from the position alone: more pieces to keep track of, more defenders, and a king away from the edge.
+// The side to move is the one that mates, so a puzzle scores the same after it is turned around.
+function hardness(fen) {
+  const [place, turn] = fen.split(' ');
+  const mine = turn === 'w' ? /[A-Z]/ : /[a-z]/, theirs = turn === 'w' ? /[a-z]/ : /[A-Z]/;
+  let own = 0, defenders = 0, kr = 0, kc = 0, r = 0, c = 0;
+  for (const ch of place) {
+    if (ch === '/') { r++; c = 0; continue; }
+    if (/\d/.test(ch)) { c += Number(ch); continue; }
+    if (ch === 'k' || ch === 'K') { if (theirs.test(ch)) { kr = r; kc = c; } }
+    else if (mine.test(ch)) own++;
+    else defenders++;
+    c++;
+  }
+  return own + 2 * defenders + 2 * Math.min(kr, kc, 7 - kr, 7 - kc);
+}
+// Easy, medium and hard are thirds of the bank for each depth, by that score.
+function cutsOf(list) {
+  const s = list.map(hardness).sort((a, b) => a - b);
+  return [s[Math.ceil(s.length / 3) - 1], s[Math.ceil((2 * s.length) / 3) - 1]];
+}
+const tierOf = (fen, [lo, hi]) => { const h = hardness(fen); return h <= lo ? 0 : h > hi ? 2 : 1; };
+
+// What practice mode draws from. supply(n, tier) is a fresh puzzle of the depth n (1, 2 or 3), and of the hardness tier (0 easy, 1 medium,
+// 2 hard) when one is asked for: a ready one from the pool if there is a fitting one, otherwise a bank puzzle in a random orientation.
+// fill(ms) tops the pool up for about `ms` and says whether it still needs more.
 function createSupply(bank, rng = Math.random, targets = { 1: 10, 2: 8, 3: 4 }) {
   const pool = { 1: [], 2: [], 3: [] };
+  const cut = {}, tiers = {};
+  for (const n of Object.keys(bank)) {
+    cut[n] = cutsOf(bank[n]);
+    tiers[n] = [0, 1, 2].map((t) => bank[n].filter((f) => tierOf(f, cut[n]) === t));
+  }
   return {
     pool,
-    supply(n) {
-      const ready = pool[n] && pool[n].pop();
-      return ready ? variant(ready, rng) : variant(pick(rng, bank[n]), rng);
+    supply(n, tier) {
+      const any = !Number.isInteger(tier);
+      let i = pool[n].length - 1;
+      if (!any) while (i >= 0 && tierOf(pool[n][i], cut[n]) !== tier) i--;
+      if (i >= 0) return variant(pool[n].splice(i, 1)[0], rng);
+      const list = any || !tiers[n][tier].length ? bank[n] : tiers[n][tier];
+      return variant(pick(rng, list), rng);
     },
     needsMore: () => Object.keys(targets).some((n) => pool[n].length < targets[n]),
     fill(ms) {
@@ -111,4 +144,4 @@ function createSupply(bank, rng = Math.random, targets = { 1: 10, 2: 8, 3: 4 }) 
   };
 }
 
-module.exports = { rngFrom, randomPosition, qualifies, tryOne, makeOne, transform, variant, createSupply };
+module.exports = { rngFrom, randomPosition, qualifies, tryOne, makeOne, transform, variant, hardness, createSupply };

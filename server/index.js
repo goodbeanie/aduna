@@ -3132,18 +3132,19 @@ function puzzlePump() {
   try { if (puzzleSupply.fill(12)) { puzzlePumping = true; setTimeout(puzzlePump, 100).unref(); } }
   catch (e) { console.warn('Puzzle practice pool skipped:', e.message); }
 }
-function practiceSupply(n) {
-  const fen = puzzleSupply.supply(n);
+function practiceSupply(n, tier) {
+  const fen = puzzleSupply.supply(n, tier);
   if (!puzzlePumping) { puzzlePumping = true; setTimeout(puzzlePump, 100).unref(); }
   return fen;
 }
 const practiceRec = (uid) => db().puzzle[uid] || (db().puzzle[uid] = puzzleLib.blank());
 const practiceLevel = (v, fallback) => { const n = Number(v); return puzzleLib.isLevel(n) ? n : fallback; };
+const practiceHard = (v, fallback) => (puzzleLib.isHardness(v) ? v : fallback);
 // These come before the /api/puzzle/:scope routes so "practice" is not read as a scope.
 app.get('/api/puzzle/practice', auth, (req, res) => {
   if (!puzzleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
   const rec = practiceRec(req.user.id);
-  if (!puzzleLib.practiceView(rec)) { puzzleLib.practiceNext(rec, practiceLevel(req.query.n, 1), practiceSupply); store.save(); }
+  if (!puzzleLib.practiceView(rec)) { puzzleLib.practiceNext(rec, practiceLevel(req.query.n, 1), practiceSupply, practiceHard(req.query.h, 'easy')); store.save(); }
   res.json(puzzleLib.practiceView(rec));
 });
 app.post('/api/puzzle/practice/move', auth, (req, res) => {
@@ -3158,7 +3159,8 @@ app.post('/api/puzzle/practice/next', auth, (req, res) => {
   if (!puzzleHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
   const rec = practiceRec(req.user.id);
   const cur = rec.practice && rec.practice.puzzle ? rec.practice.puzzle.n : 1;
-  puzzleLib.practiceNext(rec, practiceLevel(req.body && req.body.n, cur), practiceSupply);
+  const curHard = rec.practice && rec.practice.puzzle && rec.practice.puzzle.h;
+  puzzleLib.practiceNext(rec, practiceLevel(req.body && req.body.n, cur), practiceSupply, practiceHard(req.body && req.body.h, curHard || 'easy'));
   store.save();
   res.json(puzzleLib.practiceView(rec));
 });

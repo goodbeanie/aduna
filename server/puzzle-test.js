@@ -187,6 +187,14 @@ assert.strictEqual(M.firstMoves(C.parseFen(fallback), 3).length, 1);
 assert.strictEqual(M.firstMoves(C.parseFen(sup.supply(1)), 1).length, 1, 'the bank fills in when the pool is empty');
 step('practice supply: ready puzzles first, the bank when none is ready');
 
+const tiered = G.createSupply(P.BANK, G.rngFrom(11));
+for (const n of [1, 2, 3]) {
+  const avg = (t) => { let s = 0; for (let i = 0; i < 40; i++) s += G.hardness(tiered.supply(n, t)); return s / 40; };
+  assert.ok(avg(0) < avg(1) && avg(1) < avg(2), `mate in ${n}: easy puzzles score lower than medium, and medium lower than hard`);
+}
+assert.strictEqual(G.hardness(P.BANK[2][0]), G.hardness(G.transform(P.BANK[2][0], true, true)), 'turning a puzzle around does not change how hard it is');
+step('hardness: easy, medium and hard are drawn from separate thirds of the bank');
+
 // ---- practice ----
 assert.ok(P.isLevel(1) && P.isLevel(3) && !P.isLevel(0) && !P.isLevel(4) && !P.isLevel('1'));
 let pr = P.blank();
@@ -235,5 +243,14 @@ assert.strictEqual(P.practiceView(pr).status, 'solved');
 for (let i = 0; i < 200; i++) P.practiceNext(pr, 1, () => P.BANK[1][i % P.BANK[1].length]);
 assert.ok(pr.practice.seen.length <= 60, 'only the recent positions are remembered');
 step('practice: unlimited puzzles, any depth, a run of solved ones, wrong moves, skipping, Black to move');
+
+let askedTier = 'unset';
+P.practiceNext(pr, 2, (n, t) => { askedTier = t; return P.BANK[2][0]; }, 'hard');
+assert.strictEqual(askedTier, 2); pv = P.practiceView(pr);
+assert.strictEqual(pv.hardness, 'hard'); assert.strictEqual(pv.label, 'Mate in 2 · Hard');
+P.practiceNext(pr, 2, (n, t) => { askedTier = t; return P.BANK[2][1]; });
+assert.strictEqual(askedTier, undefined); assert.strictEqual(P.practiceView(pr).hardness, undefined); assert.strictEqual(P.practiceView(pr).label, 'Mate in 2');
+assert.ok(P.isHardness('easy') && P.isHardness('hard') && !P.isHardness('expert') && !P.isHardness(1));
+step('practice: hardness is asked for, kept on the puzzle and shown in its label');
 
 console.log('puzzle: ok');
