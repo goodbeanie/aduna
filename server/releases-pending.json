@@ -717,5 +717,15 @@
       { "title": "Even squares", "text": "Rows on the chess puzzle board no longer grow or shrink depending on which pieces are on them. All 64 squares are the same size." },
       { "title": "New pieces", "text": "The chess pieces are now drawn as clean flat icons, white and black, so they look the same on every phone and browser. The promotion picker uses them too." }
     ]
+  },
+  {
+    "id": "2026.11.21.3",
+    "date": "2026-11-21",
+    "title": "Chess puzzle levels and a bigger board",
+    "items": [
+      { "title": "Easy, Medium and Hard", "text": "Practice has a second row of buttons next to Mate in 1, 2 and 3. Easy puzzles have fewer pieces and a king near the edge, hard ones have more pieces and a king in the open. The two rows work together, so you can play a hard mate in 1 or an easy mate in 3. The daily puzzle is unchanged." },
+      { "title": "Bigger board", "text": "The chess puzzle window is wider and the board is larger on desktop." },
+      { "title": "Clearer moves", "text": "Picking a piece now shows a small dot on each square it can go to. Squares where it can capture get shaded corners, and the pieces are no longer covered by the markers." }
+    ]
   }
 ]
