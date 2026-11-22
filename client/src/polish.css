@@ -20,6 +20,9 @@
 .pin-text { margin-top: 2px; font-size: 14px; color: var(--text); overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .pin-actions { flex: none; display: flex; align-items: center; gap: 4px; }
 .pin-flag { display: flex; align-items: center; gap: 4px; margin-bottom: 2px; font-size: 12px; color: var(--muted); }
+/* Settings > Language > "Translate messages": the translation sits under the original text */
+.msg .translation { margin-top: 4px; padding-left: 10px; border-left: 2px solid var(--accent, var(--muted)); color: var(--text); font-size: 14px; }
+.msg .translation .tr-from { display: block; margin-top: 2px; font-size: 11px; color: var(--muted); user-select: none; }
 @media (max-width: 720px) { .pins-pop { right: 8px; left: 8px; width: auto; } }
 
 /* a message that was jumped to (pins, search) glows for a moment */

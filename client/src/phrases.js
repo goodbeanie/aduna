@@ -763,7 +763,7 @@ function lookup(en, lang) {
   return typeof out === 'string' ? m[1] + out + m[3] : en;
 }
 
-const SKIP = 'script,style,textarea,input,code,pre,.content,[translate="no"]'; // people's own messages and code are left alone
+const SKIP = 'script,style,textarea,input,code,pre,.content,.translation,[translate="no"]'; // people's own messages (and their translations) and code are left alone
 const ATTRS = ['placeholder', 'title', 'aria-label'];
 const texts = new WeakMap(); // text node -> { en, out }
 const attrs = new WeakMap(); // element -> { attr: { en, out } }

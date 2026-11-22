@@ -68,11 +68,14 @@ const botfetch = require('./botfetch');
 const webhooksLib = require('./webhooks'); // incoming webhooks and the GitHub integration (rules only; the routes sit next to the bot routes, see "webhooks" below)
 const linkpreview = require('./linkpreview');
 const linkSafeLib = require('./linksafe'); // unsafe link protection: the blocklist and the Safe Browsing lookup (see the "unsafe links" block below)
+const translateLib = require('./translate'); // "Translate messages" (Settings > Language): server channels only, see the "translate messages" block below
 const { createBotHost } = require('./bothost');
 const { createIce } = require('./turn');
 const sandbox = require('./sandbox'); // starts its worker threads on first use, not at boot (each holds a WebAssembly runtime)
 
 const PORT = process.env.PORT || 3000;
+// Needs GOOGLE_TRANSLATE_API_KEY. TRANSLATE_MONTHLY_CHARS caps what is sent each month (default 400000, under Google's 500000 free characters).
+const translator = translateLib.createTranslator({ key: process.env.GOOGLE_TRANSLATE_API_KEY, monthlyChars: Number(process.env.TRANSLATE_MONTHLY_CHARS) || undefined });
 const MAX_MSG = 2000; // what bots and webhooks may post; people get msgLimits.chars() depending on their plan
 const MAX_PINS = 50; // pinned messages per channel
 const MAX_CIPHER = 12000;
@@ -343,7 +346,7 @@ function publicUser(u) {
 // What the signed-in person gets about themselves: the public profile plus their private email.
 // Never use this for anything other people receive (user:update events, member lists, other people's profiles).
 const selfView = (u) => ({ ...publicUser(u), status: u.status }); // the person's own copy keeps the real status (Invisible included)
-const ownUser = (u) => ({ ...selfView(u), railLayout: Array.isArray(u.railLayout) ? u.railLayout : null, ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()), canReview: canReview(u), terms: { version: terms.VERSION, needed: terms.needed(u) } });
+const ownUser = (u) => ({ ...selfView(u), railLayout: Array.isArray(u.railLayout) ? u.railLayout : null, ownedBadges: ownedBadgeViews(u), ownedFrames: ownedFrameViews(u), tagChoices: serverTagLib.choicesFor(u, db().servers), email: u.email || null, emailVerified: !needsVerify(u), twoFactor: !!(u.totp && u.totp.enabled), developer: !!u.developer || isCreator(u), seasonTest: credits.events.testMode(u, !!u.developer || isCreator(u)), recoveryKey: !!u.recovery, passkeyCount: (u.passkeys || []).length, emailRecovery: !!u.emailRecovery, emailRecoveryAvailable: emailRecoveryPossible(u), codeSent: !!(u.verify && u.verify.expires > now()), notifPrefs: cleanPrefs(u.notifPrefs), showActivity: u.showActivity !== false, lang: LANGS.includes(u.lang) ? u.lang : null, translateMessages: !!u.translateMessages, translateAvailable: translator.enabled, needsSetup: !!u.setupPending, reviewer: isReviewer(u), admin: isAdmin(u), features: featuresFor(u), artist: artistsLib.isArtist(db().artists && db().artists[u.id]), nameWarning: nameWarningView(u), modState: moderation.view(u, now()), canReview: canReview(u), terms: { version: terms.VERSION, needed: terms.needed(u) } });
 
 // ---------- email verification ----------
 // On when RESEND_API_KEY is set. An email is optional. An account that gives one (at sign-up or later) gets a 6-digit code by email and
@@ -1626,6 +1629,7 @@ app.patch('/api/me', authAny, async (req, res) => {
   if (b.avatarLogo !== undefined) u.avatarLogo = !!b.avatarLogo;
   if (b.displayName !== undefined) u.displayName = clip(b.displayName, 32).trim() || u.username;
   if (b.lang !== undefined && LANGS.includes(b.lang)) u.lang = b.lang;
+  if (b.translateMessages !== undefined) { if (b.translateMessages === true) u.translateMessages = true; else delete u.translateMessages; } // "Translate messages": off until they tick it
   if (b.bio !== undefined) u.bio = clip(b.bio, 190);
   if (b.avatarEmoji !== undefined) u.avatarEmoji = clip(b.avatarEmoji, 8);
   for (const k of ['avatarColor', 'bannerColor', 'accentColor']) if (b[k] !== undefined && hex.test(b[k])) u[k] = b[k];
@@ -5530,6 +5534,25 @@ app.delete('/api/admin/links/:domain', auth, adminOnly, needCreator, (req, res) 
   linksChanged();
   res.json({ ok: true, ...linkAdminView() });
 });
+
+// ----- translate messages -----
+// Settings > Language > "Translate messages". The browser asks for messages by id, never with text of its own, so this cannot be used to translate
+// anything but what the person can already read in a server channel. Direct messages and groups are end-to-end encrypted: the server only has
+// ciphertext for those, so they are not sent anywhere. Nothing here stores or logs the text (translate.js keeps recent answers in memory only).
+const translateHits = new security.RateWindow(60, 60_000);
+app.post('/api/channels/:id/translate', auth, ah(async (req, res) => {
+  const f = findChannel(req.params.id);
+  if (!f || !f.server.members.includes(req.user.id)) return res.status(403).json({ error: 'Forbidden' });
+  if (!translator.enabled) return res.json({ ok: false, reason: 'off', results: {} });
+  if (!translateHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
+  const lang = LANGS.includes(req.body && req.body.lang) ? req.body.lang : cleanLang(req.user.lang);
+  const ids = [...new Set(Array.isArray(req.body && req.body.ids) ? req.body.ids.filter((i) => typeof i === 'string') : [])].slice(0, translateLib.MAX_TEXTS);
+  const msgs = ids.map((id) => db().messages[id]).filter((m) => m && m.channelId === f.channel.id && !m.system && typeof m.content === 'string' && m.content.trim());
+  const r = await translator.translate(msgs.map((m) => m.content), lang);
+  const results = {};
+  msgs.forEach((m, i) => { if (r.results[i] !== undefined) results[m.id] = r.results[i]; });
+  res.json({ ok: r.ok, reason: r.reason, results });
+}));
 
 // ----- /admin > Shop (admin accounts only) -----
 // Every item that has a price, with its state (live, resting, ended, review) and how many people own it. "Remove" takes the item off sale for good:

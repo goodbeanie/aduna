@@ -62,6 +62,12 @@ export function LanguageSettings({ me, onSaved }) {
   const { lang, t } = useLang();
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
+  const [tBusy, setTBusy] = useState(false);
+  async function toggleTranslate(next) { // "Translate messages": saved on the account like the language
+    setError(''); setTBusy(true);
+    try { onSaved((await api('/me', { method: 'PATCH', body: { translateMessages: next } })).user); }
+    catch (err) { setError(err.message); } finally { setTBusy(false); }
+  }
   async function pick(code) {
     const before = lang;
     setError(''); setSaved(false); setLang(code); // the screen changes at once; the account follows
@@ -73,6 +79,13 @@ export function LanguageSettings({ me, onSaved }) {
       <p className="muted small hint">{t('langHelp')}</p>
       <LangList value={lang} onPick={pick} />
       {saved && <p className="muted small" role="status">{t('langSaved')}</p>}
+
+      <label className="check-row">
+        <input type="checkbox" checked={!!me.translateMessages} disabled={tBusy} onChange={(e) => toggleTranslate(e.target.checked)} />
+        <span>{t('trTitle')}</span>
+      </label>
+      <p className="muted small hint">{t('trHint')}</p>
+      {me.translateAvailable === false && <p className="muted small hint">{t('trOff')}</p>}
       {error && <div className="error">{error}</div>}
     </div>
   );

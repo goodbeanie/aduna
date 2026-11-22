@@ -35,6 +35,8 @@ import ReactorsModal from './Reactors.jsx';
 import { useContextMenu, wantsNative } from './ContextMenu.jsx';
 import { addReminder, cancelReminder, isSaved, reminderFor, snapshot, toggleSaved } from './saved.js';
 import { api } from './api.js';
+import { useLang } from './i18n.js';
+import { useTranslation, languageName } from './translate.js'; // Settings > Language > "Translate messages" (server channels only)
 import { EmptyState, ListSkeleton, kbd } from './ShellBits.jsx';
 
 const QUICK_REACTION = '\u2764\uFE0F'; // what a double-tap / double-click on a message reacts with
@@ -173,6 +175,8 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
   const { lib, openMenu } = useEmoji();
   const ctx = useContextMenu();
   const mine = m.authorId === me.id;
+  const { lang: uiLang, t: tl } = useLang();
+  const translated = useTranslation(m, !!me.translateMessages && !dm, uiLang); // { text, from } when this server-channel message is in another language
   const author = authorOf(users, m);
   const wshare = parseWordleShare(m.content); // a shared Wordle result is drawn as a card instead of its text
   const cshare = parseContextoShare(m.content); // and so is a shared Contexto result
@@ -269,6 +273,12 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} limit={charLimit(me)} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll || !!m.wheel} onSave={(t) => { const x = encode(t); if (x.length > charLimit(me)) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
             : (m.content || m.editedAt) && !wshare && !cshare && !pzshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} live={!dm} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
+          {translated && !editing && !sticker && (
+            <div className="translation" lang={uiLang}>
+              <Rich text={translated.text} mention={mention} live={!dm} />
+              <span className="tr-from">{tl('trFrom', { lang: languageName(translated.from, uiLang) })}</span>
+            </div>
+          )}
           {wshare && !editing && <WordleShareCard share={wshare} />}
         {cshare && !editing && <ContextoShareCard share={cshare} />}
       {pzshare && !editing && <PuzzleShareCard share={pzshare} />}

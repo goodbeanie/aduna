@@ -674,4 +674,24 @@ Object.assign(D.es, {
   limitedLbl: 'TIEMPO LIMITADO', limitedUntil: 'Hasta el {date}'
 });
 
+// Settings > Language > "Translate messages"
+Object.assign(D.en, {
+  trTitle: 'Translate messages',
+  trHint: 'Show a translation under messages in server channels that are written in another language. The text of those messages is sent to Google Translate. Direct messages and groups are encrypted, so they are never translated.',
+  trOff: 'Translation is not set up on this server yet.',
+  trFrom: 'Translated from {lang}'
+});
+Object.assign(D.fr, {
+  trTitle: 'Traduire les messages',
+  trHint: 'Affiche une traduction sous les messages des salons de serveur écrits dans une autre langue. Le texte de ces messages est envoyé à Google Traduction. Les messages privés et les groupes sont chiffrés : ils ne sont jamais traduits.',
+  trOff: 'La traduction n’est pas encore configurée sur ce serveur.',
+  trFrom: 'Traduit (langue d’origine : {lang})'
+});
+Object.assign(D.es, {
+  trTitle: 'Traducir mensajes',
+  trHint: 'Muestra una traducción bajo los mensajes de los canales de servidor escritos en otro idioma. El texto de esos mensajes se envía a Google Traductor. Los mensajes directos y los grupos están cifrados, así que nunca se traducen.',
+  trOff: 'La traducción aún no está configurada en este servidor.',
+  trFrom: 'Traducido del {lang}'
+});
+
 for (const [code, l] of Object.entries(EXTRA)) D[code] = l.dict;

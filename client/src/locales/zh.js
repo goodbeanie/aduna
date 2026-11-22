@@ -125,6 +125,10 @@ export default {
     nInstallB: "添加到主屏幕", nInstallC: "”，从那里打开 Aduna，再回到此页面。",
     nUnsupported: "此浏览器不支持通知。Chrome、Edge、Firefox 和 Safari 支持。",
     nDesktop: "关闭窗口后，Aduna 会继续在托盘中运行。私信、提及和通话会以卡片形式显示在屏幕右下角；单击卡片即可打开对应聊天。右键单击托盘图标可关闭“随 Windows 启动”或退出。",
+    trTitle: "翻译消息",
+    trHint: "在服务器频道中，用其他语言写的消息下方显示译文。这些消息的文字会发送给谷歌翻译。私信和群组经过加密，永远不会被翻译。",
+    trOff: "此服务器尚未设置翻译功能。",
+    trFrom: "已翻译（原文语言：{lang}）",
   },
   book: {
     "Add category": "添加分类", "Create channel": "创建频道", "Create or join a server": "创建或加入服务器", "End-to-end encrypted": "端到端加密",

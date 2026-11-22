@@ -125,6 +125,10 @@ export default {
     nInstallB: "Zum Home-Bildschirm", nInstallC: ", öffne Aduna von dort und komm zurück auf diese Seite.",
     nUnsupported: "Dieser Browser unterstützt keine Benachrichtigungen. Chrome, Edge, Firefox und Safari tun das.",
     nDesktop: "Aduna läuft im Infobereich weiter, wenn du das Fenster schließt. Direktnachrichten, Erwähnungen und Anrufe erscheinen als Karte unten rechts auf dem Bildschirm; ein Klick öffnet den Chat. Klicke mit der rechten Maustaste auf das Symbol im Infobereich, um „Mit Windows starten“ auszuschalten oder Aduna zu beenden.",
+    trTitle: "Nachrichten übersetzen",
+    trHint: "Zeigt unter Nachrichten in Serverkanälen, die in einer anderen Sprache geschrieben sind, eine Übersetzung an. Der Text dieser Nachrichten wird an Google Übersetzer gesendet. Direktnachrichten und Gruppen sind verschlüsselt und werden nie übersetzt.",
+    trOff: "Die Übersetzung ist auf diesem Server noch nicht eingerichtet.",
+    trFrom: "Übersetzt (Originalsprache: {lang})",
   },
   book: {
     "Add category": "Kategorie hinzufügen", "Create channel": "Kanal erstellen", "Create or join a server": "Server erstellen oder beitreten", "End-to-end encrypted": "Ende-zu-Ende-verschlüsselt",
