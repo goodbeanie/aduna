@@ -769,5 +769,14 @@
     "items": [
       { "title": "New wheel", "text": "The wheel in a channel has a new look: brighter colours, a red pointer, a dark ring and a bigger centre. It spins for about four seconds. Scheduled spins work as before: you pick the time, and the winner is chosen when it comes." }
     ]
+  },
+  {
+    "id": "2026.11.22.3",
+    "date": "2026-11-22",
+    "title": "Storage changes",
+    "items": [
+      { "title": "Free storage limit can go lower", "text": "When many free accounts share the storage, the free limit per person can now drop to 20 MB. It used to stop at 50 MB. Below 50 MB it moves in steps of 10 MB." },
+      { "title": "Files no longer refused when shared storage is full", "text": "When the shared storage is full, new files from free accounts are kept on the server's own disk instead of being refused, as long as there is room there. Aduna Plus files always go to the main storage." }
+    ]
   }
 ]
