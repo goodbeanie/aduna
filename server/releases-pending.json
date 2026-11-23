@@ -761,5 +761,13 @@
     "items": [
       { "title": "Translate messages", "text": "Settings > Language has a new Translate messages checkbox. When it is on, a message in a server channel that is written in another language shows a translation under it, in the language you picked. The text of those messages is sent to Google Translate. Direct messages and groups are encrypted, so they are never translated." }
     ]
+  },
+  {
+    "id": "2026.11.22.2",
+    "date": "2026-11-22",
+    "title": "A new look for the wheel",
+    "items": [
+      { "title": "New wheel", "text": "The wheel in a channel has a new look: brighter colours, a red pointer, a dark ring and a bigger centre. It spins for about four seconds. Scheduled spins work as before: you pick the time, and the winner is chosen when it comes." }
+    ]
   }
 ]

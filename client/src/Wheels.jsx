@@ -8,7 +8,7 @@ import { Icon, Modal } from './ui.jsx';
 // plays the spin; anyone who opens the channel later just sees where it stopped.
 
 const MAX_OPTIONS = 500, MAX_TITLE = 200, MAX_OPTION = 100, MAX_DAYS = 30;
-const SPIN_MS = 6000, TURNS = 5, LABELS_UNTIL = 24, STROKES_UNTIL = 60;
+const SPIN_MS = 4200, LABELS_UNTIL = 24, STROKES_UNTIL = 60;
 const R = 96;
 const SOON = [['In 5 min', 5], ['In 30 min', 30], ['In 1 hour', 60], ['Tomorrow', 1440]];
 
@@ -33,13 +33,15 @@ function slicePath(i, n) {
   const [x0, y0] = point(i * step, R), [x1, y1] = point((i + 1) * step, R);
   return `M0 0L${x0} ${y0}A${R} ${R} 0 ${step > 180 ? 1 : 0} 1 ${x1} ${y1}Z`;
 }
-const sliceColor = (i) => `hsl(${Math.round((i * 137.5) % 360)} 58% ${i % 2 ? 40 : 46}%)`;
+// The Decision Spinner colours, in order. When the last slice would land next to the first in the same colour, it takes a different one.
+const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#06b6d4', '#6366f1'];
+const sliceColor = (i, n) => (i === n - 1 && i > 0 && i % COLORS.length === 0 ? COLORS[COLORS.length >> 1] : COLORS[i % COLORS.length]);
 
 // Where the wheel rests with the winner under the pointer. The small offset comes from the message id so every viewer sees the same stop.
+const hashOf = (id) => { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; };
+const turnsFor = (id) => 5 + ((hashOf(id) >> 3) % 4); // 5 to 8 full turns, the same for everyone watching
 function restAngle(winner, n, id) {
-  let h = 0;
-  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  const offset = ((h % 1000) / 1000) * 0.7 - 0.35;
+  const offset = ((hashOf(id) % 1000) / 1000) * 0.7 - 0.35;
   return -(winner + 0.5 + offset) * (360 / n);
 }
 
@@ -68,7 +70,7 @@ export function WheelCard({ m }) {
     const rest = restAngle(wheel.winner, n, m.id);
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setAngle(rest); return; }
     setTurning(true);
-    setAngle(rest + 360 * TURNS);
+    setAngle(rest + 360 * turnsFor(m.id));
     timer.current = setTimeout(() => setTurning(false), SPIN_MS + 200);
   }, [spun, wheel.winner, n, m.id]);
 
@@ -82,9 +84,9 @@ export function WheelCard({ m }) {
     const stroke = n <= STROKES_UNTIL;
     return wheel.options.map((o, i) => (
       <g key={i}>
-        <path d={slicePath(i, n)} fill={sliceColor(i)} stroke={stroke ? 'rgba(0,0,0,.25)' : 'none'} strokeWidth=".6" />
+        <path d={slicePath(i, n)} fill={sliceColor(i, n)} stroke={stroke ? 'rgba(0,0,0,.25)' : 'none'} strokeWidth=".6" />
         {n <= LABELS_UNTIL && (
-          <text className="wheel-label" transform={`rotate(${(i + 0.5) * step - 90})`} x="88" y="0" textAnchor="end" dominantBaseline="central" fontSize={size}>
+          <text className="wheel-label" transform={`rotate(${(i + 0.5) * step - 90})`} x="84" y="0" textAnchor="end" dominantBaseline="central" fontSize={size}>
             {o.length > fit ? o.slice(0, fit - 1) + '\u2026' : o}
           </text>
         )}
@@ -102,7 +104,7 @@ export function WheelCard({ m }) {
       <div className="poll-sub muted small" aria-live="polite">{status}</div>
       <div className="wheel-stage">
         <div className="wheel-pointer" aria-hidden="true" />
-        <div className="wheel-disc" style={{ transform: `rotate(${angle}deg)`, transition: turning ? `transform ${SPIN_MS}ms cubic-bezier(.12,.62,.12,1)` : 'none' }}>
+        <div className="wheel-disc" style={{ transform: `rotate(${angle}deg)`, transition: turning ? `transform ${SPIN_MS}ms cubic-bezier(.215,.61,.355,1)` : 'none' }}>
           <svg viewBox="-100 -100 200 200" role="img" aria-label={`Wheel with ${n} options`}>
             {slices}
             {done && <path d={slicePath(wheel.winner, n)} className="wheel-win" />}
