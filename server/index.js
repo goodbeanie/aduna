@@ -7209,6 +7209,7 @@ async function start() {
   // free storage limit: load the last one, work out the new one now and then every 6 hours; people who just went over it get the warning pushed to them,
   // and every free person gets the new limit (and the warning that older files could be removed) pushed when the cap is first on and whenever the limit changes
   await storageBudget.load();
+  store.setPoolLimit(() => storageBudget.poolBytes()); // the R2 pool is what the money allows (db.js uses it only with the VM disk on and STORAGE_LIMIT_GB unset)
   const budgetRun = async () => {
     try {
       await storageBudget.run(

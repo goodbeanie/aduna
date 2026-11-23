@@ -19,6 +19,10 @@
 //                       the files of people with a storage plan are not counted in it.
 //   CLIPS_R2_BUCKET     a SEPARATE R2 bucket for clips (short videos), with the same R2_* credentials. Clips have their own
 //                       cap (CLIPS_LIMIT_GB, default 5, see clips.js), so 4 + 5 = 9 GB stays under R2's 10 GB free tier.
+//   VM_STORAGE_DIR      a folder on the server's own disk (the VM) that takes the files of FREE people when the R2 pool is full, and
+//   VM_STORAGE_GB       how many GB you give it (default 0 = off). Needs R2. People with Plus always go to R2. While this is on and
+//                       STORAGE_LIMIT_GB is not set, the R2 pool is what the money allows (server/storage-budget.js) instead of a fixed 4,
+//                       and the free limit per person counts the VM's GB as room. The files are sealed like everything else.
 //   DB_SCHEMA           use a separate Postgres schema (used by the tests).
 //
 // Startup is asynchronous: call `await store.init()` before serving requests.
@@ -152,6 +156,7 @@ async function init() {
   if (!url) throw new Error('DATABASE_URL is not set. Create a free Neon project (neon.tech), copy its connection string and set it as DATABASE_URL.');
   KEY = getMasterKey();
   r2Setup();
+  diskSetup();
   pool = new Pool({
     connectionString: url,
     max: Number(process.env.PG_POOL_MAX) || 5,
@@ -182,6 +187,9 @@ async function init() {
   // who uploaded the file (the same id the sealed meta holds, kept in the open so storage can be counted and listed per person)
   await q("ALTER TABLE files ADD COLUMN IF NOT EXISTS owner TEXT NOT NULL DEFAULT ''");
   await q('CREATE INDEX IF NOT EXISTS files_owner_idx ON files (owner, created_at)');
+  // where the sealed bytes of a row with an empty `data` live: '' = the R2 bucket, 'vm' = the folder on the VM's disk (see the VM_STORAGE_* notes below)
+  await q("ALTER TABLE images ADD COLUMN IF NOT EXISTS loc TEXT NOT NULL DEFAULT ''");
+  await q("ALTER TABLE files ADD COLUMN IF NOT EXISTS loc TEXT NOT NULL DEFAULT ''");
 
   // Refuse to start with the wrong key instead of silently producing a broken database.
   const check = (await q('SELECT value FROM meta WHERE key = $1', ['keycheck'])).rows[0];
@@ -368,13 +376,20 @@ function makeClipsBucket(client, base) {
 }
 // Storage limit: new uploads are refused once the bytes held in R2 would pass STORAGE_LIMIT_GB
 // (default 4: clips have their own 5 GB, and together they stay under R2's 10 GB free tier; 0 turns the limit off). Read on every upload.
+// With the VM disk on and STORAGE_LIMIT_GB left unset, the pool is what the budget allows (set by index.js through setPoolLimit; null until its
+// first run, and then the default 4 applies).
+let poolLimitFn = null;
+const setPoolLimit = (fn) => { poolLimitFn = typeof fn === 'function' ? fn : null; };
 const limitBytes = () => {
-  const gb = process.env.STORAGE_LIMIT_GB === undefined || process.env.STORAGE_LIMIT_GB === '' ? 4 : Number(process.env.STORAGE_LIMIT_GB);
+  const raw = process.env.STORAGE_LIMIT_GB;
+  const unset = raw === undefined || raw === '';
+  if (unset && disk && poolLimitFn) { const p = poolLimitFn(); const b = p === null || p === undefined ? NaN : Number(p); if (Number.isFinite(b) && b >= 0) return Math.max(1, b); } // 0 would mean "no limit" here, so 1 byte stands for "no room"
+  const gb = unset ? 4 : Number(raw);
   return Number.isFinite(gb) && gb > 0 ? gb * 1024 ** 3 : 0;
 };
 async function r2BytesUsed() {
-  const { rows } = await q(`SELECT (SELECT COALESCE(SUM(size), 0) FROM images WHERE octet_length(data) = 0)
-                          + (SELECT COALESCE(SUM(size), 0) FROM files WHERE octet_length(data) = 0) AS n`);
+  const { rows } = await q(`SELECT (SELECT COALESCE(SUM(size), 0) FROM images WHERE octet_length(data) = 0 AND loc <> 'vm')
+                          + (SELECT COALESCE(SUM(size), 0) FROM files WHERE octet_length(data) = 0 AND loc <> 'vm') AS n`);
   return Number(rows[0].n);
 }
 // People with a paid storage plan (set by index.js). Their files live outside the shared pool: they are capped per person
@@ -383,30 +398,75 @@ let protectedOwners = () => [];
 const setProtectedOwners = (fn) => { protectedOwners = typeof fn === 'function' ? fn : () => []; };
 // bytes in the shared pool: everything in R2 except the files of people with a storage plan
 async function poolBytesUsed() {
-  const { rows } = await q(`SELECT (SELECT COALESCE(SUM(size), 0) FROM images WHERE octet_length(data) = 0)
-                          + (SELECT COALESCE(SUM(size), 0) FROM files WHERE octet_length(data) = 0 AND NOT (owner = ANY($1::text[]))) AS n`,
+  const { rows } = await q(`SELECT (SELECT COALESCE(SUM(size), 0) FROM images WHERE octet_length(data) = 0 AND loc <> 'vm')
+                          + (SELECT COALESCE(SUM(size), 0) FROM files WHERE octet_length(data) = 0 AND loc <> 'vm' AND NOT (owner = ANY($1::text[]))) AS n`,
   [protectedOwners().map(String)]);
   return Number(rows[0].n);
 }
-async function checkRoom(bytes, owner = null) {
+// ---- the VM's disk: where the files of free people go once the R2 pool is full ----
+// Same three calls as r2 (put, get, del) on a folder, plus how much room the disk has. Needs R2, VM_STORAGE_DIR and VM_STORAGE_GB (see the top).
+let disk = null;
+const DISK_KEY = /^(files|images)\/[0-9a-f]{32}$/;
+const MIN_DISK_LEFT = 2 * 1024 ** 3; // the VM's own disk is never filled up: 2 GB stay free for the system
+function diskSetup() {
+  const dir = process.env.VM_STORAGE_DIR;
+  const gb = Number(process.env.VM_STORAGE_GB);
+  if (!dir || !(gb > 0) || !r2) return;
+  const root = path.resolve(dir);
+  fs.mkdirSync(path.join(root, 'files'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'images'), { recursive: true });
+  const at = (key) => { if (!DISK_KEY.test(key)) throw new Error('Bad storage key'); return path.join(root, key); };
+  disk = {
+    root,
+    limitBytes: gb * 1024 ** 3,
+    async put(key, buf) { const f = at(key); await fs.promises.writeFile(f + '.tmp', buf); await fs.promises.rename(f + '.tmp', f); },
+    async get(key) { try { return await fs.promises.readFile(at(key)); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } },
+    async del(key) { try { await fs.promises.unlink(at(key)); } catch (e) { if (e.code !== 'ENOENT') throw e; } },
+    // what the disk itself has left, or null when this Node cannot tell
+    async free() { try { const s = await fs.promises.statfs(root); return Number(s.bavail) * Number(s.bsize); } catch { return null; } },
+  };
+}
+async function vmBytesUsed() {
+  const { rows } = await q(`SELECT (SELECT COALESCE(SUM(size), 0) FROM images WHERE loc = 'vm') + (SELECT COALESCE(SUM(size), 0) FROM files WHERE loc = 'vm') AS n`);
+  return Number(rows[0].n);
+}
+// does the VM have room for `bytes` more (within what you gave it, and with the disk itself not nearly full)?
+async function vmRoom(bytes) {
+  if (!disk) return false;
+  if ((await vmBytesUsed()) + bytes > disk.limitBytes) return false;
+  const left = await disk.free();
+  return left === null || left - bytes >= MIN_DISK_LEFT;
+}
+// 'r2' or 'vm' for a new file, or STORAGE_FULL. People with Plus are always kept in R2 (capped per person, not by the pool). Everybody else goes to
+// R2 while the pool has room and to the VM when it does not.
+async function chooseWhere(bytes, owner = null) {
   const max = limitBytes();
-  if (!r2 || !max) return;
-  if (owner && protectedOwners().map(String).includes(String(owner))) return; // paid storage: capped per person, not by the pool
-  if ((await poolBytesUsed()) + bytes > max) {
-    const e = new Error('Storage is full');
-    e.code = 'STORAGE_FULL';
-    throw e;
-  }
+  if (!max) return 'r2';
+  if (owner && protectedOwners().map(String).includes(String(owner))) return 'r2';
+  if ((await poolBytesUsed()) + bytes <= max) return 'r2';
+  if (await vmRoom(bytes)) return 'vm';
+  const e = new Error('Storage is full');
+  e.code = 'STORAGE_FULL';
+  throw e;
 }
 const NOBYTES = Buffer.alloc(0);
-// store sealed bytes: returns what goes in the Postgres `data` column
-async function putBlob(key, sealed) { if (!r2) return sealed; await r2.put(key, sealed); return NOBYTES; }
-// read sealed bytes back for a row whose `data` column is `inline`
-async function getBlob(key, inline) { return inline && inline.length ? inline : (r2 ? r2.get(key) : null); }
-// delete the R2 objects behind rows that were removed from Postgres (best effort: an orphan object is harmless)
-async function dropBlobs(keys) {
-  if (!r2) return;
-  await Promise.all(keys.map((k) => r2.del(k).catch((e) => console.error('R2 cleanup failed:', e.message))));
+// store sealed bytes: returns { data: what goes in the Postgres `data` column, loc: where the rest lives ('' = R2, 'vm' = the VM's disk) }
+async function placeBlob(key, sealed, owner = null) {
+  if (!r2) return { data: sealed, loc: '' };
+  if ((await chooseWhere(sealed.length, owner)) === 'vm') { await disk.put(key, sealed); return { data: NOBYTES, loc: 'vm' }; }
+  await r2.put(key, sealed);
+  return { data: NOBYTES, loc: '' };
+}
+// read sealed bytes back for a row whose `data` column is `inline` and whose place is `loc`
+async function getBlob(key, inline, loc = '') {
+  if (inline && inline.length) return inline;
+  if (loc === 'vm') return disk ? disk.get(key) : null;
+  return r2 ? r2.get(key) : null;
+}
+// delete the stored objects behind rows that were removed from Postgres, items = [{ key, loc }] (best effort: an orphan object is harmless)
+async function dropBlobs(items) {
+  await Promise.all(items.map(({ key, loc }) => Promise.resolve(loc === 'vm' ? (disk && disk.del(key)) : (r2 && r2.del(key)))
+    .catch((e) => console.error('Storage cleanup failed:', e.message))));
 }
 
 // ---------- images ----------
@@ -417,23 +477,22 @@ async function putImage(buf) {
   await mediacheck.guardPublic(buf);
   const iid = imageId();
   const sealed = seal(buf, `images:${iid}`);
-  await checkRoom(sealed.length);
-  const data = await putBlob(`images/${iid}`, sealed);
-  await q('INSERT INTO images (id, data, created_at, size) VALUES ($1, $2, $3, $4)', [iid, data, Date.now(), sealed.length]);
+  const { data, loc } = await placeBlob(`images/${iid}`, sealed);
+  await q('INSERT INTO images (id, data, created_at, size, loc) VALUES ($1, $2, $3, $4, $5)', [iid, data, Date.now(), sealed.length, loc]);
   return iid;
 }
 async function getImage(iid) {
   if (!/^[0-9a-f]{32}$/.test(String(iid))) return null;
-  const row = (await q('SELECT data FROM images WHERE id = $1', [iid])).rows[0];
+  const row = (await q('SELECT data, loc FROM images WHERE id = $1', [iid])).rows[0];
   if (!row) return null;
-  const sealed = await getBlob(`images/${iid}`, row.data);
+  const sealed = await getBlob(`images/${iid}`, row.data, row.loc);
   return sealed ? openRaw(sealed, `images:${iid}`) : null;
 }
 async function deleteImages(ids) {
   const v = (ids || []).filter((x) => /^[0-9a-f]{32}$/.test(String(x)));
   if (!v.length) return;
-  const { rows } = await q('DELETE FROM images WHERE id = ANY($1::text[]) RETURNING id, octet_length(data) AS n', [v]);
-  await dropBlobs(rows.filter((r) => r.n === 0).map((r) => `images/${r.id}`));
+  const { rows } = await q('DELETE FROM images WHERE id = ANY($1::text[]) RETURNING id, octet_length(data) AS n, loc', [v]);
+  await dropBlobs(rows.filter((r) => r.n === 0).map((r) => ({ key: `images/${r.id}`, loc: r.loc })));
 }
 const deleteImage = (iid) => (iid ? deleteImages([iid]) : Promise.resolve());
 // remove images no user points at any more (e.g. left behind by a crash between write and save)
@@ -447,10 +506,9 @@ const FILE_ID = /^[0-9a-f]{32}$/;
 async function putFile(buf, meta) {
   const fid = imageId();
   const sealed = seal(buf, `files:${fid}`);
-  await checkRoom(sealed.length, meta && meta.owner);
-  const data = await putBlob(`files/${fid}`, sealed);
-  await q('INSERT INTO files (id, data, meta, attached, created_at, size, owner) VALUES ($1, $2, $3, 0, $4, $5, $6)',
-    [fid, data, seal(JSON.stringify(meta), `filemeta:${fid}`), Date.now(), sealed.length, String((meta && meta.owner) || '')]);
+  const { data, loc } = await placeBlob(`files/${fid}`, sealed, meta && meta.owner);
+  await q('INSERT INTO files (id, data, meta, attached, created_at, size, owner, loc) VALUES ($1, $2, $3, 0, $4, $5, $6, $7)',
+    [fid, data, seal(JSON.stringify(meta), `filemeta:${fid}`), Date.now(), sealed.length, String((meta && meta.owner) || ''), loc]);
   return fid;
 }
 // Files stored before the owner column existed: read the owner out of the sealed meta once. A file whose meta cannot be read gets '-'
@@ -492,9 +550,9 @@ async function fileMeta(fid) {
 }
 async function getFileBytes(fid) {
   if (!FILE_ID.test(String(fid))) return null;
-  const row = (await q('SELECT data FROM files WHERE id = $1', [fid])).rows[0];
+  const row = (await q('SELECT data, loc FROM files WHERE id = $1', [fid])).rows[0];
   if (!row) return null;
-  const sealed = await getBlob(`files/${fid}`, row.data);
+  const sealed = await getBlob(`files/${fid}`, row.data, row.loc);
   return sealed ? openRaw(sealed, `files:${fid}`) : null;
 }
 const validIds = (ids) => (ids || []).filter((f) => FILE_ID.test(String(f)));
@@ -506,8 +564,8 @@ async function markAttached(ids) {
 async function deleteFiles(ids) {
   const v = validIds(ids);
   if (!v.length) return [];
-  const { rows } = await q('DELETE FROM files WHERE id = ANY($1::text[]) RETURNING id, octet_length(data) AS n', [v]);
-  await dropBlobs(rows.filter((r) => r.n === 0).map((r) => `files/${r.id}`));
+  const { rows } = await q('DELETE FROM files WHERE id = ANY($1::text[]) RETURNING id, octet_length(data) AS n, loc', [v]);
+  await dropBlobs(rows.filter((r) => r.n === 0).map((r) => ({ key: `files/${r.id}`, loc: r.loc })));
   return rows.map((r) => r.id);
 }
 // delete files past their age limit (attached or not); returns the ids that were removed
@@ -557,8 +615,10 @@ module.exports = {
   get vapid() { return vapidKeys; },
   init, close, save, flush, reload: load, id, inviteCode, query: q, getMeta, setMeta, closeHooks, messagesIn, dmsOfUser, dmsInConvo,
   putImage, getImage, deleteImage, pruneImages, putFile, fileMeta, getFileBytes, markAttached, deleteFiles, expireFiles, pruneFiles,
-  backfillFileOwners, userFileBytes, ownerBytes, userFiles, poolBytesUsed, setProtectedOwners,
+  backfillFileOwners, userFileBytes, ownerBytes, userFiles, poolBytesUsed, setProtectedOwners, setPoolLimit, vmRoom, vmBytesUsed,
   get usingR2() { return !!r2; },
+  get usingVm() { return !!disk; },
+  get vmLimitBytes() { return disk ? disk.limitBytes : 0; },
   get clipsR2() { return clipsR2; },
   r2BytesUsed,
   storageLimitBytes: limitBytes,

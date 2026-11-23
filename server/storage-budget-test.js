@@ -6,7 +6,7 @@ const cfg = B.defaults({}); // no env: $0.015 per GB, no subsidy
 const MB = B.MB, GB = B.GB;
 
 // the plan's own numbers: a payer brings in $4.85, 53.5% is profit, the other 46.5% ($2.25525) is the free people's budget
-assert.strictEqual([cfg.ceilingMB, cfg.floorMB, cfg.stepMB].join(), '350,50,25');
+assert.strictEqual([cfg.ceilingMB, cfg.floorMB, cfg.stepMB, cfg.lowTopMB, cfg.lowStepMB].join(), '350,20,25,50,10');
 assert.ok(Math.abs(cfg.netPerSub * (1 - cfg.profitShare) - 2.25525) < 1e-9, 'a payer funds $2.25525 of free storage');
 assert.ok(Math.abs(cfg.netPerSub * cfg.profitShare - 2.59475) < 1e-9, 'the profit is 53.5% of $4.85');
 assert.strictEqual(B.computeLimitMB({ paid: 1, free: 400 }, cfg), 350, 'a payer carries about 440 free people at the 350 MB ceiling');
@@ -17,7 +17,16 @@ assert.strictEqual(B.computeLimitMB({ paid: 1, free: 500 }, cfg), 325);
 assert.strictEqual(B.computeLimitMB({ paid: 1, free: 600 }, cfg), 250);
 assert.strictEqual(B.computeLimitMB({ paid: 1, free: 700 }, cfg), 225);
 assert.strictEqual(B.computeLimitMB({ paid: 1, free: 1000 }, cfg), 150);
-assert.strictEqual(B.computeLimitMB({ paid: 1, free: 100000 }, cfg), 50, 'never below the 50 MB floor');
+assert.strictEqual(B.computeLimitMB({ paid: 1, free: 100000 }, cfg), 20, 'never below the 20 MB floor');
+// below 50 MB the ladder moves 10 MB at a time: 40, 30, 20 (no payers: the raw share is 10240 / free MB)
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 204 }, cfg), 50, 'a raw share of 50.2 MB is still 50');
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 205 }, cfg), 40, 'just under 50 MB drops to 40');
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 230 }, cfg), 40);
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 300 }, cfg), 30);
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 400 }, cfg), 20);
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 370 }, cfg), 20, '370 free people on R2 alone (no VM, no payers): 27.7 MB each rounds down to 20');
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 1000 }, cfg), 20, 'never below 20');
+assert.deepStrictEqual([136, 204, 255, 341, 600].map((free) => B.computeLimitMB({ paid: 0, free }, cfg)), [75, 50, 40, 30, 20], 'the whole ladder, in order');
 for (const free of [501, 550, 777, 1234, 4321]) assert.strictEqual(B.computeLimitMB({ paid: 3, free }, cfg) % 25, 0, 'always a multiple of 25 MB');
 // every limit really fits the budget (so the profit is guaranteed)
 for (const [paid, free] of [[1, 500], [1, 1000], [2, 777], [10, 5000], [50, 20000]]) {
@@ -29,7 +38,7 @@ for (const [paid, free] of [[1, 500], [1, 1000], [2, 777], [10, 5000], [50, 2000
 assert.strictEqual(B.computeLimitMB({ paid: 5, free: 0 }, cfg), 350);
 assert.strictEqual(B.computeLimitMB({ paid: 0, free: 10 }, cfg), 350);
 assert.strictEqual(B.computeLimitMB({ paid: 0, free: 100 }, cfg), 100);
-assert.strictEqual(B.computeLimitMB({ paid: 0, free: 1000 }, cfg), 50);
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 1000 }, cfg), 20);
 assert.strictEqual(B.computeLimitMB({ paid: 0, free: 1000 }, { ...cfg, subsidyUsd: 3 }), 200, 'a $3 subsidy covers 1000 people at 200 MB');
 
 // the R2 free tier is one lump, so it matters less with every payer
@@ -49,9 +58,37 @@ assert.strictEqual(B.nextLimitMB(300, { paid: 1, free: 500 }, cfg), 300, 'a bare
 assert.strictEqual(B.nextLimitMB(350, { paid: 1, free: 500 }, cfg), 325, 'comes down to what fits');
 assert.strictEqual(B.nextLimitMB(250, { paid: 1, free: 600 }, cfg), 250);
 assert.strictEqual(B.nextLimitMB(NaN, { paid: 1, free: 400 }, cfg), 350, 'a bad saved value starts from the ceiling');
+// the small steps below 50 MB: down at once, up one 10 MB rung per run, and 40 -> 50 -> 75 returns to the 25 MB steps
+assert.strictEqual(B.nextLimitMB(350, { paid: 0, free: 400 }, cfg), 20, 'drops straight to the 20 MB floor');
+assert.strictEqual(B.nextLimitMB(50, { paid: 0, free: 300 }, cfg), 30, 'drops from 50 past 40 to 30 in one run');
+assert.strictEqual(B.nextLimitMB(20, { paid: 0, free: 230 }, cfg), 30, 'climbs 20 -> 30 (one 10 MB rung)');
+assert.strictEqual(B.nextLimitMB(30, { paid: 0, free: 230 }, cfg), 40, 'then 30 -> 40');
+assert.strictEqual(B.nextLimitMB(40, { paid: 0, free: 230 }, cfg), 40, 'and stays at 40 while 50 does not fit');
+assert.strictEqual(B.nextLimitMB(40, { paid: 0, free: 190 }, cfg), 50, '40 -> 50 once it fits with 5% to spare');
+assert.strictEqual(B.nextLimitMB(50, { paid: 0, free: 100 }, cfg), 75, '50 -> 75 uses the 25 MB step again');
+assert.strictEqual(B.nextLimitMB(25, { paid: 0, free: 190 }, cfg), 35, 'a saved value off the ladder still climbs by 10 and never past 50 in one run');
 assert.strictEqual(B.levelOf(350, cfg), 'healthy');
 assert.strictEqual(B.levelOf(300, cfg), 'reduced');
-assert.strictEqual(B.levelOf(50, cfg), 'floor');
+assert.strictEqual(B.levelOf(50, cfg), 'reduced');
+assert.strictEqual(B.levelOf(30, cfg), 'reduced');
+assert.strictEqual(B.levelOf(20, cfg), 'floor');
+
+// the VM's GB count as room for the free people (at R2's price), 50 GB = $0.75 on top of R2's free 10 GB ($0.15)
+const withVm = { ...cfg, vmGB: 50 };
+assert.ok(Math.abs(B.budgetUsd(0, withVm) - B.budgetUsd(0, cfg) - 0.75) < 1e-9, '50 GB on the VM add $0.75 to the free budget');
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 300 }, cfg), 30, 'no payers, no VM: 300 free people get 30 MB each');
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 300 }, withVm), 200, 'the same 300 people get 200 MB each once the VM is given');
+assert.strictEqual(B.computeLimitMB({ paid: 0, free: 100 }, withVm), 350, '100 free people reach the ceiling on the VM room alone');
+assert.strictEqual(B.defaults({ VM_STORAGE_GB: '50' }).vmGB, 50, 'VM_STORAGE_GB feeds the budget');
+
+// the R2 pool: only what the money allows for R2, never the VM
+assert.strictEqual(B.poolBytesFor({ paid: 0 }, cfg), 4 * GB, 'no payers: R2 free 10 GB - 5 GB clips - 1 GB slack = 4 GB');
+assert.strictEqual(B.poolBytesFor({ paid: 0 }, withVm), 4 * GB, 'the VM never makes the R2 pool bigger');
+assert.ok(B.poolBytesFor({ paid: 1 }, cfg) > 150 * GB && B.poolBytesFor({ paid: 1 }, cfg) < 155 * GB, 'one payer buys about 150 GB of R2 for the free people');
+assert.ok(B.poolBytesFor({ paid: 2 }, cfg) > B.poolBytesFor({ paid: 1 }, cfg), 'more payers, bigger pool');
+assert.ok(B.poolBytesFor({ paid: 1, paidBytes: 100 * GB }, cfg) < B.poolBytesFor({ paid: 1 }, cfg) - 99 * GB, 'what the payers store takes room out of the pool');
+assert.strictEqual(B.poolBytesFor({ paid: 0, paidBytes: 50 * GB }, cfg), 4 * GB, 'never below the 4 GB minimum');
+assert.strictEqual(B.poolBytesFor({ paid: 0 }, { ...cfg, subsidyUsd: 0.3 }), 24 * GB, 'a $0.30 subsidy buys 20 GB more R2');
 
 (async () => {
   // the worker, with fakes: 1 payer (+1 creator with Plus for free), 3 free people, a bot that is not counted
@@ -68,7 +105,10 @@ assert.strictEqual(B.levelOf(50, cfg), 'floor');
   });
   const w = make();
   const told = [], warned = [];
+  assert.strictEqual(w.poolBytes(), null, 'before the first run there is no pool figure, so db.js keeps its fixed default');
   let v = await w.run((ids) => told.push(...ids), (ids) => warned.push(...ids));
+  assert.strictEqual(w.poolBytes(), B.poolBytesFor({ paid: 1, paidBytes: 3 * GB }, cfg), 'the run works out the R2 pool and keeps it');
+  assert.ok(JSON.parse(meta).poolBytes === w.poolBytes(), 'the pool is saved with the rest');
   assert.deepStrictEqual([v.paid, v.free, v.paidBytes, v.limitMB], [1, 3, 3 * GB, 350], 'creator and bot do not count as payers; their files are real cost');
   assert.strictEqual(w.limitBytes(), null, 'dry run: no per-person limit while the cap is off');
   assert.strictEqual(w.isOver(10 * GB), false);

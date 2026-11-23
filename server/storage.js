@@ -80,8 +80,9 @@ async function makeRoom({ store, bytes, protect = [] }) {
   if (!store.usingR2 || !max) return [];
   const used = await store.poolBytesUsed();
   if (used + bytes <= max) return [];
+  if (store.vmRoom && (await store.vmRoom(bytes))) return []; // the upload goes to the VM's disk instead, so nobody's files are removed
   const { rows } = await store.query(
-    'SELECT id, size FROM files WHERE octet_length(data) = 0 AND NOT (owner = ANY($1::text[])) ORDER BY created_at ASC LIMIT 5000',
+    "SELECT id, size FROM files WHERE octet_length(data) = 0 AND loc <> 'vm' AND NOT (owner = ANY($1::text[])) ORDER BY created_at ASC LIMIT 5000",
     [protect.map(String)]);
   const take = [];
   let freed = 0;
