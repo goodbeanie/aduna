@@ -40,6 +40,7 @@ function PlanCard({ s, busy, onCancel, onBilling }) {
 function rowOf(it, currency) {
   if (it.kind === 'storage') return { at: it.at, name: it.renewal ? 'Aduna Plus, monthly renewal' : 'Aduna Plus', sub: 'Paid by card', amount: money(it.cents, it.currency || currency) };
   if (it.kind === 'credits') return { at: it.at, name: `Bought ${it.credits.toLocaleString()} credits`, sub: it.reversed ? 'Refunded or reversed' : 'Paid by card', amount: money(it.cents, it.currency || currency) };
+  if (it.kind === 'sponsored') return { at: it.at, name: `Sponsored server${it.serverName ? ': ' + it.serverName : ''}, ${it.days} days`, sub: it.reversed ? 'Refunded or reversed' : 'Paid by card', amount: money(it.cents, it.currency || currency) };
   return { at: it.t, name: `Shop: ${it.note || 'purchase'}`, sub: 'Paid with credits', amount: '−' + Math.abs(it.amount).toLocaleString() + ' credits' };
 }
 

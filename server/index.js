@@ -56,6 +56,8 @@ const devthemes = require('./devthemes');
 const nameStyle = require('./namestyle'); // the font and gradient a display name is drawn in (see namestyle.js)
 const serverTagLib = require('./servertag'); // server tags: a 4-character badge a server designs and members choose to wear (see servertag.js)
 const boostsLib = require('./boosts'); // server boosts: members spend credits to boost a server for 14 days (see boosts.js)
+const sponsoredLib = require('./sponsored'); // sponsored servers: an owner pays for a gold slot at the top of the explorer (see sponsored.js)
+const regionsLib = require('./regions'); // where Aduna sells and in which currency (see regions.js)
 const loungeLib = require('./lounge'); // a server's info page: template, look and widgets, validated here (see lounge.js)
 const automodLib = require('./automod'); // per-server word bans, link/invite/caps/mention/repeat rules, and the strikes and timeouts they lead to (see automod.js)
 const templatesLib = require('./templates'); // what a new server starts with: standard, business, community, chill (see templates.js)
@@ -2368,6 +2370,7 @@ app.post('/api/servers/join', inviteLimiter, auth, (req, res) => {
   if (!s.members.includes(req.user.id)) {
     s.members.push(req.user.id);
     (s.joinedAt = s.joinedAt || {})[req.user.id] = Date.now();
+    sponsoredLib.noteJoin(s, Date.now());
     if (s.onboarded) delete s.onboarded[req.user.id]; // coming back means answering again
     store.save();
     joinRooms(req.user.id);
@@ -3581,6 +3584,20 @@ app.post('/api/admin/servers/:id/listing', auth, reviewOnly, (req, res) => {
   io.to('server:' + s.id).emit('server:update', serverView(s));
   if (action === 'remove') refreshTagWearers(s);
   res.json({ ok: true, hold: s.listingHold || null });
+});
+// give a server free sponsored days ({ days: 1-60 }), or end its sponsorship now ({ end: true }); the server does not have to be public yet
+app.post('/api/admin/servers/:id/sponsored', auth, adminOnly, (req, res) => {
+  const s = db().servers[req.params.id];
+  if (!s) return res.status(404).json({ error: 'Not found' });
+  if (req.body?.end === true) { sponsoredLib.revoke(s, now()); adminLogAdd(req.user, 'ended sponsored', s.name, ''); }
+  else {
+    const days = Number(req.body?.days);
+    if (!Number.isInteger(days) || days < 1 || days > sponsoredLib.MAX_AHEAD_DAYS) return res.status(400).json({ error: `days must be a whole number from 1 to ${sponsoredLib.MAX_AHEAD_DAYS}, or send end: true` });
+    sponsoredLib.grant(s, days, now());
+    adminLogAdd(req.user, 'granted sponsored', s.name, days + ' days');
+  }
+  store.save();
+  res.json({ ok: true, sponsored: sponsoredLib.ownerView(s, now()) });
 });
 
 // ----- clips: short vertical videos -----
@@ -5910,6 +5927,8 @@ app.get('/api/bots/:id/logs', auth, (req, res) => {
 // sort=popular (default): most members first; when searching, the best match comes first and members break ties.
 // A tag that matches counts for the most, then the name, then the description, so tags boost a server in search.
 const EXPLORE_PAGE = 24;
+let lastViewSave = 0;
+const saveSponsoredViews = () => { if (now() - lastViewSave > 60_000) { lastViewSave = now(); store.save(); } }; // view counts change on every explorer visit: save them once a minute at most
 function matchScore(s, tokens) {
   const name = s.name.toLowerCase(), desc = (s.description || '').toLowerCase(), tags = s.tags || [];
   let total = 0;
@@ -5935,13 +5954,19 @@ app.get('/api/explore', auth, (req, res) => {
   if (sort === 'az') list.sort(byName);
   else if (sort === 'za') list.sort((a, b) => byName(b, a));
   else list.sort((a, b) => b.score - a.score || b.boost - a.boost || humanCount(b.s) - humanCount(a.s) || byName(a, b)); // a boosted server comes before an equal match
-  const boostedCount = list.filter((x) => x.boost > 0).length;
-  list = [...list.filter((x) => x.boost > 0), ...list.filter((x) => !x.boost)]; // boosted servers lead, the explorer shows them as their own section
+  // sponsored servers (server/sponsored.js) lead in their own section; only people the feature is on for see them as such
+  const sponsorIds = featureOn('sponsored-servers', req.user) ? new Set(sponsoredLib.holders(list.map((x) => x.s), now()).map((s) => s.id)) : new Set();
+  const sponsoredNow = sponsoredLib.rotate(list.filter((x) => sponsorIds.has(x.s.id)), now());
+  if (sponsoredNow.length && offset === 0) { sponsoredLib.noteViews(sponsoredNow.map((x) => x.s).filter((s) => s.ownerId !== req.user.id), now()); saveSponsoredViews(); }
+  const boostedCount = list.filter((x) => x.boost > 0 && !sponsorIds.has(x.s.id)).length;
+  const rest = list.filter((x) => !sponsorIds.has(x.s.id));
+  list = [...sponsoredNow, ...rest.filter((x) => x.boost > 0), ...rest.filter((x) => !x.boost)]; // sponsored first, then boosted servers: the explorer shows each as its own section
   const page = list.slice(offset, offset + EXPLORE_PAGE).map(({ s, boost }) => ({
     code: s.inviteCode, serverId: s.id, name: s.name, iconImage: s.iconImage || null, bannerImage: s.bannerImage || null,
     theme: s.theme || null, memberCount: humanCount(s), description: s.description || '', tags: s.tags || [], mine: s.ownerId === req.user.id, boostLevel: boost,
+    ...(sponsorIds.has(s.id) ? { sponsored: true } : {}),
   }));
-  res.json({ servers: page, total: list.length, boosted: boostedCount, next: offset + EXPLORE_PAGE < list.length ? offset + EXPLORE_PAGE : null });
+  res.json({ servers: page, total: list.length, boosted: boostedCount, sponsored: sponsoredNow.length, next: offset + EXPLORE_PAGE < list.length ? offset + EXPLORE_PAGE : null });
 });
 
 // ----- server boosts (any member): spend credits to boost a server for 14 days (server/boosts.js) -----
@@ -5976,6 +6001,41 @@ app.post('/api/servers/:id/boost', auth, (req, res) => {
   broadcastServer(s); // everyone in the server sees the new level, and the booster tag, straight away
   res.json({ ...boostsLib.info(s, req.user.id, now()), balance, free: boostsLib.freeState(req.user, storagePlan.isSubscriber(req.user, now()), now()) });
 });
+
+// ----- sponsored servers (owner): a paid, gold-labelled slot at the top of the explorer (server/sponsored.js) -----
+const sponsorProblem = (s) => listing.listingProblem(s, BLOCKED_WORDS);
+function sponsoredInfo(s, u) {
+  const buying = credits.purchasesEnabled();
+  return {
+    plans: sponsoredLib.plansView(), slots: sponsoredLib.slots(Object.values(db().servers), now()), maxAheadDays: sponsoredLib.MAX_AHEAD_DAYS,
+    current: sponsoredLib.ownerView(s, now()), fit: sponsoredLib.eligibility(s, sponsorProblem(s)),
+    purchases: buying && paymentsOpen(u), paused: buying && !paymentsOpen(u), regions: buying ? regionsLib.publicInfo() : null,
+  };
+}
+app.get('/api/servers/:id/sponsored', auth, needFeature('sponsored-servers'), (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  res.json({ sponsored: sponsoredInfo(s, req.user) });
+});
+const sponsorTries = new Map();
+app.post('/api/servers/:id/sponsored/checkout', auth, needFeature('sponsored-servers'), switchOpen('payments'), ah(async (req, res) => {
+  const s = ownerOf(req, res); if (!s) return;
+  if (!credits.purchasesEnabled()) return res.status(503).json({ error: 'Buying is not set up on this server yet' });
+  const t = Date.now(), tries = (sponsorTries.get(req.user.id) || []).filter((x) => t - x < 60_000);
+  if (tries.length >= 5) return res.status(429).json({ error: 'Too many attempts, try again in a minute' });
+  tries.push(t); sponsorTries.set(req.user.id, tries);
+  const plan = sponsoredLib.planOf(req.body?.planId);
+  if (!plan) return res.status(400).json({ error: 'Unknown plan' });
+  const fit = sponsoredLib.canBuy(s, Object.values(db().servers), plan, now(), sponsorProblem(s));
+  if (!fit.ok) return res.status(fit.status).json({ error: fit.error, code: fit.code });
+  const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
+  try {
+    res.json({ url: await sponsoredLib.createCheckout({ user: req.user, server: s, plan, origin, buyer: req.body, createSession: credits.createSession, tax: credits.STRIPE_TAX }) });
+  } catch (e) {
+    if (e.forBuyer) return res.status(400).json({ error: e.message });
+    console.error(e.message);
+    res.status(502).json({ error: 'Could not start checkout. Try again later.' });
+  }
+}));
 
 app.patch('/api/servers/:id', auth, (req, res) => {
   const s = ownedServer(req, res);
@@ -6358,6 +6418,7 @@ credits.register(app, {
   userChanged: (u) => emitUserUpdate(u),       // an event badge was earned
   storageEvent: (ev) => storagePlan.handleEvent(ev, db(), now()),    // storage plan renewals / cancellations from Stripe's signed webhook
   storageChanged: (uid) => { if (storageApi) storageApi.push(uid); },
+  sponsoredEvent: (ev) => sponsoredLib.handleEvent(ev, db(), now()), // a sponsored server's payment or refund from Stripe's signed webhook
 });
 // Free storage budget: the free people's own limit, worked out every 6 hours from how many people pay (server/storage-budget.js).
 // Dry run (only logged) only when FREE_STORAGE_CAP=0 is set. Nothing is deleted when someone is over it: they just cannot add attachments.
@@ -6388,7 +6449,9 @@ storageApi = storagePlan.register(app, {
 app.get('/api/payments', auth, (req, res) => {
   const u = req.user;
   const packs = Object.values(db().payments || {}).filter((p) => p && p.userId === u.id)
-    .map((p) => ({ kind: 'credits', at: p.createdAt, cents: p.cents, currency: p.currency || 'usd', credits: p.credits, reversed: !!p.reversed }));
+    .map((p) => p.kind === 'sponsored'
+      ? { kind: 'sponsored', at: p.createdAt, cents: p.cents, currency: p.currency || 'usd', days: p.days, serverName: db().servers[p.serverId]?.name || '', reversed: !!p.reversed } // a sponsored server (server/sponsored.js)
+      : { kind: 'credits', at: p.createdAt, cents: p.cents, currency: p.currency || 'usd', credits: p.credits, reversed: !!p.reversed });
   const storage = (Array.isArray(u.storagePayments) ? u.storagePayments : [])
     .map((p) => ({ kind: 'storage', at: p.at, cents: p.cents, currency: p.currency || 'usd', renewal: !!p.renewal }));
   const ledger = ((u.credits && u.credits.ledger) || []).map((l) => ({ t: l.t, amount: l.amount, reason: l.reason, note: l.note || null, n: l.n || null }));

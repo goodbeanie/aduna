@@ -4,6 +4,7 @@ import { imageUrl } from './image.js';
 import { buildPalette } from './themes.js';
 import { Icon, ServerIcon } from './ui.jsx';
 import { BoostedTag } from './BoostTags.jsx';
+import { SponsoredTag } from './Sponsored.jsx';
 
 // App provides { servers, onJoined, onOpen } so a card in any message can join or open the server.
 // onNeedAuth is only set on the public invite page for a visitor who is not signed in: Join then asks them to sign in first.
@@ -88,14 +89,14 @@ export function InviteBox({ info, label, extra, compact }) {
   }
 
   return (
-    <div className={'invite-card' + (compact ? ' mini' : '') + (info.boostLevel > 0 ? ' boosted-ring' : '')} style={themeVars(info.theme)}>
+    <div className={'invite-card' + (compact ? ' mini' : '') + (info.sponsored ? ' sponsored-ring' : info.boostLevel > 0 ? ' boosted-ring' : '')} style={themeVars(info.theme)}>
       <div className="ic-banner" style={info.bannerImage ? { backgroundImage: `url("${imageUrl(info.bannerAnim || info.bannerImage)}")` } : undefined} />
       <div className="ic-icon"><ServerIcon server={{ name: info.name, iconImage: info.iconImage, iconAnim: info.iconAnim }} fill play /></div>
       <div className="ic-body">
         {label && <div className="ic-label">{label}</div>}
         <div className="ic-row">
           <div className="ic-text">
-            <div className="ic-name">{info.name}{info.boostLevel > 0 && <BoostedTag level={info.boostLevel} />}</div>
+            <div className="ic-name">{info.name}{info.sponsored && <SponsoredTag />}{info.boostLevel > 0 && <BoostedTag level={info.boostLevel} />}</div>
             <div className="ic-meta"><Icon name="users" size={14} /> {info.memberCount} member{info.memberCount === 1 ? '' : 's'}</div>
             {compact && info.tags?.length > 0 && <div className="ic-tags">{info.tags.map((t) => <span key={t}>#{t}</span>)}</div>}
           </div>

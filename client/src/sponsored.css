@@ -1,0 +1,20 @@
+/* Sponsored servers: the gold tag and ring (Invite.jsx, Explorer.jsx) and the "Sponsor this server" panel in Server settings > Publish (Sponsored.jsx). */
+.sponsored-tag { flex: none; margin-left: 8px; padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: .04em; line-height: 1.4; text-transform: uppercase; vertical-align: middle; color: #2b2000; background: linear-gradient(135deg, #f8dc7e, #e6ab2a 55%, #f4c94f); }
+.invite-card.sponsored-ring { border-color: transparent; }
+.invite-card.sponsored-ring::after { content: ''; position: absolute; inset: 0; z-index: 1; padding: 2px; border-radius: inherit; background: linear-gradient(135deg, #f8dc7e, #d9a021 50%, #f4c94f); pointer-events: none; -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); mask-composite: exclude; }
+.explore-section.sponsored-head { display: flex; align-items: center; gap: 8px; }
+.explore-section.sponsored-head::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: linear-gradient(135deg, #f8dc7e, #d9a021); }
+
+.sp-panel { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; min-width: 0; }
+.sp-note { margin: 0; font-size: 14px; line-height: 1.5; color: var(--muted); }
+.sp-note b { color: var(--head); font-variant-numeric: tabular-nums; }
+.sp-status { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: baseline; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); font-size: 14px; color: var(--text); }
+.sp-status.on { border-color: #d9a021; }
+.sp-status b { color: var(--head); font-variant-numeric: tabular-nums; }
+.sp-plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.sp-plan { display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg2); min-width: 0; }
+.sp-plan b { font-size: 15px; color: var(--head); }
+.sp-price { font-size: 20px; font-weight: 600; color: var(--head); font-variant-numeric: tabular-nums; }
+.sp-price small { margin-left: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
+.sp-plan .btn { margin-top: 4px; width: 100%; }
+.sp-err { margin: 0; font-size: 13px; color: var(--danger); }

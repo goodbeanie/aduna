@@ -447,6 +447,7 @@ function handleStripeEvent(event, db, now = Date.now()) {
   const obj = event?.data?.object || {};
   if (event?.type === 'checkout.session.completed' || event?.type === 'checkout.session.async_payment_succeeded') {
     if (obj.mode === 'subscription') return null;   // the storage plan: server/storage.js looks after it
+    if (obj.metadata?.kind === 'sponsored') return null; // a sponsored server: server/sponsored.js
     if (obj.payment_status !== 'paid') return null; // an async payment: wait for async_payment_succeeded
     if (db.payments[obj.id]) return null;            // Stripe retries and sends duplicates: pay once per session
     const pack = packForPayment(obj.metadata?.packId);
@@ -481,7 +482,7 @@ function handleStripeEvent(event, db, now = Date.now()) {
   if (intent) {
     const pay = Object.values(db.payments).find((p) => p.intent === intent);
     const u = pay && db.users[pay.userId];
-    if (!pay || !u || pay.reversed) return null;
+    if (!pay || pay.kind === 'sponsored' || !u || pay.reversed) return null;
     pay.reversed = true;
     claw(u, pay.credits, event.type === 'charge.refunded' ? 'refund' : 'chargeback', { now });
     return { uid: u.id, delta: -pay.credits, reason: 'refund' };
@@ -598,12 +599,14 @@ function register(app, d) {
   // Stripe calls this. No login: the signature is the proof. index.js keeps the raw body for it (req.rawBody).
   app.post('/api/credits/webhook', d.ah(async (req, res) => {
     if (!verifyStripeSignature(req.rawBody, req.headers['stripe-signature'], stripeHook())) return res.status(400).json({ error: 'Bad signature' });
-    let change = null, storageUid = null;
+    let change = null, storageUid = null, sponsored = null;
     try {
       storageUid = d.storageEvent ? await d.storageEvent(req.body) : null; // subscription and invoice events belong to the storage plan (server/storage.js)
-      if (!storageUid) change = handleStripeEvent(req.body, d.db());
+      if (!storageUid) sponsored = d.sponsoredEvent ? d.sponsoredEvent(req.body) : null; // a sponsored server's payment or refund (server/sponsored.js)
+      if (!storageUid && !sponsored) change = handleStripeEvent(req.body, d.db());
     } catch (e) { console.error('Credits webhook error:', e); return res.status(500).json({ error: 'Failed' }); } // Stripe retries
     if (storageUid) { d.save(); if (d.storageChanged) d.storageChanged(storageUid); }
+    if (sponsored) d.save();
     if (change) { d.save(); const u = d.db().users[change.uid]; if (u) push(u, change.delta, change.reason); }
     res.json({ received: true });
   }));

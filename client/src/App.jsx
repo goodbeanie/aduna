@@ -282,6 +282,7 @@ function Main({ me, setMe, privKey, openServerId }) {
   const [justPaid, setJustPaid] = useState(false); // we just came back from Stripe Checkout
   const [loaded, setLoaded] = useState(false); // servers, presence and DMs have been fetched
   const payReturn = useRef(new URLSearchParams(location.search).get('credits')); // 'paid' | 'cancelled' | null
+  const sponsorReturn = useRef((() => { const p = new URLSearchParams(location.search); return p.get('sponsored') ? { result: p.get('sponsored'), serverId: p.get('server') } : null; })()); // back from a sponsored server's Checkout
   useEffect(() => { api('/credits').then((r) => setBalance(r.balance)).catch(() => {}); }, []);
   useEffect(() => { if (!gain) return undefined; const t = setTimeout(() => setGain(null), 2400); return () => clearTimeout(t); }, [gain]);
   useEffect(() => { api('/gifs/config').then((r) => setGifEnabled(r.enabled)).catch(() => {}); }, []);
@@ -459,6 +460,14 @@ function Main({ me, setMe, privKey, openServerId }) {
         if (payReturn.current === 'paid') setJustPaid(true);
         history.replaceState(null, '', '/app');
         payReturn.current = null;
+      }
+      if (sponsorReturn.current) { // back from a sponsored server's Checkout: open that server's Publish tab
+        const { result, serverId } = sponsorReturn.current;
+        const back = sv.find((x) => x.id === serverId);
+        if (back) { setView({ kind: 'server', serverId: back.id, channelId: back.channels[0].id }); setModal({ type: 'serverSettings', tab: 'publish' }); }
+        showToast(result === 'paid' ? 'Payment received. Your server will show as sponsored in a moment.' : 'Checkout cancelled. You were not charged.');
+        history.replaceState(null, '', '/app');
+        sponsorReturn.current = null;
       }
       setLoaded(true);
     })().catch((e) => { if (e.status === 401) logout(); });

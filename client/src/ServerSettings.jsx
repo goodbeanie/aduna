@@ -19,6 +19,7 @@ import { WebhooksTab } from './Webhooks.jsx';
 import { SoundboardTab } from './Soundboard.jsx';
 import { ServerTagTab } from './ServerTag.jsx';
 import { AutomodTab } from './Automod.jsx';
+import { SponsorPanel } from './Sponsored.jsx';
 
 // [id, label, icon, who may open it]
 const TABS = [
@@ -266,7 +267,7 @@ export function ServerSettings({ server, me, onClose, onSaved, startTab }) {
           {tab === 'soundboard' && <SoundboardTab key={server.id} server={server} me={me} onChange={onSaved} />}
           {tab === 'members' && <MembersTab server={server} me={me} onChange={onSaved} />}
           {tab === 'ownership' && <OwnershipTab server={server} me={me} onChange={onSaved} onClose={onClose} />}
-          {tab === 'publish' && <PublishTab server={server} onChange={onSaved} goChannels={() => setTab('channels')} />}
+          {tab === 'publish' && <PublishTab server={server} me={me} onChange={onSaved} goChannels={() => setTab('channels')} />}
 
           {(tab === 'overview' || tab === 'theme') && err && <div className="error">{err}</div>}
           {(tab === 'overview' || tab === 'theme') && <div className="settings-foot">
@@ -392,7 +393,7 @@ const VIS = [
 ];
 // Publishing: the server must first have enough channels, then the owner picks who can find and join it.
 // Applies immediately (no Save button). Private servers also get a list of who is allowed in.
-function PublishTab({ server, onChange, goChannels }) {
+function PublishTab({ server, me, onChange, goChannels }) {
   const [info, setInfo] = useState(null);
   const [pick, setPick] = useState(null);
   const [desc, setDesc] = useState(server.description || '');
@@ -493,6 +494,7 @@ function PublishTab({ server, onChange, goChannels }) {
         {current && <button className="btn" disabled={busy} onClick={unpublish}>Unpublish</button>}{' '}
         <button className="btn primary" disabled={busy || !info.met || !dirty} onClick={publish}>{current ? 'Update' : 'Publish'}</button>
       </div>
+      <SponsorPanel server={server} me={me} visibility={current} />
     </>
   );
 }

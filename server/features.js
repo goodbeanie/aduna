@@ -15,6 +15,7 @@
 const REGISTRY = [
   { id: 'promoted-items', name: 'Promoted marketplace items', desc: 'Creators pay credits to feature their sticker packs and emoji in the Shop. (Planned: not built yet.)' },
   { id: 'sponsored-card', name: 'Sponsored card', desc: 'One clearly labelled, static “Sponsored” card at the bottom of the Shop. Needs ADS_JSON set on the server.' },
+  { id: 'sponsored-servers', name: 'Sponsored servers', desc: 'Owners of public servers can pay for a gold “Sponsored” slot at the top of the server explorer. Needs Stripe set up.' },
   { id: 'rewarded-ads', name: 'Watch an ad for credits', desc: 'An opt-in “Watch a sponsor, earn credits” button on the Quests tab, with a daily cap. Needs ADS_JSON set on the server.' },
   { id: 'vc-screenshare', name: 'Voice channel screen share', desc: 'Share your screen in a voice channel, and watch other people’s shares.' },
   { id: 'screenshare-zoom', name: 'Zoom while sharing your screen', desc: 'Aduna desktop app: a shortcut (changeable in Settings > Voice & Video) zooms the shared screen in on your cursor, and scrolling zooms further.' },

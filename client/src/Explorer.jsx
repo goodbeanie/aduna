@@ -46,9 +46,11 @@ function ServerList() {
     setMore(false);
   }
 
-  // the server already sends boosted servers first, so they split cleanly into their own section
-  const boostedItems = items.filter((i) => i.boostLevel > 0);
-  const otherItems = items.filter((i) => !(i.boostLevel > 0));
+  // the server already sends sponsored servers first, then boosted ones, so they split cleanly into their own sections
+  const sponsoredItems = items.filter((i) => i.sponsored);
+  const boostedItems = items.filter((i) => !i.sponsored && i.boostLevel > 0);
+  const otherItems = items.filter((i) => !i.sponsored && !(i.boostLevel > 0));
+  const grid = (list) => <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>{list.map(card)}</div>;
   const card = (info) => (
     <InviteBox key={info.serverId} info={info} label="Public server" extra={(
       <>
@@ -80,10 +82,12 @@ function ServerList() {
         {state === 'ready' && items.length === 0 && (
           <div className="empty">{q.trim() ? <>{`No public servers match “${q.trim()}”.`} <button className="btn" onClick={() => setQ('')}>Clear search</button></> : 'No public servers yet. Owners can publish theirs from Server settings > Publish.'}</div>
         )}
+        {sponsoredItems.length > 0 && <h4 className="explore-section sponsored-head">Sponsored</h4>}
+        {sponsoredItems.length > 0 && grid(sponsoredItems)}
         {boostedItems.length > 0 && <h4 className="explore-section">Boosted servers</h4>}
-        {boostedItems.length > 0 && <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>{boostedItems.map(card)}</div>}
-        {boostedItems.length > 0 && otherItems.length > 0 && <h4 className="explore-section">All servers</h4>}
-        {otherItems.length > 0 && <div className={'explore-grid' + (state === 'loading' ? ' busy' : '')}>{otherItems.map(card)}</div>}
+        {boostedItems.length > 0 && grid(boostedItems)}
+        {(sponsoredItems.length > 0 || boostedItems.length > 0) && otherItems.length > 0 && <h4 className="explore-section">All servers</h4>}
+        {otherItems.length > 0 && grid(otherItems)}
         {state === 'ready' && next !== null && <div className="explore-more"><button className="btn" disabled={more} onClick={loadMore}>{more ? 'Loading…' : 'Show more'}</button></div>}
       </div>
       {reporting && <ReportModal info={reporting} path={`/servers/${reporting.serverId}/report`} onClose={() => setReporting(null)} />}
