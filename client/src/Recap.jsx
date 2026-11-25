@@ -6,13 +6,12 @@ import { useProfileThemes, userTheme, findProfileTheme, lightness } from './prof
 import { songUrl } from './ProfileSong.jsx';
 import ShareSheet from './ShareSheet.jsx';
 import { tossfaceUrl } from './tossface.js';
-import { TOTAL_MS, buildScenes, countText, shareText } from './recap.js';
+import { DEFAULT_LOOK, TOTAL_MS, buildScenes, countText, inThird, recapToken, shareText } from './recap.js';
 
 // Settings > Year in review. Two versions with the same six scenes: the global one (same for everyone, painted with the most popular
 // profile theme and played over the most popular song) and the person's own (their theme, their profile song). What goes into the scenes,
 // and which stat is picked, is in recap.js. The numbers come from GET /api/recap and are counts only.
 
-const DEFAULT_LOOK = { colors: ['#1c1812', '#3b342a', '#c9953a'], angle: 135 };
 const BG_POS = ['0% 0%', '100% 0%', '100% 100%', '0% 100%', '50% 50%', '0% 50%']; // the gradient drifts to a new corner each scene
 const FADE_IN_MS = 1500, FADE_OUT_MS = 2500;
 const gainAt = (t) => Math.max(0, Math.min(1, t / FADE_IN_MS, (TOTAL_MS - t) / FADE_OUT_MS));
@@ -94,7 +93,8 @@ function Scene({ s, ms, last, numRef, year }) {
   );
 }
 
-function Player({ scenes, year, kind, look, song }) {
+// received: a recap someone shared into a chat, shown over the chat (no Share button). autoPlay starts it as soon as it opens.
+export function Player({ scenes, year, kind, look, song, name, received = false, autoPlay = false }) {
   const n = scenes.length;
   const sceneMs = TOTAL_MS / n;
   const src = song ? songUrl(song) : '';
@@ -224,6 +224,8 @@ function Player({ scenes, year, kind, look, song }) {
 
   useEffect(() => { if (audio.current) audio.current.muted = muted; }, [muted, src]);
 
+  useEffect(() => { if (autoPlay) start(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // keep the blobs the right size, and drawn while nothing is playing
   useEffect(() => {
     const el = stage.current, c = cv.current;
@@ -290,14 +292,15 @@ function Player({ scenes, year, kind, look, song }) {
         )}
         <span className="rc-time" ref={time}>{`0:00 / ${clock(TOTAL_MS)}`}</span>
         <span className="rc-spacer" />
-        <button type="button" className="btn" onClick={openShare}><Icon name="send" size={16} /> Share</button>
+        {!received && <button type="button" className="btn" onClick={openShare}><Icon name="send" size={16} /> Share</button>}
       </div>
       {sharing && (
         <ShareSheet what="recap" link={location.origin} text={shareText(scenes, kind, year)} title={kind === 'mine' ? `My ${year} on Aduna` : `Aduna in ${year}`}
+          message={recapToken(kind === 'mine' ? inThird(scenes, name) : scenes, { kind, year, look, song }) || undefined}
           onClose={() => setSharing(false)} onShared={() => {}} />
       )}
       <p className="hint">
-        {kind === 'mine' ? 'Only you can see this. Nothing is shared unless you press Share.' : 'The same for everyone. It only counts things: no messages, names or servers.'}
+        {received ? 'Numbers only, shared in chat.' : kind === 'mine' ? 'Only you can see this. Nothing is shared unless you press Share.' : 'The same for everyone. It only counts things: no messages, names or servers.'}
         {src && !audioBad && <> {status === 'idle' ? 'Sound stays off until you press play.' : ''}<span className="rc-song"> <Icon name="music" size={13} className="inline-icon" /> {String(song.title || 'Song').slice(0, 60)}</span></>}
         {audioBad && ' The song could not be played.'}
       </p>
@@ -331,7 +334,7 @@ export function RecapSettings({ me, recap }) {
         </div>
       )}
       {scenes
-        ? <Player key={view} scenes={scenes} year={recap.year} kind={view} look={look} song={song} />
+        ? <Player key={view} scenes={scenes} year={recap.year} kind={view} look={look} song={song} name={me && (me.displayName || me.username)} />
         : <p className="hint">There is nothing to show here yet.</p>}
     </div>
   );

@@ -8,7 +8,8 @@ import './sharesheet.css';
 
 // "Share" on a clip, or on anything else that brings its own `link` (the yearly recap sends `text` as well). Send it to a friend (an end-to-end
 // encrypted DM, exactly like inside Aduna: the key is kept on this device) or to a server (its first text channel), copy it, or open the
-// device's own share menu. `onShared` runs after each successful share.
+// device's own share menu. `onShared` runs after each successful share. `message`, when given, is what a friend or a server gets instead of the
+// text and link (the recap sends a token that chat draws as a video card); copy and the device menu still use the text.
 const wrapDm = (text) => JSON.stringify({ v: 1, t: text, a: [] }); // the envelope Aduna's DMs use
 const firstText = (s) => (s.channels || []).find((c) => (c.type || 'text') === 'text');
 const nameOf = (u) => u.displayName || u.username || 'Someone';
@@ -16,9 +17,10 @@ const nameOf = (u) => u.displayName || u.username || 'Someone';
 const LinkIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 14a4.500 4.500 0 0 0 6.400.4l3-3a4.500 4.500 0 0 0-6.400-6.400l-1.100 1.100" /><path d="M14 10a4.500 4.500 0 0 0-6.400-.4l-3 3a4.500 4.500 0 0 0 6.400 6.400l1.100-1.100" /></svg>;
 const MoreIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.900" /><circle cx="12" cy="12" r="1.900" /><circle cx="19" cy="12" r="1.900" /></svg>;
 
-export default function ShareSheet({ clip, link: givenLink, text, title, what = 'clip', onClose, onShared }) {
+export default function ShareSheet({ clip, link: givenLink, text, message, title, what = 'clip', onClose, onShared }) {
   const link = givenLink || `${location.origin}/clips/${clip.id}`;
-  const body = text ? `${text}\n${link}` : link; // what a friend, a server or the clipboard gets
+  const body = text ? `${text}\n${link}` : link; // what the clipboard gets
+  const sent = message || body; // what a friend or a server gets
   const [friends, setFriends] = useState(null);
   const [servers, setServers] = useState(null);
   const [q, setQ] = useState('');
@@ -53,7 +55,7 @@ export default function ShareSheet({ clip, link: givenLink, text, title, what = 
       // does not have it yet: ask for the password once, open the key with it, keep it, and carry on with the send.
       if (!key.current) { mark(f.id, ''); setUnlock({ f, pw: '', busy: false, err: '' }); return; }
       if (!f.publicKey) throw new Error(nameOf(f) + ' has not set up messages yet.');
-      const enc = await encryptFor(key.current, f.publicKey, wrapDm(body));
+      const enc = await encryptFor(key.current, f.publicKey, wrapDm(sent));
       await emitAck(socket(), 'dm:send', { to: f.id, ...enc, files: [] });
       mark(f.id, 'sent'); onShared();
     } catch (e) { mark(f.id, ''); toast(e.message || 'Could not send', 'error'); }
@@ -78,7 +80,7 @@ export default function ShareSheet({ clip, link: givenLink, text, title, what = 
     mark(s.id, 'sending');
     try {
       const ch = firstText(s);
-      await emitAck(socket(), 'message:send', { channelId: ch.id, content: body });
+      await emitAck(socket(), 'message:send', { channelId: ch.id, content: sent });
       mark(s.id, 'sent'); onShared();
       toast(`Sent to ${s.name} #${ch.name || 'channel'}`);
     } catch (e) { mark(s.id, ''); toast(e.message || 'Could not send', 'error'); }

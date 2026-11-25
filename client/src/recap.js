@@ -154,3 +154,83 @@ export function shareText(scenes, kind, year) {
   const head = kind === 'mine' ? `My ${year} on Aduna` : `Aduna in ${year}`;
   return [head, ...lines.map((l) => '• ' + l)].join('\n');
 }
+
+export const DEFAULT_LOOK = { colors: ['#1c1812', '#3b342a', '#c9953a'], angle: 135 };
+
+// The same scenes for someone else to watch: "Your 2026 on Aduna" becomes "Sam's 2026 on Aduna".
+export function inThird(scenes, name) {
+  const who = String(name || '').trim().slice(0, 24) || 'Someone';
+  const fix = (s) => (typeof s === 'string'
+    ? s.replace(/\bYour\b/g, who + "'s").replace(/\byours\b/g, 'theirs').replace(/\byour\b/g, 'their').replace(/\byou earned\b/g, 'they earned')
+    : s);
+  return scenes.map((s) => ({ ...s, main: typeof s.main.text === 'string' ? { ...s.main, text: fix(s.main.text) } : s.main, unit: fix(s.unit), sub: fix(s.sub) }));
+}
+
+// Share in a chat sends the video as one message, recap:1:<scenes as base64url JSON>. The chat draws it as a card with a play button and plays it
+// there, so nothing is rendered or stored on the server and DMs stay end-to-end encrypted. A server channel keeps 2000 characters of a message,
+// so the token drops the song and then the small print until it fits under SHARE_MAX.
+const SHARE_RE = /^recap:1:([A-Za-z0-9_-]{20,3600})$/;
+const ANCHORS = ['c', 'tl', 'tr', 'bl', 'br'];
+export const SHARE_MAX = 1800;
+export const isRecapToken = (content) => typeof content === 'string' && content.startsWith('recap:1:');
+
+const toB64 = (s) => {
+  let bin = '';
+  for (const b of new TextEncoder().encode(s)) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+};
+const fromB64 = (t) => new TextDecoder().decode(Uint8Array.from(atob(t.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
+
+const packMain = (m) => (m.logo ? 1 : typeof m.count === 'number' ? [m.count, m.prefix || '', m.suffix || ''] : String(m.text ?? ''));
+
+export function recapToken(scenes, { kind, year, look, song }) {
+  const l = look || DEFAULT_LOOK;
+  const so = song && (song.id || song.url)
+    ? { ...(song.id ? { i: String(song.id) } : {}), ...(song.url && String(song.url).length <= 300 ? { u: String(song.url) } : {}), t: String(song.title || '').slice(0, 60) }
+    : null;
+  const pack = (withSong, withSub) => 'recap:1:' + toB64(JSON.stringify({
+    k: kind === 'mine' ? 'm' : 'g', y: year, c: l.colors.slice(0, 4), a: Math.round(l.angle) || 0,
+    s: scenes.map((s) => [s.key, packMain(s.main), s.unit || '', withSub ? s.sub || '' : '', s.anchor]),
+    ...(withSong && so ? { o: so } : {}),
+  }));
+  for (const [withSong, withSub] of [[true, true], [false, true], [false, false]]) {
+    const t = pack(withSong, withSub);
+    if (t.length <= SHARE_MAX) return t;
+  }
+  return null;
+}
+
+const str = (v, max) => (typeof v === 'string' && v.length <= max ? v : null);
+function unpackScene(r) {
+  if (!Array.isArray(r) || r.length !== 5) return null;
+  const [key, m, unit, sub, anchor] = r;
+  if (typeof key !== 'string' || !/^[a-z]{1,16}$/.test(key) || !ANCHORS.includes(anchor)) return null;
+  let main;
+  if (m === 1) main = { logo: true };
+  else if (typeof m === 'string' && m.length <= 60) main = { text: m };
+  else if (Array.isArray(m) && Number.isFinite(m[0]) && m[0] >= 0 && m[0] < 1e13 && str(m[1], 8) !== null && str(m[2], 8) !== null) main = { count: m[0], prefix: m[1], suffix: m[2] };
+  else return null;
+  const u = str(unit, 60), s = str(sub, 160);
+  if (u === null || s === null) return null;
+  return { key, main, unit: u, sub: s, anchor };
+}
+
+// Anyone can post one of these, so everything is checked: colours, text lengths, the song link. Gives { kind, year, scenes, look, song } or null.
+export function parseRecapShare(content) {
+  const m = SHARE_RE.exec(String(content || '').trim());
+  if (!m) return null;
+  let d;
+  try { d = JSON.parse(fromB64(m[1])); } catch { return null; }
+  if (!d || (d.k !== 'm' && d.k !== 'g') || !Number.isInteger(d.y) || d.y < 2000 || d.y > 2200 || !Array.isArray(d.s) || d.s.length < 2 || d.s.length > 10) return null;
+  const scenes = d.s.map(unpackScene);
+  if (scenes.some((s) => !s)) return null;
+  const colors = Array.isArray(d.c) ? d.c.filter((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)).slice(0, 4) : [];
+  const look = colors.length >= 2 ? { colors, angle: Number.isFinite(d.a) && d.a >= 0 && d.a <= 360 ? d.a : 135 } : null;
+  let song = null;
+  if (d.o && typeof d.o === 'object') {
+    const id = typeof d.o.i === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(d.o.i) ? d.o.i : null;
+    const url = typeof d.o.u === 'string' && /^https:\/\/\S{1,290}$/.test(d.o.u) ? d.o.u : null;
+    if (id || url) song = { ...(id ? { id } : {}), ...(url ? { url } : {}), title: str(d.o.t, 60) || 'Song' };
+  }
+  return { kind: d.k === 'm' ? 'mine' : 'global', year: d.y, scenes, look, song };
+}

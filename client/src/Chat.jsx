@@ -23,6 +23,8 @@ import { WheelCard, WheelModal } from './Wheels.jsx';
 import { WordleModal, WordleShareCard, parseWordleShare } from './Wordle.jsx';
 import { ContextoModal, ContextoShareCard, parseContextoShare } from './Contexto.jsx';
 import { PuzzleModal, PuzzleShareCard, parsePuzzleShare } from './Puzzle.jsx';
+import { isRecapToken, parseRecapShare } from './recap.js';
+import { RecapShareCard } from './RecapShare.jsx';
 import { callSummary } from './callhistory.js';
 import { FILE_DAYS, LARGE_FILE_DAYS, MAX_ATTACH, MAX_FILE, discardUpload, previewText, sizeLabel, uploadFile } from './files.js';
 import { canCompress, compressVideo } from './compress.js';
@@ -176,11 +178,12 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
   const ctx = useContextMenu();
   const mine = m.authorId === me.id;
   const { lang: uiLang, t: tl } = useLang();
-  const translated = useTranslation(m, !!me.translateMessages && !dm, uiLang); // { text, from } when this server-channel message is in another language
+  const translated = useTranslation(m, !!me.translateMessages && !dm && !isRecapToken(m.content), uiLang); // { text, from } when this server-channel message is in another language
   const author = authorOf(users, m);
   const wshare = parseWordleShare(m.content); // a shared Wordle result is drawn as a card instead of its text
   const cshare = parseContextoShare(m.content); // and so is a shared Contexto result
   const pzshare = parsePuzzleShare(m.content); // and a shared chess puzzle result
+  const rshare = parseRecapShare(m.content); // and a shared year-in-review video
   const sticker = stickerIdOf(m.content); // a sticker is drawn as a big picture (the text is just its token), and cannot be edited as text
   const ref = m.replyTo ? byId[m.replyTo] : null;
   const refAuthor = ref ? authorOf(users, ref) : null;
@@ -223,7 +226,7 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
         { label: 'Add reaction', icon: 'smile', onClick: () => setCtxPicker({ x, y }) },
         { label: 'Reply', icon: 'reply', onClick: () => onReply(m) },
         canPin && { label: m.pinnedAt ? 'Unpin message' : 'Pin message', icon: 'pushpin', onClick: () => onPin(m, !m.pinnedAt) },
-        mine && !sticker && { label: 'Edit message', icon: 'edit', onClick: () => setEditing(m.id) },
+        mine && !sticker && !rshare && { label: 'Edit message', icon: 'edit', onClick: () => setEditing(m.id) },
         'sep',
         { label: saved ? 'Remove from saved' : 'Save for later', icon: 'bookmark', onClick: toggleSave },
         { label: reminder ? 'Cancel reminder' : 'Remind me in 1 hour', icon: 'clock', onClick: toggleReminder },
@@ -271,7 +274,7 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
           )}
           {editing
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} limit={charLimit(me)} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll || !!m.wheel} onSave={(t) => { const x = encode(t); if (x.length > charLimit(me)) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
-            : (m.content || m.editedAt) && !wshare && !cshare && !pzshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} live={!dm} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+            : (m.content || m.editedAt) && !wshare && !cshare && !pzshare && !rshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} live={!dm} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
           {translated && !editing && !sticker && (
             <div className="translation" lang={uiLang}>
@@ -282,6 +285,7 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
           {wshare && !editing && <WordleShareCard share={wshare} />}
         {cshare && !editing && <ContextoShareCard share={cshare} />}
       {pzshare && !editing && <PuzzleShareCard share={pzshare} />}
+          {rshare && !editing && <RecapShareCard share={rshare} />}
           {m.poll && <PollCard m={m} users={users} me={me} onVote={onVote} onClose={onClosePoll} canClose={canDelete} />}
           {m.wheel && <WheelCard m={m} />}
           {m.invite && <InviteCard code={m.invite} />}

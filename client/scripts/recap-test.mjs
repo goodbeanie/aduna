@@ -1,6 +1,6 @@
 // The recap scenes without a browser: node client/scripts/recap-test.mjs
 import assert from 'node:assert';
-import { buildScenes, countText, shareText, TOTAL_MS } from '../src/recap.js';
+import { buildScenes, countText, shareText, inThird, recapToken, parseRecapShare, SHARE_MAX, TOTAL_MS } from '../src/recap.js';
 
 const step = (m) => console.log('✓', m);
 const keys = (s) => s.map((x) => x.key).join(',');
@@ -48,6 +48,39 @@ const data = (m, g = {}) => ({ year: 2026, global: { users: 50, messages: 9000, 
   assert.ok(text.startsWith('My 2026 on Aduna'));
   assert.ok(text.includes('1,200 messages sent'));
   step('share text holds counts only');
+}
+
+{
+  const look = { colors: ['#112233', '#445566', '#c9953a'], angle: 120 };
+  const s = inThird(buildScenes(data(mine()), 'mine'), 'Sam');
+  assert.strictEqual(s[0].main.text, "Sam's 2026 on Aduna");
+  assert.strictEqual(s.find((x) => x.key === 'title').unit, "Sam's title");
+  const t = recapToken(s, { kind: 'mine', year: 2026, look, song: { id: 'abc123', title: 'Night Drive' } });
+  assert.ok(t.startsWith('recap:1:') && t.length <= SHARE_MAX);
+  const got = parseRecapShare(t);
+  assert.strictEqual(got.kind, 'mine');
+  assert.strictEqual(got.year, 2026);
+  assert.deepStrictEqual(got.look, look);
+  assert.deepStrictEqual(got.song, { id: 'abc123', title: 'Night Drive' });
+  assert.deepStrictEqual(got.scenes.map((x) => x.anchor), s.map((x) => x.anchor));
+  assert.strictEqual(countText(got.scenes[1].main, 0, true), '1,200');
+  assert.strictEqual(got.scenes.find((x) => x.key === 'title').sub.includes('🔥'), true, 'emoji survive the packing');
+  step('a recap packs into a token and comes back the same');
+}
+{
+  assert.strictEqual(parseRecapShare('recap:1:not-a-real-token-at-all'), null);
+  assert.strictEqual(parseRecapShare('hello'), null);
+  const bad = (o) => parseRecapShare('recap:1:' + Buffer.from(JSON.stringify(o)).toString('base64url'));
+  const scene = ['intro', 'Hi', '', '', 'c'];
+  const ok = { k: 'g', y: 2026, c: ['#112233', '#445566'], a: 90, s: [scene, scene] };
+  assert.ok(bad(ok));
+  assert.strictEqual(bad({ ...ok, s: [scene] }), null, 'too few scenes');
+  assert.strictEqual(bad({ ...ok, s: [scene, ['x', 'y', '', '', 'zz']] }), null, 'unknown anchor');
+  assert.strictEqual(bad({ ...ok, y: 1 }), null);
+  assert.strictEqual(bad({ ...ok, c: ['red', 'javascript:1'] }).look, null, 'bad colours fall back to the default look');
+  assert.strictEqual(bad({ ...ok, o: { u: 'http://x.example/a.mp3' } }).song, null, 'only https song links');
+  assert.strictEqual(bad({ ...ok, o: { u: 'javascript:alert(1)' } }).song, null);
+  step('a made-up token is refused or cleaned');
 }
 
 console.log('recap scenes: all good');

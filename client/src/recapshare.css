@@ -1,0 +1,21 @@
+/* A recap shared into a chat (RecapShare.jsx): poster with a play button, and the viewer it opens (RecapViewer.jsx). */
+.rs-card { display: flex; flex-direction: column; gap: 8px; width: 200px; max-width: 100%; margin-top: 6px; padding: 8px; box-sizing: border-box; border-radius: 14px; border: 1px solid var(--line, rgba(127,127,127,.25)); background: var(--bg2, var(--field)); color: inherit; text-align: left; font: inherit; cursor: pointer; }
+.rs-card:hover { border-color: var(--line2, rgba(127,127,127,.5)); }
+.rs-card:focus-visible { outline: 2px solid var(--accent, #6aa7ff); outline-offset: 2px; }
+.rs-thumb { position: relative; display: block; width: 100%; aspect-ratio: 9 / 16; border-radius: 10px; overflow: hidden; container-type: size; background-color: #1c1812; color: var(--rc-ink, #fbf8f1); font-family: "Inter Variable", Inter, system-ui, sans-serif; font-weight: 800; }
+.rs-thumb .rc-logo { position: absolute; left: 8cqw; top: 9cqw; --logo: 9cqw; }
+.rs-title { position: absolute; left: 8cqw; right: 8cqw; top: 24cqw; font-size: 12cqw; line-height: 1.05; font-weight: 900; letter-spacing: -.04em; text-wrap: balance; overflow-wrap: anywhere; }
+.rs-play { position: absolute; left: 50%; top: 58%; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 18px; background: rgba(0,0,0,.55); display: grid; place-items: center; transition: background .12s, transform .12s; }
+.rs-card:hover .rs-play { background: rgba(0,0,0,.72); transform: scale(1.05); }
+.rs-meta { display: flex; flex-direction: column; min-width: 0; font-size: 13px; line-height: 1.3; }
+.rs-meta b { font-weight: 600; color: var(--head, inherit); }
+.rs-meta span { color: var(--muted); }
+
+.rs-back { position: fixed; inset: 0; z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; background: radial-gradient(ellipse at center, rgba(28,28,36,.9), rgba(4,4,8,.95)); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
+.rs-panel { display: grid; gap: 12px; width: min(100%, 440px); max-height: 100%; overflow: auto; padding: 14px; box-sizing: border-box; border-radius: 18px; border: 1px solid var(--line); background: var(--bg2, #1c1c24); color: var(--text, inherit); }
+.rs-exit { justify-self: start; display: inline-flex; align-items: center; gap: 6px; }
+.rs-panel .rc-frame { width: min(100%, calc(min(60vh, 680px) * 9 / 16)); }
+@media (max-width: 600px) {
+  .rs-back { padding: 0; }
+  .rs-panel { width: 100%; height: 100%; border-radius: 0; border: 0; align-content: start; padding-top: calc(14px + env(safe-area-inset-top, 0px)); }
+}
