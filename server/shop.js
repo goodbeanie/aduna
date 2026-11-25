@@ -17,6 +17,7 @@
 
 const MAX_PRICE = 1_000_000;
 const stickers = require('./stickers'); // sticker packs are shop items too (see stickers.js)
+const recap = require('./recap');       // a badge bought or given this year counts for the yearly recap
 const MAX_HELD = 12; // the most badges one person can hold (the same limit as creators giving them away)
 
 // The seven badges the shop used to sell. They are NOT for sale any more, but people who already bought one keep it (u.shopBadges).
@@ -101,6 +102,7 @@ function buy(u, id, spend, { badges = {}, maxHeld = MAX_HELD, now = Date.now() }
   if (!isFrame(b) && held(u).filter((x) => !isFrame(has(badges, x) ? badges[x] : null)).length >= maxHeld) return { status: 400, error: `Nobody can hold more than ${maxHeld} badges` };
   if (!spend(u, b.price, 'shop', { note: b.name, now })) return { status: 402, error: 'Not enough credits' };
   u.badges = [...held(u), b.id]; // paid in the same synchronous step
+  recap.bump(u, 'badges', 1, now);
   // an artist's item says who made it, so the caller can pay them their cut (credits.js) in the same synchronous step
   return { ok: true, item: { id: b.id, name: b.name, price: b.price, ...(typeof b.artistId === 'string' && b.artistId ? { artistId: b.artistId } : {}) } };
 }
@@ -108,12 +110,13 @@ function buy(u, id, spend, { badges = {}, maxHeld = MAX_HELD, now = Date.now() }
 // Puts an item in someone's hands without charging them (an artist's own work, see artists.js `ownIt`). Same checks as buy() except the price and the
 // shop being open for it: false when it does not exist, they already have it, or a plain badge would go over the badge limit. Frames and sticker packs
 // are not badges, so the limit does not apply to them.
-function give(u, id, { badges = {}, maxHeld = MAX_HELD } = {}) {
+function give(u, id, { badges = {}, maxHeld = MAX_HELD, now = Date.now() } = {}) {
   const b = typeof id === 'string' && has(badges, id) ? badges[id] : null;
   if (!b || held(u).includes(b.id)) return false;
   const notBadge = (x) => !!x && (x.kind === 'frame' || x.kind === 'stickers');
   if (!notBadge(b) && held(u).filter((x) => !notBadge(has(badges, x) ? badges[x] : null)).length >= maxHeld) return false;
   u.badges = [...held(u), b.id];
+  recap.bump(u, 'badges', 1, now);
   return true;
 }
 

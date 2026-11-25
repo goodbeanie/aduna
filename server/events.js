@@ -194,7 +194,7 @@ function view(u, { now = Date.now(), dev = false } = {}) {
 function award(u, badgeId, cur) {
   if (cur.test || !BADGES[badgeId]) return null;
   const have = list(u.seasonBadges);
-  if (!have.includes(badgeId)) u.seasonBadges = [...have, badgeId];
+  if (!have.includes(badgeId)) { u.seasonBadges = [...have, badgeId]; recap.bump(u, 'badges', 1); }
   return BADGES[badgeId].name;
 }
 

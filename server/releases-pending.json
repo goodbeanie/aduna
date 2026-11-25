@@ -788,5 +788,14 @@
       { "title": "1.5x credits day", "text": "A 1.5x door makes your messages and quests pay 1.5x until the end of that day (UTC). It adds to Aduna Plus and to a level 3 server. Halloween and Christmas event quests are not boosted." },
       { "title": "Free one-day boost", "text": "A boost door gives you a free level 1 boost for 24 hours on a server you are in. Press Pick on the door to choose the server. If that server is already level 1 or higher, or you already boost it, pick another one and the prize stays waiting. A boost you never use is gone when the calendar closes on 1 January." }
     ]
+  },
+  {
+    "id": "2026.11.25",
+    "date": "2026-11-25",
+    "title": "Counting towards a yearly recap",
+    "items": [
+      { "title": "A yearly recap is coming", "text": "Aduna now keeps a count of your credits earned, quests finished, badges earned and time spent in voice channels and group calls. It only keeps numbers, never what you wrote or who you talked to. A year in review built from them is planned for January." },
+      { "title": "Friendships remember the day", "text": "Aduna now remembers the day a friend request was accepted, not just the day it was sent." }
+    ]
   }
 ]

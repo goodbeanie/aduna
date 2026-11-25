@@ -67,7 +67,7 @@ const at = (m, d, h = 12) => Date.UTC(Y, m - 1, d, h);
 
 const world = () => ({
   users: {
-    a: { id: 'a', createdAt: at(2, 1), badges: ['b1', 'b2'], song: { id: 's'.repeat(32), title: 'Low Tide' }, profileTheme: 'dusk', recap: { [Y]: { credits: 300, quests: 4, vcSeconds: 7200, vcLongest: 3600 } } },
+    a: { id: 'a', createdAt: at(2, 1), badges: ['b1', 'b2'], song: { id: 's'.repeat(32), title: 'Low Tide' }, profileTheme: 'dusk', recap: { [Y]: { credits: 300, quests: 4, vcSeconds: 7200, vcLongest: 3600, badges: 2 } } },
     b: { id: 'b', createdAt: Date.UTC(2025, 5, 1), badges: [], song: { id: 't'.repeat(32), title: 'low tide ' }, profileTheme: 'dusk' },
     c: { id: 'c', createdAt: at(5, 5), badges: [], profileTheme: 'custom' },
     bot: { id: 'bot', bot: true, createdAt: at(1, 1) },
@@ -89,7 +89,7 @@ const world = () => ({
     c2: { id: 'c2', a: 'a', b: 'b', outcome: 'missed', startedAt: at(6, 2), seconds: 0 },
     c3: { id: 'c3', a: 'a', b: null, group: true, outcome: 'completed', startedAt: at(6, 3), seconds: 99999 },
   },
-  friendships: { 'a:b': { from: 'a', to: 'b', status: 'friends', createdAt: at(2, 2) }, 'a:c': { from: 'a', to: 'c', status: 'pending', createdAt: at(2, 2) } },
+  friendships: { 'a:b': { from: 'a', to: 'b', status: 'friends', createdAt: Date.UTC(2025, 11, 30), acceptedAt: at(2, 2) }, 'a:c': { from: 'a', to: 'c', status: 'pending', createdAt: at(2, 2) } },
   clips: { k1: { id: 'k1', owner: 'a', state: 'live', createdAt: at(7, 1) }, k2: { id: 'k2', owner: 'a', state: 'rejected', createdAt: at(7, 1) } },
   servers: { s1: { id: 's1', createdAt: at(8, 1) }, s2: { id: 's2', createdAt: Date.UTC(2024, 1, 1) } },
   wordle: { a: { stats: { global: { won: 5, best: 3 }, s1: { won: 2, best: 4 } } } },
@@ -111,7 +111,7 @@ const world = () => ({
   assert.strictEqual(a.credits, 300); assert.strictEqual(a.quests, 4);
   assert.strictEqual(a.friends, 1, 'a pending request is not a friend');
   assert.strictEqual(a.clips, 1, 'a rejected clip is not shared');
-  assert.strictEqual(a.badges, 2);
+  assert.strictEqual(a.badges, 2); assert.strictEqual(a.badgesHeld, 2);
   assert.deepStrictEqual([a.wordle, a.contexto, a.puzzle, a.bestStreak], [7, 1, 7, 6]);
   assert.deepStrictEqual(a.song, { id: 's'.repeat(32), title: 'Low Tide' });
   assert.ok(a.topPercent.vc >= 1 && a.topPercent.messages >= 1);
@@ -119,6 +119,7 @@ const world = () => ({
 
   const b = built.users.b;
   assert.strictEqual(b.credits, null, 'nothing was counted for b');
+  assert.strictEqual(b.badges, null);
   assert.strictEqual(b.messages, 2);
   assert.ok(!built.users.c, 'someone with nothing to show gets no recap');
   assert.ok(!built.users.bot && !built.users.gone && !built.users.bm && !built.users.hook, 'bots, webhooks and deleted accounts get no recap');

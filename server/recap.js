@@ -4,9 +4,10 @@
 // Pure, no Express and no database (recap-test.js). index.js runs it in the first weeks of the year and keeps one small file per person.
 //
 // What the server already knew: messages, dms, gmsgs, calllog, friendships, clips, servers, wordle, contexto, puzzle, user.badges.
-// What it did not, so it is counted on the user from now on (u.recap[year]): credits earned, quests completed, time in server voice channels.
-// Day and hour are UTC. Badges have no date, so that count is everything the person holds. A group call only records who started it,
-// so group call time is not in the totals; calls in a DM are.
+// What it did not, so it is counted on the user from now on (u.recap[year]): credits earned, quests completed, badges earned, and time in server
+// voice channels and group calls (each person's own stay, from when someone else was there). Calls in a DM come from the call log, which keeps the
+// newest 200 per conversation. Day and hour are UTC. Friendships use the day they were accepted (older ones only have the day of the request).
+// A badge count of null means nothing was counted yet; badgesHeld is how many the person holds today.
 const fs = require('fs');
 const path = require('path');
 
@@ -114,7 +115,7 @@ function buildAll(db, year, rng = Math.random) {
   }
   let friendshipsMade = 0;
   for (const f of Object.values(friendships)) {
-    if (f.status !== 'friends' || !inYear(f.createdAt, year)) continue;
+    if (f.status !== 'friends' || !inYear(f.acceptedAt || f.createdAt, year)) continue; // older friendships only have the date of the request
     friendshipsMade++;
     for (const uid of [f.from, f.to]) if (users[uid]) of(uid).friends++;
   }
@@ -125,18 +126,18 @@ function buildAll(db, year, rng = Math.random) {
     const p = per.get(u.id) || blank();
     const vcSeconds = (counter(u, year, 'vcSeconds') || 0) + p.callSeconds;
     const longest = Math.max(counter(u, year, 'vcLongest') || 0, p.longestCall);
-    return { u, p, vcSeconds, longest, credits: counter(u, year, 'credits'), quests: counter(u, year, 'quests') };
+    return { u, p, vcSeconds, longest, credits: counter(u, year, 'credits'), quests: counter(u, year, 'quests'), badges: counter(u, year, 'badges') };
   });
   const topVc = percentiler(rows.map((r) => r.vcSeconds)), topMsgs = percentiler(rows.map((r) => r.p.messages));
 
   const out = {};
-  for (const { u, p, vcSeconds, longest, credits, quests } of rows) {
+  for (const { u, p, vcSeconds, longest, credits, quests, badges } of rows) {
     const wordleWins = gameTotals(wordle[u.id], 'won'), contextoWins = gameTotals(contexto[u.id], 'won'), puzzleWins = gameTotals(puzzle[u.id], 'solved');
     const msgTop = topMsgs(p.messages), hour = pickTop(p.hours, rng);
     const recap = {
       userId: u.id, year, messages: p.messages, files: p.files, clips: p.clips, vcHours: Math.round(vcSeconds / 3600), credits, quests,
       busiestDay: pickTop(p.days, rng), favoriteHour: hour, title: titleFor(hour, msgTop), topEmoji: pickTop(p.emoji, rng),
-      longestCallMin: Math.round(longest / 60), friends: p.friends, badges: Array.isArray(u.badges) ? u.badges.length : 0,
+      longestCallMin: Math.round(longest / 60), friends: p.friends, badges, badgesHeld: Array.isArray(u.badges) ? u.badges.length : 0,
       wordle: wordleWins, contexto: contextoWins, puzzle: puzzleWins, bestStreak: gameBest(wordle[u.id], contexto[u.id], puzzle[u.id]),
       topPercent: { vc: topVc(vcSeconds), messages: msgTop },
       song: u.song && u.song.id ? { id: u.song.id, title: String(u.song.title || '') } : null,
@@ -162,7 +163,7 @@ function buildAll(db, year, rng = Math.random) {
     topSong: sample.get(pickTop(songs, rng)) || null, topTheme: pickTop(themes, rng),
     friendships: friendshipsMade, serversCreated: Object.values(servers).filter((s) => inYear(s.createdAt, year)).length,
     wordle: sum((r) => gameTotals(wordle[r.u.id], 'won')), contexto: sum((r) => gameTotals(contexto[r.u.id], 'won')), puzzle: sum((r) => gameTotals(puzzle[r.u.id], 'solved')),
-    badges: sum((r) => (Array.isArray(r.u.badges) ? r.u.badges.length : 0)), longestCallMin: Math.round(rows.reduce((m, r) => Math.max(m, r.longest), 0) / 60),
+    badges: tracked('badges'), longestCallMin: Math.round(rows.reduce((m, r) => Math.max(m, r.longest), 0) / 60),
   };
   return { global, users: out };
 }

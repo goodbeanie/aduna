@@ -15,6 +15,7 @@
 // DTLS fingerprints and sit in the middle).
 const security = require('./security');
 const calllog = require('./calllog');
+const recap = require('./recap');
 
 const MAX_GROUP = 20;        // people in one group chat
 const MIN_CREATE = 3;        // a group is you plus at least two others (with one other person, use a DM)
@@ -94,7 +95,8 @@ function viewFor(g, uid, pub, extra = {}) {
 }
 
 // ---------- group call roster (pure; no sockets, no timers) ----------
-// call: { id, groupId, video, startedBy, startedAt, answeredAt | null, parts: Map(uid -> socketId), everyone: Set(uid) }
+// call: { id, groupId, video, startedBy, startedAt, answeredAt | null, parts: Map(uid -> socketId), everyone: Set(uid), since: Map(uid -> when they joined) }
+// leave() also says how long the person was on the call with someone else (stay.seconds), which is what the yearly recap counts.
 function createRoster({ now = Date.now, id }) {
   const calls = new Map(); // groupId -> call
   const byUser = (uid) => { for (const c of calls.values()) if (c.parts.has(uid)) return c; return null; };
@@ -107,8 +109,9 @@ function createRoster({ now = Date.now, id }) {
       const other = byUser(uid);
       if (other && other.groupId !== groupId) return { error: 'You are already on a call' };
       let c = calls.get(groupId), created = false;
-      if (!c) { c = { id: id(), groupId, video: !!video, startedBy: uid, startedAt: now(), answeredAt: null, parts: new Map(), everyone: new Set() }; calls.set(groupId, c); created = true; }
+      if (!c) { c = { id: id(), groupId, video: !!video, startedBy: uid, startedAt: now(), answeredAt: null, parts: new Map(), everyone: new Set(), since: new Map() }; calls.set(groupId, c); created = true; }
       if (!c.parts.has(uid) && c.parts.size >= MAX_CALL) return { error: `This call is full (${MAX_CALL} people)` };
+      if (!c.since.has(uid)) c.since.set(uid, now()); // moving to another tab keeps the first join time
       const peers = [...c.parts.keys()].filter((x) => x !== uid);
       const replaced = c.parts.get(uid) && c.parts.get(uid) !== sid ? c.parts.get(uid) : null; // joined again from another tab: that tab is moved here
       c.parts.set(uid, sid);
@@ -120,10 +123,13 @@ function createRoster({ now = Date.now, id }) {
     leave(groupId, uid, sid) {
       const c = calls.get(groupId);
       if (!c || !c.parts.has(uid) || (sid && c.parts.get(uid) !== sid)) return null;
+      const t = now(), from = Math.max(c.since.get(uid) || t, c.answeredAt || t);
+      const stay = { uid, seconds: Math.max(0, Math.round((t - from) / 1000)) };
       c.parts.delete(uid);
-      if (c.parts.size) return { call: c, ended: false, record: null };
+      c.since.delete(uid);
+      if (c.parts.size) return { call: c, ended: false, record: null, stay };
       calls.delete(groupId);
-      return { call: c, ended: true, record: calllog.makeGroupRecord(c, 'g:' + groupId, now()) };
+      return { call: c, ended: true, record: calllog.makeGroupRecord(c, 'g:' + groupId, t), stay };
     },
   };
 }
@@ -301,6 +307,12 @@ function create(deps) {
   // `r` is what roster.leave returned
   function afterLeave(g, uid, sid, r, kicked = false) {
     const c = r.call;
+    const person = db().users[uid];
+    if (person && r.stay.seconds > 0) {
+      recap.bump(person, 'vcSeconds', r.stay.seconds, now());
+      recap.atLeast(person, 'vcLongest', r.stay.seconds, now());
+      store.save();
+    }
     if (kicked) io.to('user:' + uid).emit('gcall:ended', { groupId: g.id, callId: c.id, reason: 'removed' });
     for (const psid of c.parts.values()) io.to(psid).emit('gcall:left', { groupId: g.id, callId: c.id, userId: uid });
     if (r.ended) {

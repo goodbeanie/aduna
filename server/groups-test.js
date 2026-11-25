@@ -76,6 +76,7 @@ for (let i = 3; i <= g.MAX_CALL; i++) assert.ok(r.join('G', 'u' + i, 's' + i, fa
 assert.match(r.join('G', 'u99', 's99', false).error, /full/, 'a call has a size limit');
 t = 5000;
 let l = r.leave('G', 'u2', 's2'); assert.ok(l && !l.ended && l.record === null);
+assert.deepStrictEqual(l.stay, { uid: 'u2', seconds: 3 }, 'time on the call is counted per person, from when they joined');
 for (let i = 3; i <= g.MAX_CALL; i++) r.leave('G', 'u' + i, 's' + i);
 l = r.leave('G', 'u1', 's1b');
 assert.ok(l.ended && r.of('G') === null);
@@ -85,6 +86,7 @@ step('call roster: one call at a time, size limit, tab handover, a finished call
 
 t = 9000;
 r.join('G2', 'a', 'sa', false); t = 9500; const solo = r.leave('G2', 'a', 'sa');
+assert.strictEqual(solo.stay.seconds, 0, 'time alone on a call does not count');
 assert.strictEqual(solo.record.outcome, 'missed'); assert.strictEqual(solo.record.seconds, 0); assert.strictEqual(solo.record.people, 1);
 assert.deepStrictEqual(calllog.forConvo({ [solo.record.id]: solo.record }, 'g:G2').map((x) => x.id), [solo.record.id], 'group records live in the same history store');
 step('a call nobody joined is logged as missed');

@@ -2205,6 +2205,7 @@ app.post('/api/friends/request', auth, (req, res) => {
   if (f && f.from === me.id) return res.status(400).json({ error: 'You already sent them a request' });
   if (f) { // they already asked you: that's a yes
     f.status = 'friends';
+    f.acceptedAt = now();
     store.save();
     notifyFriends(me.id, target.id);
     introduce(me.id, target.id);
@@ -2224,6 +2225,7 @@ app.post('/api/friends/:id/accept', auth, (req, res) => {
   const f = friendship(req.user.id, req.params.id);
   if (!f || f.status !== 'pending' || f.to !== req.user.id) return res.status(404).json({ error: 'No request from that user' });
   f.status = 'friends';
+  f.acceptedAt = now();
   store.save();
   notifyFriends(f.from, f.to);
   res.json({ ok: true });
@@ -4246,7 +4248,7 @@ app.post('/api/badges/:id/give', auth, creatorOnly, (req, res) => {
   u.badges = Array.isArray(u.badges) ? u.badges : [];
   if (!u.badges.includes(b.id)) {
     if (u.badges.length >= BADGE_LIMITS.perUser) return res.status(400).json({ error: `Nobody can hold more than ${BADGE_LIMITS.perUser} badges` });
-    u.badges.push(b.id); store.save(); emitUserUpdate(u);
+    u.badges.push(b.id); recap.bump(u, 'badges', 1); store.save(); emitUserUpdate(u);
   }
   res.json({ badge: badgeOwnView(b) });
 });
