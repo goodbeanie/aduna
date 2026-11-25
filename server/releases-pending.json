@@ -778,5 +778,15 @@
       { "title": "Free storage limit can go lower", "text": "When many free accounts share the storage, the free limit per person can now drop to 20 MB. It used to stop at 50 MB. Below 50 MB it moves in steps of 10 MB." },
       { "title": "Files no longer refused when shared storage is full", "text": "When the shared storage is full, new files from free accounts are kept on the server's own disk instead of being refused, as long as there is room there. Aduna Plus files always go to the main storage." }
     ]
+  },
+  {
+    "id": "2026.11.24",
+    "date": "2026-11-24",
+    "title": "Advent calendar prizes",
+    "items": [
+      { "title": "Prizes are a surprise", "text": "The doors in the Advent calendar no longer show what is behind them. Open a door to find out. It can be credits, a 1.5x credits day or a free server boost." },
+      { "title": "1.5x credits day", "text": "A 1.5x door makes your messages and quests pay 1.5x until the end of that day (UTC). It adds to Aduna Plus and to a level 3 server. Halloween and Christmas event quests are not boosted." },
+      { "title": "Free one-day boost", "text": "A boost door gives you a free level 1 boost for 24 hours on a server you are in. Press Pick on the door to choose the server. If that server is already level 1 or higher, or you already boost it, pick another one and the prize stays waiting. A boost you never use is gone when the calendar closes on 1 January." }
+    ]
   }
 ]
