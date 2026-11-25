@@ -50,6 +50,7 @@ const switchesLib = require('./switches'); // kill switches a creator flips in /
 const featuresLib = require('./features'); // feature releases: off / testing (creator accounts only) / live (see the "feature releases" block below)
 const releasesLib = require('./releases'); // "What's new" releases: every release is a private draft until a creator publishes it (see the "releases" block below)
 const calllog = require('./calllog');
+const recap = require('./recap'); // the yearly recap: counters, the January build and one small file per person (see the "yearly recap" block below)
 const groupsLib = require('./groups');
 const gallery = require('./themegallery');
 const devthemes = require('./devthemes');
@@ -5208,6 +5209,7 @@ async function deleteAccount(u, { purge }) {
   };
   for (const k of Object.keys(u)) delete u[k];
   Object.assign(u, shell);
+  recap.forget(RECAP_DIR, id);
   if (db().artists && db().artists[id]) delete db().artists[id];
   emitUserUpdate(u); // servers and friends see "Deleted user" straight away (before the memberships below are removed)
   for (const s of myServers(id)) {
@@ -6553,6 +6555,35 @@ const groups = groupsLib.create({
   imgPath: (id) => imgPath(id),
 });
 groups.register(app);
+
+// ----- yearly recap (what is counted, the counters and the files: recap.js) -----
+// In the first weeks of the year the one that just ended is built from the database and saved as small files on the VM, outside the database.
+// Everyone sees the global recap and their own; nobody sees anyone else's. A creator can build this year's from live data to try it (nothing is saved).
+const RECAP_DIR = process.env.RECAP_DIR || path.join(__dirname, '..', 'data', 'recaps');
+const recapData = () => {
+  const d = db();
+  return { users: d.users, messages: d.messages, dms: d.dms, gmsgs: d.gmsgs, calllog: d.calllog, friendships: d.friendships, clips: d.clips, servers: d.servers, wordle: d.wordle, contexto: d.contexto, puzzle: d.puzzle };
+};
+function recapSweep() {
+  const year = recap.dueYear(RECAP_DIR, now());
+  if (!year) return null;
+  const built = recap.buildAll(recapData(), year);
+  recap.write(RECAP_DIR, year, built);
+  return { year, people: Object.keys(built.users).length };
+}
+app.get('/api/recap', auth, (req, res) => {
+  const year = recap.latestYear(RECAP_DIR, now());
+  if (!year) return res.json({ year: null });
+  res.json({ year, global: recap.read(RECAP_DIR, year), mine: recap.read(RECAP_DIR, year, req.user.id) });
+});
+app.post('/api/recap/test', auth, (req, res) => {
+  if (!isCreator(req.user)) return res.status(403).json({ error: 'Creator accounts only' });
+  const thisYear = new Date(now()).getUTCFullYear(), year = req.body?.year === undefined ? thisYear : req.body.year;
+  if (!Number.isInteger(year) || year < 2024 || year > thisYear) return res.status(400).json({ error: 'Pick a year from 2024 to this one' });
+  const built = recap.buildAll(recapData(), year);
+  res.json({ year, global: built.global, mine: built.users[req.user.id] || null });
+});
+
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
 
 // JSON errors instead of Express's default HTML page (oversized uploads, malformed JSON, ...)
@@ -6737,6 +6768,20 @@ function voiceLeave(uid, sid) {
     for (const peer of room.values()) io.to(peer).emit('voice:left', { channelId: cid, userId: uid });
     voiceBroadcast(cid);
   }
+}
+// time in server voice channels for the yearly recap: who is in a room is sampled every 30 seconds
+const voiceMeter = recap.createVoiceMeter();
+function voiceTick() {
+  const t = now();
+  let changed = false;
+  for (const { uid, add, session } of voiceMeter.tick([...voice.values()].flatMap((room) => [...room.keys()]))) {
+    const u = db().users[uid];
+    if (!u) continue;
+    recap.bump(u, 'vcSeconds', add, t);
+    recap.atLeast(u, 'vcLongest', session, t);
+    changed = true;
+  }
+  if (changed) store.save();
 }
 
 // Phone / closed-app notifications: only for things aimed at someone (a mention, @everyone, an announcement), never every chat line.
@@ -7294,6 +7339,12 @@ async function start() {
   wheelSweep(); // a wheel whose time came while the server was off spins now
   if (process.env.NODE_ENV !== 'test') setInterval(() => wheelSweep(), 1000).unref(); // tests call wheelSweep() themselves
   if (process.env.NODE_ENV !== 'test') botHost.startTimers(); // due bot timers are looked for every few seconds (tests call botHost.tick() themselves)
+  const recapRun = () => { try { const r = recapSweep(); if (r) console.log('Yearly recap built:', JSON.stringify(r)); } catch (e) { console.error('Recap build failed:', e.message); } };
+  if (process.env.NODE_ENV !== 'test') { // tests call recapSweep() and voiceTick() themselves
+    recapRun(); // the new year may have come while the server was off
+    setInterval(recapRun, 3600_000).unref();
+    setInterval(voiceTick, recap.VOICE_TICK_MS).unref();
+  }
 }
 const ready = start();
 
@@ -7308,7 +7359,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, wheelSweep, nameSweep, moderationSweep, ready, loginGuard, inviteLookups, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep, wheelSweep: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, wheelSweep, nameSweep, moderationSweep, recapSweep, voiceTick, ready, loginGuard, inviteLookups, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep, wheelSweep: for the tests
 
 
 

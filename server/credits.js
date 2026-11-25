@@ -18,6 +18,7 @@ const artists = require('./artists'); // artists sell badges in the shop and ear
 const pthemes = require('./profilethemes'); // gradient profile themes: free for everybody (animated ones can be switched on later)
 const ads = require('./ads');       // opt-in "watch a sponsor, earn credits" and the quiet sponsored card (off unless ADS_JSON is set)
 const boosts = require('./boosts'); // server boosts: a level 3 server pays more for messages (multiplierOf), the credits are spent through spend() below
+const recap = require('./recap');   // the yearly recap counts what is earned here (u.recap[year])
 
 // ---------- tunables ----------
 const EARN = {
@@ -110,7 +111,7 @@ function grant(u, amount, reason, { note, kind = 'earn', now = Date.now() } = {}
   c.balance += amount;
   if (kind === 'buy') c.bought += amount;
   else if (kind === 'refund') c.spent = Math.max(0, c.spent - amount);
-  else c.earned += amount;
+  else { c.earned += amount; recap.bump(u, 'credits', amount, now); }
   log(c, amount, reason, note, now);
   return c.balance;
 }
@@ -328,6 +329,7 @@ function claimQuest(u, id, db, now = Date.now(), plus = false) {
   claimed[id] = now; // marked before paying: the check and the payment happen in one synchronous step
   amount = dayPay(plusPay(amount, plus), u, now);
   grant(u, amount, 'quest', { note: milestone ? `${q.title} (${c.streak}-day streak!)` : q.title, now });
+  recap.bump(u, 'quests', 1, now);
   return { ok: true, amount, balance: c.balance, ...(milestone ? { milestone: dayPay(plusPay(milestone, plus), u, now), streak: c.streak } : {}) };
 }
 

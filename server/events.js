@@ -23,6 +23,7 @@
 const DAY = 86_400_000;
 const MAX_LIST = 50; // most friends / messages remembered per list
 const boosts = require('./boosts'); // pure rules too, no database
+const recap = require('./recap');   // a claimed event quest counts for the yearly recap
 
 // month/day are 1-12 / 1-31 in UTC. `to` may be in the next calendar year (Christmas runs into January).
 // Halloween matches the themes and the ringtone (17 Oct - 7 Nov). Christmas opens on 1 Dec so the Advent calendar can start on door 1;
@@ -210,6 +211,7 @@ function claim(u, id, { now = Date.now(), dev = false, grant, minAgeMs = 0, unlo
   if (q.daily) s.daily[q.id] = today; else s.claimed[q.id] = now; // marked before paying: check and payment are one synchronous step
   if (cur.test) return { ok: true, amount: q.reward, test: true };
   grant(u, q.reward, 'quest', { note: `${cur.ev.label}: ${q.title}`, now });
+  recap.bump(u, 'quests', 1, now);
   const badge = q.badge ? award(u, q.badge, cur) : null;
   return { ok: true, amount: q.reward, test: false, ...(badge ? { badge } : {}) };
 }
