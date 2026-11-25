@@ -49,7 +49,6 @@ const MINE = [
 // Only used when fewer than three of the stats above exist, so the video still fills its 30 seconds.
 const MINE_SPARE = [
   { key: 'held', get: (r) => r.badgesHeld, unit: ['badge in your collection', 'badges in your collection'], sub: () => 'Every one is yours.' },
-  { key: 'clips', get: (r) => r.clips, unit: ['clip shared', 'clips shared'], sub: () => 'Short and sweet.' },
   { key: 'files', get: (r) => r.files, unit: ['file shared', 'files shared'], sub: () => 'Sent along the way.' },
   { key: 'games', get: (r) => (r.wordle || 0) + (r.contexto || 0) + (r.puzzle || 0), unit: ['game won', 'games won'], sub: () => 'Wordle, Contexto and puzzles.' },
 ];
@@ -65,7 +64,6 @@ const GLOBAL = [
 const GLOBAL_SPARE = [
   { key: 'joined', get: (g) => g.joinedThisYear, unit: ['person joined', 'people joined'], sub: () => 'Welcome, all of you.' },
   { key: 'servers', get: (g) => g.serversCreated, unit: ['server created', 'servers created'], sub: () => 'Each one a new room.' },
-  { key: 'clips', get: (g) => g.clips, unit: ['clip shared', 'clips shared'], sub: () => 'Short and sweet.' },
   { key: 'files', get: (g) => g.files, unit: ['file shared', 'files shared'], sub: () => 'Sent along the way.' },
   { key: 'games', get: (g) => (g.wordle || 0) + (g.contexto || 0) + (g.puzzle || 0), unit: ['game won', 'games won'], sub: () => 'Wordle, Contexto and puzzles.' },
 ];

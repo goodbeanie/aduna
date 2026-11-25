@@ -2,6 +2,15 @@
    so the same scenes fit 16:9 and 9:16 without separate layouts. The theme gradient and text colour come in as inline custom properties. */
 
 .recap-settings { display: grid; gap: 14px; }
+
+/* /admin has its own palette and none of the app's variables, so the player borrows what it needs from it */
+.adm .recap-settings { --font: Inter, system-ui, sans-serif; --ink: var(--head); --on-ink: var(--bg); --field: var(--bg3); --line2: var(--line); --r-md: 10px; --r-sm: 8px; }
+.adm .recap-settings .btn { padding: 8px 14px; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg3); }
+.adm .recap-settings .btn.primary { background: var(--ink); color: var(--on-ink); border-color: transparent; }
+.adm .recap-settings .btn.ghost { background: transparent; }
+.adm .recap-settings .icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line2); background: var(--bg3); color: var(--text); }
+.adm .recap-settings .mode-pick button { color: var(--text); }
+.adm .recap-settings .hint { margin: 0; }
 .rc { display: grid; gap: 12px; }
 .rc-views { margin: 0; }
 

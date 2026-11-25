@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from './api.js';
 import { imageUrl } from './image.js';
+import { RecapSettings } from './Recap.jsx';
 import './admin.css';
 
 // /admin: for admins, and for moderators (who only get Overview and Reports). The server already redirects anyone else to the home page before
@@ -1150,13 +1151,13 @@ const GLOBAL_ROWS = [
   ['Messages sent', 'messages'], ['Hours in voice', 'vcHours'], ['People', 'users'], ['Joined this year', 'joinedThisYear'], ['Credits earned', 'credits', 'counted'],
   ['Quests finished', 'quests', 'counted'], ['Busiest day', 'busiestDay'], ['Busiest hour (UTC)', 'busiestHour', 'hour'], ['Most-used emoji', 'topEmoji'],
   ['Most popular song', 'topSong', 'song'], ['Most-used theme', 'topTheme'], ['Friendships made', 'friendships'], ['Servers created', 'serversCreated'],
-  ['Files shared', 'files'], ['Clips shared', 'clips'], ['Wordle solves', 'wordle'], ['Contexto solves', 'contexto'], ['Puzzle solves', 'puzzle'],
+  ['Files shared', 'files'], ['Wordle solves', 'wordle'], ['Contexto solves', 'contexto'], ['Puzzle solves', 'puzzle'],
   ['Badges earned', 'badges', 'counted'], ['Longest call (min)', 'longestCallMin'],
 ];
 const USER_ROWS = [
   ['Messages sent', 'messages'], ['Hours in voice', 'vcHours'], ['Credits earned', 'credits', 'counted'], ['Quests finished', 'quests', 'counted'], ['Busiest day', 'busiestDay'],
   ['Favourite hour (UTC)', 'favoriteHour', 'hour'], ['Title', 'title'], ['Most-used emoji', 'topEmoji'], ['Longest call (min)', 'longestCallMin'], ['Friends made', 'friends'],
-  ['Badges earned', 'badges', 'counted'], ['Badges held', 'badgesHeld'], ['Files shared', 'files'], ['Clips shared', 'clips'], ['Wordle solves', 'wordle'], ['Contexto solves', 'contexto'],
+  ['Badges earned', 'badges', 'counted'], ['Badges held', 'badgesHeld'], ['Files shared', 'files'], ['Wordle solves', 'wordle'], ['Contexto solves', 'contexto'],
   ['Puzzle solves', 'puzzle'], ['Best streak', 'bestStreak'], ['Top % in voice time', 'topPercent.vc', 'percent'], ['Top % in messages', 'topPercent.messages', 'percent'], ['Profile song', 'song', 'song'],
 ];
 function recapValue(data, key, kind) {
@@ -1173,10 +1174,13 @@ function Recap() {
   const [year, setYear] = useState(thisYear);
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [built, setBuilt] = useState(0); // new key for the player on every Generate, so it starts again from the poster
+  const [profile, setProfile] = useState(null); // the admin page's own `me` has no theme or song; the player wants the real profile
+  useEffect(() => { api('/me').then((r) => setProfile(r.user)).catch(() => {}); }, []);
   if (!me.canManageFeatures) return <Empty text="Only a creator account can generate a test recap." />;
   const generate = async () => {
     setBusy(true);
-    try { setData(await api('/admin/recap/test', { method: 'POST', body: { year } })); } catch (e) { say(e.message, 'error'); }
+    try { setData(await api('/admin/recap/test', { method: 'POST', body: { year } })); setBuilt((n) => n + 1); } catch (e) { say(e.message, 'error'); }
     setBusy(false);
   };
   const table = (rows, source) => rows.map(([name, key, kind]) => (
@@ -1198,6 +1202,11 @@ function Recap() {
       </div>
       {data && (
         <>
+          <div className="adm-card">
+            <h3>Watch it</h3>
+            <p className="adm-muted">The same 30 second video people get in Settings, played from this test recap. Switch between your year and everyone's.</p>
+            <RecapSettings key={built} me={profile || me} recap={data} />
+          </div>
           <div className="adm-card">
             <h3>Global recap {data.year}</h3>
             {table(GLOBAL_ROWS, data.global)}
