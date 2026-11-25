@@ -10,6 +10,7 @@
 // A badge count of null means nothing was counted yet; badgesHeld is how many the person holds today.
 const fs = require('fs');
 const path = require('path');
+const music = require('./music');
 
 const EMOJI = /\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu;
 const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -90,6 +91,14 @@ const add = (map, key, n = 1) => map.set(key, (map.get(key) || 0) + n);
 const gameTotals = (rec, key) => Object.values((rec && rec.stats) || {}).reduce((s, x) => s + (x[key] || 0), 0);
 const gameBest = (...recs) => Math.max(0, ...recs.flatMap((rec) => Object.values((rec && rec.stats) || {}).map((x) => x.best || 0)));
 
+// The profile song as the recap plays it: an uploaded clip ({ id, title }) or a song picked from the search (its 30 second preview).
+function songOf(u) {
+  const s = u && u.song;
+  if (!s) return null;
+  if (s.kind === 'track') return music.trackView(s);
+  return s.id ? { id: s.id, title: String(s.title || '') } : null;
+}
+
 // db: the collections of the main database. Returns { global, users: { [id]: recap } }; people with nothing to show are left out.
 function buildAll(db, year, rng = Math.random) {
   const { users = {}, messages = {}, dms = {}, gmsgs = {}, calllog = {}, friendships = {}, clips = {}, servers = {}, wordle = {}, contexto = {}, puzzle = {} } = db;
@@ -140,7 +149,7 @@ function buildAll(db, year, rng = Math.random) {
       longestCallMin: Math.round(longest / 60), friends: p.friends, badges, badgesHeld: Array.isArray(u.badges) ? u.badges.length : 0,
       wordle: wordleWins, contexto: contextoWins, puzzle: puzzleWins, bestStreak: gameBest(wordle[u.id], contexto[u.id], puzzle[u.id]),
       topPercent: { vc: topVc(vcSeconds), messages: msgTop },
-      song: u.song && u.song.id ? { id: u.song.id, title: String(u.song.title || '') } : null,
+      song: songOf(u),
     };
     if (recap.messages || vcSeconds || recap.friends || recap.clips || credits || quests || wordleWins || contextoWins || puzzleWins) out[u.id] = recap;
   }
@@ -150,7 +159,8 @@ function buildAll(db, year, rng = Math.random) {
     for (const [k, n] of p.hours) add(hours, k, n);
     for (const [k, n] of p.days) add(days, k, n);
     for (const [k, n] of p.emoji) add(emoji, k, n);
-    if (u.song && u.song.id && u.song.title) { const key = String(u.song.title).trim().toLowerCase(); add(songs, key); if (!sample.has(key)) sample.set(key, { id: u.song.id, title: String(u.song.title).trim() }); }
+    const song = songOf(u);
+    if (song && song.title) { const key = song.title.trim().toLowerCase(); add(songs, key); if (!sample.has(key)) sample.set(key, { ...song, title: song.title.trim() }); }
     if (u.profileTheme && u.profileTheme !== 'custom') add(themes, u.profileTheme);
   }
   const sum = (f) => rows.reduce((s, r) => s + f(r), 0);

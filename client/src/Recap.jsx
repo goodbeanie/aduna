@@ -75,15 +75,15 @@ function Player({ scenes, year, kind, look, song }) {
   const n = scenes.length;
   const sceneMs = TOTAL_MS / n;
   const src = song ? songUrl(song) : '';
-  // a song picked from search can come with the part the person chose; an uploaded clip plays from its start
-  const from = song && Number.isFinite(song.start) && song.start >= 0 ? song.start : 0;
-  const to = song && Number.isFinite(song.end) && song.end > from ? song.end : Infinity;
+  // The song plays from its start for the whole video: a search pick is Apple's 30 second preview (the part chosen for the profile card is ignored here),
+  // and an uploaded clip is stopped when the video ends.
+  // Web Audio goes silent on a sound from another site (the previews come from Apple's servers), so those fade with the element's own volume
+  const external = /^https?:\/\//i.test(src) && !src.startsWith(location.origin);
   const [status, setStatus] = useState('idle'); // idle (poster, nothing has played), playing, paused, ended
   const [scene, setScene] = useState(0);
   const [run, setRun] = useState(0); // goes up on every replay so the scene's CSS animations start over
   const [muted, setMuted] = useState(true);
   const [audioBad, setAudioBad] = useState(false);
-  const [tall, setTall] = useState(() => typeof matchMedia === 'function' && matchMedia('(max-width: 640px)').matches);
   const [reduce] = useState(() => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
   const clk = useRef({ t: 0, last: null });
@@ -96,11 +96,11 @@ function Player({ scenes, year, kind, look, song }) {
   const stage = useRef(null), cv = useRef(null), num = useRef(null), bar = useRef(null), time = useRef(null), audio = useRef(null), graph = useRef(null);
   const rgbs = useMemo(() => look.colors.map(toRgb), [look]);
   const live = useRef({});
-  live.current = { scenes, sceneMs, rgbs, reduce, to };
+  live.current = { scenes, sceneMs, rgbs, reduce };
 
   // One frame of everything that follows the clock: which scene, the counting number, the progress bar, the blobs and the song's volume.
   const paint = useCallback((t) => {
-    const { scenes: sc, sceneMs: sm, rgbs: cols, reduce: still, to: songEnd } = live.current;
+    const { scenes: sc, sceneMs: sm, rgbs: cols, reduce: still } = live.current;
     const idx = Math.min(sc.length - 1, Math.floor(t / sm));
     if (idx !== sceneRef.current) { sceneRef.current = idx; setScene(idx); }
     const s = sc[idx];
@@ -113,7 +113,6 @@ function Player({ scenes, year, kind, look, song }) {
     if (cv.current) drawBlobs(cv.current, t, cols);
     const v = gainAt(t), g = graph.current;
     if (g && g.gain) g.gain.gain.value = v; else if (audio.current) audio.current.volume = v;
-    if (audio.current && audio.current.currentTime >= songEnd) audio.current.pause();
   }, []);
 
   const finish = useCallback(() => {
@@ -138,6 +137,7 @@ function Player({ scenes, year, kind, look, song }) {
   const ensureGraph = () => {
     const a = audio.current;
     if (!a || graph.current) return;
+    if (external) { graph.current = { ctx: null, gain: null }; return; }
     try {
       const Ctx = window.AudioContext || window.webkitAudioContext;
       const ctx = new Ctx();
@@ -154,8 +154,8 @@ function Player({ scenes, year, kind, look, song }) {
     const g = graph.current;
     if (g && g.ctx && g.ctx.state === 'suspended') g.ctx.resume().catch(() => {});
     a.muted = mutedRef.current;
-    const at = from + t / 1000;
-    if (at >= to || (Number.isFinite(a.duration) && at >= a.duration)) return; // the song is shorter than the video: it is already over
+    const at = t / 1000;
+    if (Number.isFinite(a.duration) && at >= a.duration) return; // the song is shorter than the video: it is already over
     try { a.currentTime = at; } catch { /* not loaded yet, so it starts from the beginning */ }
     a.play().catch(() => setAudioBad(true));
   };
@@ -255,7 +255,7 @@ function Player({ scenes, year, kind, look, song }) {
 
   return (
     <div className="rc">
-      <div className={'rc-frame ' + (tall ? 'tall' : 'wide')}>
+      <div className="rc-frame">
         <div ref={stage} className={'rc-stage' + (status === 'idle' ? ' idle' : '') + (playing ? '' : ' halted')} style={stageStyle} role="group" aria-label={kind === 'mine' ? `Your ${year} on Aduna` : `Aduna in ${year}`}>
           <canvas ref={cv} className="rc-canvas" aria-hidden="true" />
           <Scene key={scene + ':' + run} s={scenes[scene]} ms={sceneMs} last={scene === n - 1} numRef={num} year={year} />
@@ -273,7 +273,6 @@ function Player({ scenes, year, kind, look, song }) {
         )}
         <span className="rc-time" ref={time}>{`0:00 / ${clock(TOTAL_MS)}`}</span>
         <span className="rc-spacer" />
-        <button type="button" className="btn ghost" onClick={() => setTall((v) => !v)} title="Switch between wide and tall">{tall ? 'Wide' : 'Tall'}</button>
         <button type="button" className="btn" onClick={share}><Icon name="send" size={16} /> Share</button>
       </div>
       <p className="hint">
@@ -299,9 +298,8 @@ export function RecapSettings({ me, recap }) {
     ? { colors: theme.colors, angle: Number.isFinite(theme.angle) ? theme.angle : 135 }
     : DEFAULT_LOOK), [theme]);
   // their song as it is now, falling back to the one the recap was built with; the global one is the most popular song
-  const song = view === 'mine'
-    ? (me && me.song && me.song.id ? me.song : recap.mine && recap.mine.song)
-    : recap.global && recap.global.topSong;
+  const mySong = me && me.song && (me.song.id || me.song.url) ? me.song : recap.mine && recap.mine.song;
+  const song = view === 'mine' ? mySong : recap.global && recap.global.topSong;
 
   return (
     <div className="recap-settings">

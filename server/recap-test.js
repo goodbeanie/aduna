@@ -139,6 +139,14 @@ const world = () => ({
   assert.deepStrictEqual([g.wordle, g.contexto, g.puzzle], [7, 1, 7]);
   step('global: totals, busiest day and hour, most-used emoji, song and theme');
 
+  const withTrack = world();
+  withTrack.users.a.song = { kind: 'track', tid: 111, title: 'Midnight City', artist: 'M83', art: '', preview: 'https://audio-ssl.itunes.apple.com/a/b.m4a', link: '', start: 4, end: 20 };
+  const t = R.buildAll(withTrack, Y, () => 0).users.a.song;
+  assert.deepStrictEqual([t.kind, t.title, t.url], ['track', 'Midnight City', 'https://audio-ssl.itunes.apple.com/a/b.m4a']);
+  withTrack.users.a.song.preview = 'https://example.com/x.m4a';
+  assert.strictEqual(R.buildAll(withTrack, Y, () => 0).users.a.song, null, 'a preview from outside Apple is not kept');
+  step('a song picked from the search keeps its preview address');
+
   const text = JSON.stringify(built);
   for (const leak of ['hi ', 'again', 'yo', 'a:b']) assert.ok(!text.includes(leak), 'no message text in the output: ' + leak);
   assert.strictEqual(typeof g.users, 'number', 'the global recap counts people and lists none');
