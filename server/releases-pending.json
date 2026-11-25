@@ -824,5 +824,15 @@
       { "title": "Play the recap from the Recap tab", "text": "After you press Generate, creator accounts can watch the 30 second video for their own year or for everyone, with the theme and song it would use. Nothing is saved." },
       { "title": "No clips in the recap", "text": "The recap no longer shows a clips count, and the admin tables don't list it." }
     ]
+  },
+  {
+    "id": "2026.11.25.5",
+    "date": "2026-11-25",
+    "title": "Recap plays your real song, in vertical",
+    "items": [
+      { "title": "The right song", "text": "The recap now plays the 30 second preview of the song on your profile, including songs you picked from search. Before, those songs were skipped." },
+      { "title": "Vertical only", "text": "The recap video is always tall, like a phone screen. The Wide button is gone." },
+      { "title": "Bolder text", "text": "Numbers and titles in the recap are heavier and sharper." }
+    ]
   }
 ]
