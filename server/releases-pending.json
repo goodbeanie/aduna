@@ -805,5 +805,15 @@
     "items": [
       { "title": "Recap tab for creators", "text": "The admin page has a new Recap tab for creator accounts. Pick a year and press Generate to see the global recap and your own, built from the data Aduna has right now. Nothing is saved or shown to anyone else." }
     ]
+  },
+  {
+    "id": "2026.11.25.3",
+    "date": "2026-11-25",
+    "title": "Year in review in Settings",
+    "items": [
+      { "title": "Year in review tab", "text": "Settings has a new Year in review tab. It plays a 30 second recap of your year: messages, hours in voice, credits, quests, friends and badges, plus your title and favourite hour. It appears once the recap for a year has been built, which happens in January." },
+      { "title": "Your year and everyone's", "text": "You can switch between your own recap and the one for all of Aduna. Yours uses your profile theme and your profile song, and the Aduna one uses the most popular theme and song. Only you can see yours, and it only shows numbers, never messages or names." },
+      { "title": "Sound is off until you press play", "text": "Use Pause, Replay and the mute button as it plays. Share only sends the numbers, and only when you press it." }
+    ]
   }
 ]
