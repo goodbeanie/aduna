@@ -834,5 +834,14 @@
       { "title": "Vertical only", "text": "The recap video is always tall, like a phone screen. The Wide button is gone." },
       { "title": "Bolder text", "text": "Numbers and titles in the recap are heavier and sharper." }
     ]
+  },
+  {
+    "id": "2026.11.25.6",
+    "date": "2026-11-25",
+    "title": "Recap emoji and sharing",
+    "items": [
+      { "title": "Emoji show up", "text": "Your most-used emoji was blank in the recap on some devices. It is now drawn as a picture, like emoji everywhere else in Aduna." },
+      { "title": "Share to friends and servers", "text": "Share in the recap opens Aduna's share sheet, so you can send your numbers to a friend or a server. More opens your device's own share menu." }
+    ]
   }
 ]
