@@ -165,9 +165,10 @@ function BuyNotices() {
 }
 
 // A limited-time event (Halloween, Christmas): its quests and, at Christmas, the Advent calendar. The server decides what is open;
-// in a developer's test mode (ev.test) claims are dry runs that pay nothing.
+// in a creator's test mode (ev.test) claims are dry runs that pay nothing. A closed door says nothing about its prize: the server only sends it once the door is open.
 const dayLabel = (t) => new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
-function EventSection({ ev, locked, busy, onClaim, onDoor }) {
+const prizeText = (p) => (p.type === 'credits' ? `+${p.amount} credits` : p.type === 'multiplier' ? `${p.mult}x credits until the end of today (UTC)` : 'a free 1-day server boost');
+function EventSection({ ev, locked, busy, onClaim, onDoor, onPick }) {
   const adv = ev.advent;
   return (
     <div className={'event-card ' + ev.id + (ev.test ? ' test' : '')}>
@@ -179,7 +180,8 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
         </div>
         {ev.test && <span className="event-test">TEST MODE</span>}
       </div>
-      {ev.test && <p className="muted small event-note">Test mode is on for your developer account. Claims here are a dry run: they show the reward but pay no credits and give no badge. Turn it off or reset it in Settings &gt; Developer.</p>}
+      {ev.test && <p className="muted small event-note">Test mode is on for your creator account. Claims here are a dry run: they show the prize but pay no credits, start no boost and give no badge. Turn it off or reset it in Settings &gt; Developer.</p>}
+      {ev.dayBoost && <p className="ok-text small">{ev.dayBoost.multiplier}x credits on messages and quests until the end of today (UTC).</p>}
       <div className="quests">{ev.quests.map((q) => <Quest key={q.id} q={q} locked={locked} busy={busy} onClaim={onClaim} />)}</div>
       {adv && (
         <>
@@ -187,15 +189,21 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
           <div className="advent" role="list">
             {adv.doors.map((dr) => (
               <button key={dr.day} role="listitem" type="button" className={'door ' + dr.state + (dr.day === adv.total ? ' last' : '')}
-                disabled={dr.state !== 'ready' || locked || busy === 'door' + dr.day}
-                title={dr.state === 'locked' ? `Opens on ${dr.day} December` : dr.state === 'opened' ? `Door ${dr.day}: +${dr.reward} credits` : `Open door ${dr.day}`}
-                onClick={() => onDoor(dr)}>
+                disabled={(dr.state !== 'ready' && !dr.pending) || (locked && !dr.pending) || busy === 'door' + dr.day}
+                title={dr.pending ? `Door ${dr.day}: pick a server for your free boost` : dr.state === 'locked' ? `Opens on ${dr.day} December` : dr.state === 'opened' ? `Door ${dr.day}: ${prizeText(dr.prize)}` : `Open door ${dr.day}`}
+                onClick={() => (dr.pending ? onPick(dr) : onDoor(dr))}>
                 <span className="door-n">{dr.day}</span>
-                <span className="door-r">{dr.state === 'opened' ? <Icon name="check" size={13} /> : dr.state === 'locked' ? <Icon name="lock" size={13} /> : <><Icon name="coin" size={11} />{dr.reward}</>}</span>
+                <span className="door-r">
+                  {dr.state === 'locked' ? <Icon name="lock" size={13} />
+                    : dr.state === 'ready' ? <Icon name="star" size={13} />
+                      : dr.pending ? 'Pick'
+                        : dr.prize.type === 'credits' ? <><Icon name="coin" size={11} />{dr.prize.amount}</>
+                          : dr.prize.type === 'multiplier' ? `${dr.prize.mult}x` : 'Boost'}
+                </span>
               </button>
             ))}
           </div>
-          <p className="muted small">A door opens on its own day in December and stays open until the event ends, so a missed one can still be opened. Open all {adv.total} doors for the {adv.badge.name} badge.</p>
+          <p className="muted small">A door opens on its own day in December and stays open until the event ends, so a missed one can still be opened. Each one holds credits, a 1.5x credits day or a free one-day server boost, and you only find out when you open it. Open all {adv.total} doors for the {adv.badge.name} badge.</p>
         </>
       )}
     </div>
@@ -205,11 +213,12 @@ function EventSection({ ev, locked, busy, onClaim, onDoor }) {
 // Credits: balance, buying, the earning rules, quests and recent activity.
 // `rev` goes up whenever the server says the balance changed, so this page refreshes itself.
 // `page` picks the tab: 'shop' (buy credits, spend them on badges, recent activity) or 'quests' (earn credits: events, chatting, quests).
-export default function Credits({ page = 'shop', storage = null, onBack, rev, justPaid, creator = false, artistId = null, onAllItems, me = null }) {
+export default function Credits({ page = 'shop', storage = null, onBack, rev, justPaid, creator = false, artistId = null, onAllItems, me = null, servers = [] }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState('');
+  const [pick, setPick] = useState(null); // the Advent door whose free boost is waiting for a server, or null
   const [buying, setBuying] = useState(false); // the "Buy credits" window (the packs) is open
   const [confirm, setConfirm] = useState(null); // the badge the person is about to buy, or null
   const [won, setWon] = useState(null); // the badge just bought (the celebration), or null
@@ -268,9 +277,10 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   // The shop is view-only. Removing items is done on the admin page (/admin > Shop), and the server only allows it for admin accounts.
   const timeLeft = (ms) => { const m = Math.max(1, Math.ceil(ms / 60_000)); return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`; };
 
-  const seasonNote = (r, what) => (r.test
-    ? `Test mode: ${what} would pay +${r.amount} credits (nothing was paid)`
-    : `+${r.amount} credits for ${what}${r.badge ? ` and the ${r.badge} badge` : ''}`);
+  const seasonNote = (r, what) => {
+    const text = r.prize ? prizeText(r.prize) : `+${r.amount} credits`;
+    return r.test ? `Test mode: ${what} would give ${text} (nothing was applied)` : `${text} for ${what}${r.badge ? ` and the ${r.badge} badge` : ''}`;
+  };
   async function claimSeason(q) {
     setBusy(q.id); setErr(''); setNote('');
     try { const r = await api(`/credits/season/quests/${q.id}/claim`, { method: 'POST' }); setD(r); setNote(seasonNote(r, `“${q.title}”`)); }
@@ -279,7 +289,20 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
   }
   async function openDoor(door) {
     setBusy('door' + door.day); setErr(''); setNote('');
-    try { const r = await api(`/credits/season/advent/${door.day}/open`, { method: 'POST' }); setD(r); setNote(seasonNote(r, `Advent door ${door.day}`)); }
+    try {
+      const r = await api(`/credits/season/advent/${door.day}/open`, { method: 'POST' });
+      setD(r); setNote(seasonNote(r, `Advent door ${door.day}`));
+      if (r.prize && r.prize.type === 'boost' && !r.test) setPick(door.day);
+    }
+    catch (e) { setErr(e.message); }
+    setBusy('');
+  }
+  async function boostServer(sv) {
+    setBusy('pick'); setErr(''); setNote('');
+    try {
+      const r = await api(`/credits/season/advent/${pick}/boost`, { method: 'POST', body: { serverId: sv.id } });
+      setD(r); setPick(null); setNote(`Your free boost is running on ${r.boosted} for 24 hours.`);
+    }
     catch (e) { setErr(e.message); }
     setBusy('');
   }
@@ -305,6 +328,15 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
         {note && <p className="ok-text">{note}</p>}
         {confirm && d && <BuyConfirm item={confirm} balance={d.balance} busy={busy === confirm.id} onConfirm={() => buyItem(confirm)} onClose={() => setConfirm(null)} viewer={me} />}
         {won && <Celebration item={won} onClose={() => setWon(null)} viewer={me} />}
+        {pick && (
+          <Modal title="Pick a server to boost" onClose={() => setPick(null)}>
+            <p className="muted small">Your free level 1 boost runs for 24 hours on the server you choose. If you are not ready, close this and tap door {pick} again later.</p>
+            {servers.length === 0 && <p className="muted small">You are not in any server yet.</p>}
+            <div style={{ display: 'grid', gap: 8 }}>
+              {servers.map((sv) => <button key={sv.id} type="button" className="btn full" disabled={busy === 'pick'} onClick={() => boostServer(sv)}>{sv.name}</button>)}
+            </div>
+          </Modal>
+        )}
         {adding && <AddBadgeModal onClose={() => setAdding(false)} onAdded={(name) => { setAdding(false); load(); setNote(`${name} is in the shop.`); }} />}
         {buying && d && (
           <Modal title="Buy credits" onClose={() => setBuying(false)}>
@@ -340,7 +372,7 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
             </div>
             {locked && page === 'quests' && <p className="muted notice-line">New accounts can earn and claim rewards after 30 minutes. About {mins} min to go.</p>}
             {page === 'quests' && d.streakInfo && <StreakCard s={d.streakInfo} />}
-            {page === 'quests' && d.event && <EventSection ev={d.event} locked={locked && !d.event.test} busy={busy} onClaim={claimSeason} onDoor={openDoor} />}
+            {page === 'quests' && d.event && <EventSection ev={d.event} locked={locked && !d.event.test} busy={busy} onClaim={claimSeason} onDoor={openDoor} onPick={(dr) => setPick(dr.day)} />}
             {page === 'quests' && d.ads?.enabled && d.ads.rewarded && (
               <>
                 <h4 className="credit-h">Sponsors</h4>

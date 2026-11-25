@@ -12,7 +12,7 @@
 //     is a speed bump against paste / auto-typing, NOT a guarantee: anything the browser sends can be forged by a
 //     determined script. The real limits are the daily cap, cooldown, account age, similarity and conversation checks.
 const crypto = require('crypto');
-const events = require('./events'); // the Halloween / Christmas quests, the Advent calendar and the developer test mode
+const events = require('./events'); // the Halloween / Christmas quests, the Advent calendar and the creator test mode
 const shop = require('./shop');     // what credits can be spent on (profile badges)
 const artists = require('./artists'); // artists sell badges in the shop and earn a share of each sale (cutFor)
 const pthemes = require('./profilethemes'); // gradient profile themes: free for everybody (animated ones can be switched on later)
@@ -69,6 +69,7 @@ const LEDGER_KEEP = 40;
 const dayKey = (ts) => new Date(ts).toISOString().slice(0, 10);
 
 const plusPay = (n, plus) => (plus ? Math.round(n * EARN.plusMultiplier) : n);
+const dayPay = (n, u, now) => Math.round(n * events.dayMultiplier(u, now)); // the Advent 1.5x day
 // what the next rewarded message pays, given today's counters
 const messagePay = (d, plus) => (!plus ? EARN.msgReward : d.msgs < EARN.plusMsgLimit ? plusPay(EARN.msgReward, true) : EARN.plusMsgAfter);
 
@@ -237,7 +238,7 @@ function rewardMessage({ user: u, content, proof, server, channel, humans, plus 
   if (!othersSpoke(channel.id, u.id, now)) return no('nobody to talk to');
 
   const base = messagePay(d, plus);
-  const amount = Math.round(base * boosts.multiplierOf(server, now)); // a level 3 server pays 1.5x; the extra does not count against the daily cap
+  const amount = Math.round(base * boosts.multiplierOf(server, now) * events.dayMultiplier(u, now)); // a level 3 server pays 1.5x, and so does an Advent 1.5x day; the extra does not count against the daily cap
   c.lastMsgAt = now;
   c.msgTotal++;
   d.msg += base;
@@ -300,7 +301,7 @@ function questList(u, db, now = Date.now(), plus = false) {
     let reward = q.reward;
     if (q.id === 'checkin') { const s = nextStreak(c, now); reward += streakBonus(s) + milestoneBonus(s); }
     return {
-      id: q.id, title: q.title, desc: q.desc, daily: !!q.daily, reward: plusPay(reward, plus), have: Math.min(have, need), need, done: have >= need, claimed,
+      id: q.id, title: q.title, desc: q.desc, daily: !!q.daily, reward: dayPay(plusPay(reward, plus), u, now), have: Math.min(have, need), need, done: have >= need, claimed,
       plusOnly: !!q.plusOnly, locked: !!q.plusOnly && !plus,
     };
   });
@@ -325,9 +326,9 @@ function claimQuest(u, id, db, now = Date.now(), plus = false) {
     amount += streakBonus(c.streak) + milestone;
   }
   claimed[id] = now; // marked before paying: the check and the payment happen in one synchronous step
-  amount = plusPay(amount, plus);
+  amount = dayPay(plusPay(amount, plus), u, now);
   grant(u, amount, 'quest', { note: milestone ? `${q.title} (${c.streak}-day streak!)` : q.title, now });
-  return { ok: true, amount, balance: c.balance, ...(milestone ? { milestone: plusPay(milestone, plus), streak: c.streak } : {}) };
+  return { ok: true, amount, balance: c.balance, ...(milestone ? { milestone: dayPay(plusPay(milestone, plus), u, now), streak: c.streak } : {}) };
 }
 
 // What the Quests page shows for the check-in streak: the current run, the best run, and the next reward waiting at the end of it.
@@ -495,8 +496,7 @@ function handleStripeEvent(event, db, now = Date.now()) {
 function register(app, d) {
   const push = (u, delta, reason) => d.notify(u.id, { balance: acct(u).balance, delta, reason });
 
-  // developers (and the creator) can switch an event on for themselves to test it, see events.js
-  const isDev = (u) => !!(d.isDev && d.isDev(u));
+  // creator accounts can switch an event on for themselves to test it, see events.js
   const isCreator = (u) => !!(d.isCreator && d.isCreator(u));
   const paymentsOpen = (u) => !d.paymentsOpen || d.paymentsOpen(u); // the Payments switch (index.js); open when nothing says otherwise
   // feature releases (features.js): 'rewarded-ads' and 'sponsored-card' decide whether this person sees the sponsor button and the card
@@ -504,7 +504,7 @@ function register(app, d) {
   const needRewardedAds = (req, res, next) => (featureOn('rewarded-ads', req.user) ? next() : res.status(404).json({ error: 'Not found' }));
   const isPlus = (u) => !!(d.isPlus && d.isPlus(u));
   const fullView = (u) => view(u, d.db(), {
-    purchases: purchasesEnabled() && paymentsOpen(u), paused: purchasesEnabled() && !paymentsOpen(u), dev: isDev(u), creator: isCreator(u), plus: isPlus(u),
+    purchases: purchasesEnabled() && paymentsOpen(u), paused: purchasesEnabled() && !paymentsOpen(u), dev: isCreator(u), creator: isCreator(u), plus: isPlus(u),
     features: { rewarded: featureOn('rewarded-ads', u), sponsored: featureOn('sponsored-card', u) },
   });
 
@@ -556,18 +556,29 @@ function register(app, d) {
   const seasonPay = (req, res, r) => {
     if (!r.ok) return res.status(r.status).json({ error: r.error, unlocksAt: r.unlocksAt });
     d.save();
-    if (!r.test) push(req.user, r.amount, 'quest'); // a test claim moves no credits
+    if (!r.test && r.amount) push(req.user, r.amount, 'quest'); // a test claim moves no credits, and a multiplier or boost prize pays none yet
     if (r.badge && d.userChanged) d.userChanged(req.user); // a new badge shows next to their name right away
-    res.json({ ...fullView(req.user), amount: r.amount, test: !!r.test, ...(r.badge ? { badge: r.badge } : {}), ...(r.all ? { all: true } : {}) });
+    res.json({ ...fullView(req.user), ...(r.amount ? { amount: r.amount } : {}), ...(r.prize ? { prize: r.prize } : {}), test: !!r.test, ...(r.badge ? { badge: r.badge } : {}), ...(r.all ? { all: true } : {}) });
   };
-  const seasonOpts = (u) => ({ dev: isDev(u), grant, unlocksAt: unlocksAt(u), minAgeMs: EARN.minAccountAgeMs });
+  const seasonOpts = (u) => ({ dev: isCreator(u), grant, unlocksAt: unlocksAt(u), minAgeMs: EARN.minAccountAgeMs });
   app.post('/api/credits/season/quests/:id/claim', d.auth, (req, res) => seasonPay(req, res, events.claim(req.user, req.params.id, seasonOpts(req.user))));
   app.post('/api/credits/season/advent/:day/open', d.auth, (req, res) => seasonPay(req, res, events.openDoor(req.user, req.params.day, seasonOpts(req.user))));
 
-  // Developer test mode: { mode: 'halloween' | 'christmas' | null }. Developers only; everything claimed in it is a dry run.
-  const devOnly = (req, res) => { if (isDev(req.user)) return true; res.status(403).json({ error: 'Test mode is for developer accounts', code: 'not_developer' }); return false; };
+  // The free boost from an Advent door: the person names the server, it has to be one they are in. A refusal leaves the prize waiting.
+  app.post('/api/credits/season/advent/:day/boost', d.auth, (req, res) => {
+    const s = d.db().servers[String(req.body?.serverId || '')];
+    if (!s || !s.members.includes(req.user.id)) return res.status(404).json({ error: 'Pick a server you are in' });
+    const r = events.useBoost(req.user, req.params.day, s, seasonOpts(req.user));
+    if (!r.ok) return res.status(r.status).json({ error: r.error });
+    d.save();
+    if (d.serverChanged) d.serverChanged(s); // everyone in the server sees the new level and the booster tag right away
+    res.json({ ...fullView(req.user), boosted: s.name });
+  });
+
+  // Test mode: { mode: 'halloween' | 'christmas' | null }. Creator accounts only; everything claimed in it is a dry run.
+  const creatorOnly = (req, res) => { if (isCreator(req.user)) return true; res.status(403).json({ error: 'Test mode is for creator accounts', code: 'not_creator' }); return false; };
   app.post('/api/credits/season/test', d.auth, (req, res) => {
-    if (!devOnly(req, res)) return;
+    if (!creatorOnly(req, res)) return;
     const mode = req.body?.mode ?? null;
     if (mode !== null && !events.EVENTS[mode]) return res.status(400).json({ error: 'Choose halloween, christmas or off' });
     events.setTest(req.user, mode);
@@ -575,7 +586,7 @@ function register(app, d) {
     res.json({ seasonTest: events.testMode(req.user, true), credits: fullView(req.user) });
   });
   app.post('/api/credits/season/test/reset', d.auth, (req, res) => {
-    if (!devOnly(req, res)) return;
+    if (!creatorOnly(req, res)) return;
     events.resetTest(req.user);
     d.save();
     res.json({ seasonTest: events.testMode(req.user, true), credits: fullView(req.user) });

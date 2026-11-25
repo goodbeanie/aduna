@@ -10,6 +10,7 @@
     "test:translate": "node server/translate-test.js",
     "test:storagebudget": "node server/storage-budget-test.js",
     "test:boosts": "node server/boosts-test.js",
+    "test:events": "node server/events-test.js",
     "test:sponsored": "node server/sponsored-test.js",
     "test:wheels": "node server/wheels-test.js",
     "test:automod": "node server/automod-test.js",

@@ -1,12 +1,13 @@
-// Seasonal events: the Halloween and Christmas quests, the Christmas Advent calendar, and the developer test mode.
+// Seasonal events: the Halloween and Christmas quests, the Christmas Advent calendar, and the creator test mode.
 //
 // Like credits.js this file has no Express / database imports: the rules are plain functions over a user record and the
 // credits `grant` function, so server/events-test.js can run them without a server. index.js / credits.js wire them to routes.
 //
 // What is stored, per user:
-//   u.seasons[<event>-<year>] = { trick: [userId], gif: [userId], react: [messageId], claimed: { questId: ts }, daily: { questId: 'YYYY-MM-DD' }, doors: { 1..24: ts } }
+//   u.seasons[<event>-<year>] = { trick: [userId], gif: [userId], react: [messageId], claimed: { questId: ts }, daily: { questId: 'YYYY-MM-DD' }, doors: { 1..24: ts }, pending: { day: true } }
 //   u.seasonBadges = [badge id]                    badges earned from events (see BADGES); shown next to the name
-//   u.seasonTest = { mode: 'halloween'|'christmas', state }   developer test mode (developers only), see "test mode" below
+//   u.seasonTest = { mode: 'halloween'|'christmas', state }   creator test mode (creator accounts only), see "test mode" below
+//   u.dayBoost = { mult, until }                   the 1.5x credits prize from an Advent door, until the end of that UTC day (credits.js reads it with dayMultiplier)
 //
 // Where the safety lives (same ideas as credits.js):
 //   * Rewards are only ever paid by claim() / openDoor() here, on the server, once per quest per event year (a daily quest once per UTC day,
@@ -16,11 +17,12 @@
 //     send (`quest: 'trick' | 'gif'`). A hint can be forged by a script, so it only ever counts when the server can check everything else:
 //     the person is really friends with the receiver (dm:send already refuses anyone else), it is a different account each time (5 DIFFERENT
 //     friends), both accounts are at least 30 minutes old, the receiver is not a bot, and the event window is open. The reward is a one-off.
-//   * Test mode never pays: a developer can switch an event on for themselves to see the themes, quests and calendar, and everything they
-//     claim there is a dry run (the amount is shown, no credits move, no badge is given). It is kept apart from real progress.
+//   * Test mode never pays: a creator account can switch an event on for itself to see the themes, quests and calendar, and everything it
+//     claims there is a dry run (the prize is shown, no credits move, no boost starts, no badge is given). It is kept apart from real progress.
 
 const DAY = 86_400_000;
 const MAX_LIST = 50; // most friends / messages remembered per list
+const boosts = require('./boosts'); // pure rules too, no database
 
 // month/day are 1-12 / 1-31 in UTC. `to` may be in the next calendar year (Christmas runs into January).
 // Halloween matches the themes and the ringtone (17 Oct - 7 Nov). Christmas opens on 1 Dec so the Advent calendar can start on door 1;
@@ -55,10 +57,22 @@ const QUESTS = {
 };
 
 // The Advent calendar: door N opens on 1 December + N - 1 (UTC) and stays open until the event ends, so a missed day can still be opened.
-// Most doors hold a few credits; every third door and the halfway door hold more, door 24 holds the most, and opening all 24 gives a badge.
-const ADVENT_CREDITS = [5, 5, 10, 5, 5, 15, 5, 5, 10, 5, 5, 25, 5, 5, 10, 5, 5, 15, 5, 5, 10, 5, 10, 60];
+// What is behind a door stays hidden until it is opened. Most doors hold a few credits; some hold 1.5x credits for the rest of that UTC day
+// or a free one-day server boost (the person picks the server after opening). Every third door and the halfway door pay more,
+// door 24 holds the most, and opening all 24 gives a badge.
+const DAY_MULTIPLIER = 1.5;
+const GIFT_BOOST_LEVEL = 1;
+const GIFT_BOOST_MS = DAY;
+const credits = (amount) => ({ type: 'credits', amount });
+const x15 = { type: 'multiplier', mult: DAY_MULTIPLIER };
+const gift = { type: 'boost', level: GIFT_BOOST_LEVEL };
+const ADVENT_PRIZES = [
+  credits(5), credits(5), credits(10), x15, credits(5), credits(15), gift, credits(5),
+  credits(10), x15, credits(5), credits(25), gift, credits(5), credits(10), x15,
+  credits(5), credits(15), gift, x15, credits(10), credits(5), credits(10), credits(60),
+];
 const ADVENT_BADGE = 'santas-helper';
-const DOORS = ADVENT_CREDITS.length; // 24
+const DOORS = ADVENT_PRIZES.length; // 24
 
 // ---------- dates ----------
 const dayKey = (ts) => new Date(ts).toISOString().slice(0, 10);
@@ -87,12 +101,13 @@ const list = (x) => (Array.isArray(x) ? x : []);
 const obj = (x) => (x && typeof x === 'object' && !Array.isArray(x) ? x : {});
 function normal(s) {
   s.trick = list(s.trick); s.gif = list(s.gif); s.react = list(s.react);
-  s.claimed = obj(s.claimed); s.daily = obj(s.daily); s.doors = obj(s.doors);
+  s.claimed = obj(s.claimed); s.daily = obj(s.daily); s.doors = obj(s.doors); s.pending = obj(s.pending);
   return s;
 }
 
 // What applies to this person right now: { ev, year, key, test, state, start, end } or null.
-// A developer with test mode on sees that event (in a separate record that never pays); everyone else sees the real event, if one is open.
+// `dev` means the caller may use test mode (credits.js passes true for creator accounts only). With it on, a person who switched test mode on
+// sees that event, in a separate record that never pays; everyone else sees the real event, if one is open.
 function current(u, { now = Date.now(), dev = false } = {}) {
   const t = dev && u.seasonTest && EVENTS[u.seasonTest.mode] ? u.seasonTest : null;
   if (t) {
@@ -140,17 +155,25 @@ function questViews(cur, now) {
   });
 }
 
-// door N is open to claim when its date has come (every door in test mode) and the event is on
+// door N is open to claim when its date has come (every door in test mode) and the event is on.
+// A closed door says nothing about its prize; the prize is only sent once the door has been opened.
 const doorOpensAt = (cur, day) => Date.UTC(cur.year, 11, day);
 function adventView(cur, now) {
   const doors = [];
   for (let day = 1; day <= DOORS; day++) {
     const opened = !!cur.state.doors[day];
     const ready = cur.test || now >= doorOpensAt(cur, day);
-    doors.push({ day, reward: ADVENT_CREDITS[day - 1], opened, state: opened ? 'opened' : ready ? 'ready' : 'locked', ...(day === DOORS ? { badge: BADGES[ADVENT_BADGE].name } : {}) });
+    doors.push({
+      day, opened, state: opened ? 'opened' : ready ? 'ready' : 'locked',
+      ...(opened ? { prize: { ...ADVENT_PRIZES[day - 1] }, ...(cur.state.pending[day] ? { pending: true } : {}) } : {}),
+    });
   }
   return { total: DOORS, opened: doors.filter((d) => d.opened).length, doors, badge: { id: ADVENT_BADGE, name: BADGES[ADVENT_BADGE].name, emoji: BADGES[ADVENT_BADGE].emoji } };
 }
+
+// credits.js multiplies what messages and quests pay by this
+const dayMultiplier = (u, now = Date.now()) => (u.dayBoost && u.dayBoost.until > now && u.dayBoost.mult > 1 ? u.dayBoost.mult : 1);
+const dayBoostView = (u, now) => (dayMultiplier(u, now) > 1 ? { multiplier: u.dayBoost.mult, until: u.dayBoost.until } : null);
 
 // null when there is no event for this person right now
 function view(u, { now = Date.now(), dev = false } = {}) {
@@ -161,6 +184,7 @@ function view(u, { now = Date.now(), dev = false } = {}) {
     until: cur.end ? cur.end - DAY : null, // the last day, as a timestamp (UTC midnight)
     quests: questViews(cur, now),
     advent: cur.ev.id === 'christmas' ? adventView(cur, now) : null,
+    dayBoost: dayBoostView(u, now),
     ...(cur.ev.id === 'halloween' ? { badge: { id: 'trick-or-treater', name: BADGES['trick-or-treater'].name, emoji: BADGES['trick-or-treater'].emoji } } : {}),
   };
 }
@@ -190,7 +214,8 @@ function claim(u, id, { now = Date.now(), dev = false, grant, minAgeMs = 0, unlo
   return { ok: true, amount: q.reward, test: false, ...(badge ? { badge } : {}) };
 }
 
-// Opens an Advent door (Christmas only).
+// Opens an Advent door (Christmas only). Credits are paid here, the 1.5x lasts until the end of today (UTC), and a boost waits in `pending`
+// until the person picks a server for it (useBoost). A test claim only shows the prize.
 function openDoor(u, day, { now = Date.now(), dev = false, grant, unlocksAt = 0 } = {}) {
   const cur = current(u, { now, dev });
   if (!cur || cur.ev.id !== 'christmas') return { status: 404, error: 'The Advent calendar is only open at Christmas' };
@@ -200,15 +225,30 @@ function openDoor(u, day, { now = Date.now(), dev = false, grant, unlocksAt = 0 
   if (!cur.test && now < doorOpensAt(cur, day)) return { status: 403, error: `Door ${day} opens on ${day} December` };
   if (cur.state.doors[day]) return { status: 409, error: 'You already opened that door' };
   cur.state.doors[day] = now;
-  const amount = ADVENT_CREDITS[day - 1];
-  if (cur.test) return { ok: true, amount, test: true, all: Object.keys(cur.state.doors).length >= DOORS };
-  grant(u, amount, 'quest', { note: `Advent calendar: door ${day}`, now });
+  const prize = { ...ADVENT_PRIZES[day - 1] };
+  const amount = prize.type === 'credits' ? prize.amount : undefined;
   const all = Object.keys(cur.state.doors).length >= DOORS;
+  if (cur.test) return { ok: true, prize, ...(amount ? { amount } : {}), test: true, all };
+  if (prize.type === 'credits') grant(u, amount, 'quest', { note: `Advent calendar: door ${day}`, now });
+  else if (prize.type === 'multiplier') u.dayBoost = { mult: prize.mult, until: (Math.floor(now / DAY) + 1) * DAY };
+  else cur.state.pending[day] = true;
   const badge = all ? award(u, ADVENT_BADGE, cur) : null;
-  return { ok: true, amount, test: false, all, ...(badge ? { badge } : {}) };
+  return { ok: true, prize, ...(amount ? { amount } : {}), test: false, all, ...(badge ? { badge } : {}) };
 }
 
-// ---------- test mode (developers) ----------
+// Starts the free boost a door gave, on the server the person picked (the caller has checked they are in it).
+// If the server cannot use it (boosts.buyGift says why) the prize stays waiting.
+function useBoost(u, day, server, { now = Date.now(), dev = false } = {}) {
+  const cur = current(u, { now, dev });
+  day = Number(day);
+  if (!cur || cur.test || !cur.state.pending[day]) return { status: 404, error: 'There is no boost waiting on that door' };
+  const r = boosts.buyGift(server, u, { level: GIFT_BOOST_LEVEL, ms: GIFT_BOOST_MS, now });
+  if (!r.ok) return r;
+  delete cur.state.pending[day];
+  return { ok: true, boost: r.boost };
+}
+
+// ---------- test mode (creator accounts) ----------
 // mode: 'halloween' | 'christmas' | null (off). Switching to the other event, or off, starts the test record from nothing.
 function setTest(u, mode) {
   if (mode === null || mode === undefined || mode === '') { delete u.seasonTest; return null; }
@@ -225,6 +265,6 @@ function badgeViews(u) {
 }
 
 module.exports = {
-  EVENTS, QUESTS, BADGES, ADVENT_CREDITS, DOORS, windowOf, eventAt, current,
-  noteDm, noteReaction, view, claim, openDoor, setTest, resetTest, testMode, badgeViews,
+  EVENTS, QUESTS, BADGES, ADVENT_PRIZES, DAY_MULTIPLIER, GIFT_BOOST_LEVEL, GIFT_BOOST_MS, DOORS, windowOf, eventAt, current,
+  noteDm, noteReaction, view, claim, openDoor, useBoost, dayMultiplier, setTest, resetTest, testMode, badgeViews,
 };

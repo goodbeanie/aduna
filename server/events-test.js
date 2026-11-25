@@ -1,4 +1,4 @@
-// Halloween / Christmas quests, the Advent calendar and the developer test mode, without a server: node server/events-test.js
+// Halloween / Christmas quests, the Advent calendar and the creator test mode, without a server: node server/events-test.js
 const assert = require('assert');
 const E = require('./events');
 const C = require('./credits');
@@ -151,7 +151,7 @@ const step = (m) => console.log('✓', m);
   const v = E.view(u, { now }).advent;
   assert.strictEqual(v.doors.length, 24);
   assert.deepStrictEqual(v.doors.slice(0, 11).map((d) => d.state), Array(10).fill('ready').concat('locked'), 'doors 1-10 are open, 11 is not yet');
-  assert.strictEqual(v.doors[23].reward, 60);
+  assert(v.doors.every((d) => d.prize === undefined && d.reward === undefined), 'nothing is shown about a door until it is opened');
   assert.strictEqual(E.openDoor(u, 11, opts(now)).status, 403, 'a door cannot be opened before its day');
   assert.strictEqual(E.openDoor(u, 25, opts(now)).status, 404);
   assert.strictEqual(E.openDoor(u, 0, opts(now)).status, 404);
@@ -164,18 +164,54 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual(u.credits.ledger[0].note, 'Advent calendar: door 3');
   assert.strictEqual(E.openDoor(u, 1, opts(now)).ok, true, 'a missed door can be opened later');
   assert.strictEqual(E.view(u, { now }).advent.opened, 2);
-  step('Advent calendar: door N opens on N December, once each, missed doors can be opened later');
+  assert.deepStrictEqual(E.view(u, { now }).advent.doors[2].prize, { type: 'credits', amount: 10 }, 'an opened door shows its prize');
+  step('Advent calendar: door N opens on N December, prizes stay hidden until opened, missed doors can be opened later');
 }
 {
   const u = user('u1'), end = Date.UTC(2027, 0, 1, 10); // 1 January: every door is open and the last chance
   let total = 0, last;
-  for (let d = 1; d <= 24; d++) { last = E.openDoor(u, d, opts(end)); assert.strictEqual(last.ok, true); total += last.amount; }
-  assert.strictEqual(total, E.ADVENT_CREDITS.reduce((a, b) => a + b, 0));
+  for (let d = 1; d <= 24; d++) { last = E.openDoor(u, d, opts(end)); assert.strictEqual(last.ok, true); total += last.amount || 0; }
+  assert.strictEqual(total, E.ADVENT_PRIZES.reduce((a, p) => a + (p.type === 'credits' ? p.amount : 0), 0));
   assert.strictEqual(u.credits.balance, total);
   assert.strictEqual(last.all, true); assert.strictEqual(last.badge, 'Santa\u2019s Helper');
   assert(E.badgeViews(u).some((b) => b.id === 'santas-helper'));
   assert.strictEqual(E.openDoor(u, 5, opts(Date.UTC(2027, 0, 2))).status, 404, 'after the event the calendar is gone');
   step('opening all 24 doors pays the total and gives the Santa\u2019s Helper badge');
+}
+{
+  const u = user('u1'), now = XMAS;
+  const r = E.openDoor(u, 4, opts(now));
+  assert.deepStrictEqual([r.ok, r.prize.type, r.prize.mult, r.amount], [true, 'multiplier', 1.5, undefined]);
+  assert.strictEqual(u.credits, undefined, 'a multiplier door pays no credits itself');
+  assert.strictEqual(E.dayMultiplier(u, now), 1.5);
+  assert.strictEqual(E.dayMultiplier(u, now + 11 * HOUR), 1.5, 'it lasts until the end of the UTC day');
+  assert.strictEqual(E.dayMultiplier(u, Date.UTC(2026, 11, 11)), 1, 'and is gone at midnight');
+  assert.strictEqual(E.view(u, { now }).dayBoost.multiplier, 1.5);
+  const q = C.claimQuest(u, 'checkin', { friendships: {}, servers: {}, emojis: {} }, now);
+  assert.strictEqual(q.amount, 15, 'a 10 credit quest pays 15 on a 1.5x day');
+  const other = C.claimQuest(user('u2'), 'checkin', { friendships: {}, servers: {}, emojis: {} }, now);
+  assert.strictEqual(other.amount, 10, 'and only for the person who opened the door');
+  step('1.5x door: quests pay 1.5x until the end of that UTC day, for that person only');
+}
+{
+  const B = require('./boosts');
+  const u = user('u1'), end = Date.UTC(2027, 0, 1, 10);
+  const r = E.openDoor(u, 7, opts(end));
+  assert.deepStrictEqual([r.ok, r.prize.type, r.prize.level, r.amount], [true, 'boost', 1, undefined]);
+  assert.strictEqual(E.view(u, { now: end }).advent.doors[6].pending, true, 'the boost waits for a server');
+  const busy = { id: 's1', members: ['u1'], boosts: [{ id: 'b', userId: 'other', level: 1, credits: 1000, startedAt: end, endsAt: end + DAY }] };
+  assert.strictEqual(E.useBoost(u, 7, busy, { now: end }).status, 409, 'a server already at level 1 would gain nothing');
+  assert.strictEqual(E.view(u, { now: end }).advent.doors[6].pending, true, 'a refused pick keeps the prize');
+  const free = { id: 's2', members: ['u1'], boosts: [] };
+  assert.strictEqual(E.useBoost(u, 7, free, { now: end }).ok, true);
+  assert.strictEqual(B.levelOf(free, end), 1);
+  assert.strictEqual(free.boosts[0].endsAt, end + DAY, 'one day');
+  assert.strictEqual(free.boosts[0].credits, 0);
+  assert.strictEqual(B.levelOf(free, end + DAY + 1), 0, 'it ends by itself');
+  assert.strictEqual(E.view(u, { now: end }).advent.doors[6].pending, undefined);
+  assert.strictEqual(E.useBoost(u, 7, { id: 's3', members: ['u1'], boosts: [] }, { now: end }).status, 404, 'once per door');
+  assert.strictEqual(E.useBoost(u, 5, { id: 's3', members: ['u1'], boosts: [] }, { now: end }).status, 404, 'a credits door has no boost');
+  step('boost door: pick a server after opening, one day at level 1, refused picks keep the prize');
 }
 {
   const u = user('u1');
@@ -184,11 +220,11 @@ const step = (m) => console.log('✓', m);
   step('the calendar belongs to Christmas only');
 }
 
-// ---- developer test mode ----
+// ---- creator test mode ----
 {
   const u = user('dev1'), now = Date.UTC(2026, 8, 1); // September: no real event
   E.setTest(u, 'christmas');
-  assert.strictEqual(E.view(u, { now, dev: false }), null, 'without a developer account the test mode is ignored');
+  assert.strictEqual(E.view(u, { now, dev: false }), null, 'without a creator account the test mode is ignored');
   const v = E.view(u, { now, dev: true });
   assert.strictEqual(v.id, 'christmas'); assert.strictEqual(v.test, true); assert.strictEqual(v.until, null);
   assert(v.advent.doors.every((d) => d.state === 'ready'), 'every door can be tried in test mode');
@@ -197,6 +233,10 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual(u.credits, undefined, 'a test claim pays no credits');
   assert.strictEqual(u.seasonBadges, undefined, 'and gives no badge');
   assert.strictEqual(E.openDoor(u, 24, opts(now, { dev: true })).status, 409);
+  assert.strictEqual(E.openDoor(u, 4, opts(now, { dev: true })).prize.type, 'multiplier');
+  assert.strictEqual(u.dayBoost, undefined, 'a test 1.5x door changes nothing');
+  assert.strictEqual(E.openDoor(u, 7, opts(now, { dev: true })).prize.type, 'boost');
+  assert.strictEqual(E.useBoost(u, 7, { id: 's', members: ['dev1'], boosts: [] }, { now, dev: true }).status, 404, 'a test boost door starts no boost');
   for (const f of friends(5)) assert.strictEqual(E.noteDm(u, f, 'gif', opts(now, { dev: true, minAgeMs: 10 ** 12 })), true, 'test mode skips the account age check');
   assert.strictEqual(E.claim(u, 'gifs', opts(now, { dev: true })).test, true);
   assert.strictEqual(E.claim(u, 'gifs', opts(now, { dev: true })).status, 409);
@@ -213,7 +253,7 @@ const step = (m) => console.log('✓', m);
   assert.throws(() => E.setTest(u, 'easter'), /Unknown event/);
   E.setTest(u, null);
   assert.strictEqual(E.view(u, { now, dev: true }), null); assert.strictEqual(u.seasonTest, undefined);
-  step('test mode: only for developers, any event any time, every door open, dry-run claims, reset, switch, off');
+  step('test mode: for creator accounts (the route layer decides who), any event any time, every door open, dry-run claims, reset, switch, off');
 }
 {
   // test progress and real progress are separate records
@@ -233,7 +273,7 @@ const step = (m) => console.log('✓', m);
   let saved = 0, me, devFlag = false;
   const app = { get: (p, ...h) => (routes['GET ' + p] = h), post: (p, ...h) => (routes['POST ' + p] = h) };
   const db = { users: {}, friendships: {}, servers: {}, emojis: {} };
-  C.register(app, { auth: (req, _res, next) => { req.user = me; next(); }, ah: (fn) => fn, db: () => db, save: () => saved++, notify: (id, p) => pushed.push([id, p]), isDev: () => devFlag });
+  C.register(app, { auth: (req, _res, next) => { req.user = me; next(); }, ah: (fn) => fn, db: () => db, save: () => saved++, notify: (id, p) => pushed.push([id, p]), isCreator: () => devFlag });
   const call = (key, { params = {}, body = {} } = {}) => {
     const h = routes[key]; assert(h, 'no route ' + key);
     const out = { status: 200, body: null };
@@ -247,11 +287,11 @@ const step = (m) => console.log('✓', m);
   // an ordinary account cannot use test mode
   me = user('plain'); devFlag = false;
   let r = call('POST /api/credits/season/test', { body: { mode: 'christmas' } });
-  assert.strictEqual(r.status, 403); assert.strictEqual(r.body.code, 'not_developer'); assert.strictEqual(me.seasonTest, undefined);
+  assert.strictEqual(r.status, 403); assert.strictEqual(r.body.code, 'not_creator'); assert.strictEqual(me.seasonTest, undefined);
   assert.strictEqual(call('POST /api/credits/season/test/reset').status, 403);
-  step('routes: test mode is refused for accounts that are not developers');
+  step('routes: test mode is refused for accounts that are not creators');
 
-  // a developer turns it on, tries a door: dry run, nothing paid, nothing pushed
+  // a creator turns it on, tries a door: dry run, nothing paid, nothing pushed
   me = user('dev'); devFlag = true;
   r = call('POST /api/credits/season/test', { body: { mode: 'christmas' } });
   assert.strictEqual(r.status, 200); assert.strictEqual(r.body.seasonTest, 'christmas'); assert.strictEqual(r.body.credits.event.test, true);
@@ -264,7 +304,7 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual(call('POST /api/credits/season/advent/:day/open', { params: { day: '24' } }).status, 409);
   r = call('POST /api/credits/season/test/reset'); assert.strictEqual(r.body.credits.event.advent.opened, 0);
   r = call('POST /api/credits/season/test', { body: { mode: null } }); assert.strictEqual(r.body.seasonTest, null);
-  step('routes: a developer\u2019s test claims are dry runs; reset and off work');
+  step('routes: a creator\u2019s test claims are dry runs; reset and off work');
 
   // a real person, real window
   me = user('real'); devFlag = false;
@@ -276,6 +316,17 @@ const step = (m) => console.log('✓', m);
     assert.deepStrictEqual(pushed.at(-1), ['real', { balance: 5, delta: 5, reason: 'quest' }]);
     r = call('POST /api/credits/season/advent/:day/open', { params: { day: '20' } });
     assert.strictEqual(r.status, 403, 'door 20 is not open on 10 December');
+    const sent = pushed.length;
+    r = call('POST /api/credits/season/advent/:day/open', { params: { day: '7' } });
+    assert.strictEqual(r.status, 200); assert.strictEqual(r.body.prize.type, 'boost'); assert.strictEqual(r.body.amount, undefined);
+    assert.strictEqual(pushed.length, sent, 'a boost prize moves no credits');
+    db.servers.s1 = { id: 's1', name: 'Home', members: ['real'], boosts: [] };
+    db.servers.s2 = { id: 's2', name: 'Elsewhere', members: ['someone'], boosts: [] };
+    assert.strictEqual(call('POST /api/credits/season/advent/:day/boost', { params: { day: '7' }, body: { serverId: 's2' } }).status, 404, 'only a server you are in');
+    assert.strictEqual(call('POST /api/credits/season/advent/:day/boost', { params: { day: '5' }, body: { serverId: 's1' } }).status, 404, 'only a door that gave a boost');
+    r = call('POST /api/credits/season/advent/:day/boost', { params: { day: '7' }, body: { serverId: 's1' } });
+    assert.strictEqual(r.status, 200); assert.strictEqual(r.body.boosted, 'Home'); assert.strictEqual(db.servers.s1.boosts.length, 1);
+    assert.strictEqual(call('POST /api/credits/season/advent/:day/boost', { params: { day: '7' }, body: { serverId: 's1' } }).status, 404, 'used once');
     r = call('POST /api/credits/season/quests/:id/claim', { params: { id: 'gifs' } });
     assert.strictEqual(r.status, 400, 'not finished');
     assert.strictEqual(call('GET /api/credits').body.event.id, 'christmas');

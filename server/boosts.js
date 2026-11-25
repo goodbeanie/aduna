@@ -63,6 +63,19 @@ function buyFree(server, user, plus, { now = Date.now(), id } = {}) {
   return { ok: true, boost, replaced: own || null };
 }
 
+// A prize boost (the Advent calendar): free, and short. It never replaces a boost the person already has on the server, and a server that is
+// already at this level or higher would see nothing from it, so both are refused. The caller keeps the prize unused and the person picks another server.
+function buyGift(server, user, { level, ms, now = Date.now(), id } = {}) {
+  if (!tierOf(level) || !(ms > 0)) return { status: 400, error: 'Not a valid boost' };
+  server.boosts = running(server, now);
+  const top = levelOf(server, now);
+  if (top >= level) return { status: 409, error: `This server already has a level ${top} boost running, so this one would add nothing. Pick another server.` };
+  if (server.boosts.some((b) => b.userId === user.id)) return { status: 409, error: 'You already have a boost running on this server. Pick another one.' };
+  const boost = { id: id || `${now.toString(36)}${Math.random().toString(36).slice(2, 8)}`, userId: user.id, level, credits: 0, free: true, gift: true, startedAt: now, endsAt: now + ms };
+  server.boosts.push(boost);
+  return { ok: true, boost };
+}
+
 // Takes the credits and starts the boost. `spend` is credits.spend. Everything is checked before any credits move,
 // and the payment and the new boost happen in one synchronous step.
 function buy(server, user, level, spend, { now = Date.now(), id } = {}) {
@@ -105,4 +118,4 @@ function info(server, userId, now = Date.now()) {
   return { tiers: TIERS, days: DURATION_MS / DAY, level: v.level, boosters: v.boosters, mine: v.boosters.find((b) => b.userId === userId) || null };
 }
 
-module.exports = { DURATION_MS, TIERS, MESSAGE_MULTIPLIER, tierOf, running, levelOf, perksOf, multiplierOf, buy, buyFree, freeState, refundOf, refunds, view, info };
+module.exports = { DURATION_MS, TIERS, MESSAGE_MULTIPLIER, tierOf, running, levelOf, perksOf, multiplierOf, buy, buyFree, buyGift, freeState, refundOf, refunds, view, info };

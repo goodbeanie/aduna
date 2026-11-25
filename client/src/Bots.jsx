@@ -103,12 +103,12 @@ export function DeveloperSettings({ me, onSaved }) {
       ))}
       {dev.bots.length > 0 && <button className="btn primary" disabled={full} onClick={() => open('new')}><Icon name="plus" size={16} className="inline-icon" /> New bot</button>}
       {full && <p className="muted small hint">You have reached the limit. Delete a bot to make a new one.</p>}
-      <SeasonTest me={me} onSaved={onSaved} />
+      {me.creator && <SeasonTest me={me} onSaved={onSaved} />}
     </div>
   );
 }
 
-// Developer test mode: look at Halloween or Christmas whatever the date is. The themes, decorations, ringtone, quests and the Advent
+// Creator test mode: look at Halloween or Christmas whatever the date is. The themes, decorations, ringtone, quests and the Advent
 // calendar all follow it, on every device signed in to this account. Claims in it are dry runs (the server pays nothing, see server/events.js).
 const TEST_EVENTS = [[null, 'Off'], ['halloween', '\u{1F383} Halloween'], ['christmas', '\u{1F384} Christmas']];
 function SeasonTest({ me, onSaved }) {

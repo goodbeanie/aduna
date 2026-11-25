@@ -217,4 +217,53 @@ const step = (m) => console.log('ok -', m);
   step('a free boost upgrades your own lower boost and is not spent when refused');
 }
 
+// ---- the free boost prize from an Advent door ----
+{
+  const gift = (s, u, at = T0, opts = {}) => B.buyGift(s, u, { level: 1, ms: DAY, now: at, ...opts });
+  const s = newServer(), a = person('a', 0);
+  const r = gift(s, a);
+  assert.ok(r.ok);
+  assert.deepStrictEqual([r.boost.level, r.boost.credits, r.boost.gift, r.boost.endsAt - r.boost.startedAt], [1, 0, true, DAY]);
+  assert.strictEqual(C.acct(a).balance, 0, 'no credits are taken');
+  assert.strictEqual(B.levelOf(s, T0 + DAY - 1), 1);
+  assert.strictEqual(B.levelOf(s, T0 + DAY), 0, 'it ends after one day');
+  assert.strictEqual(B.info(s, 'a', T0 + 1).mine.level, 1, 'the booster gets the tag like any other booster');
+  assert.deepStrictEqual(B.refunds(s, T0 + 1), [], 'a prize boost refunds nothing if the server is deleted');
+  assert.strictEqual(a.freeBoostMonth, undefined, 'it does not use up the monthly Plus boost');
+
+  assert.strictEqual(gift(newServer(), a, T0, { level: 7 }).status, 400, 'there is no level 7');
+  assert.strictEqual(gift(newServer(), a, T0, { ms: 0 }).status, 400, 'and it has to last some time');
+
+  // refusals: the caller keeps the prize, so a refusal must leave the server as it was
+  const busy = newServer(), booster = person('b');
+  assert.ok(buy(busy, booster, 1).ok);
+  const same = gift(busy, a, T0 + DAY);
+  assert.strictEqual(same.status, 409, 'a server already at level 1 would gain nothing');
+  const higher = newServer(); assert.ok(buy(higher, booster, 3).ok);
+  assert.strictEqual(gift(higher, a, T0 + DAY).status, 409, 'neither would one at level 3');
+  assert.strictEqual(busy.boosts.length, 1); assert.strictEqual(higher.boosts.length, 1);
+
+  const mine = newServer(), me = person('m');
+  assert.ok(gift(mine, me).ok);
+  assert.strictEqual(gift(mine, me, T0 + 1).status, 409, 'at most one boost per person on a server');
+  const own = newServer(), me2 = person('m2');
+  assert.ok(buy(own, me2, 1).ok);
+  const over = B.buyGift(own, me2, { level: 2, ms: DAY, now: T0 + 1 });
+  assert.strictEqual(over.status, 409, 'a prize never replaces a boost you bought, even at a higher level');
+  assert.deepStrictEqual([own.boosts.length, own.boosts[0].level], [1, 1]);
+
+  // a lower boost on the server does not stop a higher prize
+  const low = newServer(); assert.ok(buy(low, booster, 1).ok);
+  const up = B.buyGift(low, a, { level: 2, ms: DAY, now: T0 + 1 });
+  assert.ok(up.ok, 'a level 2 prize still helps a level 1 server');
+  assert.strictEqual(B.levelOf(low, T0 + 2), 2);
+  assert.strictEqual(B.levelOf(low, T0 + DAY + 2), 1, 'and the server drops back to level 1 when it ends');
+
+  // an ended boost no longer blocks one
+  const old = newServer(); assert.ok(gift(old, a).ok);
+  assert.ok(gift(old, a, T0 + DAY).ok, 'once the first prize has ended another can start');
+  assert.strictEqual(old.boosts.length, 1, 'the ended one is dropped');
+  step('a prize boost is free, lasts its time, is never spent on a server it would not help, and keeps no refund or Plus month');
+}
+
 console.log('boosts: all good');
