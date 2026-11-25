@@ -843,5 +843,14 @@
       { "title": "Emoji show up", "text": "Your most-used emoji was blank in the recap on some devices. It is now drawn as a picture, like emoji everywhere else in Aduna." },
       { "title": "Share to friends and servers", "text": "Share in the recap opens Aduna's share sheet, so you can send your numbers to a friend or a server. More opens your device's own share menu." }
     ]
+  },
+  {
+    "id": "2026.11.25.7",
+    "date": "2026-11-25",
+    "title": "Share the recap as a video",
+    "items": [
+      { "title": "Recap video in chat", "text": "Share in the recap now sends the video to a friend or a server as a card with a play button. Press it to watch the 30 seconds over the chat, with the song. It is not a file and there is no link, so only the people in that chat can see it." },
+      { "title": "Reads as theirs", "text": "A recap you share from Your year says \"Sam's 2026 on Aduna\" for the person watching, not \"Your\". It still only holds numbers. Copy and More still give plain text." }
+    ]
   }
 ]
