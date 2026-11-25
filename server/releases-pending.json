@@ -815,5 +815,14 @@
       { "title": "Your year and everyone's", "text": "You can switch between your own recap and the one for all of Aduna. Yours uses your profile theme and your profile song, and the Aduna one uses the most popular theme and song. Only you can see yours, and it only shows numbers, never messages or names." },
       { "title": "Sound is off until you press play", "text": "Use Pause, Replay and the mute button as it plays. Share only sends the numbers, and only when you press it." }
     ]
+  },
+  {
+    "id": "2026.11.25.4",
+    "date": "2026-11-25",
+    "title": "Watch the test recap on the admin page",
+    "items": [
+      { "title": "Play the recap from the Recap tab", "text": "After you press Generate, creator accounts can watch the 30 second video for their own year or for everyone, with the theme and song it would use. Nothing is saved." },
+      { "title": "No clips in the recap", "text": "The recap no longer shows a clips count, and the admin tables don't list it." }
+    ]
   }
 ]
