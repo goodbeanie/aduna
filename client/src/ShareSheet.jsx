@@ -6,8 +6,9 @@ import { loadKey, saveKey, unlockIdentity, encryptFor } from './crypto.js';
 import { toast } from './Dialogs.jsx';
 import './sharesheet.css';
 
-// "Share" on a clip. Send it to a friend (an end-to-end encrypted DM, exactly like inside Aduna: the key is kept on this device) or to a
-// server (its first text channel), copy the link, or open the device's own share menu. `onShared` runs after each successful share.
+// "Share" on a clip, or on anything else that brings its own `link` (the yearly recap sends `text` as well). Send it to a friend (an end-to-end
+// encrypted DM, exactly like inside Aduna: the key is kept on this device) or to a server (its first text channel), copy it, or open the
+// device's own share menu. `onShared` runs after each successful share.
 const wrapDm = (text) => JSON.stringify({ v: 1, t: text, a: [] }); // the envelope Aduna's DMs use
 const firstText = (s) => (s.channels || []).find((c) => (c.type || 'text') === 'text');
 const nameOf = (u) => u.displayName || u.username || 'Someone';
@@ -15,8 +16,9 @@ const nameOf = (u) => u.displayName || u.username || 'Someone';
 const LinkIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 14a4.500 4.500 0 0 0 6.400.4l3-3a4.500 4.500 0 0 0-6.400-6.400l-1.100 1.100" /><path d="M14 10a4.500 4.500 0 0 0-6.400-.4l-3 3a4.500 4.500 0 0 0 6.400 6.400l1.100-1.100" /></svg>;
 const MoreIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.900" /><circle cx="12" cy="12" r="1.900" /><circle cx="19" cy="12" r="1.900" /></svg>;
 
-export default function ShareSheet({ clip, onClose, onShared }) {
-  const link = `${location.origin}/clips/${clip.id}`;
+export default function ShareSheet({ clip, link: givenLink, text, title, what = 'clip', onClose, onShared }) {
+  const link = givenLink || `${location.origin}/clips/${clip.id}`;
+  const body = text ? `${text}\n${link}` : link; // what a friend, a server or the clipboard gets
   const [friends, setFriends] = useState(null);
   const [servers, setServers] = useState(null);
   const [q, setQ] = useState('');
@@ -51,7 +53,7 @@ export default function ShareSheet({ clip, onClose, onShared }) {
       // does not have it yet: ask for the password once, open the key with it, keep it, and carry on with the send.
       if (!key.current) { mark(f.id, ''); setUnlock({ f, pw: '', busy: false, err: '' }); return; }
       if (!f.publicKey) throw new Error(nameOf(f) + ' has not set up messages yet.');
-      const enc = await encryptFor(key.current, f.publicKey, wrapDm(link));
+      const enc = await encryptFor(key.current, f.publicKey, wrapDm(body));
       await emitAck(socket(), 'dm:send', { to: f.id, ...enc, files: [] });
       mark(f.id, 'sent'); onShared();
     } catch (e) { mark(f.id, ''); toast(e.message || 'Could not send', 'error'); }
@@ -76,18 +78,18 @@ export default function ShareSheet({ clip, onClose, onShared }) {
     mark(s.id, 'sending');
     try {
       const ch = firstText(s);
-      await emitAck(socket(), 'message:send', { channelId: ch.id, content: link });
+      await emitAck(socket(), 'message:send', { channelId: ch.id, content: body });
       mark(s.id, 'sent'); onShared();
       toast(`Sent to ${s.name} #${ch.name || 'channel'}`);
     } catch (e) { mark(s.id, ''); toast(e.message || 'Could not send', 'error'); }
   };
   const copy = async () => {
-    try { await navigator.clipboard.writeText(link); toast('Link copied'); onShared(); }
+    try { await navigator.clipboard.writeText(body); toast(text ? 'Copied' : 'Link copied'); onShared(); }
     catch { setManual(true); } // clipboard blocked: show the link in the panel (selected, ready to copy) instead of the browser's prompt box
   };
   const more = async () => {
     if (!navigator.share) return copy();
-    try { await navigator.share({ url: link, title: clip.caption || 'A clip on Aduna' }); onShared(); }
+    try { await navigator.share({ url: link, title: title || (clip && clip.caption) || 'A clip on Aduna', ...(text ? { text } : {}) }); onShared(); }
     catch { /* closed without sharing */ }
   };
 
@@ -105,7 +107,7 @@ export default function ShareSheet({ clip, onClose, onShared }) {
 
   return createPortal(
     <div className="ss-back" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="ss-panel" role="dialog" aria-modal="true" aria-label="Share this clip">
+      <div className="ss-panel" role="dialog" aria-modal="true" aria-label={'Share this ' + what}>
         <div className="ss-head"><b>Share</b><button type="button" className="ss-x" onClick={onClose} aria-label="Close">✕</button></div>
         {unlock && (
           <div className="ss-unlock">
@@ -131,7 +133,7 @@ export default function ShareSheet({ clip, onClose, onShared }) {
 
         <div className="ss-label">Friends</div>
         {!friends && <p className="ss-note">Loading…</p>}
-        {friends && !fl.length && <p className="ss-note">{friends.length ? 'No friends match.' : 'Add friends in Aduna to send clips to them.'}</p>}
+        {friends && !fl.length && <p className="ss-note">{friends.length ? 'No friends match.' : 'Add friends in Aduna to send ' + what + 's to them.'}</p>}
         {friends && fl.length > 0 && <div className="ss-row">{fl.map((f) => tile(f.id, nameOf(f), <Avatar user={f} size={52} />, () => toFriend(f)))}</div>}
 
         <div className="ss-label">Servers</div>
@@ -140,7 +142,7 @@ export default function ShareSheet({ clip, onClose, onShared }) {
         {servers && sl.length > 0 && <div className="ss-row">{sl.map((s) => tile(s.id, s.name, <ServerIcon server={s} size={52} />, () => toServer(s)))}</div>}
 
         <div className="ss-acts">
-          <button type="button" className="ss-act" onClick={copy}><span className="ss-circle"><LinkIcon /></span><span>Copy link</span></button>
+          <button type="button" className="ss-act" onClick={copy}><span className="ss-circle"><LinkIcon /></span><span>{text ? 'Copy' : 'Copy link'}</span></button>
           <button type="button" className="ss-act" onClick={more}><span className="ss-circle"><MoreIcon /></span><span>More</span></button>
         </div>
       </div>

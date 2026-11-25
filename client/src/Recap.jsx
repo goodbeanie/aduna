@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { api } from './api.js';
 import { Icon } from './ui.jsx';
-import { toast } from './Dialogs.jsx';
 import { useLang } from './i18n.js';
 import { useProfileThemes, userTheme, findProfileTheme, lightness } from './profilethemes.js';
 import { songUrl } from './ProfileSong.jsx';
+import ShareSheet from './ShareSheet.jsx';
+import { tossfaceUrl } from './tossface.js';
 import { TOTAL_MS, buildScenes, countText, shareText } from './recap.js';
 
 // Settings > Year in review. Two versions with the same six scenes: the global one (same for everyone, painted with the most popular
@@ -53,6 +54,28 @@ function drawBlobs(cv, t, rgbs) {
 
 const clock = (ms) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`;
 
+// As plain text the emoji came out blank in the recap on some devices, so they are drawn as the same Tossface pictures the rest of Aduna uses.
+// One with no picture falls back to the character.
+const EMOJI_RE = /(?![©®™])\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?(?:\u200D\p{Extended_Pictographic}\uFE0F?\p{Emoji_Modifier}?)*/gu;
+function EmojiPic({ e }) {
+  const [bad, setBad] = useState(false);
+  const src = tossfaceUrl(e);
+  if (!src || bad) return <>{e}</>;
+  return <img className="rc-emoji" src={src} alt={e} draggable={false} onError={() => setBad(true)} />;
+}
+function WithEmoji({ text }) {
+  const s = String(text ?? '');
+  const out = [];
+  let at = 0;
+  for (const m of s.matchAll(EMOJI_RE)) {
+    if (m.index > at) out.push(s.slice(at, m.index));
+    out.push(<EmojiPic key={m.index} e={m[0]} />);
+    at = m.index + m[0].length;
+  }
+  if (at < s.length) out.push(s.slice(at));
+  return <>{out}</>;
+}
+
 function Scene({ s, ms, last, numRef, year }) {
   const m = s.main;
   return (
@@ -63,10 +86,10 @@ function Scene({ s, ms, last, numRef, year }) {
             <span className="rc-logo" role="img" aria-label="Aduna"><i className="rc-mark" /><i className="rc-word" /></span>
             <span className="rc-year">{year}</span>
           </>
-        ) : m.count ? <span className="rc-num" ref={numRef} /> : <span className="rc-big">{m.text}</span>}
+        ) : m.count ? <span className="rc-num" ref={numRef} /> : <span className="rc-big"><WithEmoji text={m.text} /></span>}
         {s.unit && <span className="rc-unit">{s.unit}</span>}
       </div>
-      {s.sub && <p className="rc-sub">{s.sub}</p>}
+      {s.sub && <p className="rc-sub"><WithEmoji text={s.sub} /></p>}
     </div>
   );
 }
@@ -231,15 +254,9 @@ function Player({ scenes, year, kind, look, song }) {
     if (g && g.ctx) g.ctx.close().catch(() => {});
   }, []);
 
-  async function share() {
-    // Only ever runs from this button. Counts go into the text and nothing else; nothing is sent anywhere until the person picks where.
-    const text = shareText(scenes, kind, year);
-    try {
-      if (navigator.share) { await navigator.share({ title: kind === 'mine' ? `My ${year} on Aduna` : `Aduna in ${year}`, text, url: location.origin }); return; }
-    } catch (e) { if (e && e.name === 'AbortError') return; }
-    try { await navigator.clipboard.writeText(text + '\n' + location.origin); toast('Copied. Paste it anywhere you like.'); }
-    catch { toast('Could not copy that.'); }
-  }
+  const [sharing, setSharing] = useState(false);
+  // Counts go into the text and nothing else; nothing is sent anywhere until the person picks where in the sheet.
+  const openShare = () => { if (statusRef.current === 'playing') pause(); setSharing(true); };
 
   const avg = look.colors.reduce((s, c) => s + lightness(c), 0) / look.colors.length;
   const light = avg > 0.4;
@@ -273,8 +290,12 @@ function Player({ scenes, year, kind, look, song }) {
         )}
         <span className="rc-time" ref={time}>{`0:00 / ${clock(TOTAL_MS)}`}</span>
         <span className="rc-spacer" />
-        <button type="button" className="btn" onClick={share}><Icon name="send" size={16} /> Share</button>
+        <button type="button" className="btn" onClick={openShare}><Icon name="send" size={16} /> Share</button>
       </div>
+      {sharing && (
+        <ShareSheet what="recap" link={location.origin} text={shareText(scenes, kind, year)} title={kind === 'mine' ? `My ${year} on Aduna` : `Aduna in ${year}`}
+          onClose={() => setSharing(false)} onShared={() => {}} />
+      )}
       <p className="hint">
         {kind === 'mine' ? 'Only you can see this. Nothing is shared unless you press Share.' : 'The same for everyone. It only counts things: no messages, names or servers.'}
         {src && !audioBad && <> {status === 'idle' ? 'Sound stays off until you press play.' : ''}<span className="rc-song"> <Icon name="music" size={13} className="inline-icon" /> {String(song.title || 'Song').slice(0, 60)}</span></>}
