@@ -48,19 +48,19 @@ const step = (m) => console.log('✓', m);
   assert.strictEqual(voiceTick(), undefined);
   step('the voice tick runs with nobody in voice');
 
-  assert.strictEqual((await call('/recap/test', { method: 'POST', token: nina.token, body: {} })).status, 403);
-  assert.strictEqual((await call('/recap/test', { method: 'POST', body: {} })).status, 401);
+  assert.strictEqual((await call('/admin/recap/test', { method: 'POST', token: nina.token, body: {} })).status, 404);
+  assert.strictEqual((await call('/admin/recap/test', { method: 'POST', body: {} })).status, 401);
   step('only a creator account can generate a test recap');
 
-  let r = await call('/recap/test', { method: 'POST', token: creator.token, body: {} });
+  let r = await call('/admin/recap/test', { method: 'POST', token: creator.token, body: {} });
   assert.strictEqual(r.status, 200, JSON.stringify(r));
   assert.strictEqual(r.year, year);
   assert.strictEqual(r.mine.credits, 70);
   assert.strictEqual(r.mine.userId, creator.user.id);
   assert.ok(r.global.users >= 2 && !('userId' in r.global));
   assert.ok(!fs.existsSync(path.join(dir, String(year))), 'a test run saves nothing');
-  assert.strictEqual((await call('/recap/test', { method: 'POST', token: creator.token, body: { year: 1999 } })).status, 400);
-  assert.strictEqual((await call('/recap/test', { method: 'POST', token: creator.token, body: { year: 'x' } })).status, 400);
+  assert.strictEqual((await call('/admin/recap/test', { method: 'POST', token: creator.token, body: { year: 1999 } })).status, 400);
+  assert.strictEqual((await call('/admin/recap/test', { method: 'POST', token: creator.token, body: { year: 'x' } })).status, 400);
   step('a creator gets the global recap and their own, nothing is saved, a bad year is refused');
 
   assert.strictEqual(recapSweep(), null, 'nothing is due outside January to March of the next year');

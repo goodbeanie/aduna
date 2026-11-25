@@ -8,7 +8,7 @@ import './admin.css';
 // visitor to the home page itself.
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
-const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['bots', 'Bots'], ['themes', 'Themes'], ['reports', 'Reports'], ['status', 'Status'], ['releases', 'Releases'], ['switches', 'Switches'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
+const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['bots', 'Bots'], ['themes', 'Themes'], ['reports', 'Reports'], ['status', 'Status'], ['releases', 'Releases'], ['switches', 'Switches'], ['recap', 'Recap'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
 const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin', moderator: 'Moderator' };
 const MOD_TABS = ['overview', 'reports', 'people']; // a moderator reads and reviews reports, looks people up, and warns or mutes
@@ -1143,6 +1143,75 @@ function Switches() {
   );
 }
 
+// ---------- yearly recap ----------
+// Creator accounts only (server/recap.js). Builds a recap from the live data to try it. Nothing is saved, so it cannot stand in for the real one that
+// is built in January. You see the global recap and your own; nobody else's is shown here.
+const GLOBAL_ROWS = [
+  ['Messages sent', 'messages'], ['Hours in voice', 'vcHours'], ['People', 'users'], ['Joined this year', 'joinedThisYear'], ['Credits earned', 'credits', 'counted'],
+  ['Quests finished', 'quests', 'counted'], ['Busiest day', 'busiestDay'], ['Busiest hour (UTC)', 'busiestHour', 'hour'], ['Most-used emoji', 'topEmoji'],
+  ['Most popular song', 'topSong', 'song'], ['Most-used theme', 'topTheme'], ['Friendships made', 'friendships'], ['Servers created', 'serversCreated'],
+  ['Files shared', 'files'], ['Clips shared', 'clips'], ['Wordle solves', 'wordle'], ['Contexto solves', 'contexto'], ['Puzzle solves', 'puzzle'],
+  ['Badges earned', 'badges', 'counted'], ['Longest call (min)', 'longestCallMin'],
+];
+const USER_ROWS = [
+  ['Messages sent', 'messages'], ['Hours in voice', 'vcHours'], ['Credits earned', 'credits', 'counted'], ['Quests finished', 'quests', 'counted'], ['Busiest day', 'busiestDay'],
+  ['Favourite hour (UTC)', 'favoriteHour', 'hour'], ['Title', 'title'], ['Most-used emoji', 'topEmoji'], ['Longest call (min)', 'longestCallMin'], ['Friends made', 'friends'],
+  ['Badges earned', 'badges', 'counted'], ['Badges held', 'badgesHeld'], ['Files shared', 'files'], ['Clips shared', 'clips'], ['Wordle solves', 'wordle'], ['Contexto solves', 'contexto'],
+  ['Puzzle solves', 'puzzle'], ['Best streak', 'bestStreak'], ['Top % in voice time', 'topPercent.vc', 'percent'], ['Top % in messages', 'topPercent.messages', 'percent'], ['Profile song', 'song', 'song'],
+];
+function recapValue(data, key, kind) {
+  const v = key.split('.').reduce((o, k) => (o ? o[k] : undefined), data);
+  if (v === null || v === undefined) return kind === 'counted' ? 'not counted yet' : '—';
+  if (kind === 'hour') return String(v).padStart(2, '0') + ':00';
+  if (kind === 'percent') return 'top ' + v + '%';
+  if (kind === 'song') return v.title || '—';
+  return typeof v === 'number' ? v.toLocaleString() : String(v);
+}
+function Recap() {
+  const { me, say } = useAdm();
+  const thisYear = new Date().getUTCFullYear();
+  const [year, setYear] = useState(thisYear);
+  const [data, setData] = useState(null);
+  const [busy, setBusy] = useState(false);
+  if (!me.canManageFeatures) return <Empty text="Only a creator account can generate a test recap." />;
+  const generate = async () => {
+    setBusy(true);
+    try { setData(await api('/admin/recap/test', { method: 'POST', body: { year } })); } catch (e) { say(e.message, 'error'); }
+    setBusy(false);
+  };
+  const table = (rows, source) => rows.map(([name, key, kind]) => (
+    <div className="adm-row adm-line" key={key}><span>{name}</span><b>{recapValue(source, key, kind)}</b></div>
+  ));
+  return (
+    <>
+      <div className="adm-card">
+        <h3>Generate a test recap</h3>
+        <p className="adm-muted">Builds the recap from the data Aduna has right now. Nothing is saved or shown to anyone else. The real one is built by itself in January.</p>
+        <div className="adm-row">
+          <label className="adm-field"><span>Year</span>
+            <select value={year} onChange={(e) => setYear(Number(e.target.value))}>
+              {[...Array(thisYear - 2023)].map((_, i) => thisYear - i).map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </label>
+          <button type="button" className="adm-btn primary" disabled={busy} onClick={generate}>{busy ? 'Building…' : 'Generate'}</button>
+        </div>
+      </div>
+      {data && (
+        <>
+          <div className="adm-card">
+            <h3>Global recap {data.year}</h3>
+            {table(GLOBAL_ROWS, data.global)}
+          </div>
+          <div className="adm-card">
+            <h3>Your recap {data.year}</h3>
+            {data.mine ? table(USER_ROWS, data.mine) : <p className="adm-muted">Your account has nothing to show for {data.year} yet, so it would get no recap.</p>}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 // ---------- IP bans ----------
 // Creator accounts only (server/moderation.js). Aduna keeps no address per account, so a ban cannot be made from a person: type the address in, for example
 // from the host's logs. A banned address gets a "blocked" page and cannot open a live connection. Your own address and very wide ranges are refused.
@@ -1359,7 +1428,7 @@ export default function AdminPage() {
         <header className="adm-top">
           <a className="adm-logo" href="/admin" onClick={(e) => { e.preventDefault(); go('overview'); }}>Aduna <small>{modOnly ? 'Moderation' : 'Admin'}</small></a>
           <nav className="adm-nav" aria-label="Admin pages">
-            {TABS.filter(([id]) => (!modOnly || MOD_TABS.includes(id)) && ((id !== 'releases' && id !== 'switches' && id !== 'sales' && id !== 'links' && id !== 'ipbans') || me.canManageFeatures)).map(([id, name]) => (
+            {TABS.filter(([id]) => (!modOnly || MOD_TABS.includes(id)) && ((id !== 'releases' && id !== 'switches' && id !== 'recap' && id !== 'sales' && id !== 'links' && id !== 'ipbans') || me.canManageFeatures)).map(([id, name]) => (
               <button key={id} className={'adm-tab' + (cur === id ? ' on' : '')} aria-current={cur === id ? 'page' : undefined} onClick={() => go(id)}>
                 {name}{id === 'reports' && reportCount > 0 && <b>{reportCount}</b>}{id === 'applications' && summary && summary.applications > 0 && <b>{summary.applications}</b>}
               </button>
@@ -1381,6 +1450,7 @@ export default function AdminPage() {
           {cur === 'status' && <StatusNotice />}
           {cur === 'releases' && <Releases />}
           {cur === 'switches' && <Switches />}
+          {cur === 'recap' && <Recap />}
 {cur === 'sales' && <Sales />}
           {cur === 'links' && <Links />}
           {cur === 'ipbans' && <IpBans />}
