@@ -1146,7 +1146,7 @@ function Switches() {
 
 // ---------- yearly recap ----------
 // Creator accounts only (server/recap.js). Builds a recap from the live data to try it. Nothing is saved, so it cannot stand in for the real one that
-// is built in January. You see the global recap and your own; nobody else's is shown here.
+// is built in January. You see the global recap and one person's: your own, or any account you pick to try it as.
 const GLOBAL_ROWS = [
   ['Messages sent', 'messages'], ['Hours in voice', 'vcHours'], ['People', 'users'], ['Joined this year', 'joinedThisYear'], ['Credits earned', 'credits', 'counted'],
   ['Quests finished', 'quests', 'counted'], ['Busiest day', 'busiestDay'], ['Busiest hour (UTC)', 'busiestHour', 'hour'], ['Most-used emoji', 'topEmoji'],
@@ -1176,16 +1176,25 @@ function Recap() {
   const [busy, setBusy] = useState(false);
   const [built, setBuilt] = useState(0); // new key for the player on every Generate, so it starts again from the poster
   const [profile, setProfile] = useState(null); // the admin page's own `me` has no theme or song; the player wants the real profile
+  const [target, setTarget] = useState(null); // a person to try it as, or null for yourself
+  const [q, setQ] = useState('');
+  const [found, setFound] = useState(null);
   useEffect(() => { api('/me').then((r) => setProfile(r.user)).catch(() => {}); }, []);
+  useEffect(() => {
+    if (!q.trim()) { setFound(null); return undefined; }
+    const id = setTimeout(() => api('/admin/users?q=' + encodeURIComponent(q.trim())).then((r) => setFound(r.users)).catch((e) => say(e.message, 'error')), 250);
+    return () => clearTimeout(id);
+  }, [q, say]);
   if (!me.canManageFeatures) return <Empty text="Only a creator account can generate a test recap." />;
   const generate = async () => {
     setBusy(true);
-    try { setData(await api('/admin/recap/test', { method: 'POST', body: { year } })); setBuilt((n) => n + 1); } catch (e) { say(e.message, 'error'); }
+    try { setData(await api('/admin/recap/test', { method: 'POST', body: { year, ...(target ? { userId: target.id } : {}) } })); setBuilt((n) => n + 1); } catch (e) { say(e.message, 'error'); }
     setBusy(false);
   };
   const table = (rows, source) => rows.map(([name, key, kind]) => (
     <div className="adm-row adm-line" key={key}><span>{name}</span><b>{recapValue(source, key, kind)}</b></div>
   ));
+  const who = data && data.user ? data.user.displayName || data.user.username : null;
   return (
     <>
       <div className="adm-card">
@@ -1199,21 +1208,30 @@ function Recap() {
           </label>
           <button type="button" className="adm-btn primary" disabled={busy} onClick={generate}>{busy ? 'Building…' : 'Generate'}</button>
         </div>
+        <p className="adm-muted">Recap as: {target ? <><b>{target.displayName}</b> <span>@{target.username}</span> <button type="button" className="adm-btn small" onClick={() => setTarget(null)}>Back to me</button></> : 'you'}</p>
+        <input className="adm-input" type="search" placeholder="Search for a person to try it as" value={q} onChange={(e) => setQ(e.target.value)} />
+        {found && !found.length && <p className="adm-muted">No one matches.</p>}
+        {found && found.map((u) => (
+          <div className="adm-row adm-line" key={u.id}>
+            <div className="adm-who"><Face u={u} /><div><b>{u.displayName}</b> <span className="adm-muted">@{u.username}</span></div></div>
+            <button type="button" className="adm-btn small" onClick={() => { setTarget(u); setQ(''); }}>Use</button>
+          </div>
+        ))}
       </div>
       {data && (
         <>
           <div className="adm-card">
             <h3>Watch it</h3>
-            <p className="adm-muted">The same 30 second video people get in Settings, played from this test recap. Switch between your year and everyone's.</p>
-            <RecapSettings key={built} me={profile || me} recap={data} />
+            <p className="adm-muted">The same 30 second video people get in Settings, played from this test recap. Switch between {who ? `${who}'s` : 'your'} year and everyone's.</p>
+            <RecapSettings key={built} me={data.user || profile || me} recap={data} />
           </div>
           <div className="adm-card">
             <h3>Global recap {data.year}</h3>
             {table(GLOBAL_ROWS, data.global)}
           </div>
           <div className="adm-card">
-            <h3>Your recap {data.year}</h3>
-            {data.mine ? table(USER_ROWS, data.mine) : <p className="adm-muted">Your account has nothing to show for {data.year} yet, so it would get no recap.</p>}
+            <h3>{who ? `${who}'s recap` : 'Your recap'} {data.year}</h3>
+            {data.mine ? table(USER_ROWS, data.mine) : <p className="adm-muted">{who ? `${who} has` : 'Your account has'} nothing to show for {data.year} yet, so there would be no recap.</p>}
           </div>
         </>
       )}

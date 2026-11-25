@@ -6560,7 +6560,8 @@ groups.register(app);
 
 // ----- yearly recap (what is counted, the counters and the files: recap.js) -----
 // In the first weeks of the year the one that just ended is built from the database and saved as small files on the VM, outside the database.
-// Everyone sees the global recap and their own; nobody sees anyone else's. A creator can build one from live data to try it in /admin > Recap (nothing is saved).
+// Everyone sees the global recap and their own; nobody sees anyone else's. A creator can build one from live data to try it in /admin > Recap, as themselves
+// or as any account (nothing is saved).
 const RECAP_DIR = process.env.RECAP_DIR || path.join(__dirname, '..', 'data', 'recaps');
 const recapData = () => {
   const d = db();
@@ -6581,8 +6582,11 @@ app.get('/api/recap', auth, (req, res) => {
 app.post('/api/admin/recap/test', auth, adminOnly, needCreator, (req, res) => { // the Recap tab on /admin
   const thisYear = new Date(now()).getUTCFullYear(), year = req.body?.year === undefined ? thisYear : req.body.year;
   if (!Number.isInteger(year) || year < 2024 || year > thisYear) return res.status(400).json({ error: 'Pick a year from 2024 to this one' });
+  const asId = req.body?.userId === undefined || req.body.userId === null || req.body.userId === '' ? req.user.id : req.body.userId; // a creator can try it as another person
+  const as = typeof asId === 'string' ? db().users[asId] : null;
+  if (!as || as.deleted) return res.status(404).json({ error: 'No such account' });
   const built = recap.buildAll(recapData(), year);
-  res.json({ year, global: built.global, mine: built.users[req.user.id] || null });
+  res.json({ year, global: built.global, mine: built.users[as.id] || null, user: as.id === req.user.id ? undefined : publicUser(as) });
 });
 
 app.use('/api', (_req, res) => res.status(404).json({ error: 'Not found' }));
