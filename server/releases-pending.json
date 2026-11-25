@@ -797,5 +797,13 @@
       { "title": "A yearly recap is coming", "text": "Aduna now keeps a count of your credits earned, quests finished, badges earned and time spent in voice channels and group calls. It only keeps numbers, never what you wrote or who you talked to. A year in review built from them is planned for January." },
       { "title": "Friendships remember the day", "text": "Aduna now remembers the day a friend request was accepted, not just the day it was sent." }
     ]
+  },
+  {
+    "id": "2026.11.25.2",
+    "date": "2026-11-25",
+    "title": "Try the yearly recap on the admin page",
+    "items": [
+      { "title": "Recap tab for creators", "text": "The admin page has a new Recap tab for creator accounts. Pick a year and press Generate to see the global recap and your own, built from the data Aduna has right now. Nothing is saved or shown to anyone else." }
+    ]
   }
 ]
