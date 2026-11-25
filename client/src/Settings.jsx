@@ -12,10 +12,14 @@ import { ArtistSettings } from './Artist.jsx';
 import { WhatsNewSettings } from './WhatsNew.jsx';
 import { LanguageSettings } from './Setup.jsx';
 import { ActivitySettings } from './Activity.jsx';
+import { RecapSettings, useRecap } from './Recap.jsx';
 import { useLang } from './i18n.js';
 import { askConfirm } from './Dialogs.jsx';
 
 const TABS = [['profile', 'tabProfile', 'smile'], ['activity', 'tabActivity', 'play'], ['appearance', 'tabAppearance', 'palette'], ['language', 'tabLanguage', 'globe'], ['notifications', 'tabNotifications', 'bell'], ['voice', 'tabVoice', 'mic'], ['security', 'tabSecurity', 'lock'], ['whatsnew', 'tabWhatsNew', 'bulb'], ['developer', 'tabDeveloper', 'code'], ['artist', 'tabArtist', 'palette']];
+
+// Only offered once the server has built a recap (GET /api/recap has a year). The label is plain English on purpose, so i18n.js stays as it is.
+const RECAP_TAB = ['recap', 'Year in review', 'calendar'];
 
 // Extra words the settings search also matches, so "password" finds Security and "theme" finds Appearance.
 const KEYWORDS = {
@@ -29,6 +33,7 @@ const KEYWORDS = {
   whatsnew: 'updates changelog release',
   developer: 'bots api token themes css',
   artist: 'shop sell art',
+  recap: 'wrapped stats summary annual yearly review',
   badges: 'creator shop',
 };
 
@@ -37,7 +42,8 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
   const { t } = useLang();
   const [tab, setTab] = useState(initialTab);
   const [q, setQ] = useState('');
-  const all = [...TABS, ...(me.creator ? [['badges', 'tabBadges', 'star']] : [])];
+  const recap = useRecap();
+  const all = [...TABS.slice(0, 2), ...(recap && recap.year ? [RECAP_TAB] : []), ...TABS.slice(2), ...(me.creator ? [['badges', 'tabBadges', 'star']] : [])];
   const needle = q.trim().toLowerCase();
   const shown = needle ? all.filter(([id, label]) => (t(label) + ' ' + id + ' ' + (KEYWORDS[id] || '')).toLowerCase().includes(needle)) : all;
   useEffect(() => {
@@ -83,6 +89,7 @@ export function SettingsScreen({ me, initialTab = 'profile', onClose, onSaved, o
           <div style={tab === 'profile' ? undefined : { display: 'none' }}><h1>{t('tabProfile')}</h1><ProfileEditor me={me} onClose={onClose} onSaved={onSaved} onLogout={onLogout} /></div>
           {tab === 'notifications' && <><h1>{t('tabNotifications')}</h1><NotificationSettings me={me} onPrefs={onPrefs} /></>}
           {tab === 'activity' && <><h1>{t('tabActivity')}</h1><ActivitySettings me={me} onSaved={onSaved} /></>}
+          {tab === 'recap' && recap && recap.year && <><h1>{t('Year in review')}</h1><RecapSettings me={me} recap={recap} /></>}
           {tab === 'voice' && <><h1>{t('tabVoice')}</h1><VoiceSettings me={me} /></>}
           {tab === 'security' && <><h1>{t('tabSecurity')}</h1><SecuritySettings me={me} onSaved={onSaved} getSocketId={getSocketId} /></>}
           {tab === 'whatsnew' && <><h1>{t('tabWhatsNew')}</h1><WhatsNewSettings /></>}

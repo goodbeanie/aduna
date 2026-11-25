@@ -1,0 +1,82 @@
+/* Settings > Year in review (Recap.jsx). The picture is a container: every size inside it is a share of its own width or height (cqw, cqh),
+   so the same scenes fit 16:9 and 9:16 without separate layouts. The theme gradient and text colour come in as inline custom properties. */
+
+.recap-settings { display: grid; gap: 14px; }
+.rc { display: grid; gap: 12px; }
+.rc-views { margin: 0; }
+
+.rc-frame { width: 100%; margin: 0 auto; display: grid; gap: 8px; }
+.rc-frame.tall { width: min(100%, calc(min(72vh, 760px) * 9 / 16)); }
+
+.rc-stage {
+  position: relative; overflow: hidden; width: 100%; aspect-ratio: 16 / 9; border-radius: 16px;
+  container-type: size; color: var(--rc-ink, #fbf8f1); font-family: var(--font);
+  transition: background-position 1.4s ease; background-color: #1c1812;
+}
+.rc-frame.tall .rc-stage { aspect-ratio: 9 / 16; }
+.rc-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+
+/* one scene: sizes and margins in cq units, text fades in with the scene and out at its end (the last one stays) */
+.rc-scene {
+  position: absolute; inset: 0;
+  --mx: max(6cqw, 4cqh); --my: max(7cqh, 4cqw); /* safe margins: they follow whichever side is shorter */
+  --num: min(24cqh, 17cqw); --big: min(15cqh, 12.5cqw); --unit: min(4.6cqh, 4.2cqw); --sub: min(4.2cqh, 4cqw); --logo: min(12cqh, 10cqw);
+  text-shadow: 0 1px 28px rgba(var(--rc-glow, 0, 0, 0), .22);
+  animation: rc-scene var(--sm, 5s) linear both;
+}
+.rc-scene.last { animation-name: rc-scene-last; }
+
+.rc-main { position: absolute; display: flex; flex-direction: column; gap: .35em; max-width: calc(100% - 2 * var(--mx)); animation: rc-rise .75s cubic-bezier(.2, .8, .2, 1) .15s both; }
+.rc-sub { position: absolute; margin: 0; max-width: min(62cqw, calc(100% - 2 * var(--mx))); font-size: var(--sub); line-height: 1.3; opacity: .88; animation: rc-fade .9s ease 1s both; }
+
+/* the number sits at its corner and the supporting line goes to the opposite one; centred scenes put it underneath */
+[data-anchor=tl] .rc-main { top: var(--my); left: var(--mx); align-items: flex-start; text-align: left; }
+[data-anchor=tl] .rc-sub { bottom: var(--my); right: var(--mx); text-align: right; }
+[data-anchor=br] .rc-main { bottom: var(--my); right: var(--mx); align-items: flex-end; text-align: right; }
+[data-anchor=br] .rc-sub { top: var(--my); left: var(--mx); text-align: left; }
+[data-anchor=tr] .rc-main { top: var(--my); right: var(--mx); align-items: flex-end; text-align: right; }
+[data-anchor=tr] .rc-sub { bottom: var(--my); left: var(--mx); text-align: left; }
+[data-anchor=bl] .rc-main { bottom: var(--my); left: var(--mx); align-items: flex-start; text-align: left; }
+[data-anchor=bl] .rc-sub { top: var(--my); right: var(--mx); text-align: right; }
+[data-anchor=c] .rc-main { inset: 0; margin: auto; width: fit-content; height: fit-content; align-items: center; text-align: center; }
+[data-anchor=c] .rc-sub { bottom: var(--my); left: var(--mx); right: var(--mx); max-width: none; text-align: center; }
+
+.rc-num { font-size: var(--num); line-height: .95; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.rc-big { font-size: var(--big); line-height: 1.04; text-wrap: balance; overflow-wrap: anywhere; }
+.rc-unit { font-size: var(--unit); line-height: 1.15; letter-spacing: .06em; text-transform: uppercase; opacity: .9; }
+.rc-year { font-size: var(--big); line-height: 1; }
+.rc-logo { display: flex; align-items: center; gap: calc(var(--logo) * .3); height: var(--logo); }
+.rc-mark, .rc-word { display: block; height: 100%; background: currentColor; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; -webkit-mask-size: contain; mask-size: contain; }
+.rc-mark { width: var(--logo); -webkit-mask-image: url(/aduna-icon.png); mask-image: url(/aduna-icon.png); }
+.rc-word { width: calc(var(--logo) * 3.17); -webkit-mask-image: url(/aduna-wordmark.png); mask-image: url(/aduna-wordmark.png); }
+
+@keyframes rc-scene { 0% { opacity: 0; } 7% { opacity: 1; } 93% { opacity: 1; } 100% { opacity: 0; } }
+@keyframes rc-scene-last { 0% { opacity: 0; } 7% { opacity: 1; } 100% { opacity: 1; } }
+@keyframes rc-rise { from { opacity: 0; transform: translateY(4cqh); } to { opacity: 1; transform: none; } }
+@keyframes rc-fade { from { opacity: 0; } to { opacity: .88; } }
+
+/* paused or finished: everything stops where it is. Before the first play: a still poster of the intro with a play button. */
+.rc-stage.halted .rc-scene, .rc-stage.halted .rc-scene * { animation-play-state: paused; }
+.rc-stage.idle .rc-scene, .rc-stage.idle .rc-scene * { animation: none; }
+.rc-stage.idle .rc-sub { visibility: hidden; }
+.rc-bigplay {
+  position: absolute; left: 50%; bottom: 9cqh; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 8px;
+  padding: 12px 22px; border-radius: 999px; background: var(--rc-ink, #fbf8f1); color: var(--rc-inv, #14110d); font-size: 15px; box-shadow: 0 6px 24px rgba(0, 0, 0, .25);
+}
+.rc-bigplay:hover { filter: brightness(1.06); }
+
+.rc-bar { height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.rc-bar i { display: block; height: 100%; background: var(--ink); transform-origin: left; transform: scaleX(0); }
+
+.rc-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rc-controls .btn { display: inline-flex; align-items: center; gap: 6px; }
+.rc-spacer { flex: 1; }
+.rc-time { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rc-song { white-space: nowrap; }
+.rc-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* people who asked their system for less motion get each scene without the sliding and fading (the cut between scenes stays) */
+@media (prefers-reduced-motion: reduce) {
+  .rc-scene, .rc-scene * { animation: none !important; }
+  .rc-stage { transition: none; }
+}
