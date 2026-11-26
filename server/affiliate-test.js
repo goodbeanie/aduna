@@ -106,6 +106,7 @@ const send = (rec, uid, over, records, at = T0) => A.submit(rec, uid, { platform
   let ada = mk();
   const vid = ada.videos[0].id;
   assert.strictEqual(A.review(ada, vid, 'u1', { action: 'approve', quality: 'standard' }, T0).status, 403, 'nobody reviews their own');
+assert.strictEqual(A.review(ada, vid, 'u1', { action: 'maybe' }, T0, { allowOwn: true }).status, 400, 'allowOwn gets past the own-video check');
   assert.strictEqual(A.review(ada, vid, 'm1', { action: 'reject' }, T0).status, 400, 'a rejection needs a reason');
   assert.strictEqual(A.review(ada, vid, 'm1', { action: 'approve' }, T0).status, 400, 'an approval needs what the video says');
   assert.strictEqual(A.review(ada, vid, 'm1', { action: 'approve', quality: 'huge' }, T0).status, 400);

@@ -220,12 +220,12 @@ function withdraw(rec, videoId) {
 }
 
 // A reviewer's decision. { action: 'approve', quality, seconds?, note? } or { action: 'reject', note }. On approve, returns the credits to hand over.
-// The first approved video makes the person an affiliate. Nobody reviews their own (the caller checks that too).
-function review(rec, videoId, reviewerId, input, now) {
+// The first approved video makes the person an affiliate. Nobody reviews their own unless the caller passes allowOwn (creator accounts only).
+function review(rec, videoId, reviewerId, input, now, { allowOwn = false } = {}) {
   const fail = (status, error) => ({ ok: false, status, error });
   const v = rec && rec.videos.find((x) => x.id === videoId);
   if (!v) return fail(404, 'Video not found');
-  if (rec.userId === reviewerId) return fail(403, 'You cannot review your own video');
+  if (rec.userId === reviewerId && !allowOwn) return fail(403, 'You cannot review your own video');
   if (v.status !== 'pending') return fail(409, 'That video was already reviewed');
   if (rec.status === 'revoked') return fail(409, 'This person is no longer an affiliate');
   const body = input || {};

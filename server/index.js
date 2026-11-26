@@ -4109,7 +4109,7 @@ app.post('/api/artists/review/items/:id', auth, reviewerOnly, (req, res) => {
 //   POST   /api/affiliate/videos { platform, url, seconds, note, slug }   send a video (the first one also picks the link name)
 //   DELETE /api/affiliate/videos/:id              take back a video nobody has looked at
 //   GET    /api/affiliate/review                  moderators: the videos waiting
-//   POST   /api/affiliate/review/:uid/:vid { action: 'approve' | 'reject', quality, seconds, note }   approving pays the credits
+//   POST   /api/affiliate/review/:uid/:vid { action: 'approve' | 'reject', quality, seconds, note }   approving pays the credits (only a creator can review their own)
 const affiliateSends = new security.RateWindow(40, 3600_000);
 const affRec = (uid) => (db().affiliates && db().affiliates[uid]) || null;
 const affRecords = () => Object.values(db().affiliates || {});
@@ -4149,16 +4149,17 @@ app.get('/api/affiliate/review', auth, reviewerOnly, (req, res) => {
     for (const v of rec.videos) {
       if (v.status !== 'pending') continue;
       videos.push({ ...personOf(rec.userId), slug: rec.slug, tier: affiliateLib.tierOf(rec), approvedVideos: rec.videos.filter((x) => x.status === 'approved').length,
-        id: v.id, platform: v.platform, url: v.url, seconds: v.seconds, note: v.note || '', at: v.at, own: rec.userId === req.user.id });
+        id: v.id, platform: v.platform, url: v.url, seconds: v.seconds, note: v.note || '', at: v.at, own: rec.userId === req.user.id && !isCreator(req.user) });
     }
   }
   videos.sort((a, b) => a.at - b.at);
   res.json({ videos });
 });
 app.post('/api/affiliate/review/:uid/:vid', auth, reviewerOnly, (req, res) => {
-  if (req.params.uid === req.user.id) return res.status(403).json({ error: 'Someone else has to review your own video' });
+  const own = req.params.uid === req.user.id;
+  if (own && !isCreator(req.user)) return res.status(403).json({ error: 'Someone else has to review your own video' });
   const rec = affRec(req.params.uid);
-  const r = affiliateLib.review(rec, req.params.vid, req.user.id, req.body, now());
+  const r = affiliateLib.review(rec, req.params.vid, req.user.id, req.body, now(), { allowOwn: own });
   if (!r.ok) return res.status(r.status).json({ error: r.error });
   const au = db().users[req.params.uid];
   if (r.credits > 0 && au) credits.grant(au, r.credits, 'affiliate', { note: `Video review: ${affiliateLib.platformById(r.video.platform).name}`, now: now() });
