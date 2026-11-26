@@ -872,5 +872,13 @@
     "items": [
       { "title": "Review your own video", "text": "Creator accounts can now review the affiliate videos they sent themselves. Admins and moderators still need someone else to review theirs." }
     ]
+  },
+  {
+    "id": "2026.11.26.3",
+    "date": "2026-11-26",
+    "title": "Easier to see affiliate badge",
+    "items": [
+      { "title": "Darker checkmark", "text": "The checkmark on the Affiliate badge is now dark, so it is easy to see against the pastel colors, including at the small size next to a name." }
+    ]
   }
 ]
