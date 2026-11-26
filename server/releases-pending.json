@@ -864,5 +864,13 @@
       { "title": "Clips are gone", "text": "The Clips section is removed, along with its pages, the clip player and the clips switch on the server bar and in Shortcuts." },
       { "title": "Try the recap as someone else", "text": "In /admin > Recap, creator accounts can search for a person and generate the test recap as them. Nothing is saved." }
     ]
+  },
+  {
+    "id": "2026.11.26.2",
+    "date": "2026-11-26",
+    "title": "Creators can review their own affiliate videos",
+    "items": [
+      { "title": "Review your own video", "text": "Creator accounts can now review the affiliate videos they sent themselves. Admins and moderators still need someone else to review theirs." }
+    ]
   }
 ]
