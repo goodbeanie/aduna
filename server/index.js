@@ -261,7 +261,7 @@ const ARTIST_BADGE = { id: 'artist', name: 'Artist', glyph: 'artist', image: nul
 // like Founding Member. Admins and creators don't get it.
 const MODERATOR_BADGE = { id: 'moderator', name: 'Moderator', src: '/badges/moderator.png', image: null, emoji: '', color: '' };
 // Affiliate badge: worn by an approved affiliate (see the affiliates block), gone if their access is removed.
-const AFFILIATE_BADGE = { id: 'affiliate', name: 'Affiliate', src: '/badges/affiliate.png', image: null, emoji: '', color: '' };
+const AFFILIATE_BADGE = { id: 'affiliate', name: 'Affiliate', src: '/badges/affiliate.svg', image: null, emoji: '', color: '' };
 // Every badge a person owns (the Creator badge, the Artist badge, ones a creator gave, event badges and shop badges).
 function allBadgeViews(u) {
   const out = [];
