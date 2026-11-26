@@ -17,7 +17,15 @@ const PRICES = require('./stripeprices'); // attaches the products you made in t
 
 const GB = 1024 ** 3, DAY = 86_400_000;
 // cadCents is what a Canadian buyer pays each month in CAD, cents what a US buyer pays in USD (REG.priceIn).
-const PLAN = { id: 'storage10', name: 'Aduna Plus', cents: 359, cadCents: 499, currency: 'usd', bytes: 10 * GB };
+const PLAN = { id: 'storage10', rank: 'plus', name: 'Aduna Plus', cents: 359, cadCents: 499, currency: 'usd', bytes: 10 * GB };
+// The three supporter plans (ranks and credit rates: server/supporter.js). Spark has no storage of its own; Premium has 20 GB. The CAD price is the
+// headline one and the USD price keeps Plus's ratio, rounded to .x9 (same reasoning as the comment on PACKS in credits.js).
+const PLANS = {
+  spark: { id: 'spark', rank: 'spark', name: 'Aduna Spark', cents: 149, cadCents: 199, currency: 'usd', bytes: 0 },
+  plus: PLAN,
+  premium: { id: 'premium', rank: 'premium', name: 'Aduna Premium', cents: 719, cadCents: 999, currency: 'usd', bytes: 20 * GB },
+};
+const planById = (id) => (Object.prototype.hasOwnProperty.call(PLANS, id) ? PLANS[id] : null);
 const GRACE_MS = 14 * DAY;       // after a plan ends its files are kept this long before the normal clean-up applies to them again
 const PAID_FOR_MS = 32 * DAY;    // one payment covers a month plus a little slack for a late webhook
 const FILE_ID = /^[0-9a-f]{32}$/;
@@ -38,26 +46,33 @@ const rec = (u) => (u && u.storageSub && typeof u.storageSub === 'object' ? u.st
 let lifetime = () => false;
 const setLifetime = (fn) => { lifetime = typeof fn === 'function' ? fn : () => false; };
 const hasLifetime = (u) => { try { return !!lifetime(u); } catch { return false; } };
-// has paid and the paid time has not run out ('cancelled' keeps the plan until the month that was paid for ends)
-const isSubscriber = (u, now = Date.now()) => {
-  if (hasLifetime(u)) return true;
+// which plan a stored subscription is for; subscriptions from before Spark and Premium have no `plan` and are Plus
+const planKeyOf = (u) => { const s = rec(u); return s && planById(s.plan) ? s.plan : 'plus'; };
+// the plan someone has right now: 'spark' | 'plus' | 'premium', or null. Paid, and the paid time has not run out ('cancelled' keeps the plan
+// until the month that was paid for ends). The creator accounts have Plus for good.
+const activePlan = (u, now = Date.now()) => {
+  if (hasLifetime(u)) return 'plus';
   const s = rec(u);
-  return !!s && s.status !== 'ended' && s.status !== 'pending' && Number(s.paidThrough) > now;
+  return !!s && s.status !== 'ended' && s.status !== 'pending' && Number(s.paidThrough) > now ? planKeyOf(u) : null;
 };
-// files are safe from the shared pool's clean-up: while subscribed and for GRACE_MS afterwards
+// has a plan with storage of their own (Plus or Premium). Spark does not.
+const isSubscriber = (u, now = Date.now()) => { const p = activePlan(u, now); return !!p && PLANS[p].bytes > 0; };
+// the storage the person's plan gives (Plus 10 GB, Premium 20 GB)
+const planBytes = (u) => (PLANS[planKeyOf(u)].bytes || PLAN.bytes);
+// files are safe from the shared pool's clean-up: while subscribed and for GRACE_MS afterwards (only plans that have storage)
 const isProtected = (u, now = Date.now()) => {
   if (hasLifetime(u)) return true;
   const s = rec(u);
-  return !!s && s.status !== 'pending' && Number(s.paidThrough) > 0 && now < Number(s.paidThrough) + GRACE_MS;
+  return !!s && PLANS[planKeyOf(u)].bytes > 0 && s.status !== 'pending' && Number(s.paidThrough) > 0 && now < Number(s.paidThrough) + GRACE_MS;
 };
 const protectedIds = (db, now = Date.now()) => Object.values((db && db.users) || {}).filter((u) => isProtected(u, now)).map((u) => u.id);
 
-// Plus always has the plan's 10 GB. On top of that a person MAY set an upload limit of their own (u.plusLimit, bytes, between 1 GB and the
-// plan's 10 GB): uploads stop when they reach it. Nothing asks them; null = no limit of their own. Saved with POST /api/storage/limit.
+// Plus always has the plan's 10 GB (Premium 20 GB). On top of that a person MAY set an upload limit of their own (u.plusLimit, bytes, between
+// 1 GB and the plan's size): uploads stop when they reach it. Nothing asks them; null = no limit of their own. Saved with POST /api/storage/limit.
 const MIN_LIMIT_BYTES = 1 * GB;
-const plusLimitOf = (u) => (u && typeof u.plusLimit === 'number' && u.plusLimit >= MIN_LIMIT_BYTES ? Math.min(u.plusLimit, PLAN.bytes) : null);
+const plusLimitOf = (u) => (u && typeof u.plusLimit === 'number' && u.plusLimit >= MIN_LIMIT_BYTES ? Math.min(u.plusLimit, planBytes(u)) : null);
 // the limit uploads are checked against: the plan, or the person's own smaller limit
-const effectiveLimit = (u) => { const m = plusLimitOf(u); return m !== null && m < PLAN.bytes ? m : PLAN.bytes; };
+const effectiveLimit = (u) => { const m = plusLimitOf(u); return m !== null && m < planBytes(u) ? m : planBytes(u); };
 
 // null when `add` more bytes fit in the plan; otherwise how far over it would be
 const overQuota = (used, add, limit = PLAN.bytes) => (used + add > limit ? { used, limit, needed: used + add - limit } : null);
@@ -102,33 +117,36 @@ async function makeRoom({ store, bytes, protect = [] }) {
 const STRIPE_ID = /^[A-Za-z0-9_]{3,100}$/;
 const SLACK_MS = 3 * DAY;        // the plan outlasts the period Stripe billed by this much, so a late webhook does not cut it short
 // the price, plus at most the tax the server added, in the currency that was paid
-const amountOk = (cents, cur = 'usd') => { const base = REG.priceIn(PLAN, cur); return !!base && Number.isInteger(cents) && cents >= base && cents <= Math.round(base * 1.75); };
+const amountOk = (cents, cur = 'usd', plan = PLAN) => { const base = REG.priceIn(plan, cur); return !!base && Number.isInteger(cents) && cents >= base && cents <= Math.round(base * 1.75); };
 
 // What the /payments page lists: every storage payment, newest first. Kept on the person, not in storageSub, so resetting a plan does not erase it.
-function logPayment(user, { id, cents, at, renewal = false, currency = 'usd', country = '', region = '', tax = 0 }) {
+function logPayment(user, { id, cents, at, renewal = false, currency = 'usd', country = '', region = '', tax = 0, plan = 'plus' }) {
   const list = Array.isArray(user.storagePayments) ? user.storagePayments : (user.storagePayments = []);
   if (list.some((p) => p.id === id)) return;
-  list.unshift({ id, cents, at, renewal, currency, country, region, tax });
+  list.unshift({ id, cents, at, renewal, currency, country, region, tax, plan });
   if (list.length > 60) list.length = 60;
 }
 
 // Starts the subscription and returns where to send the buyer to pay. The price comes from PLAN, never from the browser. Stripe asks for the
 // billing address on its own page and adds the tax to every monthly charge (Stripe Tax).
-async function createCheckout({ user, buyer = {}, origin, fetchImpl = fetch }) {
+async function createCheckout({ user, buyer = {}, origin, fetchImpl = fetch, planId = PLAN.id }) {
+  const plan = planById(planId === PLAN.id ? 'plus' : planId);
+  if (!plan) throw Object.assign(new Error('Pick a plan'), { forBuyer: true });
   const where = REG.resolve(buyer);
   if (!where.ok) throw Object.assign(new Error(where.error), { forBuyer: true });
-  const base = REG.priceIn(PLAN, where.currency);
-  // your own "Aduna PLUS" monthly price from Stripe when STRIPE_PRODUCTS / STRIPE_PRICES attach one (server/stripeprices.js), else an inline price
-  const priceId = await PRICES.priceFor({ item: PLAN, currency: where.currency, base, recurring: true, request: (m, p) => credits.stripeRequest(m, p, null, fetchImpl) });
+  const base = REG.priceIn(plan, where.currency);
+  // your own monthly price for the plan from Stripe when STRIPE_PRODUCTS / STRIPE_PRICES attach one (server/stripeprices.js), else an inline price
+  const priceId = await PRICES.priceFor({ item: plan, currency: where.currency, base, recurring: true, request: (m, p) => credits.stripeRequest(m, p, null, fetchImpl) });
   const params = {
     mode: 'subscription',
-    ...PRICES.line(0, { priceId, currency: where.currency, cents: base, name: PLAN.name + ' (monthly)', recurring: true }),
+    ...PRICES.line(0, { priceId, currency: where.currency, cents: base, name: plan.name + ' (monthly)', recurring: true }),
     ...credits.STRIPE_TAX,
     success_url: `${origin}/app?storage=paid&session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${origin}/app?storage=cancelled`,
     client_reference_id: user.id,
     'metadata[kind]': 'storage',
     'metadata[userId]': user.id,
+    'metadata[plan]': plan.rank,
     'metadata[country]': where.country,
     'subscription_data[metadata][userId]': user.id,
   };
@@ -144,10 +162,12 @@ function applySession(u, session, now = Date.now()) {
   if (session.payment_status !== 'paid') return 'unpaid';
   const cur = String(session.currency).toLowerCase(), cents = session.amount_total;
   const { country = '', region = '' } = meta;
-  const base = REG.priceIn(PLAN, cur), paidTax = Number(session.total_details?.amount_tax) || 0;
+  const plan = meta.plan === undefined ? PLAN : planById(meta.plan); // sessions from before Spark and Premium carry no plan: Plus
+  if (!plan) return 'bad';
+  const base = REG.priceIn(plan, cur), paidTax = Number(session.total_details?.amount_tax) || 0;
   // a session made before Stripe Tax carries its own total; otherwise the price, plus the tax Stripe added on top of it
   const expected = meta.total !== undefined ? Number(meta.total) : cents === base ? base : base + paidTax;
-  if (!amountOk(cents, cur) || cents !== expected || (!!country && REG.currencyOf(country) !== cur) || !STRIPE_ID.test(String(session.customer || '')) || !STRIPE_ID.test(String(session.subscription || ''))) {
+  if (!amountOk(cents, cur, plan) || cents !== expected || (!!country && REG.currencyOf(country) !== cur) || !STRIPE_ID.test(String(session.customer || '')) || !STRIPE_ID.test(String(session.subscription || ''))) {
     console.error('Storage: Stripe session', session.id, 'does not match the plan; not activating');
     return 'bad';
   }
@@ -157,11 +177,11 @@ function applySession(u, session, now = Date.now()) {
   const payerCountry = String(session.customer_details?.address?.country || '').toUpperCase();
   const where = { country: /^[A-Z]{2}$/.test(payerCountry) ? payerCountry : country, region: region || String(session.customer_details?.address?.state || '').toUpperCase().slice(0, 3) };
   u.storageSub = {
-    status: 'active', customerId: session.customer, subscriptionId: session.subscription,
+    status: 'active', plan: plan.rank, customerId: session.customer, subscriptionId: session.subscription,
     amountCents: cents, currency: cur, country: where.country, region: where.region, tax,
     since: old.since || now, paidThrough: Math.max(Number(old.paidThrough) || 0, now) + PAID_FOR_MS, syncedAt: now,
   };
-  logPayment(u, { id: session.id, cents, at: now, currency: cur, country: where.country, region: where.region, tax });
+  logPayment(u, { id: session.id, cents, at: now, currency: cur, country: where.country, region: where.region, tax, plan: plan.rank });
   return 'changed';
 }
 
@@ -244,7 +264,7 @@ async function handleEvent(ev, db, now = Date.now(), fetchImpl = fetch) {
     s.paidThrough = Math.max(Number(s.paidThrough) || 0, until ? until + SLACK_MS : now + PAID_FOR_MS);
     if (s.status === 'past_due') s.status = 'active';
     s.syncedAt = now;
-    logPayment(u, { id: obj.id, cents: obj.amount_paid, at: now, renewal: true, currency: s.currency, country: s.country || '', region: s.region || '', tax: Number(s.tax) || 0 });
+    logPayment(u, { id: obj.id, cents: obj.amount_paid, at: now, renewal: true, currency: s.currency, country: s.country || '', region: s.region || '', tax: Number(s.tax) || 0, plan: planKeyOf(u) });
     return u.id;
   }
   if (type === 'invoice.payment_failed') { if (s.status === 'active') s.status = 'past_due'; return u.id; }
@@ -269,13 +289,15 @@ function register(app, d) {
   const nowMs = () => (d.now ? d.now() : Date.now());
 
   async function viewOf(u) {
-    const now = nowMs(), s = rec(u), sub = isSubscriber(u, now);
+    const now = nowMs(), s = rec(u), sub = isSubscriber(u, now), active = activePlan(u, now);
     const pay = credits.purchasesEnabled();
     const open = !d.paymentsOpen || d.paymentsOpen(u); // false while a creator has Payments switched off for this person
     const used = await d.store.userFileBytes(u.id);
     const cap = !sub && d.freeBudget ? d.freeBudget.limitBytes() : null; // a free person's own limit (null: none, or the cap is not switched on)
     return {
-      plan: PLAN,
+      plan: active ? PLANS[active] : PLAN, // the plan they have (Plus when none, which is what the storage card offers)
+      plans: Object.values(PLANS),
+      planId: active,                      // 'spark' | 'plus' | 'premium' | null
       subscriber: sub,
       lifetime: hasLifetime(u),
       status: s ? s.status : 'none',
@@ -283,7 +305,7 @@ function register(app, d) {
       paidThrough: s && s.paidThrough ? s.paidThrough : null,
       renews: sub && !!s && s.status === 'active',
       used,
-      limit: sub ? PLAN.bytes : null, // Plus: the plan's 10 GB. free: see freeLimit
+      limit: sub ? planBytes(u) : null, // Plus: the plan's 10 GB (Premium 20 GB). free and Spark: see freeLimit
       uploadLimit: sub ? plusLimitOf(u) : null, // Plus: the optional upload limit the person set for themselves (null: none)
       freeLimit: cap,                 // bytes a free person may keep (null: no limit of their own)
       readOnly: cap !== null && used > cap, // over it: new attachments are refused until files are deleted or the person upgrades (their files are kept)
@@ -297,7 +319,7 @@ function register(app, d) {
   const push = (uid) => {
     const u = d.db().users[uid];
     if (!u || !d.notify) return Promise.resolve();
-    const plus = isSubscriber(u, nowMs());
+    const plus = activePlan(u, nowMs()) || false; // the badge changes with the plan, so other people's profiles refresh when it does
     const prev = plusSeen.get(uid);
     if (d.userChanged && prev !== plus && !(prev === undefined && !plus)) { try { d.userChanged(uid); } catch (e) { console.error('Plus badge update failed:', e.message); } }
     plusSeen.set(uid, plus);
@@ -340,7 +362,7 @@ function register(app, d) {
     if (gb === null) req.user.plusLimit = null;
     else {
       const n = Number(gb);
-      if (!Number.isFinite(n) || n < MIN_LIMIT_BYTES / GB || n > PLAN.bytes / GB) return res.status(400).json({ error: `Pick an upload limit between 1 and ${PLAN.bytes / GB} GB, or none` });
+      if (!Number.isFinite(n) || n < MIN_LIMIT_BYTES / GB || n > planBytes(req.user) / GB) return res.status(400).json({ error: `Pick an upload limit between 1 and ${planBytes(req.user) / GB} GB, or none` });
       req.user.plusLimit = Math.round(n * GB);
     }
     d.save();
@@ -363,9 +385,10 @@ function register(app, d) {
     if (!credits.purchasesEnabled()) return res.status(503).json({ error: 'The storage plan is not set up on this server yet' });
     if (limited(req, res, 5)) return;
     if (hasLifetime(req.user)) return res.status(409).json({ error: 'Aduna Plus is already on for this account' });
-    if (isSubscriber(req.user, nowMs()) && rec(req.user) && rec(req.user).status === 'active') return res.status(409).json({ error: 'You already have the storage plan' });
+    if (activePlan(req.user, nowMs()) && rec(req.user) && rec(req.user).status === 'active') return res.status(409).json({ error: 'You already have a plan. Change or cancel it from Manage billing.' });
     const origin = (process.env.PUBLIC_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
-    try { res.json({ url: (await createCheckout({ user: req.user, buyer: req.body, origin, fetchImpl: d.fetchImpl })).url }); }
+    const planId = req.body && req.body.plan ? String(req.body.plan) : 'plus';
+    try { res.json({ url: (await createCheckout({ user: req.user, buyer: req.body, origin, fetchImpl: d.fetchImpl, planId })).url }); }
     catch (e) {
       if (e.forBuyer) return res.status(400).json({ error: e.message });
       console.error(e.message); res.status(502).json({ error: 'Could not start checkout. Try again later.' });
@@ -411,6 +434,6 @@ function register(app, d) {
 }
 
 module.exports = {
-  PLAN, GRACE_MS, PAID_FOR_MS, isSubscriber, hasLifetime, setLifetime, isProtected, protectedIds, plusLimitOf, effectiveLimit, overQuota, pickOldest, makeRoom,
+  PLAN, PLANS, planById, GRACE_MS, PAID_FOR_MS, activePlan, planBytes, isSubscriber, hasLifetime, setLifetime, isProtected, protectedIds, plusLimitOf, effectiveLimit, overQuota, pickOldest, makeRoom,
   createCheckout, confirmSession, syncSubscription, cancelSubscription, portalUrl, applySession, handleEvent, register,
 };

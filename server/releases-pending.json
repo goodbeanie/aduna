@@ -852,5 +852,17 @@
       { "title": "Recap video in chat", "text": "Share in the recap now sends the video to a friend or a server as a card with a play button. Press it to watch the 30 seconds over the chat, with the song. It is not a file and there is no link, so only the people in that chat can see it." },
       { "title": "Reads as theirs", "text": "A recap you share from Your year says \"Sam's 2026 on Aduna\" for the person watching, not \"Your\". It still only holds numbers. Copy and More still give plain text." }
     ]
+  },
+  {
+    "id": "2026.11.26",
+    "date": "2026-11-26",
+    "title": "Supporter ranks, affiliates and Clips removed",
+    "items": [
+      { "title": "Supporter ranks", "text": "There are now three monthly ranks that show a badge next to your name: Spark, Plus and Premium. Spark pays 1.1x credits, Plus 1.5x and Premium 1.75x. Premium has everything in Plus with 20 GB of storage instead of 10 GB." },
+      { "title": "Small credit rewards add up", "text": "A message only pays a couple of credits, so the part of a bonus that does not fit in a whole credit is kept and paid with your next message." },
+      { "title": "Affiliate program", "text": "A new Affiliate page lets you send in a video about Aduna from YouTube, TikTok, Instagram or Twitch and pick the name for your link. A reviewer watches it, and every approved video pays credits based on its length and how useful it is. Your first approved video makes you an affiliate." },
+      { "title": "Clips are gone", "text": "The Clips section is removed, along with its pages, the clip player and the clips switch on the server bar and in Shortcuts." },
+      { "title": "Try the recap as someone else", "text": "In /admin > Recap, creator accounts can search for a person and generate the test recap as them. Nothing is saved." }
+    ]
   }
 ]

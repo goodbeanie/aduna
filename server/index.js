@@ -13,7 +13,9 @@ const credits = require('./credits');
 const storagePlan = require('./storage');
 const storageBudgetLib = require('./storage-budget'); // how much a free person may keep (see the file's header); on unless FREE_STORAGE_CAP=0
 const artistsLib = require('./artists'); // artists: apply, get reviewed, sell badges in the shop (see the "artists" block below)
+const affiliateLib = require('./affiliate'); // affiliates: send a video about Aduna, get reviewed, earn credits (see the "affiliates" block below)
 const foundingLib = require('./founding'); // the first 1,000 people to join get the Founding Member badge (see founding.js)
+const supporterLib = require('./supporter'); // Spark / Plus / Premium: a badge by the name and a few more credits (see supporter.js)
 const stickersLib = require('./stickers'); // sticker packs: big pictures sent on their own, sold in the shop (see the "stickers" block below)
 const profileLib = require('./profile'); // pronouns, the games shelf and the profile song (rules only; the routes sit next to the profile image routes)
 const railLib = require('./railfolders'); // the server bar's folders and order, kept on the account (PUT /api/me/rail)
@@ -37,8 +39,6 @@ const appropriate = require('./appropriate'); // the checker for usernames, disp
 const moderation = require('./moderation'); // warnings, mutes, timed suspensions and IP bans for the admin page
 const terms = require('./terms'); // the current Terms of Service version and who has agreed to it
 const activityLib = require('./activity');
-const clipsLib = require('./clips'); // clips: short vertical videos (see the "clips" block below)
-const screenLib = require('./screen'); // clip screening: OpenAI moderation of frames, music recognition, re-post matching (see POST /api/clips/:id/complete)
 const polls = require('./polls');
 const wheels = require('./wheels'); // spin the wheel: a poster's options and a spin time; the server picks the winner at that time (see wheels.js)
 const wordleLib = require('./wordle'); // Wordle: a daily word for Aduna (global) and one for each server (see the "wordle" block below)
@@ -83,9 +83,13 @@ const MAX_MSG = 2000; // what bots and webhooks may post; people get msgLimits.c
 const MAX_PINS = 50; // pinned messages per channel
 const MAX_CIPHER = 12000;
 const msgLimits = require('./msglimits');
+// Supporter rank (supporter.js): Plus comes from the storage plan, Spark and Premium are on the account. Premium has all the Plus perks except the 10 GB.
+const supporterOpts = (u) => ({ plan: u ? storagePlan.activePlan(u, now()) : null, now: now() });
+const hasPlusPerks = (u) => !!u && supporterLib.hasPlusPerks(u, supporterOpts(u));
+const creditRate = (u) => supporterLib.rateOf(u, supporterOpts(u));
 // the longest message / ciphertext this person may send (Aduna Plus gets more, see msglimits.js)
-const maxChars = (u) => msgLimits.chars(!!u && storagePlan.isSubscriber(u, now()));
-const maxCipher = (u) => msgLimits.cipher(!!u && storagePlan.isSubscriber(u, now()));
+const maxChars = (u) => msgLimits.chars(hasPlusPerks(u));
+const maxCipher = (u) => msgLimits.cipher(hasPlusPerks(u));
 
 // ---------- secret ----------
 // JWT_SECRET from the environment, otherwise a random secret kept (encrypted) in the database.
@@ -98,7 +102,6 @@ const db = () => store.db;
 const referencedImages = () => new Set([
   ...Object.values(store.db.users).flatMap((u) => [u.avatarImage, u.bannerImage, u.avatarAnim, u.bannerAnim]), // the animated copies sit next to the still pictures
   ...Object.values(store.db.users).map((u) => u.song && u.song.id), // a profile song's bytes live in the same table
-  ...Object.values(store.db.users).flatMap((u) => (u.clipCreator && u.clipCreator.profile ? [u.clipCreator.profile.avatarImage, u.clipCreator.profile.bannerImage] : [])), // a Clips creator's own icon and banner
   ...Object.values(store.db.servers).flatMap((sv) => [sv.iconImage, sv.bannerImage, sv.iconAnim, sv.bannerAnim]), // server icon + banner, and their animated copies
   ...Object.values(store.db.servers).flatMap((sv) => soundboardLib.audioIds(sv)), // the soundboard's clips live in the same table
   ...Object.values(store.db.bots || {}).flatMap((b) => [b.avatarImage, b.bannerImage]), // bot pictures and banners (the bot's account points at the same images)
@@ -257,13 +260,17 @@ const ARTIST_BADGE = { id: 'artist', name: 'Artist', glyph: 'artist', image: nul
 // Moderator badge: worn by anyone an admin made a moderator (u.moderator), gone when they are removed. Fixed picture in /badges, drawn through `src`
 // like Founding Member. Admins and creators don't get it.
 const MODERATOR_BADGE = { id: 'moderator', name: 'Moderator', src: '/badges/moderator.png', image: null, emoji: '', color: '' };
+// Affiliate badge: worn by an approved affiliate (see the affiliates block), gone if their access is removed.
+const AFFILIATE_BADGE = { id: 'affiliate', name: 'Affiliate', src: '/badges/affiliate.png', image: null, emoji: '', color: '' };
 // Every badge a person owns (the Creator badge, the Artist badge, ones a creator gave, event badges and shop badges).
 function allBadgeViews(u) {
   const out = [];
   if (isCreator(u)) out.push(CREATOR_BADGE);
   if (!u.bot && artistsLib.isArtist(db().artists && db().artists[u.id])) out.push(ARTIST_BADGE); // an approved artist wears the Artist badge
   if (!u.bot && !u.deleted && !u.suspended && u.moderator && !isAdmin(u)) out.push(MODERATOR_BADGE);
+  if (!u.bot && !u.deleted && !u.suspended && affiliateLib.isApproved(db().affiliates && db().affiliates[u.id])) out.push(AFFILIATE_BADGE);
   out.push(...foundingLib.badgeViews(u)); // Founding Member: one of the first 1,000 people to join (u.founding, set when the account is made)
+  out.push(...supporterLib.badgeViews(u, supporterOpts(u))); // Spark, Plus or Premium, whichever is the highest they have
   for (const id of Array.isArray(u.badges) ? u.badges : []) {
     const b = db().badges && db().badges[id];
     if (b && b.kind !== 'frame' && b.kind !== 'stickers') out.push({ id: b.id, name: b.name, image: b.image || null, emoji: b.emoji || '', color: b.color || '#8c6b4f' }); // frames are worn around the avatar, not next to the name (see wornFrame); sticker packs are never worn
@@ -290,17 +297,14 @@ function frameOf(id) { const b = id && db().badges && Object.prototype.hasOwnPro
 const wornFrame = (u) => { const b = u.frame && ownsBadge(u, u.frame) ? frameOf(u.frame) : null; return b ? b.image : null; };
 // the frames a person owns, for Settings: each marked worn or not
 const ownedFrameViews = (u) => (Array.isArray(u.badges) ? u.badges : []).map(frameOf).filter(Boolean).map((b) => ({ id: b.id, name: b.name, image: b.image, worn: u.frame === b.id && wornFrame(u) === b.image }));
-// A username is taken when an account has it OR another Clips creator uses it as their Clips name (u.clipCreator.profile.username), so nobody can
-// register or rename into someone's Clips name. `exceptId` is the person asking (their own names never clash with each other).
+// A username is taken when an account has it.
+// `exceptId` is the person asking (their own names never clash with each other).
 function usernameTaken(name, exceptId) {
   const l = String(name).toLowerCase();
-  return Object.values(db().users).some((x) => x.id !== exceptId && (String(x.username).toLowerCase() === l || String((x.clipCreator && x.clipCreator.profile && x.clipCreator.profile.username) || '').toLowerCase() === l))
+  return Object.values(db().users).some((x) => x.id !== exceptId && String(x.username).toLowerCase() === l)
     // a name someone has applied with is held for them while the application waits for a decision
     || Object.values(db().applications || {}).some((a) => a.id !== exceptId && a.status === 'pending' && String(a.username).toLowerCase() === l);
 }
-// A Clips creator can switch on a link to their Clips page (/clips/user/<id>) from the creator dashboard. It is off until they do.
-// (The profile card no longer shows it.)
-const clipsPageOf = (u) => (u && !u.bot && u.clipCreator && u.clipCreator.pageLink === true ? '/clips/user/' + u.id : null);
 // An approved artist can switch on a link to their marketplace (their items in the shop) on their profile (Settings > Artist). null otherwise.
 const artistShopOf = (u) => (u && !u.bot && u.showShop === true && artistsLib.isArtist(db().artists && db().artists[u.id]) ? u.id : null);
 // The game someone is playing right now (server/activity.js). Memory only: it is not saved, and a restart simply forgets it.
@@ -2079,7 +2083,8 @@ app.post('/api/files', auth, safetyHeader, fileLimiter, express.raw({ type: '*/*
   if (storagePlan.isSubscriber(req.user, now())) {
     const mine = storagePlan.plusLimitOf(req.user);
     const over = storagePlan.overQuota(await store.userFileBytes(req.user.id), buf.length, storagePlan.effectiveLimit(req.user));
-    if (over) return res.status(409).json({ error: mine !== null && mine < storagePlan.PLAN.bytes ? 'You reached the upload limit you set' : 'Your storage is full', code: 'storage_full', ...over, selfSet: mine !== null && mine < storagePlan.PLAN.bytes });
+    const planSize = storagePlan.planBytes(req.user);
+    if (over) return res.status(409).json({ error: mine !== null && mine < planSize ? 'You reached the upload limit you set' : 'Your storage is full', code: 'storage_full', ...over, selfSet: mine !== null && mine < planSize });
   } else {
     // a free person has a limit of their own while the free-storage cap is on (server/storage-budget.js). Over it, new attachments are refused,
     // nothing is deleted, and the app opens the cleanup window (with a Get 10 GB button) through the same 'storage_full' answer a full plan uses.
@@ -3603,413 +3608,6 @@ app.post('/api/admin/servers/:id/sponsored', auth, adminOnly, (req, res) => {
   res.json({ ok: true, sponsored: sponsoredLib.ownerView(s, now()) });
 });
 
-// ----- clips: short vertical videos -----
-// The flow: the app asks for upload links (POST /api/clips/upload-url), PUTs the video and its cover picture straight to the clips R2 bucket
-// (so Render never carries the video), then says it is done (POST /api/clips/:id/complete). Only then does the server look at what arrived
-// (size, type, the MP4 header, the real length), and only a clip that passes goes live. R2's signed links cannot cap an upload's size, so a
-// clip that is too big is deleted at that point, and an upload nobody finishes is deleted by the sweep a few minutes later.
-// Storage: clips have their own bucket and their own cap (CLIPS_LIMIT_GB, default 5). They are deleted after CLIPS_TTL_DAYS (default 7);
-// the record stays with its numbers (views, likes, reports) and only the video and cover are gone. Rules and limits: clips.js.
-// Master switch: Clips stay off unless CLIPS_ENABLED=1 is set on the server (the app's own buttons are switched off in client/src/features.js).
-const clipsOn = () => process.env.CLIPS_ENABLED === '1' && !!(store.clipsR2 && clipsLib.settings().publicUrl);
-const needClips = (_req, res, next) => (clipsOn() ? next() : res.status(503).json({ error: 'Clips are not set up on this server' }));
-// Anyone signed in can watch, like and report. Posting needs a clips creator registration (accepting the creator terms on /dashboard).
-// This is NOT the same as the site's own "creator" (the people who make Aduna, see isCreator above): their accounts register as clips creators like everyone else.
-const isClipCreator = (u) => !!u && !!u.clipCreator;
-const needClipCreator = (req, res, next) => (isClipCreator(req.user) ? next() : res.status(403).json({ error: 'Become a Clips creator first: accept the creator terms on your dashboard', code: 'not_clip_creator' }));
-const CLIP_TERMS_VERSION = 1;
-const clipUploadHits = new security.RateWindow(20, 3600_000);      // upload links per person per hour (the daily limit is separate)
-const clipActHits = new security.RateWindow(240, 60_000);          // feed pages, views and likes per person per minute
-const clipReportHits = new security.RateWindow(listing.LISTING.perHour, 3600_000);
-const clipViewSeen = new security.RateWindow(1, 24 * 3600_000);    // one counted view per person per clip per day
-const clipsScreening = new Set();                                  // ids of clips being screened right now (a second "complete" for one of them waits)
-const clipList = () => Object.values(db().clips);
-const clipsFull = 'Clips are full right now. Older clips are removed every day, so try again later.';
-
-// delete a clip's video and cover from R2; false (and the keys stay, so the sweep tries again) if R2 would not
-async function dropClipBytes(c) {
-  const b = store.clipsR2;
-  if (!b) return false;
-  try { for (const k of clipsLib.objectsOf(c)) await b.del(k); return true; }
-  catch (e) { console.error('Clip cleanup failed (will retry):', e.message); return false; }
-}
-// credits taken for an upload that never went live are given back
-function refundClip(c) {
-  if (!(c.credits > 0)) return;
-  const u = db().users[c.owner];
-  if (u) credits.grant(u, c.credits, 'clip refund', { note: 'Clip not posted' });
-  c.credits = 0;
-}
-// take a clip down: out of the feed at once, bytes deleted, numbers kept
-async function endClip(c, state, why) {
-  c.state = state;
-  if (why) c.why = why;
-  if (await dropClipBytes(c)) clipsLib.purge(c, state, now());
-  store.save();
-}
-// delete what has expired or was never finished. Runs at start and every ten minutes.
-async function sweepClips() {
-  const out = { expired: 0, abandoned: 0, retried: 0 };
-  if (!store.clipsR2) return out;
-  const t = now();
-  const d = clipsLib.due(clipList(), t, clipsLib.settings());
-  for (const c of d.abandoned) if (await dropClipBytes(c)) { refundClip(c); c.why = 'The upload was never finished'; clipsLib.purge(c, 'rejected', t); out.abandoned++; }
-  for (const c of d.expire) if (await dropClipBytes(c)) { clipsLib.purge(c, 'expired', t); out.expired++; }
-  for (const c of d.retry) if (await dropClipBytes(c)) { clipsLib.purge(c, c.state, t); out.retried++; }
-  if (out.expired + out.abandoned + out.retried) store.save();
-  return out;
-}
-
-// creator registration: ask whether you are one, and become one by accepting the terms
-app.get('/api/clips/creator', auth, (req, res) => res.json({ creator: isClipCreator(req.user), since: req.user.clipCreator ? req.user.clipCreator.at : null, terms: CLIP_TERMS_VERSION, followers: req.user.clipFollowerCount || 0, pageLink: !!clipsPageOf(req.user), page: '/clips/user/' + req.user.id, profile: isClipCreator(req.user) ? creatorProfileView(req.user) : null, setupPending: !!(req.user.clipCreator && req.user.clipCreator.setupPending) }));
-// a creator's own page (/clips/user/<id>): who they are, how many follow them, and whether you do. Anyone signed in can look.
-app.get('/api/clips/creator/:userId', auth, needClips, (req, res) => {
-  const u = db().users[req.params.userId];
-  if (!u || u.bot) return res.status(404).json({ error: 'That page was not found' });
-  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  const who = clipsLib.identity(u); // a creator's own Clips name, display name, icon and banner when they set them
-  const likes = clipList().reduce((n, c) => (c.owner === u.id ? n + (c.likes || 0) : n), 0); // every like on their clips (the numbers stay after a clip expires)
-  res.json({ user: { id: u.id, username: who.username, displayName: who.displayName, avatarImage: who.avatarImage, bannerImage: who.bannerImage, followers: u.clipFollowerCount || 0, likes, creator: isClipCreator(u), following: (req.user.clipFollowing || []).includes(u.id), mine: u.id === req.user.id,
-    // their Aduna profile theme, so their Clips page can wear the same colours
-    profileTheme: credits.pthemes.wornId(u), profileGradient: credits.pthemes.customOf(u), accentColor: u.accentColor || null, bannerColor: u.bannerColor || null, ...nameStyle.view(u) } });
-});
-// follow or unfollow a creator (a second call undoes the first). Only the number of followers is ever shown, never who they are.
-const clipFollowHits = new security.RateWindow(60, 3600_000);
-app.post('/api/clips/follow/:userId', auth, needClips, (req, res) => {
-  const target = db().users[req.params.userId];
-  if (!target || !isClipCreator(target)) return res.status(404).json({ error: 'That creator was not found' });
-  if (!clipFollowHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  const r = clipsLib.toggleFollow(req.user, target);
-  if (r.error) return res.status(400).json({ error: r.error });
-  store.save();
-  res.json(r);
-});
-app.post('/api/clips/creator/join', auth, (req, res) => {
-  if (req.body?.accept !== true) return res.status(400).json({ error: 'Please accept the creator terms' });
-  if (!req.user.clipCreator) { req.user.clipCreator = { at: now(), terms: CLIP_TERMS_VERSION, setupPending: true }; store.save(); } // setupPending: the dashboard offers the customize-your-creator-profile popup once
-  res.json({ creator: true, since: req.user.clipCreator.at });
-});
-// a creator switches the link to their Clips page on or off (off by default). While it is on, their profile shows it; the page itself is unchanged.
-app.post('/api/clips/creator/page-link', auth, needClipCreator, (req, res) => {
-  if (typeof req.body?.enabled !== 'boolean') return res.status(400).json({ error: 'Say whether the link should be on or off' });
-  if ((req.user.clipCreator.pageLink === true) !== req.body.enabled) {
-    if (req.body.enabled) req.user.clipCreator.pageLink = true; else delete req.user.clipCreator.pageLink;
-    store.save();
-    emitUserUpdate(req.user); // profile cards other people have open pick the change up
-  }
-  res.json({ pageLink: !!clipsPageOf(req.user), page: '/clips/user/' + req.user.id });
-});
-
-// ----- a creator's own Clips identity -----
-// On joining, the creator is offered a popup (setupPending) to pick a username, display name, icon and banner that are used on Clips INSTEAD of their
-// Aduna profile (clips.js identity()). Skipping it, or "Use my Aduna profile" on the dashboard's Profile page, leaves them showing as themselves.
-// u.clipCreator.profile = { username, displayName, avatarImage, bannerImage, usernameChangedAt }. Rules mirror the Aduna profile: 3-20 letters, numbers or
-// underscores, not taken by any account or other creator, changeable once a week; display name up to 32 characters.
-function creatorProfileView(u) {
-  const who = clipsLib.identity(u), p = u.clipCreator && u.clipCreator.profile;
-  return {
-    custom: !!p, username: who.username, displayName: who.displayName, avatarImage: who.avatarImage, bannerImage: who.bannerImage,
-    usernameChangedAt: (p && p.usernameChangedAt) || null, accountUsername: u.username, // the Aduna username, shown to the person themself as the starting point
-  };
-}
-app.patch('/api/clips/creator/profile', auth, needClipCreator, (req, res) => {
-  const u = req.user, c = u.clipCreator, b = req.body || {}, cur = c.profile || null;
-  const want = String(b.username ?? (cur ? cur.username : u.username)).trim().replace(/^@/, '');
-  if (!/^[a-zA-Z0-9_]{3,20}$/.test(want)) return res.status(400).json({ error: 'Username must be 3-20 letters, numbers or underscores' });
-  const renamed = !!cur && want.toLowerCase() !== cur.username.toLowerCase();
-  if (renamed) {
-    const wait = (cur.usernameChangedAt || 0) + USERNAME_COOLDOWN_MS - now();
-    if (wait > 0) return res.status(429).json({ error: 'You can only change your Clips username once every 7 days', availableAt: new Date(cur.usernameChangedAt + USERNAME_COOLDOWN_MS).toISOString() });
-  }
-  if ((!cur || renamed) && usernameTaken(want, u.id)) return res.status(409).json({ error: 'Username already taken' });
-  const p = cur || {};
-  const oldName = p.username;
-  p.username = want;
-  if (renamed) p.usernameChangedAt = now();
-  if (b.displayName !== undefined) p.displayName = clip(b.displayName, 32).trim() || want;
-  else if (!cur || (renamed && p.displayName === oldName)) p.displayName = want; // never picked one: it follows the username
-  c.profile = p;
-  delete c.setupPending;
-  store.save();
-  res.json({ profile: creatorProfileView(u) });
-});
-async function setCreatorImage(u, field, buf) {
-  const p = u.clipCreator.profile, old = p[field];
-  if (buf) p[field] = await store.putImage(buf); else delete p[field];
-  await store.flush(); // the profile must point at the new picture before the old one is deleted
-  await store.deleteImage(old);
-  return creatorProfileView(u);
-}
-for (const [kind, rule] of Object.entries(IMAGE_RULES)) {
-  app.put(`/api/clips/creator/profile/${kind}`, auth, needClipCreator, uploadLimiter, rawImage, ah(async (req, res) => {
-    if (!req.user.clipCreator.profile) return res.status(400).json({ error: 'Choose your Clips username first' });
-    const buf = req.body;
-    if (!Buffer.isBuffer(buf) || !buf.length) return res.status(400).json({ error: 'Choose a PNG, JPEG or WebP image' });
-    const info = sniffImage(buf);
-    if (!info) return res.status(400).json({ error: 'That file is not a valid PNG, JPEG or WebP image' });
-    if (info.width > rule.maxDim || info.height > rule.maxDim) return res.status(400).json({ error: `Image is too large (max ${rule.maxDim}px per side)` });
-    res.json({ profile: await setCreatorImage(req.user, rule.field, buf) });
-  }));
-  app.delete(`/api/clips/creator/profile/${kind}`, auth, needClipCreator, ah(async (req, res) => {
-    if (!req.user.clipCreator.profile) return res.json({ profile: creatorProfileView(req.user) });
-    res.json({ profile: await setCreatorImage(req.user, rule.field, null) });
-  }));
-}
-// back to showing the Aduna profile on Clips: the Clips identity and its pictures are deleted
-app.delete('/api/clips/creator/profile', auth, needClipCreator, ah(async (req, res) => {
-  const c = req.user.clipCreator, p = c.profile;
-  delete c.profile;
-  delete c.setupPending;
-  store.save();
-  await store.flush();
-  if (p) { await store.deleteImage(p.avatarImage); await store.deleteImage(p.bannerImage); }
-  res.json({ profile: creatorProfileView(req.user) });
-}));
-// "Skip" on the popup: keep showing the Aduna profile, and do not ask again
-app.post('/api/clips/creator/setup-done', auth, needClipCreator, (req, res) => {
-  if (req.user.clipCreator.setupPending) { delete req.user.clipCreator.setupPending; store.save(); }
-  res.json({ setupPending: false });
-});
-
-app.post('/api/clips/upload-url', auth, needClips, needClipCreator, ah(async (req, res) => {
-  const cfg = clipsLib.settings();
-  const boss = isCreator(req.user); // the site's creator accounts post without the daily / open-uploads / hourly limits and without paying credits (the storage cap still applies)
-  if (!boss && !clipUploadHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down. Try again in a little while.' });
-  if (req.body?.rights !== true) return res.status(400).json({ error: 'Confirm that you made this clip or have permission to post it' });
-  const r = clipsLib.checkRequest(req.body, cfg, BLOCKED_WORDS);
-  if (r.error) return res.status(400).json({ error: r.error });
-  const all = clipList(), t = now();
-  if (!boss && clipsLib.uploadsToday(all, req.user.id, t) >= cfg.dailyLimit) return res.status(429).json({ error: `You can post ${cfg.dailyLimit} clips a day. Try again tomorrow.`, code: 'daily_limit' });
-  if (!boss && clipsLib.pendingOf(all, req.user.id) >= cfg.maxPending) return res.status(429).json({ error: 'Let your other uploads finish first.' });
-  if (!clipsLib.hasRoom(all, r.value.size + r.value.posterSize, cfg)) return res.status(507).json({ error: clipsFull, code: 'clips_full' });
-  if (!boss && cfg.credits && !credits.spend(req.user, cfg.credits, 'clip', { note: 'Posted a clip' })) return res.status(402).json({ error: `Posting a clip costs ${cfg.credits} credits`, code: 'not_enough_credits' });
-  const c = {
-    id: store.id(), owner: req.user.id, caption: r.value.caption, state: 'pending',
-    key: `clips/${crypto.randomBytes(16).toString('hex')}.mp4`, posterKey: `posters/${crypto.randomBytes(16).toString('hex')}`,
-    size: r.value.size, posterSize: r.value.posterSize, seconds: r.value.seconds, width: r.value.width, height: r.value.height,
-    createdAt: t, views: 0, likes: 0, likedBy: [], reports: [], reportCount: 0, credits: boss ? 0 : cfg.credits,
-    rightsAt: t, // the poster confirmed they own it or have permission, and accepted the creator terms (version in their account)
-  };
-  let video, poster;
-  try {
-    [video, poster] = await Promise.all([store.clipsR2.presignPut(c.key, 600), store.clipsR2.presignPut(c.posterKey, 600)]);
-  } catch (e) {
-    refundClip(c); store.save();
-    console.error('Could not sign a clip upload:', e.message);
-    return res.status(502).json({ error: 'Uploads are not available right now. Try again soon.' });
-  }
-  db().clips[c.id] = c;
-  store.save();
-  res.json({
-    id: c.id, expiresIn: 600,
-    video: { url: video, method: 'PUT', headers: { 'Content-Type': 'video/mp4' } },
-    poster: { url: poster, method: 'PUT', headers: { 'Content-Type': r.value.posterType } },
-  });
-}));
-
-app.post('/api/clips/:id/complete', auth, needClips, needClipCreator, ah(async (req, res) => {
-  const cfg = clipsLib.settings();
-  const c = db().clips[req.params.id];
-  if (!c || c.owner !== req.user.id) return res.status(404).json({ error: 'Not found' });
-  if (c.state === 'live') return res.json({ clip: clipsLib.view(c, db().users, req.user.id, cfg) }); // asked twice
-  if (c.state === 'hidden' && !c.purgedAt && c.hold && c.hold.by === 'screening') return res.json({ clip: clipsLib.ownerView(c), held: true, message: 'Your clip is waiting for a moderator to check it before it goes live.' }); // asked twice, held by the automatic check
-  if (c.state !== 'pending') return res.status(409).json({ error: 'This upload is no longer open', why: c.why || null });
-  const b = store.clipsR2;
-  const reject = async (status, message) => { if (c.state === 'pending') { refundClip(c); await endClip(c, 'rejected', message); } return res.status(status).json({ error: message }); };
-  let vh, ph;
-  try { [vh, ph] = await Promise.all([b.head(c.key), b.head(c.posterKey)]); }
-  catch (e) { console.error('Clip check failed:', e.message); return res.status(502).json({ error: 'Could not check the upload. Try again.' }); }
-  if (!vh || !ph) return res.status(409).json({ error: 'The upload has not arrived yet', code: 'not_uploaded' }); // still pending: the app can ask again
-  if (vh.size < 1024 || vh.size > cfg.maxBytes) return reject(413, `Clips can be at most ${Math.round(cfg.maxBytes / clipsLib.MB * 10) / 10} MB`);
-  if (vh.type !== 'video/mp4') return reject(400, 'That is not an MP4 video');
-  if (ph.size < 1 || ph.size > clipsLib.MAX_POSTER || !clipsLib.POSTER_TYPES.includes(ph.type)) return reject(400, 'The cover picture is missing or too big');
-  let head, pic;
-  try { [head, pic] = await Promise.all([b.first(c.key, clipsLib.FIRST_BYTES), b.first(c.posterKey, clipsLib.MAX_POSTER)]); }
-  catch (e) { console.error('Clip check failed:', e.message); return res.status(502).json({ error: 'Could not check the upload. Try again.' }); }
-  const mp4 = clipsLib.sniffMp4(head);
-  if (mp4.error) return reject(400, mp4.error);
-  if (mp4.seconds > cfg.maxSeconds + 1) return reject(400, `Clips can be at most ${cfg.maxSeconds} seconds`);
-  if (!pic || !sniffImage(pic)) return reject(400, 'The cover picture is not a valid image');
-  if (c.state !== 'pending') return res.status(409).json({ error: 'This upload is no longer open' }); // the sweep dropped it while we were looking
-  if (!clipsLib.hasRoom(clipList(), vh.size + ph.size, cfg, c.id)) return reject(507, clipsFull);
-  const facts = { size: vh.size, posterSize: ph.size, seconds: Math.round(mp4.seconds * 10) / 10 };
-  // The automatic checks before it goes live (screen.js): OpenAI moderation of frames and cover, music recognition, re-post matching.
-  // Nothing is checked until OPENAI_API_KEY and/or AUDD_API_TOKEN is set, so without them this behaves exactly as before.
-  // block -> rejected (refunded, bytes deleted); review -> hidden with hold.by 'screening' until a moderator looks; pass -> live.
-  let held = null;
-  const scfg = screenLib.settings();
-  if (scfg.on) {
-    if (clipsScreening.has(c.id)) return res.status(409).json({ error: 'Your clip is still being checked', code: 'screening' }); // the app asked again while the first check still runs
-    clipsScreening.add(c.id);
-    try {
-      let video = null, poster = null;
-      try { [video, poster] = await Promise.all([b.get(c.key, cfg.maxBytes), b.get(c.posterKey, clipsLib.MAX_POSTER)]); }
-      catch (e) { console.error('Clip screening could not read the upload:', e.message); }
-      const found = video
-        ? await screenLib.screenClip({ video, seconds: facts.seconds, poster: poster ? { buf: poster, type: ph.type } : null, known: { clips: clipList(), ownerId: c.owner, selfId: c.id } }, scfg)
-        : { mod: null, music: null, dupe: null, hashes: [], errors: ['video: could not be read back from storage'] };
-      if (c.state !== 'pending') return res.status(409).json({ error: 'This upload is no longer open' }); // the sweep dropped it while it was being checked
-      const d = screenLib.decide(found, scfg);
-      c.screen = screenLib.record(found, d, now()); // kept for moderators (and its picture fingerprints for matching later re-posts); never sent to the poster
-      if (d.verdict === 'block') return await reject(422, d.message);
-      if (d.verdict === 'review') held = d;
-    } finally { clipsScreening.delete(c.id); }
-  }
-  const t = now();
-  Object.assign(c, facts, held
-    ? { state: 'hidden', hold: { state: 'hidden', by: 'screening', at: t }, expiresAt: t + cfg.ttlMs }
-    : { state: 'live', liveAt: t, expiresAt: t + cfg.ttlMs });
-  store.save();
-  if (held) return res.json({ clip: clipsLib.ownerView(c), held: true, message: held.message });
-  res.json({ clip: clipsLib.view(c, db().users, req.user.id, cfg) });
-}));
-
-app.get('/api/clips', auth, needClips, (req, res) => {
-  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  const cfg = clipsLib.settings();
-  const clips = clipsLib.feed(clipList(), db().users, {
-    uid: req.user.id, sort: req.query.sort === 'top' ? 'top' : req.query.sort === 'following' ? 'following' : 'new', before: Number(req.query.before) || 0,
-    owner: typeof req.query.owner === 'string' ? req.query.owner.slice(0, 80) : '',
-    offset: parseInt(req.query.offset, 10) || 0, limit: parseInt(req.query.limit, 10) || 10, now: now(),
-  }, cfg);
-  res.json({
-    clips,
-    limits: { maxSeconds: cfg.maxSeconds, maxMb: Math.round(cfg.maxBytes / clipsLib.MB * 10) / 10, dailyLimit: cfg.dailyLimit, unlimited: isCreator(req.user), left: Math.max(0, cfg.dailyLimit - clipsLib.uploadsToday(clipList(), req.user.id, now())), credits: isCreator(req.user) ? 0 : cfg.credits, keepDays: Math.round(cfg.ttlMs / clipsLib.DAY * 10) / 10 },
-  });
-});
-// your own clips, including the ones whose video has expired (the numbers stay). A clip you deleted from your list (dismissed) is not shown again.
-app.get('/api/clips/mine', auth, (req, res) => {
-  const mine = clipList().filter((c) => c.owner === req.user.id && !c.dismissed).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100).map(clipsLib.ownerView);
-  res.json({ clips: mine });
-});
-// search creators (by name) and clips (by caption or poster's name) for the Clips website's search button
-app.get('/api/clips/search', auth, needClips, (req, res) => {
-  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 60) : '';
-  res.json(clipsLib.search(clipList(), db().users, { uid: req.user.id, q, now: now() }, clipsLib.settings()));
-});
-// one clip, for its own page (/clips/:id). Only a live clip can be opened; after it expires or is taken down the link says "gone".
-app.get('/api/clips/:id', auth, needClips, (req, res) => {
-  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  const c = liveClipOr404(req, res);
-  if (!c || !db().users[c.owner]) return c ? res.status(404).json({ error: 'That clip is gone' }) : undefined;
-  res.json({ clip: clipsLib.view(c, db().users, req.user.id, clipsLib.settings()) });
-});
-function liveClipOr404(req, res) {
-  const c = db().clips[req.params.id];
-  if (!c || !clipsLib.isLive(c, now())) { res.status(404).json({ error: 'That clip is gone' }); return null; }
-  return c;
-}
-app.post('/api/clips/:id/view', auth, needClips, (req, res) => {
-  const c = liveClipOr404(req, res);
-  if (!c) return;
-  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  if (c.owner !== req.user.id && clipViewSeen.allow(req.user.id + ':' + c.id)) { clipsLib.addView(c, now()); store.save(); }
-  res.json({ views: c.views || 0 });
-});
-app.post('/api/clips/:id/like', auth, needClips, (req, res) => {
-  const c = liveClipOr404(req, res);
-  if (!c) return;
-  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  const liked = clipsLib.toggleLike(c, req.user.id);
-  store.save();
-  res.json({ liked, likes: c.likes });
-});
-// comments: anyone signed in can read and write them on a live clip; you can delete your own, and the poster can delete any on their clip
-const clipCommentHits = new security.RateWindow(30, 3600_000);     // comments per person per hour
-const clipShareSeen = new security.RateWindow(1, 24 * 3600_000);   // one counted share per person per clip per day
-app.get('/api/clips/:id/comments', auth, needClips, (req, res) => {
-  const c = liveClipOr404(req, res);
-  if (!c) return;
-  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  res.json({ comments: clipsLib.commentViews(c, db().users, req.user.id), total: c.commentCount || 0 });
-});
-app.post('/api/clips/:id/comments', auth, needClips, (req, res) => {
-  const c = liveClipOr404(req, res);
-  if (!c) return;
-  const r = clipsLib.checkComment(req.body?.text, BLOCKED_WORDS);
-  if (r.error) return res.status(400).json({ error: r.error });
-  if (!clipCommentHits.allow(req.user.id)) return res.status(429).json({ error: 'You are commenting a lot. Try again in a little while.' });
-  clipsLib.addComment(c, req.user.id, r.value, now(), store.id());
-  store.save();
-  res.json({ comments: clipsLib.commentViews(c, db().users, req.user.id), total: c.commentCount || 0 });
-});
-app.delete('/api/clips/:id/comments/:cid', auth, needClips, (req, res) => {
-  const c = liveClipOr404(req, res);
-  if (!c) return;
-  const done = clipsLib.removeComment(c, req.params.cid, req.user.id);
-  if (done === false) return res.status(404).json({ error: 'That comment is gone' });
-  if (done === null) return res.status(403).json({ error: 'You can only delete your own comments' });
-  store.save();
-  res.json({ comments: clipsLib.commentViews(c, db().users, req.user.id), total: c.commentCount || 0 });
-});
-// someone copied or sent the link: counts once per person per clip per day
-app.post('/api/clips/:id/share', auth, needClips, (req, res) => {
-  const c = liveClipOr404(req, res);
-  if (!c) return;
-  if (!clipActHits.allow(req.user.id)) return res.status(429).json({ error: 'Slow down' });
-  if (clipShareSeen.allow(req.user.id + ':' + c.id)) { clipsLib.addShare(c); store.save(); }
-  res.json({ shares: c.shares || 0 });
-});
-app.post('/api/clips/:id/report', auth, needClips, (req, res) => {
-  const c = db().clips[req.params.id];
-  if (!c || !(c.state === 'live' || c.state === 'hidden') || c.purgedAt) return res.status(404).json({ error: 'That clip is gone' });
-  if (c.owner === req.user.id) return res.status(400).json({ error: 'You cannot report your own clip' });
-  const reason = str(req.body?.reason);
-  if (!listing.REASONS.includes(reason)) return res.status(400).json({ error: 'Pick a reason' });
-  const details = clip(req.body?.details, listing.LISTING.maxDetails).trim();
-  if (reason === 'other' && !details) return res.status(400).json({ error: 'Tell us what is wrong' });
-  if (!clipReportHits.allow(req.user.id)) return res.status(429).json({ error: 'You have sent a lot of reports. Try again later.' });
-  clipsLib.addReport(c, req.user.id, reason, details, now());
-  if (clipsLib.shouldHide(c, db().users, now(), clipsLib.settings())) { c.state = 'hidden'; c.hold = { state: 'hidden', at: now() }; }
-  store.save();
-  res.json({ ok: true });
-});
-// the poster takes their own clip down. A live, hidden or unfinished clip is taken down first (the video is deleted). Then it is dropped from the poster's list,
-// so a clip that was already removed (or expired, or not posted) can be deleted from the list too. The record itself stays on the server, with its numbers, as proof of what happened.
-app.delete('/api/clips/:id', auth, ah(async (req, res) => {
-  const c = db().clips[req.params.id];
-  if (!c || c.owner !== req.user.id) return res.status(404).json({ error: 'Not found' });
-  if (clipsLib.HOLDING.has(c.state) && !c.purgedAt) {
-    if (c.state === 'pending') refundClip(c);
-    await endClip(c, 'removed', 'Removed by the poster');
-  }
-  c.dismissed = now();
-  store.save();
-  res.json({ ok: true });
-}));
-
-// what is reported or hidden, how full the storage is, and what to do about it (admins and moderators; removing is for admins)
-app.get('/api/admin/clips', auth, reviewOnly, ah(async (_req, res) => {
-  const cfg = clipsLib.settings(), all = clipList(), users = db().users;
-  const other = store.usingR2 ? await store.r2BytesUsed() : 0, otherMax = store.storageLimitBytes();
-  const rows = all.filter((c) => (c.reports || []).length || c.state === 'hidden').sort((a, b) => (b.reports || []).length - (a.reports || []).length).map((c) => ({
-    id: c.id, state: c.state, caption: c.caption, owner: users[c.owner]?.username || null, views: c.views || 0, likes: c.likes || 0,
-    url: c.key && cfg.publicUrl ? `${cfg.publicUrl}/${c.key}` : null, poster: c.posterKey && cfg.publicUrl ? `${cfg.publicUrl}/${c.posterKey}` : null,
-    counted: listing.countedReports(c.reports, users, now()), hold: c.hold || null,
-    screen: c.screen ? { verdict: c.screen.verdict, summary: c.screen.summary, reasons: c.screen.reasons || [], at: c.screen.at } : null, // what the automatic check found (moderators only)
-    reports: (c.reports || []).map((r) => ({ by: users[r.by]?.username || null, reason: r.reason, details: r.details, at: r.at })),
-  }));
-  res.json({
-    usage: { clipsBytes: clipsLib.usedBytes(all), clipsLimit: cfg.limitBytes, otherBytes: other, otherLimit: otherMax, live: all.filter((c) => clipsLib.isLive(c, now())).length, total: all.length },
-    toHide: cfg.reportsToHide, clips: rows,
-  });
-}));
-// restore = back in the feed, reports cleared; dismiss = clear the reports only; remove = delete the video for good (the numbers stay)
-app.post('/api/admin/clips/:id', auth, reviewOnly, ah(async (req, res) => {
-  const c = db().clips[req.params.id];
-  if (!c) return res.status(404).json({ error: 'Not found' });
-  const action = req.body?.action;
-  if (onlyAdminRemoves(req, res, action)) return;
-  if (action === 'restore') { if (c.state === 'hidden' && !c.purgedAt) { c.state = 'live'; if (!c.liveAt) c.liveAt = now(); } delete c.hold; c.reports = []; } // a clip held by screening has no liveAt yet
-  else if (action === 'dismiss') c.reports = [];
-  else if (action === 'remove') { if (c.state === 'pending') refundClip(c); if (!c.purgedAt) { c.takedown = { at: now(), by: 'moderator' }; await endClip(c, 'removed', 'Removed by a moderator'); } } // takedown: the screening refuses a re-post of it
-  else return res.status(400).json({ error: 'action must be restore, dismiss or remove' });
-  store.save();
-  adminLogAdd(req.user, action + ' clip reports', c.caption ? String(c.caption).slice(0, 60) : c.id, '');
-  res.json({ ok: true, state: c.state });
-}));
-
 // ----- bots: developer accounts, bot records, the explorer's Bots tab -----
 // Anyone can turn on a developer account (Settings > Developer, POST /api/developer/join). A developer writes bots (JavaScript, see bots.js)
 // that are private (only they can install them) or public (listed in the explorer, anyone who manages a server can add them).
@@ -4189,7 +3787,7 @@ function cleanBadgeFields(body, partial) {
   if (body.daily !== undefined) out.daily = body.daily === true;
   return { out };
 }
-const badgeNameReserved = (name) => ['creator', 'founder', 'artist'].includes(name.toLowerCase());
+const badgeNameReserved = (name) => ['creator', 'founder', 'artist', 'affiliate'].includes(name.toLowerCase());
 const tellHolders = (id) => { for (const u of Object.values(db().users)) if (Array.isArray(u.badges) && u.badges.includes(id)) emitUserUpdate(u); };
 app.get('/api/badges', auth, creatorOnly, (_req, res) => res.json({ badges: Object.values(db().badges).map(badgeOwnView), limits: BADGE_LIMITS }));
 app.post('/api/badges', auth, creatorOnly, (req, res) => {
@@ -4251,6 +3849,19 @@ app.post('/api/badges/:id/give', auth, creatorOnly, (req, res) => {
     u.badges.push(b.id); recap.bump(u, 'badges', 1); store.save(); emitUserUpdate(u);
   }
   res.json({ badge: badgeOwnView(b) });
+});
+// Spark and Premium have no checkout yet: a creator account gives them by username for a number of days (Plus comes from the storage plan).
+app.post('/api/supporter/grant', auth, creatorOnly, (req, res) => {
+  const u = userByName(req.body?.username); if (!u) return res.status(404).json({ error: 'No account with that username' });
+  const r = supporterLib.grant(u, req.body?.rank, Number(req.body?.days), now());
+  if (!r.ok) return res.status(400).json({ error: r.error });
+  store.save(); emitUserUpdate(u);
+  res.json({ rank: req.body.rank, until: r.until });
+});
+app.delete('/api/supporter/:username', auth, creatorOnly, (req, res) => {
+  const u = userByName(req.params.username); if (!u) return res.status(404).json({ error: 'No account with that username' });
+  if (supporterLib.revoke(u)) { store.save(); emitUserUpdate(u); }
+  res.json({ ok: true });
 });
 app.delete('/api/badges/:id/give/:username', auth, creatorOnly, (req, res) => {
   const b = badgeById(req.params.id); if (!b) return res.status(404).json({ error: 'Badge not found' });
@@ -4491,6 +4102,69 @@ app.post('/api/artists/review/items/:id', auth, reviewerOnly, (req, res) => {
   if (b.status === 'approved' && giveArtistCopy(b)) { const u = db().users[b.artistId]; if (u) emitUserUpdate(u); } // the artist owns it as soon as it is approved, free
   store.save();
   res.json({ ok: true, status: b.status });
+});
+
+// ----- affiliates (the /affiliate page; rules in server/affiliate.js) -----
+//   GET    /api/affiliate/me                      the person's record, the apps and limits, and whether they can review
+//   POST   /api/affiliate/videos { platform, url, seconds, note, slug }   send a video (the first one also picks the link name)
+//   DELETE /api/affiliate/videos/:id              take back a video nobody has looked at
+//   GET    /api/affiliate/review                  moderators: the videos waiting
+//   POST   /api/affiliate/review/:uid/:vid { action: 'approve' | 'reject', quality, seconds, note }   approving pays the credits
+const affiliateSends = new security.RateWindow(40, 3600_000);
+const affRec = (uid) => (db().affiliates && db().affiliates[uid]) || null;
+const affRecords = () => Object.values(db().affiliates || {});
+app.get('/api/affiliate/me', auth, (req, res) => {
+  if (req.user.bot) return res.status(403).json({ error: 'Bots cannot join the affiliate program' });
+  const reviewer = isReviewer(req.user);
+  res.json({
+    affiliate: affiliateLib.view(affRec(req.user.id)),
+    platforms: affiliateLib.platformList(),
+    quality: Object.entries(affiliateLib.QUALITY).map(([id, q]) => ({ id, label: q.label, times: q.times, hint: q.hint })),
+    bands: affiliateLib.BANDS.map(([max, credits]) => ({ upTo: Number.isFinite(max) ? max : null, credits })),
+    limits: { ...affiliateLib.LIMITS },
+    reviewer,
+    ...(reviewer ? { waiting: affRecords().reduce((n, r) => n + r.videos.filter((v) => v.status === 'pending').length, 0) } : {}),
+  });
+});
+app.post('/api/affiliate/videos', auth, (req, res) => {
+  if (req.user.bot) return res.status(403).json({ error: 'Bots cannot join the affiliate program' });
+  if (!affiliateSends.allow(req.user.id)) return res.status(429).json({ error: 'You are sending too fast. Try again later.' });
+  const r = affiliateLib.submit(affRec(req.user.id), req.user.id, req.body, affRecords(), now());
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  db().affiliates[req.user.id] = r.rec;
+  store.save();
+  res.json({ affiliate: affiliateLib.view(r.rec) });
+});
+app.delete('/api/affiliate/videos/:id', auth, (req, res) => {
+  const rec = affRec(req.user.id);
+  const r = affiliateLib.withdraw(rec, req.params.id);
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  if (!rec.videos.length && rec.status === 'pending') delete db().affiliates[req.user.id]; // nothing sent and not approved: the name is free again
+  store.save();
+  res.json({ affiliate: affiliateLib.view(affRec(req.user.id)) });
+});
+app.get('/api/affiliate/review', auth, reviewerOnly, (req, res) => {
+  const videos = [];
+  for (const rec of affRecords()) {
+    for (const v of rec.videos) {
+      if (v.status !== 'pending') continue;
+      videos.push({ ...personOf(rec.userId), slug: rec.slug, tier: affiliateLib.tierOf(rec), approvedVideos: rec.videos.filter((x) => x.status === 'approved').length,
+        id: v.id, platform: v.platform, url: v.url, seconds: v.seconds, note: v.note || '', at: v.at, own: rec.userId === req.user.id });
+    }
+  }
+  videos.sort((a, b) => a.at - b.at);
+  res.json({ videos });
+});
+app.post('/api/affiliate/review/:uid/:vid', auth, reviewerOnly, (req, res) => {
+  if (req.params.uid === req.user.id) return res.status(403).json({ error: 'Someone else has to review your own video' });
+  const rec = affRec(req.params.uid);
+  const r = affiliateLib.review(rec, req.params.vid, req.user.id, req.body, now());
+  if (!r.ok) return res.status(r.status).json({ error: r.error });
+  const au = db().users[req.params.uid];
+  if (r.credits > 0 && au) credits.grant(au, r.credits, 'affiliate', { note: `Video review: ${affiliateLib.platformById(r.video.platform).name}`, now: now() });
+  store.save();
+  if (au && r.credits > 0) emitUserUpdate(au); // their balance changes as soon as it is approved
+  res.json({ ok: true, status: r.video.status, credits: r.credits, affiliate: rec.status });
 });
 
 // Test run: the developer's own code (a saved bot's, or a draft sent as `code`) against a made-up event, so they can see what it would
@@ -4938,7 +4612,6 @@ app.get('/api/admin/summary', auth, reviewOnly, (req, res) => {
     users: people.filter((u) => (u.reports || []).length).length,
     servers: Object.values(db().servers).filter((s) => (s.reports || []).length || s.listingHold).length,
     bots: Object.values(db().bots).filter((b) => (b.reports || []).length || b.listingHold).length,
-    clips: clipList().filter((c) => (c.reports || []).length || c.state === 'hidden').length,
   };
   if (!isAdmin(req.user)) return res.json({ reports }); // a moderator sees the reports and nothing about accounts or applications
   res.json({ users: people.filter((u) => !u.deleted).length, suspended: people.filter((u) => u.suspended).length, applications: pendingApps().length, reports });
@@ -5015,22 +4688,22 @@ app.get('/api/admin/users', auth, reviewOnly, (req, res) => {
 app.get('/api/admin/users/:id', auth, reviewOnly, (req, res) => {
   const u = db().users[req.params.id];
   if (!u || u.bot || u.deleted) return res.status(404).json({ error: 'Not found' });
-  if (!isAdmin(req.user)) { // a moderator sees who they are, what has been reported and the warnings and mute, and nothing about servers, clips, bots, storage or plans
+  if (!isAdmin(req.user)) { // a moderator sees who they are, what has been reported and the warnings and mute, and nothing about servers, bots, storage or plans
     return res.json({
       user: {
-        ...adminUserRow(u), bio: u.bio || '', servers: 0, owned: [], clips: 0, liveClips: 0, bots: 0, ownsOfficialServer: false, limited: true,
+        ...adminUserRow(u), bio: u.bio || '', servers: 0, owned: [], bots: 0, ownsOfficialServer: false, limited: true,
         canModerate: canActOn(req.user, u),
         moderation: moderation.adminView(u, now(), (id) => db().users[id]?.username || null),
       },
       reports: adminReportRows(u.reports),
     });
   }
-  const mine = myServers(u.id), clips = clipList().filter((c) => c.owner === u.id);
+  const mine = myServers(u.id);
   res.json({
     user: {
       ...adminUserRow(u), bio: u.bio || '', servers: mine.length,
       owned: mine.filter((s) => s.ownerId === u.id).map((s) => ({ id: s.id, name: s.name, members: humanCount(s) })),
-      clips: clips.length, liveClips: clips.filter((c) => clipsLib.isLive(c, now())).length, bots: myBots(u.id).length,
+      bots: myBots(u.id).length,
       ownsOfficialServer: !!defaultServer() && defaultServer().ownerId === u.id,
       canResetStorage: isPaymentTester(u), storagePlanStatus: u.storageSub && u.storageSub.status ? String(u.storageSub.status) : null, storagePaidThrough: (u.storageSub && u.storageSub.paidThrough) || null, // the "Reset storage plan" button (payment testing) shows for the test account only
       canModerate: u.id !== req.user.id && !isCreator(u) && (!adminRole(u) || isCreator(req.user)),
@@ -5198,10 +4871,10 @@ async function moderationSweep() {
 
 // Deleting an account turns the record into an empty shell with the same id ("Deleted user", no email, no keys, no password), so old messages, DMs and
 // groups still point at something. Everything else of theirs goes: they are signed out everywhere; servers they own are deleted (the others they simply
-// leave); friendships, bots, clips and uploaded pictures are removed; and with `purge` their channel messages too. Direct messages are end-to-end
+// leave); friendships, bots and uploaded pictures are removed; and with `purge` their channel messages too. Direct messages are end-to-end
 // encrypted and belong to both people, so they stay. The username and email become free to register again (suspend keeps them reserved).
 async function deleteAccount(u, { purge }) {
-  const id = u.id, out = { servers: 0, serversDeleted: 0, messages: 0, clips: 0, bots: 0 };
+  const id = u.id, out = { servers: 0, serversDeleted: 0, messages: 0, bots: 0 };
   const avatar = u.avatarImage || null, banner = u.bannerImage || null, avatarAnim = u.avatarAnim || null, bannerAnim = u.bannerAnim || null;
   const passHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10); // nobody knows this password
   await revokeAllSessions(u);
@@ -5213,6 +4886,7 @@ async function deleteAccount(u, { purge }) {
   Object.assign(u, shell);
   recap.forget(RECAP_DIR, id);
   if (db().artists && db().artists[id]) delete db().artists[id];
+  if (db().affiliates && db().affiliates[id]) delete db().affiliates[id]; // their videos and link name go with the account
   emitUserUpdate(u); // servers and friends see "Deleted user" straight away (before the memberships below are removed)
   for (const s of myServers(id)) {
     out.servers++;
@@ -5228,9 +4902,6 @@ async function deleteAccount(u, { purge }) {
     if (f.from === id || f.to === id) { delete db().friendships[k]; notifyFriends(f.from, f.to); }
   }
   for (const b of myBots(id)) { removeEverywhere(b); guard.forget(b.id); delete db().bots[b.id]; out.bots++; }
-  for (const c of clipList().filter((x) => x.owner === id)) {
-    try { if (c.state === 'pending') refundClip(c); if (!c.purgedAt) await endClip(c, 'removed', 'Account removed'); out.clips++; } catch (e) { console.error('Could not remove a clip of a deleted account:', e.message); }
-  }
   if (purge) {
     const mine = Object.values(db().messages).filter((m) => m.authorId === id);
     for (const m of mine) {
@@ -5332,7 +5003,7 @@ app.post('/api/admin/users/:id/delete', auth, adminOnly, ah(async (req, res) => 
   if (dflt && dflt.ownerId === u.id) return res.status(400).json({ error: 'This account owns the official Aduna server. Transfer it first.' });
   const name = u.username;
   const out = await deleteAccount(u, { purge: req.body?.purge !== false });
-  adminLogAdd(req.user, 'delete account', name, `${out.serversDeleted} servers, ${out.messages} messages, ${out.clips} clips, ${out.bots} bots removed`);
+  adminLogAdd(req.user, 'delete account', name, `${out.serversDeleted} servers, ${out.messages} messages, ${out.bots} bots removed`);
   res.json({ ok: true, ...out });
 }));
 
@@ -5982,12 +5653,12 @@ const boostMember = (req, res) => {
 app.get('/api/servers/:id/boost', auth, (req, res) => {
   const s = boostMember(req, res);
   if (!s) return;
-  res.json({ ...boostsLib.info(s, req.user.id, now()), balance: credits.acct(req.user).balance, free: boostsLib.freeState(req.user, storagePlan.isSubscriber(req.user, now()), now()) });
+  res.json({ ...boostsLib.info(s, req.user.id, now()), balance: credits.acct(req.user).balance, free: boostsLib.freeState(req.user, hasPlusPerks(req.user), now()) });
 });
 app.post('/api/servers/:id/boost/free', auth, (req, res) => {
   const s = boostMember(req, res);
   if (!s) return;
-  const plus = storagePlan.isSubscriber(req.user, now());
+  const plus = hasPlusPerks(req.user);
   const r = boostsLib.buyFree(s, req.user, plus, { now: now() });
   if (!r.ok) return res.status(r.status).json({ error: r.error, ...(r.code ? { code: r.code } : {}) });
   store.save();
@@ -6003,7 +5674,7 @@ app.post('/api/servers/:id/boost', auth, (req, res) => {
   const balance = credits.acct(req.user).balance;
   io.to('user:' + req.user.id).emit('credits:update', { balance, delta: -r.boost.credits, reason: 'boost' });
   broadcastServer(s); // everyone in the server sees the new level, and the booster tag, straight away
-  res.json({ ...boostsLib.info(s, req.user.id, now()), balance, free: boostsLib.freeState(req.user, storagePlan.isSubscriber(req.user, now()), now()) });
+  res.json({ ...boostsLib.info(s, req.user.id, now()), balance, free: boostsLib.freeState(req.user, hasPlusPerks(req.user), now()) });
 });
 
 // ----- sponsored servers (owner): a paid, gold-labelled slot at the top of the explorer (server/sponsored.js) -----
@@ -6417,7 +6088,8 @@ credits.register(app, {
   notify: (uid, payload) => io.to('user:' + uid).emit('credits:update', payload),
   isCreator: (u) => isCreator(u),              // sees every badge in the shop, with its shop state, and may use the Halloween / Christmas test mode
   serverChanged: (s) => broadcastServer(s),    // an Advent calendar boost started on this server
-  isPlus: (u) => storagePlan.isSubscriber(u, now()), // Plus pays more for messages and quests, and has the Plus-only quests
+  isPlus: (u) => hasPlusPerks(u),              // Plus and Premium pay more for messages and quests, and have the Plus-only quests
+  rateOf: (u) => creditRate(u),                // the supporter rank's credit multiplier (Spark 1.1, Plus 1.5, Premium 1.75)
   featureOn: (id, u) => featureOn(id, u),      // feature releases: 'rewarded-ads' and 'sponsored-card' gate the sponsors on Quests and Shop
   userChanged: (u) => emitUserUpdate(u),       // an event badge was earned
   storageEvent: (ev) => storagePlan.handleEvent(ev, db(), now()),    // storage plan renewals / cancellations from Stripe's signed webhook
@@ -6457,7 +6129,7 @@ app.get('/api/payments', auth, (req, res) => {
       ? { kind: 'sponsored', at: p.createdAt, cents: p.cents, currency: p.currency || 'usd', days: p.days, serverName: db().servers[p.serverId]?.name || '', reversed: !!p.reversed } // a sponsored server (server/sponsored.js)
       : { kind: 'credits', at: p.createdAt, cents: p.cents, currency: p.currency || 'usd', credits: p.credits, reversed: !!p.reversed });
   const storage = (Array.isArray(u.storagePayments) ? u.storagePayments : [])
-    .map((p) => ({ kind: 'storage', at: p.at, cents: p.cents, currency: p.currency || 'usd', renewal: !!p.renewal }));
+    .map((p) => ({ kind: 'storage', at: p.at, cents: p.cents, currency: p.currency || 'usd', renewal: !!p.renewal, plan: p.plan || 'plus' }));
   const ledger = ((u.credits && u.credits.ledger) || []).map((l) => ({ t: l.t, amount: l.amount, reason: l.reason, note: l.note || null, n: l.n || null }));
   res.json({ currency: storagePlan.PLAN.currency, payments: [...packs, ...storage].sort((a, b) => b.at - a.at), ledger });
 });
@@ -6565,7 +6237,7 @@ groups.register(app);
 const RECAP_DIR = process.env.RECAP_DIR || path.join(__dirname, '..', 'data', 'recaps');
 const recapData = () => {
   const d = db();
-  return { users: d.users, messages: d.messages, dms: d.dms, gmsgs: d.gmsgs, calllog: d.calllog, friendships: d.friendships, clips: d.clips, servers: d.servers, wordle: d.wordle, contexto: d.contexto, puzzle: d.puzzle };
+  return { users: d.users, messages: d.messages, dms: d.dms, gmsgs: d.gmsgs, calllog: d.calllog, friendships: d.friendships, servers: d.servers, wordle: d.wordle, contexto: d.contexto, puzzle: d.puzzle };
 };
 function recapSweep() {
   const year = recap.dueYear(RECAP_DIR, now());
@@ -6619,8 +6291,8 @@ if (fs.existsSync(dist)) {
     res.set('Cache-Control', 'no-store');
     next();
   });
-  // /payments needs a signed-in person; anyone else goes to the app's sign-in first.
-  app.get(/^\/payments\/?$/, (req, res, next) => {
+  // /payments and /affiliate need a signed-in person; anyone else goes to the app's sign-in first.
+  app.get(/^\/(?:payments|affiliate)\/?$/, (req, res, next) => {
     const me = userFromToken(security.readSessionCookie(req.headers, secureReq(req)));
     if (!me || needsVerify(me)) return res.redirect(302, '/app');
     res.set('Cache-Control', 'no-store');
@@ -6943,7 +6615,7 @@ io.on('connection', (socket) => {
     db().messages[msg.id] = msg;
     if (wheel) pendingWheels.add(msg.id);
     // Credits for real, typed, different messages (see credits.js). Checked before this message counts as "someone spoke".
-    const earned = credits.rewardMessage({ user: db().users[uid], content, proof: p.typing, server: f.server, channel: f.channel, humans: humanCount(f.server), plus: storagePlan.isSubscriber(db().users[uid], now()) });
+    const earned = credits.rewardMessage({ user: db().users[uid], content, proof: p.typing, server: f.server, channel: f.channel, humans: humanCount(f.server), plus: hasPlusPerks(db().users[uid]), rate: creditRate(db().users[uid]) });
     credits.noteChannelMessage(f.channel.id, uid);
     store.save();
     if (earned.ok) io.to('user:' + uid).emit('credits:update', { balance: earned.balance, delta: earned.amount, reason: 'message' });
@@ -7334,9 +7006,6 @@ async function start() {
   };
   await budgetRun();
   if (process.env.NODE_ENV !== 'test') setInterval(budgetRun, 6 * 3600_000).unref();
-  const clipSweep = async () => { try { await sweepClips(); } catch (e) { console.error('Clip sweep failed:', e.message); } };
-  await clipSweep(); // clips that expired while the server was off
-  setInterval(clipSweep, 600_000).unref();
   const eventSweep = () => { try { gatheringSweep(); } catch (e) { console.error('Event reminder sweep failed:', e.message); } };
   eventSweep(); // an event that came due while the server was off: a late "starting now" is dropped, one that is still useful goes out
   if (process.env.NODE_ENV !== 'test') setInterval(eventSweep, 30_000).unref(); // tests call gatheringSweep() themselves
@@ -7364,7 +7033,7 @@ if (require.main === module) {
     .catch((e) => { console.error('Startup failed:', e.message); process.exit(1); });
 }
 
-module.exports = { httpServer, app, io, expireOldAttachments, sweepClips, gatheringSweep, wheelSweep, nameSweep, moderationSweep, recapSweep, voiceTick, ready, loginGuard, inviteLookups, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep, wheelSweep: for the tests
+module.exports = { httpServer, app, io, expireOldAttachments, gatheringSweep, wheelSweep, nameSweep, moderationSweep, recapSweep, voiceTick, ready, loginGuard, inviteLookups, store, botHost, fetcher, referencedImages }; // loginGuard, store, referencedImages, sweepClips, gatheringSweep, wheelSweep: for the tests
 
 
 

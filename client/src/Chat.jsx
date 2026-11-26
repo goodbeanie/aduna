@@ -8,11 +8,7 @@ import { StickerMessage, StickerPop } from './Stickers.jsx';
 import { stickerIdOf, stickerToken } from './stickers.js';
 import { EmojiImg, Rich, UEmoji, useEmoji } from './Emoji.jsx';
 import { InviteCard, inviteCodesIn } from './Invite.jsx';
-import { clipIdsIn, isOnlyClipLink } from './clipLinks.js';
-import { CLIPS_ENABLED } from './features.js';
 import { PLUS_CHARS, charLimit } from './msgLimit.js';
-// the clip card (and the whole Clips player behind it) is only loaded when Clips are switched on; otherwise a clip link is just a link
-const ClipEmbed = CLIPS_ENABLED ? React.lazy(() => import('./ClipEmbed.jsx').then((m) => ({ default: m.ClipEmbed }))) : null;
 import { MentionMenu, fromChannelTokens, fromMentionTokens, mentionPreview, toChannelTokens, toMentionTokens, useMentionComplete } from './Mentions.jsx';
 import { CommandMenu, useCommandComplete } from './BotCommands.jsx';
 import { useTypingProof } from './typing.js';
@@ -274,7 +270,7 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
           )}
           {editing
             ? <EditBox initial={decode(m.content)} people={people} everyone={canEveryone} channels={channels} limit={charLimit(me)} allowEmpty={!!m.attachments?.length || !!m.invite || !!m.poll || !!m.wheel} onSave={(t) => { const x = encode(t); if (x.length > charLimit(me)) throw new Error('That message is too long once emoji and mentions are expanded'); return onEdit(m.id, x); }} onCancel={() => setEditing(null)} />
-            : (m.content || m.editedAt) && !wshare && !cshare && !pzshare && !rshare && !sticker && !(CLIPS_ENABLED && isOnlyClipLink(m.content) && !m.editedAt) && <div className="content"><Rich text={m.content} mention={mention} live={!dm} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
+            : (m.content || m.editedAt) && !wshare && !cshare && !pzshare && !rshare && !sticker && <div className="content"><Rich text={m.content} mention={mention} live={!dm} />{m.editedAt && <span className="edited" title={'Edited ' + timeLabel(m.editedAt)}>(edited)</span>}</div>}
           {sticker && !editing && <StickerMessage id={sticker} />}
           {translated && !editing && !sticker && (
             <div className="translation" lang={uiLang}>
@@ -290,7 +286,6 @@ const Message = memo(function Message({ m, users, roleColors, boosters, me, byId
           {m.wheel && <WheelCard m={m} />}
           {m.invite && <InviteCard code={m.invite} />}
           {!editing && inviteCodesIn(m.content).filter((c) => c !== m.invite).map((c) => <InviteCard key={c} code={c} />)}
-          {CLIPS_ENABLED && !editing && clipIdsIn(m.content).map((id) => <React.Suspense key={id} fallback={null}><ClipEmbed id={id} /></React.Suspense>)}
           <Attachments atts={m.attachments} dm={dm} onOpen={(v) => onOpen({ ...v, dm })} />
           {Object.keys(m.reactions || {}).length > 0 && (
             <div className="reactions">

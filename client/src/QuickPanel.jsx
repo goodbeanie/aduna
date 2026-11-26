@@ -1,6 +1,5 @@
 import React from 'react';
 import { Icon } from './ui.jsx';
-import { CLIPS_ENABLED } from './features.js';
 
 // The "Shortcuts" section (Settings > Appearance > Layout). Off until someone places it in a slot; the same actions already exist elsewhere
 // in the app, this just keeps them one tap away. It lays itself out as a column on the left or right and as a row on the top or bottom (panels.css).
@@ -13,12 +12,11 @@ export default function QuickPanel({ slot, onFriends, onExplore, onShop, onSetti
     ['explorer', 'globe', 'Explorer', onExplore],
     ['shop', 'bag', 'Shop', onShop],
     ['quests', 'flag', 'Quests', onQuests],
-    CLIPS_ENABLED && ['clips', 'video', 'Clips', () => window.location.assign('/clips')],
     ['emoji', 'smile', 'Custom emoji', onEmoji],
     ['profile', 'user', 'Your profile', onProfile],
     ['addserver', 'plus', 'Create or join a server', onAddServer],
     ['settings', 'gear', 'Settings', onSettings],
-  ].filter(Boolean);
+  ];
   return (
     <nav className="quick" data-ui="shortcuts" data-panel="quick" data-slot={slot} aria-label="Shortcuts">
       {items.map(([id, icon, label, run]) => (

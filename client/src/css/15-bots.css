@@ -204,6 +204,14 @@ html.kb-open .app { height: var(--app-h); } /* browsers that only shrink the vis
 .ubadge img { width: 100%; height: 100%; object-fit: contain; }
 /* the Artist badge: a one-colour picture drawn in the surrounding text colour, so it is light on dark themes and dark on light ones */
 .ubadge.glyph { color: inherit; border-radius: 0; overflow: visible; background: currentColor; -webkit-mask: var(--glyph) center / contain no-repeat; mask: var(--glyph) center / contain no-repeat; }
+/* supporter ranks: the logo drawn in the text colour (a mask, so it follows light and dark themes) with the rank's gradient star on top.
+   The mark is wider than tall (1231 x 1086), so --pb (the height) sets the size. */
+.ubadge.sup { position: relative; width: calc(var(--pb, 16px) * 1231 / 1086); height: var(--pb, 16px); color: inherit; border-radius: 0; overflow: visible; }
+.ubadge.sup i { position: absolute; inset: 0; display: block; background-size: 100% 100%; background-repeat: no-repeat; }
+.ubadge.sup .sup-body { background-color: currentColor; -webkit-mask: url(/badges/supporter-body.svg) center / 100% 100% no-repeat; mask: url(/badges/supporter-body.svg) center / 100% 100% no-repeat; }
+.ubadge.sup-spark .sup-star { background-image: url(/badges/supporter-spark.svg); }
+.ubadge.sup-plus .sup-star { background-image: url(/badges/supporter-plus.svg); }
+.ubadge.sup-premium .sup-star { background-image: url(/badges/supporter-premium.svg); }
 .badge-admin .badge-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
 .badge-admin .badge-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .badge-admin .holders { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }

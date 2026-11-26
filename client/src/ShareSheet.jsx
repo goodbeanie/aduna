@@ -6,7 +6,7 @@ import { loadKey, saveKey, unlockIdentity, encryptFor } from './crypto.js';
 import { toast } from './Dialogs.jsx';
 import './sharesheet.css';
 
-// "Share" on a clip, or on anything else that brings its own `link` (the yearly recap sends `text` as well). Send it to a friend (an end-to-end
+// Share a link to something (the yearly recap sends `text` as well). Send it to a friend (an end-to-end
 // encrypted DM, exactly like inside Aduna: the key is kept on this device) or to a server (its first text channel), copy it, or open the
 // device's own share menu. `onShared` runs after each successful share. `message`, when given, is what a friend or a server gets instead of the
 // text and link (the recap sends a token that chat draws as a video card); copy and the device menu still use the text.
@@ -17,8 +17,7 @@ const nameOf = (u) => u.displayName || u.username || 'Someone';
 const LinkIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 14a4.500 4.500 0 0 0 6.400.4l3-3a4.500 4.500 0 0 0-6.400-6.400l-1.100 1.100" /><path d="M14 10a4.500 4.500 0 0 0-6.400-.4l-3 3a4.500 4.500 0 0 0 6.400 6.400l1.100-1.100" /></svg>;
 const MoreIcon = () => <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.900" /><circle cx="12" cy="12" r="1.900" /><circle cx="19" cy="12" r="1.900" /></svg>;
 
-export default function ShareSheet({ clip, link: givenLink, text, message, title, what = 'clip', onClose, onShared }) {
-  const link = givenLink || `${location.origin}/clips/${clip.id}`;
+export default function ShareSheet({ link, text, message, title, what = 'link', onClose, onShared }) {
   const body = text ? `${text}\n${link}` : link; // what the clipboard gets
   const sent = message || body; // what a friend or a server gets
   const [friends, setFriends] = useState(null);
@@ -91,7 +90,7 @@ export default function ShareSheet({ clip, link: givenLink, text, message, title
   };
   const more = async () => {
     if (!navigator.share) return copy();
-    try { await navigator.share({ url: link, title: title || (clip && clip.caption) || 'A clip on Aduna', ...(text ? { text } : {}) }); onShared(); }
+    try { await navigator.share({ url: link, title: title || 'Aduna', ...(text ? { text } : {}) }); onShared(); }
     catch { /* closed without sharing */ }
   };
 

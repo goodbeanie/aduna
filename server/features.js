@@ -12,6 +12,7 @@
 //     published (the live features plus the ones that release lists) and none of the other unreleased ones. Stop testing goes back to all of them.
 // A release can also name its features in server/releases-pending.json (`features: ['my-feature']`), so they are ticked from the start.
 // To add a feature: add a line here, build it behind the check, deploy, test it on a creator account, then publish the release.
+// A feature can also carry `early: true`: approved affiliates then get it before the release, like creators do ('early' instead of 'testing'). None are marked yet.
 const REGISTRY = [
   { id: 'promoted-items', name: 'Promoted marketplace items', desc: 'Creators pay credits to feature their sticker packs and emoji in the Shop. (Planned: not built yet.)' },
   { id: 'sponsored-card', name: 'Sponsored card', desc: 'One clearly labelled, static “Sponsored” card at the bottom of the Shop. Needs ADS_JSON set on the server.' },
@@ -43,11 +44,13 @@ function liveIds(releases) {
 // can this person use the feature right now? `creator` says whether the person is a creator account (only an explicit true counts).
 // `only` is a creator's TEST MODE (see testSet): a Set of the feature ids of the one release they are testing. In test mode a creator has what everybody
 // has once that release is published (the live features plus that release's), and none of the other unreleased ones.
-function enabled(releases, id, creator, only) {
-  if (!known(id)) return false;
+// `early` says the person is an approved affiliate: they also get the unreleased features marked `early` in REGISTRY.
+function enabled(releases, id, creator, only, early) {
+  const f = REGISTRY.find((x) => x.id === id);
+  if (!f) return false;
   if (liveIds(releases).has(id)) return true;
-  if (creator !== true) return false;
-  return only instanceof Set ? only.has(id) : true;
+  if (creator === true) return only instanceof Set ? only.has(id) : true;
+  return early === true && f.early === true;
 }
 
 // the feature ids of release `releaseId` as a Set, for a creator who is testing it; null when there is no such release (no test mode)
@@ -56,12 +59,14 @@ function testSet(releases, releaseId) {
   return r ? new Set(cleanIds(r.features)) : null;
 }
 
-// what one person is told: { id: 'live' | 'testing' } ('testing' only ever appears for creators: a registered feature no published release has yet)
-function forUser(releases, creator, only) {
+// what one person is told: { id: 'live' | 'testing' | 'early' } ('testing' only ever appears for creators: a registered feature no published release has yet;
+// 'early' is the same for an approved affiliate, and only for features marked early)
+function forUser(releases, creator, only, early) {
   const live = liveIds(releases), out = {};
   for (const f of REGISTRY) {
     if (live.has(f.id)) out[f.id] = 'live';
     else if (creator === true && (!(only instanceof Set) || only.has(f.id))) out[f.id] = 'testing';
+    else if (creator !== true && early === true && f.early === true) out[f.id] = 'early';
   }
   return out;
 }
@@ -69,7 +74,7 @@ function forUser(releases, creator, only) {
 // every feature with where it stands, for the release editor in /admin
 function list(releases) {
   const live = liveIds(releases);
-  return REGISTRY.map((f) => ({ id: f.id, name: f.name, desc: f.desc, state: live.has(f.id) ? 'live' : 'testing' }));
+  return REGISTRY.map((f) => ({ id: f.id, name: f.name, desc: f.desc, early: f.early === true, state: live.has(f.id) ? 'live' : 'testing' }));
 }
 
 // One-time move from the old Features tab (records { id, state }): a feature that was 'live' there stays live by being listed on the newest

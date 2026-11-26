@@ -14,11 +14,9 @@
 //                       in the database, so sessions survive restarts and redeploys.
 //   R2_BUCKET, R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY
 //                       keep images and attachments in a Cloudflare R2 bucket instead of Postgres.
-//   STORAGE_LIMIT_GB    with R2: the shared pool for everything that is not a clip (profile pictures, banners, emoji and attachments),
+//   STORAGE_LIMIT_GB    with R2: the shared pool for everything (profile pictures, banners, emoji and attachments),
 //                       default 4, 0 = no limit. When it is full, new attachments push out the oldest ones (server/storage.js makeRoom);
 //                       the files of people with a storage plan are not counted in it.
-//   CLIPS_R2_BUCKET     a SEPARATE R2 bucket for clips (short videos), with the same R2_* credentials. Clips have their own
-//                       cap (CLIPS_LIMIT_GB, default 5, see clips.js), so 4 + 5 = 9 GB stays under R2's 10 GB free tier.
 //   VM_STORAGE_DIR      a folder on the server's own disk (the VM) that takes the files of FREE people when the R2 pool is full, and
 //   VM_STORAGE_GB       how many GB you give it (default 0 = off). Needs R2. People with Plus always go to R2. While this is on and
 //                       STORAGE_LIMIT_GB is not set, the R2 pool is what the money allows (server/storage-budget.js) instead of a fixed 4,
@@ -35,7 +33,7 @@ const mediacheck = require('./mediacheck');
 types.setTypeParser(20, (v) => Number(v)); // BIGINT (timestamps) -> number
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
-const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments', 'bots', 'calllog', 'themes', 'groups', 'gmsgs', 'badges', 'artists', 'clips', 'wordle', 'contexto', 'puzzle', 'notices', 'applications', 'features', 'releases', 'linkblocks', 'switches', 'devthemes'];
+const COLLECTIONS = ['users', 'servers', 'messages', 'dms', 'friendships', 'emojis', 'payments', 'bots', 'calllog', 'themes', 'groups', 'gmsgs', 'badges', 'artists', 'affiliates', 'wordle', 'contexto', 'puzzle', 'notices', 'applications', 'features', 'releases', 'linkblocks', 'switches', 'devthemes'];
 const SCHEMA = process.env.DB_SCHEMA;
 if (SCHEMA && !/^[a-z_][a-z0-9_]*$/i.test(SCHEMA)) throw new Error('DB_SCHEMA may only contain letters, digits and underscores');
 
@@ -308,17 +306,14 @@ function save() {
 // Set R2_ACCOUNT_ID, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY and R2_BUCKET to enable it.
 // R2_ENDPOINT overrides the URL (used by the tests).
 let r2 = null;
-let clipsR2 = null; // the clips bucket (see makeClipsBucket); public videos, so these bytes are NOT sealed
 function r2Setup() {
-  const { R2_BUCKET, CLIPS_R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID, R2_ENDPOINT } = process.env;
-  if (!R2_BUCKET && !CLIPS_R2_BUCKET) return;
+  const { R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ACCOUNT_ID, R2_ENDPOINT } = process.env;
+  if (!R2_BUCKET) return;
   if (!R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY || !(R2_ACCOUNT_ID || R2_ENDPOINT))
-    throw new Error('R2_BUCKET or CLIPS_R2_BUCKET is set, but R2_ACCOUNT_ID, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY are also needed.');
+    throw new Error('R2_BUCKET is set, but R2_ACCOUNT_ID, R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY are also needed.');
   const { AwsClient } = require('aws4fetch');
   const client = new AwsClient({ accessKeyId: R2_ACCESS_KEY_ID, secretAccessKey: R2_SECRET_ACCESS_KEY, service: 's3', region: 'auto' });
   const host = (R2_ENDPOINT || `https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com`).replace(/\/$/, '');
-  if (CLIPS_R2_BUCKET) clipsR2 = makeClipsBucket(client, `${host}/${CLIPS_R2_BUCKET}/`);
-  if (!R2_BUCKET) return;
   const base = `${host}/${R2_BUCKET}/`;
   const call = async (method, key, body) => {
     const r = await client.fetch(base + key, { method, body });
@@ -331,51 +326,8 @@ function r2Setup() {
     del: (key) => call('DELETE', key),
   };
 }
-// The clips bucket. The app uploads straight to it through a short-lived signed link, so the video never passes through this
-// server; afterwards the server only looks at the object (size, type, first bytes). R2's signed links cannot cap the size of an
-// upload, which is why every upload is checked (and deleted if it is too big) once it is finished.
-function makeClipsBucket(client, base) {
-  const ok = (r, what) => { if (!r.ok) throw new Error(`R2 ${what} failed: ${r.status}`); return r; };
-  return {
-    // a link the app can PUT the file to for `ttlSec` seconds (nothing else: one key, one method)
-    async presignPut(key, ttlSec = 600) {
-      const u = new URL(base + key);
-      u.searchParams.set('X-Amz-Expires', String(ttlSec));
-      return (await client.sign(new Request(u, { method: 'PUT' }), { aws: { signQuery: true } })).url;
-    },
-    // { size, type } or null when there is no such object
-    async head(key) {
-      const r = await client.fetch(base + key, { method: 'HEAD' });
-      if (r.status === 404) return null;
-      ok(r, `HEAD ${key}`);
-      return { size: Number(r.headers.get('content-length')) || 0, type: String(r.headers.get('content-type') || '').toLowerCase().split(';')[0].trim() };
-    },
-    // the first `n` bytes of an object (or null when it is missing)
-    async first(key, n) {
-      const r = await client.fetch(base + key, { headers: { Range: `bytes=0-${n - 1}` } });
-      if (r.status === 404) return null;
-      ok(r, `GET ${key}`);
-      return Buffer.from(await r.arrayBuffer()).subarray(0, n);
-    },
-    async del(key) {
-      const r = await client.fetch(base + key, { method: 'DELETE' });
-      if (!r.ok && r.status !== 404) throw new Error(`R2 DELETE ${key} failed: ${r.status}`);
-    },
-    // the whole object (or null when it is missing). Only for the screening of a clip that already passed the size check; `max` is a second
-    // safety so that a surprise object can never fill this server's memory.
-    async get(key, max = 16 * 1024 * 1024) {
-      const r = await client.fetch(base + key);
-      if (r.status === 404) return null;
-      ok(r, `GET ${key}`);
-      if (Number(r.headers.get('content-length')) > max) throw new Error(`R2 GET ${key}: object is bigger than ${max} bytes`);
-      const buf = Buffer.from(await r.arrayBuffer());
-      if (buf.length > max) throw new Error(`R2 GET ${key}: object is bigger than ${max} bytes`);
-      return buf;
-    },
-  };
-}
 // Storage limit: new uploads are refused once the bytes held in R2 would pass STORAGE_LIMIT_GB
-// (default 4: clips have their own 5 GB, and together they stay under R2's 10 GB free tier; 0 turns the limit off). Read on every upload.
+// (default 4; 0 turns the limit off). Read on every upload.
 // With the VM disk on and STORAGE_LIMIT_GB left unset, the pool is what the budget allows (set by index.js through setPoolLimit; null until its
 // first run, and then the default 4 applies).
 let poolLimitFn = null;
@@ -619,7 +571,6 @@ module.exports = {
   get usingR2() { return !!r2; },
   get usingVm() { return !!disk; },
   get vmLimitBytes() { return disk ? disk.limitBytes : 0; },
-  get clipsR2() { return clipsR2; },
   r2BytesUsed,
   storageLimitBytes: limitBytes,
   _seal: seal, _open: open,

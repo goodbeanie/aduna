@@ -40,10 +40,8 @@ import { plainText } from './stickers.js';
 import Explorer from './Explorer.jsx';
 import Credits from './Credits.jsx';
 import { StorageDock } from './Storage.jsx';
-import { CLIPS_ENABLED, hasFeature } from './features.js';
+import { hasFeature } from './features.js';
 import { ZOOM_FEATURE } from './sharezoom.js';
-// the Clips screen is only loaded when Clips are switched on (features.js); while they are off none of its code is fetched
-const Clips = CLIPS_ENABLED ? React.lazy(() => import('./Clips.jsx')) : null;
 import { OnboardingFlow } from './Onboarding.jsx';
 import Setup from './Setup.jsx';
 import NameWarning from './NameWarning.jsx';
@@ -1117,12 +1115,9 @@ function Main({ me, setMe, privKey, openServerId }) {
     <div className={'app' + (showList && view.kind === 'dm' ? ' dm-list' : '')} data-ui="app" style={me?.accentColor ? { '--me-nc': me.accentColor } : undefined}>
       {/* server bar (top) */}
       <nav className="rail" data-ui="server-bar" data-panel="rail" data-slot={placeOf('rail')}>
-        <button data-item="dms" className={'rail-btn dm-home' + (view.kind === 'dm' && !view.clips ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
+        <button data-item="dms" className={'rail-btn dm-home' + (view.kind === 'dm' ? ' on' : '')} title={tr('dms')} onClick={() => { setView({ kind: 'dm', userId: view.kind === 'dm' ? view.userId : null, groupId: view.kind === 'dm' ? view.groupId : undefined, explore: view.kind === 'dm' && !!view.explore, shop: view.kind === 'dm' && !!view.shop, quests: view.kind === 'dm' && !!view.quests }); setShowList(true); setMembersOpen(false); }}>
           <span className="dm-home-mark" aria-hidden="true" />{dmUnread + fr.incoming.length > 0 && <span className="badge">{dmUnread + fr.incoming.length}</span>}
         </button>
-        {CLIPS_ENABLED && <button data-item="clips" className="rail-btn clips-home" title="Clips" aria-label="Clips" onClick={() => { window.location.assign('/clips'); }}>
-          <span className="clips-mark" aria-hidden="true" />
-        </button>}
         <div className="rail-sep" />
         <ServerRail key={me?.id} userId={me?.id} remote={me?.railLayout} servers={servers} activeId={server?.id} fmt={fmtN}
           stats={(s) => ({ unread: totalUnreadFor(s), mentions: totalMentionsFor(s) })}
@@ -1149,9 +1144,6 @@ function Main({ me, setMe, privKey, openServerId }) {
           <Icon name="message" size={22} /><span>DMs</span>
           {dmUnread + fr.incoming.length > 0 && <span className="tab-badge">{fmtN(dmUnread + fr.incoming.length)}</span>}
         </button>
-        {CLIPS_ENABLED && <button onClick={() => window.location.assign('/clips')} aria-label="Clips">
-          <span className="tab-clips-mark" aria-hidden="true" /><span>Clips</span>
-        </button>}
         <button onClick={() => window.dispatchEvent(new Event('aduna:palette'))}><Icon name="search" size={22} /><span>Search</span></button>
         <button onClick={() => setModal({ type: 'edit', tab: 'profile' })}><Icon name="user" size={22} /><span>You</span></button>
       </nav>
@@ -1255,11 +1247,11 @@ function Main({ me, setMe, privKey, openServerId }) {
               <button data-item="quests" className={'chan' + (view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null, quests: true }); setShowList(false); }}>
                 <span className="hash"><Icon name="flag" size={18} /></span>{tr('questsTab')}
               </button>
-              <button data-item="friends" className={'chan' + (!view.userId && !view.groupId && !view.explore && !view.shop && !view.quests && !view.clips ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
+              <button data-item="friends" className={'chan' + (!view.userId && !view.groupId && !view.explore && !view.shop && !view.quests ? ' on' : '')} onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>
                 <span className="hash"><Icon name="users" size={18} /></span>{tr('friends')}{fr.incoming.length > 0 && <span className="badge inline">{fr.incoming.length}</span>}
               </button>
               <div className="side-label">{tr('lblDMs')}</div>
-              {convos.length === 0 && groups.list.length === 0 && <div className="pad"><p className="muted">{tr('noConvos')}</p>{(view.userId || view.groupId || view.explore || view.shop || view.quests || view.clips) && <button className="btn" onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>{tr('friends')}</button>}</div>}
+              {convos.length === 0 && groups.list.length === 0 && <div className="pad"><p className="muted">{tr('noConvos')}</p>{(view.userId || view.groupId || view.explore || view.shop || view.quests) && <button className="btn" onClick={() => { setView({ kind: 'dm', userId: null }); setShowList(false); }}>{tr('friends')}</button>}</div>}
               {groups.list.map((g) => (
                 <button key={g.id} className={'chan dm group-row' + (g.id === view.groupId ? ' on' : '') + (unread['g:' + g.id] ? ' unread' : '')} onClick={() => openGroup(g.id)}>
                   <GroupIcon group={g} size={32} />
@@ -1385,8 +1377,7 @@ function Main({ me, setMe, privKey, openServerId }) {
       )}
       {view.kind === 'dm' && !dmUser && view.explore && <Explorer key={view.exploreTab || 'servers'} startTab={view.exploreTab} onBack={() => setShowList(true)} servers={servers} me={me} onServerUpdate={(sv) => { setServers((p) => p.map((x) => (x.id === sv.id ? sv : x))); addUsers(sv.members); }} />}
       {view.kind === 'dm' && !dmUser && (view.shop || view.quests) && <Credits page={view.shop ? 'shop' : 'quests'} storage={storage} onBack={() => setShowList(true)} rev={creditsRev} justPaid={justPaid} creator={!!me.creator} me={me} servers={servers} artistId={view.shop ? view.shopArtist || null : null} onAllItems={() => setView({ kind: 'dm', userId: null, shop: true })} />}
-      {CLIPS_ENABLED && view.kind === 'dm' && !dmUser && view.clips && <React.Suspense fallback={null}><Clips onBack={() => setShowList(true)} /></React.Suspense>}
-      {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && !view.clips && (
+      {view.kind === 'dm' && !dmUser && !group && !view.explore && !view.shop && !view.quests && (
         <Friends onBack={() => setShowList(true)} fr={fr} statusOf={statusOf} onMessage={openDm} onUser={showUser} onUserMenu={userMenu} onRequest={requestFriend} onAccept={acceptFriend} onRemove={removeFriend} blocked={social.blocked} onUnblock={unblockUser} servers={servers} me={me} users={users} voiceMembers={voice.members} onJoinVoice={(sid, cid) => { const sv = servers.find((x) => x.id === sid); const ch = sv?.channels.find((c) => c.id === cid); if (sv && ch) joinEventVoice(sv, ch); }} onSettings={() => setModal({ type: 'edit', tab: 'activity' })} onExplore={() => { setView({ kind: 'dm', userId: null, explore: true }); setShowList(false); }} />
       )}
       </div>

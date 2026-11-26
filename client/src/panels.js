@@ -289,7 +289,6 @@ export function applyPanels(l) {
 export const ITEMS = {
   rail: [
     { id: 'dms', name: 'Direct messages', on: true },
-    { id: 'clips', name: 'Clips', on: true, clips: true },
     { id: 'add', name: 'Create or join a server', on: true },
     { id: 'search', name: 'Jump to…', on: true },
   ],
@@ -322,7 +321,6 @@ export const ITEMS = {
     { id: 'settings', name: 'Settings', on: true, icon: 'gear' },
     { id: 'quests', name: 'Quests', on: false, icon: 'flag' },
     { id: 'dms', name: 'Direct messages', on: false, icon: 'message' },
-    { id: 'clips', name: 'Clips', on: false, clips: true, icon: 'video' },
     { id: 'emoji', name: 'Custom emoji', on: false, icon: 'smile' },
     { id: 'profile', name: 'Your profile', on: false, icon: 'user' },
     { id: 'addserver', name: 'Create or join a server', on: false, icon: 'plus' },
@@ -340,7 +338,7 @@ const JUSTIFY = { start: 'safe flex-start', center: 'safe center', end: 'safe fl
 // Shortcuts only (QuickPanel.jsx): the spacing between its buttons in px, whether they show their text and their icon (never both off),
 // and the order they come in. QUICK_ORDER is the order the buttons are drawn in, so it is also the order when nobody has chosen.
 //   quick: { gap: 0..40, text: false, icons: false, order: [item ids] }
-export const QUICK_ORDER = ['search', 'dms', 'friends', 'explorer', 'shop', 'quests', 'clips', 'emoji', 'profile', 'addserver', 'settings'];
+export const QUICK_ORDER = ['search', 'dms', 'friends', 'explorer', 'shop', 'quests', 'emoji', 'profile', 'addserver', 'settings'];
 export const QUICK_GAP = 4; // the spacing in panels.css
 export const QUICK_GAP_MAX = 40;
 const fullOrder = (list) => {

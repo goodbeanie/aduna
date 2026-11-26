@@ -1,0 +1,46 @@
+/* /affiliate (Affiliate.jsx). Built on the /payments page look (payments.css): cards, rows, pills. Only what that page does not have is here. */
+.af-form, .af-review, .af-rewards { display: flex; flex-direction: column; gap: 14px; margin-top: 18px; }
+.af-form > b, .af-review b, .af-rewards > b { color: var(--head); }
+.af-form > .pay-sub, .af-rewards > .pay-sub { margin: -8px 0 0; }
+.af-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.af-label { font-size: 13px; font-weight: 600; color: var(--head); }
+.af-field input[type="url"], .af-field input[type="text"], .af-field textarea { width: 100%; box-sizing: border-box; }
+.af-field textarea { resize: vertical; min-height: 56px; font: inherit; }
+
+/* the app buttons (YouTube, TikTok, ...) and the "what does it say" choices */
+.af-apps { display: flex; flex-wrap: wrap; gap: 8px; }
+.af-app { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line2, var(--line)); background: var(--bg2); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; }
+.af-app:hover { background: var(--hover); }
+.af-app:focus-visible { outline: 2px solid var(--accent, currentColor); outline-offset: 2px; }
+.af-app.on { background: var(--chip-on); color: var(--head); border-color: var(--head); font-weight: 600; }
+
+.af-length { display: flex; gap: 14px; flex-wrap: wrap; }
+.af-length label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 14px; }
+.af-length input { width: 76px; }
+
+.af-slug { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.af-slug > span { color: var(--muted); font-size: 14px; white-space: nowrap; }
+.af-slug input { flex: 1; min-width: 0; }
+
+.af-tabs { display: flex; gap: 6px; margin: 16px 0 4px; }
+.af-tab { padding: 7px 14px; border-radius: 10px; border: 0; background: transparent; color: var(--muted); font: inherit; font-weight: 600; cursor: pointer; }
+.af-tab:hover { background: var(--hover); color: var(--text); }
+.af-tab.on { background: var(--chip-on); color: var(--head); }
+
+.af-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.af-plain { list-style: none; margin: 0; padding: 0; }
+.af-plain li { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 7px 0; }
+.af-plain li + li { border-top: 1px solid var(--line); }
+.af-plain li span { display: flex; flex-direction: column; min-width: 0; }
+.af-plain li small { color: var(--muted); font-size: 12px; }
+.af-plain li b { flex: none; font-variant-numeric: tabular-nums; }
+
+.af-video { flex-wrap: wrap; }
+.af-video .pay-sub { word-break: break-all; }
+.af-note { white-space: pre-wrap; overflow-wrap: anywhere; font-style: italic; }
+.af-review .pay-card-top .btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; flex: none; }
+
+@media (max-width: 560px) {
+  .af-cols { grid-template-columns: 1fr; gap: 6px; }
+  .af-slug { flex-wrap: wrap; }
+}

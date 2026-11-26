@@ -1,7 +1,7 @@
 /* Evenness pass. Loaded last (see main.jsx), so these small fixes win over the older layers (redesign, refine, zen, plain, studio).
    Each rule below fixes something that looked uneven in a screenshot; the comment says what. */
 
-/* a sheet slides up from the edge it sits on, a backdrop fades in (used by the app dialogs and the Clips sheets below) */
+/* a sheet slides up from the edge it sits on, a backdrop fades in (used by the app dialogs and the share sheet below) */
 @keyframes ev-sheet { from { transform: translateY(28px); opacity: 0; } }
 @keyframes ev-fade { from { opacity: 0; } }
 
@@ -13,12 +13,6 @@
 /* the language picker: same corner radius as every input, one height (it was 34px next to 40px inputs, with its own 8px corners) */
 .auth-lang { height: 40px; min-height: 40px; min-width: 140px; margin-top: 20px; border-radius: var(--r-md); }
 @media (pointer: coarse) { .auth-lang { height: 44px; min-height: 44px; } }
-
-/* ---------- Clips website on a phone ---------- */
-/* the top bar keeps 64px free on the right for your picture; signed out there is no picture, so the bar looked lopsided (12px left, 64px right) */
-@media (max-width: 899px) {
-  .yt-dash.cs:not(:has(.cs-me)) .yt-top { padding-right: 12px; }
-}
 
 /* ---------- the app on a phone ---------- */
 /* 08-responsive.css sets the phone rules for the message bar and for dialogs (bottom sheets), but zen, plain and studio load after it
@@ -48,36 +42,26 @@
 @media (pointer: coarse) { .modal-x { width: 40px; height: 40px; } }
 
 /* iOS zooms the whole page when you tap a field under 16px. 08-responsive.css asks for 16px on every field, but these class rules
-   (15px message box, 14px Clips search, 13px channel picker) load later and won, so the page jumped on tap. */
+   (15px message box, 13px channel picker) load later and won, so the page jumped on tap. */
 @media (pointer: coarse), (max-width: 720px) {
-  .composer-row .composer, .note-chan-head select, .yt-studio .yt-search input { font-size: 16px; }
+  .composer-row .composer, .note-chan-head select { font-size: 16px; }
 }
 
-/* ---------- Clips: the comments, share and "..." sheets ---------- */
-/* swiping to the end of a list inside a sheet pulled the clip feed behind it along; keep the scroll inside */
-.ss-back .ss-panel, .ca-list, .sp-body { overscroll-behavior: contain; }
+/* ---------- share sheet ---------- */
+/* swiping to the end of a list inside a sheet pulled the page behind it along; keep the scroll inside */
+.ss-back .ss-panel, .sp-body { overscroll-behavior: contain; }
 @media (max-width: 560px) {
   /* the sheet sat flush on the bottom edge with 12–20px under its last row, which is the home indicator on a modern phone:
-     the comment box, the Send button and the share actions were half under it */
+     the share actions were half under it */
   .ss-back .ss-panel { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); animation: ev-sheet .22s cubic-bezier(.2, .8, .2, 1) both; }
   .ss-back { animation: ev-fade .18s ease-out both; }
 }
 @media (max-width: 560px) and (prefers-reduced-motion: reduce) {
   .ss-back, .ss-back .ss-panel { animation: none; }
 }
-/* small targets on a touch screen: delete comment 26px, Follow about 30px, Send 36px next to a 40px box, close 32px, clear-search 30px,
-   the Following / For you tabs 32px, the search button 36px (it gets a bigger invisible tap area so the top bar keeps its width) */
+/* the close button on the sheet was 32px */
 @media (pointer: coarse) {
   .ss-x { width: 40px; height: 40px; }
-  .ca-comment .ca-del { width: 36px; height: 36px; }
-  .ca-follow.ca-follow { min-height: 36px; }
-  .ca-write .ca-send { height: 40px; }
-  .ca:not(.ca-overlay) .ca-btn { height: 40px; }
-  .ca:not(.ca-overlay) .ca-btn.ca-icon { width: 40px; }
-  .sp .sp-clear { width: 36px; height: 36px; }
-  .cs-tab, .yt-dash.cs-over .cs-tab { height: 38px; }
-  .cs-search-btn { position: relative; }
-  .cs-search-btn::after { content: ''; position: absolute; inset: -4px; }
 }
 
 /* ---------- chat on a phone ---------- */

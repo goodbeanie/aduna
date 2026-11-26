@@ -79,7 +79,6 @@ const clock = (s) => {
 };
 
 // Our own video player: play/pause, a seek bar, the time, download and fullscreen (instead of the browser's default controls).
-// Its class names start with mv- on purpose: the clips player (VideoPlayer.jsx, videoplayer.css) already owns .vp and .vp-seek.
 // The in-page full view (for browsers that cannot do real fullscreen) is a second player in a portal on <body>: a position: fixed box inside
 // the chat can be clipped or covered by the layers around it. It carries on from where the one in the chat was, and hands the position back.
 function VideoAtt(props) {

@@ -24,8 +24,6 @@ const CSP = [
 ].join('; ');
 
 // Stripe Checkout is a redirect to Stripe's own page, so nothing of Stripe's is loaded into Aduna and the policy needs no Stripe addresses.
-// Clips: when CLIPS_PUBLIC_URL is set, the clips address is allowed for pictures and video, and (with CLIPS_R2_BUCKET) the R2 upload
-// address for the signed upload links. Without them the policy is unchanged.
 const originOf = (u) => { try { return new URL(String(u || '')).origin; } catch { return ''; } };
 const DEFAULT_STATUS_NOTICE_URL = 'https://adunafront.nathankennethvc2.workers.dev/status-notice';
 function cspFor(env) {
@@ -46,12 +44,6 @@ function cspFor(env) {
   }
   // The top banner reads the posted notice from the status site on Cloudflare (client/src/statusNotice.js has the same address).
   put('connect-src', originOf(env.STATUS_NOTICE_URL || DEFAULT_STATUS_NOTICE_URL));
-  const clips = originOf(env.CLIPS_PUBLIC_URL);
-  if (clips) { put('img-src', clips); put('media-src', clips); }
-  if (clips && env.CLIPS_R2_BUCKET) {
-    const up = originOf(env.R2_ENDPOINT) || (env.R2_ACCOUNT_ID ? `https://${env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : '');
-    if (up) put('connect-src', up);
-  }
   if (!Object.keys(add).length) return CSP;
   return CSP.split('; ').map((d) => { const k = d.split(' ')[0]; return add[k] ? (k === 'frame-src' ? `frame-src ${add[k]}` : `${d} ${add[k]}`) : d; }).join('; ');
 }
@@ -280,6 +272,16 @@ const readDeviceCookie = (headers, secure) => { const v = parseCookies((headers 
 const deviceCookie = (token, { secure = false } = {}) => `${deviceCookieName(secure)}=${token}; Path=/; Max-Age=${2 * 365 * 86400}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
 const deviceKey = (token) => nodeCrypto.createHash('sha256').update('aduna-device:' + token).digest('hex');
 
+// ---------- affiliate link cookie ----------
+// Opening an affiliate's link (/<name>) sets this for a week and sends the visitor to sign-up, which reads it. It holds only the link name,
+// which is public anyway, so there is nothing to steal; the sign-up checks the name against the affiliates before it counts.
+const REF = 'aduna_ref', REF_HOST = '__Host-aduna_ref';
+const REF_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const refCookieName = (secure) => (secure ? REF_HOST : REF);
+const readRefCookie = (headers, secure) => { const v = parseCookies((headers || {}).cookie)[refCookieName(secure)] || ''; return v.length <= 24 && REF_RE.test(v) ? v : ''; };
+const refCookie = (slug, { secure = false, days = 7 } = {}) => `${refCookieName(secure)}=${slug}; Path=/; Max-Age=${days * 86400}; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+const clearedRefCookie = ({ secure = false } = {}) => `${refCookieName(secure)}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax${secure ? '; Secure' : ''}`;
+
 // A browser sends Origin on cross-site requests and on every WebSocket handshake. No Origin: not a browser, or a plain same-origin GET.
 function originAllowed(origin, host) {
   if (!origin) return true;
@@ -320,4 +322,4 @@ const resetLink = (origin, token) => `${origin}/reset#${token}`;
 module.exports = { CSP, securityHeaders, cleanEmail, emailKey, weakPassword, RateWindow, LoginGuard, RevokedTokens, createSessions,
   parseCookies, isSecure, readSessionCookie, hasSessionCookie, sessionCookie, clearedSessionCookies, originAllowed, csrfGuard,
   newResetToken, validResetToken, resetTokenHash, siteOrigin, resetLink,
-  newDeviceToken, readDeviceCookie, deviceCookie, deviceKey };
+  newDeviceToken, readDeviceCookie, deviceCookie, deviceKey, readRefCookie, refCookie, clearedRefCookie };

@@ -10,7 +10,7 @@ import './admin.css';
 // The page has its own small dialogs and messages (no dependence on the app's theme), and shows everything people wrote as plain text.
 
 const TABS = [['overview', 'Overview'], ['applications', 'Applications'], ['artists', 'Artist review'], ['shop', 'Shop'], ['people', 'People'], ['bots', 'Bots'], ['themes', 'Themes'], ['reports', 'Reports'], ['status', 'Status'], ['releases', 'Releases'], ['switches', 'Switches'], ['recap', 'Recap'], ['sales', 'Sales'], ['links', 'Links'], ['ipbans', 'IP bans'], ['admins', 'Admins'], ['log', 'Log']];
-const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots'], ['clips', 'Clips']];
+const REPORT_TABS = [['users', 'People and messages'], ['servers', 'Servers'], ['bots', 'Bots']];
 const ROLE = { creator: 'Founder', config: 'Admin (server settings)', admin: 'Admin', moderator: 'Moderator' };
 const MOD_TABS = ['overview', 'reports', 'people']; // a moderator reads and reviews reports, looks people up, and warns or mutes
 const when = (t) => (t ? new Date(t).toLocaleString() : '—');
@@ -378,43 +378,6 @@ function ThemeReview() {
   );
 }
 
-function ClipReports() {
-  const { me, say, run, ask, refresh } = useAdm();
-  const [data, setData] = useState(null);
-  const load = useCallback(() => api('/admin/clips').then(setData).catch((e) => { setData(e.status === 503 ? { off: true, clips: [] } : { clips: [] }); if (e.status !== 503) say(e.message, 'error'); }), [say]);
-  useEffect(() => { load(); }, [load]);
-  const changed = () => { load(); refresh(); };
-  const act = async (c, action, ok) => { if (await run(() => api(`/admin/clips/${c.id}`, { method: 'POST', body: { action } }), ok)) changed(); };
-  const remove = async (c) => {
-    const r = await ask({ title: 'Remove this clip?', body: 'The video is deleted for good. Its numbers stay.', confirmLabel: 'Remove clip', danger: true });
-    if (r) act(c, 'remove', 'Clip removed');
-  };
-  if (!data) return <p className="adm-muted">Loading…</p>;
-  if (data.off) return <Empty text="Clips are not set up on this server." />;
-  if (!data.clips.length) return <Empty text="No clips have reports or holds." />;
-  return data.clips.map((c) => (
-    <div className="adm-card" key={c.id}>
-      <div className="adm-row">
-        <div className="adm-clip">
-          {c.poster && <img src={c.poster} alt="" loading="lazy" />}
-          <div>
-            <h3>{c.caption || '(no caption)'}</h3>
-            <span className="adm-muted">by {c.owner || '—'} · {c.state}{c.hold ? (c.hold.by === 'screening' ? ' (held by the automatic check)' : ` (${c.hold.state || 'held'})`) : ''} · {c.views} views · {c.likes} likes · {c.counted}/{data.toHide} counted reports</span>
-            {c.screen && c.screen.verdict !== 'pass' && <div className="adm-muted">Automatic check: {c.screen.summary}</div>}
-            {c.url && <div><a href={c.url} target="_blank" rel="noopener noreferrer">Watch the video</a></div>}
-          </div>
-        </div>
-        <div className="adm-actions">
-          {c.state === 'hidden' && <button className="adm-btn small" onClick={() => act(c, 'restore', 'Clip restored')}>Restore</button>}
-          <button className="adm-btn small" onClick={() => act(c, 'dismiss', 'Reports dismissed')}>Dismiss</button>
-          {me.role !== 'moderator' && <button className="adm-btn small danger" onClick={() => remove(c)}>Remove</button>}
-        </div>
-      </div>
-      {c.reports.length > 0 && <ReportItems list={c.reports} onChanged={changed} />}
-    </div>
-  ));
-}
-
 function Reports({ sub, setSub, openUser }) {
   const { summary } = useAdm();
   const n = (k) => (summary ? summary.reports[k] : 0);
@@ -428,7 +391,6 @@ function Reports({ sub, setSub, openUser }) {
       {sub === 'users' && <UserReports openUser={openUser} />}
       {sub === 'servers' && <ServerReports />}
       {sub === 'bots' && <BotReports />}
-      {sub === 'clips' && <ClipReports />}
     </>
   );
 }
@@ -469,7 +431,6 @@ function UserDetail({ id, onChanged, onClose }) {
   };
   const del = async () => {
     const lines = u.owned.map((s) => `The server “${s.name}” (${s.members} member${s.members === 1 ? '' : 's'}) is deleted`);
-    if (u.liveClips) lines.push(`${u.liveClips} live clip${u.liveClips === 1 ? '' : 's'} removed`);
     if (u.bots) lines.push(`${u.bots} bot${u.bots === 1 ? '' : 's'} deleted`);
     const r = await ask({
       title: `Delete ${u.username}?`,
@@ -478,7 +439,7 @@ function UserDetail({ id, onChanged, onClose }) {
     });
     if (!r) return;
     const ok = await run(() => api(`/admin/users/${u.id}/delete`, { method: 'POST', body: { confirm: u.username, purge: r.checked } }),
-      (x) => `Deleted. Removed ${x.serversDeleted} server${x.serversDeleted === 1 ? '' : 's'}, ${x.messages} message${x.messages === 1 ? '' : 's'}, ${x.clips} clip${x.clips === 1 ? '' : 's'}, ${x.bots} bot${x.bots === 1 ? '' : 's'}.`);
+      (x) => `Deleted. Removed ${x.serversDeleted} server${x.serversDeleted === 1 ? '' : 's'}, ${x.messages} message${x.messages === 1 ? '' : 's'}, ${x.bots} bot${x.bots === 1 ? '' : 's'}.`);
     if (ok) { onChanged(); onClose(); }
   };
   const makeAdmin = async () => {
@@ -517,7 +478,6 @@ function UserDetail({ id, onChanged, onClose }) {
       <dl className="adm-facts">
         <div><dt>Joined</dt><dd>{when(u.createdAt)}</dd></div>
         {!u.limited && <div><dt>Servers</dt><dd>{u.servers} ({u.owned.length} owned)</dd></div>}
-        {!u.limited && <div><dt>Clips</dt><dd>{u.clips} ({u.liveClips} live)</dd></div>}
         {!u.limited && <div><dt>Bots</dt><dd>{u.bots}</dd></div>}
         <div><dt>Reports</dt><dd>{u.reports}</dd></div>
         <div><dt>User id</dt><dd className="adm-mono">{u.id}</dd></div>
@@ -1333,14 +1293,13 @@ function Overview({ go }) {
         <button className={'adm-stat' + (r.users ? ' hot' : '')} onClick={() => open('users')}><b>{r.users}</b><span>People and messages reported</span></button>
         <button className={'adm-stat' + (r.servers ? ' hot' : '')} onClick={() => open('servers')}><b>{r.servers}</b><span>Servers reported</span></button>
         <button className={'adm-stat' + (r.bots ? ' hot' : '')} onClick={() => open('bots')}><b>{r.bots}</b><span>Bots reported</span></button>
-        <button className={'adm-stat' + (r.clips ? ' hot' : '')} onClick={() => open('clips')}><b>{r.clips}</b><span>Clips reported or hidden</span></button>
       </div>
       {mod ? (
         <div className="adm-card">
           <h3>How this works</h3>
           <ul className="adm-lines">
             <li><b>Dismiss</b> clears the reports about something and changes nothing else.</li>
-            <li><b>Restore</b> puts a hidden listing, bot or clip back where it was and clears its reports.</li>
+            <li><b>Restore</b> puts a hidden listing or bot back where it was and clears its reports.</li>
             <li>If something needs a warning, a takedown or a delete, tell an admin.</li>
             <li>Reports never tell the person who reported them.</li>
           </ul>
@@ -1352,7 +1311,7 @@ function Overview({ go }) {
           <li><b>Warn</b> shows the person a message they must read before they can send anything. The 3rd warning in 90 days is a 24 hour mute and the 5th a 7 day suspension.</li>
           <li><b>Mute</b> stops someone sending messages for a set time. They can still read.</li>
           <li><b>Suspend</b> locks an account out right away and keeps its username and email reserved. You can lift it, or pick a length and it ends by itself.</li>
-          <li><b>Delete account</b> is permanent: it signs them out, removes their servers, clips and bots, and (optionally) their messages.</li>
+          <li><b>Delete account</b> is permanent: it signs them out, removes their servers and bots, and (optionally) their messages.</li>
           <li>Reports never tell the person who reported them. Everything you do here is recorded in the Log.</li>
         </ul>
       </div>

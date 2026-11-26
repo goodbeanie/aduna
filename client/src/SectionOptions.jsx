@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Icon, Modal } from './ui.jsx';
-import { CLIPS_ENABLED } from './features.js';
 import { ITEMS, QUICK_GAP, QUICK_GAP_MAX, SECTIONS, SLOT_NAME, canAlign, canHide, canSwitchOff, getPanels, itemOn, placePanel, quickOrder, sectionName, setPanels, setSection, slotOf, useLayoutAllowed, useOpts, usePanels, useLayoutScreen, usePhone } from './panels.js';
 
 // Customize one section of the app (the server bar, side list, member list, profile and voice, Shortcuts, Unread): double-click an empty spot of it,
@@ -32,13 +31,12 @@ function QuickOrder({ opts }) {
   const strip = useRef(null);
   const order = quickOrder(opts);
   const byId = Object.fromEntries(ITEMS.quick.map((it) => [it.id, it]));
-  const list = order.filter((sid) => byId[sid] && (!byId[sid].clips || CLIPS_ENABLED));
-  const hidden = order.filter((sid) => !list.includes(sid)); // not available here (Clips while it is off): kept where they are at the end
+  const list = order.filter((sid) => byId[sid]);
 
   const move = (sid, to) => { // `to` counts in the row without the one being moved
     const rest = list.filter((x) => x !== sid);
     rest.splice(Math.max(0, Math.min(rest.length, to)), 0, sid);
-    setSection('quick', { order: [...rest, ...hidden] });
+    setSection('quick', { order: rest });
   };
   const gapAt = (e) => {
     const el = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('[data-so-chip]');
@@ -124,7 +122,7 @@ export default function SectionOptions() {
   if (phone && id === 'members') places.push(slot === 'off' ? 'right' : slot);
   if (slot === 'off' || (canHide(pan, opts, id) && !(phone && id === 'side'))) places.push('off');
   const placeLabel = (k) => (phone && id === 'members' && k !== 'off' ? 'Slide-over' : SLOT_NAME[k]);
-  const list = ITEMS[id].filter((it) => !it.clips || CLIPS_ENABLED);
+  const list = ITEMS[id];
   const align = opts[id]?.align || null;
   const textOn = opts.quick?.text !== false;
   const iconsOn = opts.quick?.icons !== false;

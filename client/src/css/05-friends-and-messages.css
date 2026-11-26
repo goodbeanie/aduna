@@ -60,7 +60,7 @@
 .att-img.sensitive img { filter: blur(28px); transform: scale(1.15); }
 .att-veil-file { cursor: pointer; font-weight: 600; }
 .att-veil { position: absolute; inset: 0; display: grid; place-items: center; padding: 12px; text-align: center; font-size: 13px; font-weight: 600; color: #fff; background: #0006; }
-/* our own video player (VideoAtt in Attachments.jsx). The classes start with mv- because the clips player (videoplayer.css) already owns .vp and .vp-seek.
+/* our own video player (VideoAtt in Attachments.jsx).
    Its size comes from this CSS and the video's shape (--ar = width / height, set by the player), not from the video's own pixels: up to 480px wide
    and 50% of the window tall (360px at most), and never narrower than 280px (the bar needs about 210px), so a small or tall video still gets room for every button. */
 .mv { --ar: 1.7778; --mv-h: min(360px, 50vh); position: relative; display: block; width: min(480px, 100%, calc(var(--mv-h) * var(--ar))); min-width: min(280px, 100%); border-radius: 12px; overflow: hidden; background: #000; line-height: 0; container-type: inline-size; }

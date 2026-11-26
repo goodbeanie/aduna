@@ -21,7 +21,6 @@ import './refine.css';
 import './zen.css';
 import './plain.css';
 import './studio.css';
-import './clips.css';
 import './wordle.css';
 import './puzzle.css';
 import './contexto.css';
@@ -31,11 +30,7 @@ import './sponsored.css';
 import './recap.css';
 import AdminPage from './AdminPage.jsx';
 import Payments from './Payments.jsx';
-import { CLIPS_ENABLED } from './features.js';
-// The Clips pages (feed, one clip, creator dashboard) are only loaded when Clips are switched on (features.js). While they are off nothing of them is fetched.
-const Dashboard = CLIPS_ENABLED ? React.lazy(() => import('./Dashboard.jsx')) : null;
-const ClipPage = CLIPS_ENABLED ? React.lazy(() => import('./ClipPage.jsx')) : null;
-const ClipsSite = CLIPS_ENABLED ? React.lazy(() => import('./ClipsSite.jsx')) : null;
+import Affiliate from './Affiliate.jsx';
 import './even.css'; // last on purpose: small evenness fixes that must win over every older layer
 import './sidebar.css'; // after even.css: the one sidebar pass (spacing, labels, icon weight, states)
 import './friends.css'; // after sidebar.css: the Friends page rows (one column, hover, quiet actions)
@@ -69,25 +64,18 @@ initPanels();
 initKeyboard();
 
 startPhrases();
-// /dashboard is the Clips creator page (upload clips), /admin is the admin page (admins only), /payments is the plan and purchase history, /clips is the Clips website (the feed), /clips/user/<id> is one person's Clips page,
-// /clips/<clip id> is one clip on its own page; everything else is the app
+// /admin is the admin page (admins only), /payments is the plan and purchase history, /affiliate is the affiliate program; everything else is the app
 const path = location.pathname;
-const onDashboard = CLIPS_ENABLED && /^\/dashboard\/?$/.test(path);
 const onAdmin = /^\/admin\/?$/.test(path);
 const onPayments = /^\/payments\/?$/.test(path);
-const onClipsFeed = CLIPS_ENABLED && /^\/clips\/?$/.test(path);
-const clipsUser = CLIPS_ENABLED ? /^\/clips\/user\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null : null;
-const clipId = CLIPS_ENABLED ? /^\/clips\/([A-Za-z0-9_-]+)\/?$/.exec(path)?.[1] || null : null;
+const onAffiliate = /^\/affiliate\/?$/.test(path);
 createRoot(document.getElementById('root')).render(
   <ErrorBoundary>
     <React.Suspense fallback={null}>
-      {onDashboard ? <Dashboard />
-        : onAdmin ? <AdminPage />
-          : onPayments ? <Payments />
-            : onClipsFeed ? <ClipsSite />
-              : clipsUser ? <ClipsSite userId={clipsUser} />
-                : clipId ? <ClipPage id={clipId} />
-                  : <App />}
+      {onAdmin ? <AdminPage />
+        : onPayments ? <Payments />
+          : onAffiliate ? <Affiliate />
+            : <App />}
     </React.Suspense>
   </ErrorBoundary>
 );

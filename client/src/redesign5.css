@@ -72,7 +72,7 @@ html:not([data-density=compact]) .content { line-height: 1.55; }
 /* ---------- pass 6: shapes and shadows follow the system ---------- */
 /* rounded squares, not circles or pills (status dots stay round: they are dots, not buttons) */
 .send-btn, .rec-send { border-radius: var(--r-md) !important; }
-.ap-play, .vp-big, .ci-btn, .call-strip .cd-btn { border-radius: var(--r-md); }
+.ap-play, .ci-btn, .call-strip .cd-btn { border-radius: var(--r-md); }
 .pend-x { border-radius: var(--r-sm); }
 .jump-btn { border-radius: var(--r-md); box-shadow: none; }
 .drop-hint { border-radius: var(--r-lg); }
