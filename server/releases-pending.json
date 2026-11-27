@@ -894,5 +894,16 @@
       { "title": "Scene lengths", "text": "The intro and outro are shorter and the servers list stays on screen longer." },
       { "title": "Admin Recap tab", "text": "The Recap tab in /admin now lists the top songs and the fastest growing servers." }
     ]
+  },
+  {
+    "id": "2026.11.26.5",
+    "date": "2026-11-26",
+    "title": "The Aduna recap is 60 seconds",
+    "items": [
+      { "title": "Twice as long", "text": "The recap for all of Aduna now runs 60 seconds so it can show more. Your own recap is still 30 seconds." },
+      { "title": "More to see", "text": "It shows up to six stats instead of four, and the busiest day, the busiest hour and the most-used emoji each get their own scene." },
+      { "title": "Server pictures", "text": "The fastest growing servers list now shows each server's picture, or its initials if it has none, and lists five servers instead of three." },
+      { "title": "Songs", "text": "The two songs now cross over at the 30 second mark. A shared Aduna recap can be too long to carry its songs, in which case it plays without them." }
+    ]
   }
 ]
