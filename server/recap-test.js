@@ -92,7 +92,7 @@ const world = () => ({
   friendships: { 'a:b': { from: 'a', to: 'b', status: 'friends', createdAt: Date.UTC(2025, 11, 30), acceptedAt: at(2, 2) }, 'a:c': { from: 'a', to: 'c', status: 'pending', createdAt: at(2, 2) } },
   clips: { k1: { id: 'k1', owner: 'a', state: 'live', createdAt: at(7, 1) }, k2: { id: 'k2', owner: 'a', state: 'rejected', createdAt: at(7, 1) } },
   servers: {
-    s1: { id: 's1', name: 'Chess Club', createdAt: at(8, 1), visibility: 'public', members: ['a', 'b', 'c', 'bot', 'gone'], joinedAt: { a: at(2, 3), b: at(3, 3), c: Date.UTC(2025, 1, 1), bot: at(2, 3), gone: at(2, 3) } },
+    s1: { id: 's1', name: 'Chess Club', iconImage: 'c'.repeat(32), createdAt: at(8, 1), visibility: 'public', members: ['a', 'b', 'c', 'bot', 'gone'], joinedAt: { a: at(2, 3), b: at(3, 3), c: Date.UTC(2025, 1, 1), bot: at(2, 3), gone: at(2, 3) } },
     s2: { id: 's2', name: 'Hidden', createdAt: Date.UTC(2024, 1, 1), visibility: 'private', members: ['a'], joinedAt: { a: at(5, 1) } },
     s3: { id: 's3', name: 'Aduna', createdAt: Date.UTC(2024, 1, 1), visibility: 'public', members: ['a', 'b', 'c'], joinedAt: { a: at(1, 5), b: at(1, 6), c: at(1, 7) } },
     s4: { id: 's4', name: 'Held', createdAt: Date.UTC(2024, 1, 1), visibility: 'public', listingHold: { state: 'hidden' }, members: ['a'], joinedAt: { a: at(5, 1) } },
@@ -165,14 +165,14 @@ const world = () => ({
   step('the top two songs');
 
   const grown = R.buildAll(world(), Y, () => 0, { skipServer: 's3' }).global.topServers;
-  assert.deepStrictEqual(grown, [{ name: 'Chess Club', gained: 2 }, { name: 'Art Room', gained: 1 }], 'people who joined this year and are still in, public and not held, without the official server');
+  assert.deepStrictEqual(grown, [{ name: 'Chess Club', icon: 'c'.repeat(32), gained: 2 }, { name: 'Art Room', icon: null, gained: 1 }], 'people who joined this year and are still in, public and not held, without the official server, with the picture the server has');
   assert.ok(!R.buildAll(world(), Y, () => 0, { skipServer: 's3' }).global.topServers.some((s) => ['Hidden', 'Held', 'Aduna'].includes(s.name)));
-  assert.deepStrictEqual(R.buildAll(world(), Y, () => 0, { skipServer: 's3', listed: (s) => s.name === 'Art Room' }).global.topServers, [{ name: 'Art Room', gained: 1 }], 'the caller can narrow what is named');
+  assert.deepStrictEqual(R.buildAll(world(), Y, () => 0, { skipServer: 's3', listed: (s) => s.name === 'Art Room' }).global.topServers, [{ name: 'Art Room', icon: null, gained: 1 }], 'the caller can narrow what is named');
   const many = world();
-  for (const k of ['x1', 'x2', 'x3']) many.servers[k] = { id: k, name: 'Extra ' + k, visibility: 'public', members: ['a'], joinedAt: { a: at(6, 6) } };
-  assert.strictEqual(R.buildAll(many, Y, () => 0, { skipServer: 's3' }).global.topServers.length, 3, 'three at most');
+  for (const k of ['x1', 'x2', 'x3', 'x4', 'x5', 'x6']) many.servers[k] = { id: k, name: 'Extra ' + k, visibility: 'public', members: ['a'], joinedAt: { a: at(6, 6) } };
+  assert.strictEqual(R.buildAll(many, Y, () => 0, { skipServer: 's3' }).global.topServers.length, 5, 'five at most');
   assert.deepStrictEqual(R.buildAll({ users: { x: { id: 'x', createdAt: 1 } } }, Y).global.topServers, []);
-  step('the three public servers that grew the most, without the official one');
+  step('the five public servers that grew the most, with their pictures and without the official one');
 
   const text = JSON.stringify(built);
   for (const leak of ['hi ', 'again', 'yo', 'a:b']) assert.ok(!text.includes(leak), 'no message text in the output: ' + leak);

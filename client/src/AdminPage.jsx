@@ -1184,7 +1184,7 @@ function Recap() {
         <>
           <div className="adm-card">
             <h3>Watch it</h3>
-            <p className="adm-muted">The same 30 second video people get in Settings, played from this test recap. Switch between {who ? `${who}'s` : 'your'} year and everyone's.</p>
+            <p className="adm-muted">The same video people get in Settings (30 seconds for a person, 60 for everyone), played from this test recap. Switch between {who ? `${who}'s` : 'your'} year and everyone's.</p>
             <RecapSettings key={built} me={data.user || profile || me} recap={data} />
           </div>
           <div className="adm-card">

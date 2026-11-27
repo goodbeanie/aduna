@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useState } from 'react';
-import { DEFAULT_LOOK } from './recap.js';
+import { DEFAULT_LOOK, totalMs } from './recap.js';
 import { lightness } from './profilethemes.js';
 import './recapshare.css';
 
@@ -25,7 +25,7 @@ export function RecapShareCard({ share }) {
             <svg width="34" height="34" viewBox="0 0 24 24" fill="#fff" stroke="#fff" strokeWidth="2" strokeLinejoin="round"><path d="M6.5 5.5v13L17.5 12z" /></svg>
           </span>
         </span>
-        <span className="rs-meta"><b>Year in review</b><span>30 seconds</span></span>
+        <span className="rs-meta"><b>Year in review</b><span>{totalMs(share.kind) / 1000} seconds</span></span>
       </button>
       {open && <Suspense fallback={null}><RecapViewer share={share} onClose={() => setOpen(false)} /></Suspense>}
     </>

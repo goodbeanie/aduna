@@ -2,10 +2,14 @@
 // The server sends counts only (server/recap.js) and any number can be null, which means "was not counted", not zero.
 // So a stat with no number, or a zero, is skipped and the next one in line takes its place.
 
-export const TOTAL_MS = 30000; // the video and the song are both exactly this long
+export const TOTAL_MS = 30000;        // someone's own recap: the video and the song are both exactly this long
+export const GLOBAL_TOTAL_MS = 60000; // the one for everyone has more to show
+export const totalMs = (kind) => (kind === 'global' ? GLOBAL_TOTAL_MS : TOTAL_MS);
 export const ENTER_MS = 450;   // a scene settles for a moment before its number starts to climb
 export const COUNT_MS = 1500;  // 0 up to the value
 const MAX_STATS = 4;           // number scenes between the intro and the rest
+const MAX_STATS_GLOBAL = 6;
+export const MAX_SERVERS = 5;
 
 const ok = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const plural = (n, one, many) => (n === 1 ? one : many);
@@ -69,13 +73,13 @@ const GLOBAL_SPARE = [
   { key: 'games', get: (g) => (g.wordle || 0) + (g.contexto || 0) + (g.puzzle || 0), unit: ['game won', 'games won'], sub: () => 'Wordle, Contexto and puzzles.' },
 ];
 
-function pickStats(rec, list, spare, lang) {
+function pickStats(rec, list, spare, lang, max = MAX_STATS) {
   const out = [];
   for (const s of [...list, ...spare]) {
     const v = s.get(rec);
     if (!ok(v)) continue;
     out.push({ key: s.key, main: { count: v, lang }, unit: plural(v, ...s.unit), sub: s.sub(rec, lang) });
-    if (out.length === MAX_STATS) break; // the main six come first, so a spare only shows up when there is room
+    if (out.length === max) break; // the main six come first, so a spare only shows up when there is room
   }
   return out;
 }
@@ -94,40 +98,49 @@ function funMine(r, lang) {
   return null;
 }
 
+// The everyone recap has room for the busiest day, the busiest hour and the most-used emoji as three scenes of their own.
 function funGlobal(g, lang) {
+  const out = [];
   const day = fmtDay(g.busiestDay, lang);
-  if (day) {
-    const sub = g.topEmoji ? `${g.topEmoji} was the most-used emoji.` : Number.isInteger(g.busiestHour) ? `The busiest hour was ${fmtHour(g.busiestHour)}.` : '';
-    return { key: 'day', main: { text: day }, unit: 'Busiest day', sub };
-  }
-  if (g.topEmoji) return { key: 'emoji', main: { text: g.topEmoji }, unit: 'Most-used emoji', sub: '' };
-  return null;
+  if (day) out.push({ key: 'day', main: { text: day }, unit: 'Busiest day', sub: '' });
+  if (Number.isInteger(g.busiestHour)) out.push({ key: 'hour', main: { text: fmtHour(g.busiestHour) }, unit: 'Busiest hour', sub: 'When Aduna talks the most.' });
+  if (g.topEmoji) out.push({ key: 'emoji', main: { text: g.topEmoji }, unit: 'Most-used emoji', sub: '' });
+  return out;
 }
 
 const HOME = { messages: 'tl', voice: 'br', credits: 'c' };
 const SPOTS = ['tl', 'br', 'c', 'bl'];
+const EXTRA_SPOTS = ['tl', 'br', 'bl', 'c']; // 'tr' is kept for the scene after the stats
 
 // Messages, voice and credits keep their own corner. Any other stat that is filling in takes a spot that is still free,
-// so the stat scenes never sit in the same place.
+// so the stat scenes never sit in the same place. With more than four stats (the everyone recap) the spots are used again,
+// never the same one twice in a row.
 function anchorStats(stats) {
   const free = SPOTS.filter((a) => !stats.some((s) => HOME[s.key] === a));
-  return stats.map((s) => ({ ...s, anchor: HOME[s.key] || free.shift() }));
+  let prev = null;
+  return stats.map((s) => {
+    const anchor = HOME[s.key] || free.shift() || EXTRA_SPOTS.find((a) => a !== prev);
+    prev = anchor;
+    return { ...s, anchor };
+  });
 }
 
-// The three public servers that took in the most people, as one list scene. Nothing when the server sent none.
+// The public servers that took in the most people, as one list scene. Nothing when the server sent none.
 function serversScene(g) {
   const list = (Array.isArray(g.topServers) ? g.topServers : [])
     .filter((s) => s && typeof s.name === 'string' && s.name && ok(s.gained))
-    .slice(0, 3)
-    .map((s) => ({ name: s.name.slice(0, 32), count: s.gained }));
+    .slice(0, MAX_SERVERS)
+    .map((s) => ({ name: s.name.slice(0, 32), count: s.gained, ...(isIconId(s.icon) ? { icon: s.icon } : {}) }));
   if (!list.length) return null;
   return { key: 'servers', main: { list }, unit: 'Fastest growing servers', sub: 'New people on public servers, not counting the Aduna server.' };
 }
+const isIconId = (v) => typeof v === 'string' && /^[0-9a-f]{32}$/.test(v);
 
 // kind is 'mine' or 'global'. Returns null when there is nothing to show.
-// Where each scene sits: the intro in the middle, then up to four stats (messages top left, voice bottom right, credits in the middle, a fourth bottom left),
-// the servers list (global only) in the middle, the fun one top right, the outro bottom left.
-// A missing fun stat or a short list of stats just means fewer scenes; the 30 seconds are shared out by timeline().
+// Where each scene sits: the intro in the middle, then the stats (up to four for someone's own recap, up to six for everyone's: messages top left,
+// voice bottom right, credits in the middle, the rest in the spots that are left), the servers list (global only) in the middle,
+// the fun ones top right (the global recap has three: busiest day, hour and emoji), the outro bottom left.
+// A missing fun stat or a short list of stats just means fewer scenes; the time is shared out by timeline().
 export function buildScenes(data, kind, lang = 'en') {
   if (!data || !data.year) return null;
   const rec = kind === 'mine' ? data.mine : data.global;
@@ -135,11 +148,11 @@ export function buildScenes(data, kind, lang = 'en') {
   const year = data.year;
   const mine = kind === 'mine';
 
-  const stats = mine ? pickStats(rec, MINE, MINE_SPARE, lang) : pickStats(rec, GLOBAL, GLOBAL_SPARE, lang);
+  const stats = mine ? pickStats(rec, MINE, MINE_SPARE, lang) : pickStats(rec, GLOBAL, GLOBAL_SPARE, lang, MAX_STATS_GLOBAL);
   const servers = mine ? null : serversScene(rec);
   if (servers) servers.main.lang = lang;
-  const fun = mine ? funMine(rec, lang) : funGlobal(rec, lang);
-  if (!stats.length && !fun && !servers) return null;
+  const funs = mine ? [funMine(rec, lang)].filter(Boolean) : funGlobal(rec, lang);
+  if (!stats.length && !funs.length && !servers) return null;
 
   const intro = {
     key: 'intro',
@@ -150,25 +163,27 @@ export function buildScenes(data, kind, lang = 'en') {
 
   const anchored = anchorStats(stats);
   const lastSpot = anchored.length ? anchored[anchored.length - 1].anchor : null;
+  const FUN_SPOTS = ['tr', 'bl', 'tl'];
   const scenes = [
     { ...intro, anchor: 'c' },
     ...anchored,
     ...(servers ? [{ ...servers, anchor: lastSpot === 'c' ? 'tl' : 'c' }] : []),
-    ...(fun ? [{ ...fun, anchor: 'tr' }] : []),
-    { ...outro, anchor: !fun && !servers && lastSpot === 'bl' ? 'tr' : 'bl' },
+    ...funs.map((f, i) => ({ ...f, anchor: FUN_SPOTS[i] })),
   ];
+  const before = scenes[scenes.length - 1].anchor;
+  scenes.push({ ...outro, anchor: before === 'bl' ? 'tr' : 'bl' });
   return scenes;
 }
 
 // Scenes are not all the same length: the intro and the outro are short, the servers list gets the longest.
 // A scene is looked up by its key, so a recap shared in a chat plays the same way.
 const WEIGHT = { intro: 0.8, outro: 0.8, servers: 1.6 };
-export function timeline(scenes) {
+export function timeline(scenes, total = TOTAL_MS) {
   const w = scenes.map((s) => WEIGHT[s.key] || 1), all = w.reduce((a, b) => a + b, 0);
   let at = 0;
   return w.map((x, i) => {
     const from = at;
-    at = i === w.length - 1 ? TOTAL_MS : at + (x / all) * TOTAL_MS;
+    at = i === w.length - 1 ? total : at + (x / all) * total;
     return { from, to: at };
   });
 }
@@ -179,16 +194,16 @@ export function sceneAt(tl, t) {
 
 // When each song is heard. One song runs the whole video (and loops if it is shorter). Two share it and cross over in the middle.
 export const XFADE_MS = 3000;
-export function songWindows(count) {
-  if (count < 2) return [{ from: 0, to: TOTAL_MS }];
-  const mid = TOTAL_MS / 2;
-  return [{ from: 0, to: mid + XFADE_MS / 2 }, { from: mid - XFADE_MS / 2, to: TOTAL_MS }];
+export function songWindows(count, total = TOTAL_MS) {
+  if (count < 2) return [{ from: 0, to: total }];
+  const mid = total / 2;
+  return [{ from: 0, to: mid + XFADE_MS / 2 }, { from: mid - XFADE_MS / 2, to: total }];
 }
 // 0 to 1. The ends that meet the start or the end of the video are left to the fade in and out of the whole video.
-export function songGain(win, t) {
+export function songGain(win, t, total = TOTAL_MS) {
   if (t < win.from || t > win.to) return 0;
   const up = win.from > 0 ? (t - win.from) / XFADE_MS : 1;
-  const down = win.to < TOTAL_MS ? (win.to - t) / XFADE_MS : 1;
+  const down = win.to < total ? (win.to - t) / XFADE_MS : 1;
   return Math.max(0, Math.min(1, up, down));
 }
 
@@ -216,7 +231,7 @@ export function inThird(scenes, name) {
 
 // Share in a chat sends the video as one message, recap:1:<scenes as base64url JSON>. The chat draws it as a card with a play button and plays it
 // there, so nothing is rendered or stored on the server and DMs stay end-to-end encrypted. A server channel keeps 2000 characters of a message,
-// so the token drops the song and then the small print until it fits under SHARE_MAX.
+// so the token drops the songs, then the small print, then the server pictures until it fits under SHARE_MAX.
 const SHARE_RE = /^recap:1:([A-Za-z0-9_-]{20,3600})$/;
 const ANCHORS = ['c', 'tl', 'tr', 'bl', 'br'];
 export const SHARE_MAX = 1800;
@@ -229,28 +244,30 @@ const toB64 = (s) => {
 };
 const fromB64 = (t) => new TextDecoder().decode(Uint8Array.from(atob(t.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));
 
-const packMain = (m) => (m.logo ? 1 : m.list ? m.list.map((i) => [i.name, i.count]) : typeof m.count === 'number' ? [m.count, m.prefix || '', m.suffix || ''] : String(m.text ?? ''));
+const packMain = (m, withIcons = true) => (m.logo ? 1 : m.list ? m.list.map((i) => (withIcons && i.icon ? [i.name, i.count, i.icon] : [i.name, i.count])) : typeof m.count === 'number' ? [m.count, m.prefix || '', m.suffix || ''] : String(m.text ?? ''));
 
 export function recapToken(scenes, { kind, year, look, songs }) {
   const l = look || DEFAULT_LOOK;
   const so = (songs || []).filter((s) => s && (s.id || s.url)).slice(0, 2)
     .map((s) => ({ ...(s.id ? { i: String(s.id) } : {}), ...(s.url && String(s.url).length <= 300 ? { u: String(s.url) } : {}), t: String(s.title || '').slice(0, 60) }));
-  const pack = (withSongs, withSub) => 'recap:1:' + toB64(JSON.stringify({
+  const pack = (withSongs, withSub, withIcons) => 'recap:1:' + toB64(JSON.stringify({
     k: kind === 'mine' ? 'm' : 'g', y: year, c: l.colors.slice(0, 4), a: Math.round(l.angle) || 0,
-    s: scenes.map((s) => [s.key, packMain(s.main), s.unit || '', withSub ? s.sub || '' : '', s.anchor]),
+    s: scenes.map((s) => [s.key, packMain(s.main, withIcons), s.unit || '', withSub ? s.sub || '' : '', s.anchor]),
     ...(withSongs > 0 ? { o: withSongs === 1 ? so[0] : so.slice(0, withSongs) } : {}),
   }));
+  // songs go first when it is too long, then the small print, then the server pictures
   const tries = [];
-  for (let n = so.length; n >= 0; n--) tries.push([n, true]);
-  tries.push([0, false]);
-  for (const [withSongs, withSub] of tries) {
-    const t = pack(withSongs, withSub);
+  for (let n = so.length; n >= 0; n--) tries.push([n, true, true]);
+  tries.push([0, false, true], [0, false, false]);
+  for (const [withSongs, withSub, withIcons] of tries) {
+    const t = pack(withSongs, withSub, withIcons);
     if (t.length <= SHARE_MAX) return t;
   }
   return null;
 }
 
 const str = (v, max) => (typeof v === 'string' && v.length <= max ? v : null);
+const listRow = (p) => Array.isArray(p) && (p.length === 2 || (p.length === 3 && isIconId(p[2]))) && !!str(p[0], 40) && Number.isFinite(p[1]) && p[1] >= 0 && p[1] < 1e9;
 function unpackScene(r) {
   if (!Array.isArray(r) || r.length !== 5) return null;
   const [key, m, unit, sub, anchor] = r;
@@ -258,7 +275,7 @@ function unpackScene(r) {
   let main;
   if (m === 1) main = { logo: true };
   else if (typeof m === 'string' && m.length <= 60) main = { text: m };
-  else if (Array.isArray(m) && m.length >= 1 && m.length <= 3 && m.every((p) => Array.isArray(p) && !!str(p[0], 40) && Number.isFinite(p[1]) && p[1] >= 0 && p[1] < 1e9)) main = { list: m.map((p) => ({ name: p[0], count: p[1] })) };
+  else if (Array.isArray(m) && m.length >= 1 && m.length <= MAX_SERVERS && m.every(listRow)) main = { list: m.map((p) => ({ name: p[0], count: p[1], ...(p[2] ? { icon: p[2] } : {}) })) };
   else if (Array.isArray(m) && Number.isFinite(m[0]) && m[0] >= 0 && m[0] < 1e13 && str(m[1], 8) !== null && str(m[2], 8) !== null) main = { count: m[0], prefix: m[1], suffix: m[2] };
   else return null;
   const u = str(unit, 60), s = str(sub, 160);
@@ -272,7 +289,7 @@ export function parseRecapShare(content) {
   if (!m) return null;
   let d;
   try { d = JSON.parse(fromB64(m[1])); } catch { return null; }
-  if (!d || (d.k !== 'm' && d.k !== 'g') || !Number.isInteger(d.y) || d.y < 2000 || d.y > 2200 || !Array.isArray(d.s) || d.s.length < 2 || d.s.length > 10) return null;
+  if (!d || (d.k !== 'm' && d.k !== 'g') || !Number.isInteger(d.y) || d.y < 2000 || d.y > 2200 || !Array.isArray(d.s) || d.s.length < 2 || d.s.length > 16) return null;
   const scenes = d.s.map(unpackScene);
   if (scenes.some((s) => !s)) return null;
   const colors = Array.isArray(d.c) ? d.c.filter((c) => typeof c === 'string' && /^#[0-9a-f]{6}$/i.test(c)).slice(0, 4) : [];

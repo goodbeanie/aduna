@@ -6,15 +6,17 @@ import { useProfileThemes, userTheme, findProfileTheme, lightness } from './prof
 import { songUrl } from './ProfileSong.jsx';
 import ShareSheet from './ShareSheet.jsx';
 import { tossfaceUrl } from './tossface.js';
-import { DEFAULT_LOOK, TOTAL_MS, buildScenes, countText, fmtCount, inThird, recapToken, sceneAt, shareText, songGain, songWindows, timeline } from './recap.js';
+import { DEFAULT_LOOK, buildScenes, countText, fmtCount, inThird, recapToken, sceneAt, shareText, songGain, songWindows, timeline, totalMs } from './recap.js';
+import { imageUrl } from './image.js';
+import { serverInitials } from './ui.jsx';
 
-// Settings > Year in review. Two versions with the same kind of scenes: the global one (same for everyone, painted with the most popular
-// profile theme and played over the two most popular songs) and the person's own (their theme, their profile song). What goes into the scenes,
-// and which stat is picked, is in recap.js. The numbers come from GET /api/recap and are counts only, apart from the names of the fastest growing public servers.
+// Settings > Year in review. Two versions with the same kind of scenes: the global one (60 seconds, the same for everyone, painted with the most popular
+// profile theme and played over the two most popular songs) and the person's own (30 seconds, their theme, their profile song). What goes into the scenes,
+// and which stat is picked, is in recap.js. The numbers come from GET /api/recap and are counts only, apart from the names and pictures of the fastest growing public servers.
 
 const BG_POS = ['0% 0%', '100% 0%', '100% 100%', '0% 100%', '50% 50%', '0% 50%']; // the gradient drifts to a new corner each scene
 const FADE_IN_MS = 1500, FADE_OUT_MS = 2500;
-const gainAt = (t) => Math.max(0, Math.min(1, t / FADE_IN_MS, (TOTAL_MS - t) / FADE_OUT_MS));
+const gainAt = (t, total) => Math.max(0, Math.min(1, t / FADE_IN_MS, (total - t) / FADE_OUT_MS));
 
 // Where a song is at video time ms. A song shorter than its stretch of the video starts over, so it never runs out.
 const spot = (a, ms) => (Number.isFinite(a.duration) && a.duration > 0 ? (ms / 1000) % a.duration : ms / 1000);
@@ -81,6 +83,17 @@ function WithEmoji({ text }) {
   return <>{out}</>;
 }
 
+// A server's picture in the list. No picture, or one that does not load, shows its initials.
+function ListIcon({ item }) {
+  const [bad, setBad] = useState(false);
+  const src = imageUrl(item.icon);
+  return (
+    <span className={'rc-ico' + (src && !bad ? '' : ' no-img')} aria-hidden="true">
+      {src && !bad ? <img src={src} alt="" draggable={false} onError={() => setBad(true)} /> : serverInitials(item.name)}
+    </span>
+  );
+}
+
 function Scene({ s, ms, last, numRef, year }) {
   const m = s.main;
   const unit = s.unit && <span className="rc-unit">{s.unit}</span>;
@@ -94,6 +107,7 @@ function Scene({ s, ms, last, numRef, year }) {
               {m.list.map((it, i) => (
                 <li key={i} style={{ '--i': i }}>
                   <b className="rc-rank">{i + 1}</b>
+                  <ListIcon item={it} />
                   <span className="rc-name"><WithEmoji text={it.name} /></span>
                   <span className="rc-gain">+{fmtCount(it.count, m.lang)}</span>
                 </li>
@@ -120,11 +134,12 @@ function Scene({ s, ms, last, numRef, year }) {
 // received: a recap someone shared into a chat, shown over the chat (no Share button). autoPlay starts it as soon as it opens.
 // songs is one or two songs: one plays the whole video, two cross over in the middle (songWindows in recap.js).
 export function Player({ scenes, year, kind, look, songs, name, received = false, autoPlay = false }) {
-  const tl = useMemo(() => timeline(scenes), [scenes]);
+  const total = totalMs(kind);
+  const tl = useMemo(() => timeline(scenes, total), [scenes, total]);
   // Each song plays from its start: a search pick is Apple's 30 second preview (the part chosen for the profile card is ignored here),
-  // and an uploaded clip is looped until the video ends.
+  // and a song that is shorter than its stretch of the video starts over.
   const tracks = useMemo(() => (songs || []).map((song) => ({ song, src: songUrl(song) })).filter((x) => x.src).slice(0, 2), [songs]);
-  const wins = useMemo(() => songWindows(tracks.length), [tracks.length]);
+  const wins = useMemo(() => songWindows(tracks.length, total), [tracks.length, total]);
   const hasSong = tracks.length > 0;
   const [status, setStatus] = useState('idle'); // idle (poster, nothing has played), playing, paused, ended
   const [scene, setScene] = useState(0);
@@ -145,7 +160,7 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
   const audios = useRef([]), graphs = useRef([]); // one audio element and one Web Audio gain per song
   const rgbs = useMemo(() => look.colors.map(toRgb), [look]);
   const live = useRef({});
-  live.current = { scenes, tl, wins, rgbs, reduce };
+  live.current = { scenes, tl, wins, rgbs, reduce, total };
 
   const fail = useCallback(() => { badRef.current = true; setAudioBad(true); }, []);
 
@@ -156,7 +171,7 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
     live.current.wins.forEach((w, i) => {
       const a = audios.current[i];
       if (!a) return;
-      setVolume(graphs.current[i], a, gainAt(t) * songGain(w, t));
+      setVolume(graphs.current[i], a, gainAt(t, live.current.total) * songGain(w, t, live.current.total));
       if (!(t >= w.from && t < w.to)) { if (!a.paused) a.pause(); return; }
       if (!a.paused && !seek) return;
       a.muted = mutedRef.current;
@@ -167,14 +182,14 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
 
   // One frame of everything that follows the clock: which scene, the counting number, the progress bar, the blobs and the songs' volume.
   const paint = useCallback((t) => {
-    const { scenes: sc, tl: line, rgbs: cols, reduce: still } = live.current;
+    const { scenes: sc, tl: line, rgbs: cols, reduce: still, total: len } = live.current;
     const idx = sceneAt(line, t);
     if (idx !== sceneRef.current) { sceneRef.current = idx; setScene(idx); }
     const s = sc[idx];
     if (idx === rendered.current && num.current && s.main.count) num.current.textContent = countText(s.main, t - line[idx].from, still); // not while the old scene is still on screen
-    if (bar.current) bar.current.style.transform = `scaleX(${t / TOTAL_MS})`;
+    if (bar.current) bar.current.style.transform = `scaleX(${t / len})`;
     if (time.current) {
-      const txt = `${clock(t)} / ${clock(TOTAL_MS)}`;
+      const txt = `${clock(t)} / ${clock(len)}`;
       if (txt !== lastShown.current) { lastShown.current = txt; time.current.textContent = txt; }
     }
     if (cv.current) drawBlobs(cv.current, t, cols);
@@ -195,11 +210,11 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
     const c = clk.current;
     const dt = c.last == null ? 0 : Math.min(now - c.last, 200); // a long gap (the tab was asleep) must not skip scenes
     c.last = now;
-    c.t = Math.min(TOTAL_MS, c.t + dt);
+    c.t = Math.min(total, c.t + dt);
     paint(c.t);
-    if (c.t >= TOTAL_MS) { finish(); return; }
+    if (c.t >= total) { finish(); return; }
     raf.current = requestAnimationFrame(loop);
-  }, [paint, finish]);
+  }, [paint, finish, total]);
 
   // Web Audio gives a real fade on every browser; iPhones ignore audio.volume, so the element's own volume is only the fallback.
   // Web Audio goes silent on a sound from another site (the previews come from Apple's servers), so those fade with the element's own volume.
@@ -232,7 +247,7 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
   const start = (fromStart) => {
     const c = clk.current;
     if (statusRef.current === 'idle') { mutedRef.current = false; setMuted(false); } // pressing play is what lets the song be heard
-    if (fromStart || c.t >= TOTAL_MS) { c.t = 0; sceneRef.current = 0; setScene(0); setRun((r) => r + 1); }
+    if (fromStart || c.t >= total) { c.t = 0; sceneRef.current = 0; setScene(0); setRun((r) => r + 1); }
     c.last = null;
     setStatus('playing');
     wake();
@@ -334,7 +349,7 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
             <Icon name={muted ? 'speakeroff' : 'speaker'} size={18} />
           </button>
         )}
-        <span className="rc-time" ref={time}>{`0:00 / ${clock(TOTAL_MS)}`}</span>
+        <span className="rc-time" ref={time}>{`0:00 / ${clock(total)}`}</span>
         <span className="rc-spacer" />
         {!received && <button type="button" className="btn" onClick={openShare}><Icon name="send" size={16} /> Share</button>}
       </div>

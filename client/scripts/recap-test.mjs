@@ -1,12 +1,13 @@
 // The recap scenes without a browser: node client/scripts/recap-test.mjs
 import assert from 'node:assert';
-import { buildScenes, countText, shareText, inThird, recapToken, parseRecapShare, timeline, sceneAt, songWindows, songGain, SHARE_MAX, TOTAL_MS } from '../src/recap.js';
+import { buildScenes, countText, shareText, inThird, recapToken, parseRecapShare, timeline, sceneAt, songWindows, songGain, SHARE_MAX, TOTAL_MS, GLOBAL_TOTAL_MS, totalMs } from '../src/recap.js';
 
 const step = (m) => console.log('✓', m);
 const keys = (s) => s.map((x) => x.key).join(',');
 const mine = (extra = {}) => ({ messages: 1200, vcHours: 40, credits: 300, quests: 9, friends: 4, badges: 2, title: 'Night Owl', favoriteHour: 2, topEmoji: '🔥', ...extra });
 const data = (m, g = {}) => ({ year: 2026, global: { users: 50, messages: 9000, vcHours: 700, busiestDay: '2026-03-14', topEmoji: '😂', ...g }, mine: m });
 const servers = [{ name: 'Chess Club', gained: 1400 }, { name: 'Night Shift', gained: 900 }, { name: 'Art Room', gained: 300 }];
+const icon = (c) => c.repeat(32);
 
 {
   const s = buildScenes(data(mine()), 'mine');
@@ -40,7 +41,7 @@ const servers = [{ name: 'Chess Club', gained: 1400 }, { name: 'Night Shift', ga
 }
 {
   const s = buildScenes(data(null, { credits: 500, quests: 12, topServers: servers }), 'global');
-  assert.strictEqual(keys(s), 'intro,messages,voice,credits,quests,servers,day,outro');
+  assert.strictEqual(keys(s), 'intro,messages,voice,credits,quests,servers,day,emoji,outro');
   assert.strictEqual(countText(s.find((x) => x.key === 'credits').main, 450 + 1500), '500');
   const list = s.find((x) => x.key === 'servers');
   assert.deepStrictEqual(list.main.list, servers.map((x) => ({ name: x.name, count: x.gained })));
@@ -53,16 +54,32 @@ const servers = [{ name: 'Chess Club', gained: 1400 }, { name: 'Night Shift', ga
 }
 {
   const s = buildScenes(data(null, { credits: 500, quests: 12, topServers: servers }), 'global');
-  const tl = timeline(s);
+  const tl = timeline(s, totalMs('global'));
   const len = (i) => tl[i].to - tl[i].from;
   assert.strictEqual(tl[0].from, 0);
-  assert.strictEqual(tl[tl.length - 1].to, TOTAL_MS);
+  assert.strictEqual(tl[tl.length - 1].to, GLOBAL_TOTAL_MS);
   assert.ok(tl.every((x, i) => i === 0 || x.from === tl[i - 1].to), 'no gaps between scenes');
   assert.ok(len(5) > len(1) && len(0) < len(1), 'the servers list is longer than a stat, the intro shorter');
   assert.strictEqual(sceneAt(tl, 0), 0);
   assert.strictEqual(sceneAt(tl, tl[2].from), 2);
-  assert.strictEqual(sceneAt(tl, TOTAL_MS), s.length - 1);
-  step('the 30 seconds are shared out by scene');
+  assert.strictEqual(sceneAt(tl, GLOBAL_TOTAL_MS), s.length - 1);
+  const own = timeline(buildScenes(data(mine()), 'mine'));
+  assert.strictEqual(own[own.length - 1].to, TOTAL_MS, 'someone\'s own recap is still 30 seconds');
+  step('the time is shared out by scene: 30 seconds for a person, 60 for everyone');
+}
+{
+  assert.deepStrictEqual([totalMs('mine'), totalMs('global')], [30000, 60000]);
+  const [only] = songWindows(1, GLOBAL_TOTAL_MS);
+  assert.strictEqual(only.to, GLOBAL_TOTAL_MS, 'one song runs the whole 60 seconds (and loops)');
+  const [a, b] = songWindows(2, GLOBAL_TOTAL_MS);
+  assert.deepStrictEqual([a.from, a.to, b.from, b.to], [0, 31500, 28500, 60000]);
+  assert.deepStrictEqual([songGain(a, 30000, GLOBAL_TOTAL_MS), songGain(b, 30000, GLOBAL_TOTAL_MS)], [0.5, 0.5], 'they meet in the middle of the 60 seconds');
+  assert.deepStrictEqual([songGain(b, 59000, GLOBAL_TOTAL_MS), songGain(b, 60000, GLOBAL_TOTAL_MS)], [1, 1], 'the end is left to the fade of the whole video');
+  for (let t = 0; t <= GLOBAL_TOTAL_MS; t += 250) {
+    const sum = songGain(a, t, GLOBAL_TOTAL_MS) + songGain(b, t, GLOBAL_TOTAL_MS);
+    assert.ok(sum >= 0.99 && sum <= 1.01, 'the two always add up to one song');
+  }
+  step('the cross-over moves to the middle of the 60 seconds');
 }
 {
   const [only] = songWindows(1);
@@ -122,6 +139,32 @@ const servers = [{ name: 'Chess Club', gained: 1400 }, { name: 'Night Shift', ga
   step('a global recap shares its servers list and both songs');
 }
 {
+  const five = ['Chess Club', 'Night Shift', 'Art Room', 'Book Nook', 'Pixel Pals'].map((name, i) => ({ name, gained: 1000 - i * 100, icon: icon('abcde'[i]) }));
+  const s = buildScenes(data(null, { credits: 500, quests: 12, friendships: 40, badges: 90, busiestHour: 23, topServers: [...five, { name: 'Sixth', gained: 1 }] }), 'global');
+  assert.strictEqual(keys(s), 'intro,messages,voice,credits,quests,friends,badges,servers,day,hour,emoji,outro', 'all six stats, the servers, and three fun ones');
+  assert.ok(s.every((x, i) => i === 0 || x.anchor !== s[i - 1].anchor), 'no two scenes in a row in the same place');
+  const list = s.find((x) => x.key === 'servers').main.list;
+  assert.strictEqual(list.length, 5, 'five servers at most');
+  assert.deepStrictEqual(list.map((x) => x.icon), ['a', 'b', 'c', 'd', 'e'].map(icon), 'each server keeps its picture');
+  assert.strictEqual(s.find((x) => x.key === 'hour').main.text, '23:00 UTC');
+  const bad = buildScenes(data(null, { topServers: [{ name: 'A', gained: 3, icon: 'not-an-id' }, { name: 'B', gained: 2, icon: icon('f') }] }), 'global');
+  assert.deepStrictEqual(bad.find((x) => x.key === 'servers').main.list, [{ name: 'A', count: 3 }, { name: 'B', count: 2, icon: icon('f') }], 'a server with no usable picture just has none');
+  const noHour = buildScenes(data(null, {}), 'global');
+  assert.ok(noHour.every((x, i) => i === 0 || x.anchor !== noHour[i - 1].anchor));
+  step('global recap: six stats, five servers with pictures, busiest day, hour and emoji');
+
+  const look = { colors: ['#112233', '#445566'], angle: 90 };
+  const t = recapToken(s, { kind: 'global', year: 2026, look, songs: [] });
+  assert.ok(t && t.length <= SHARE_MAX, 'the whole thing fits in one message');
+  const got = parseRecapShare(t);
+  assert.deepStrictEqual(got.scenes.find((x) => x.key === 'servers').main.list.map((x) => x.icon), ['a', 'b', 'c', 'd', 'e'].map(icon), 'the pictures survive the packing');
+  assert.strictEqual(got.scenes.length, s.length);
+  const songs = [{ url: 'https://audio.example/' + 'a'.repeat(270), title: 'x'.repeat(60) }, { url: 'https://audio.example/' + 'b'.repeat(270), title: 'y'.repeat(60) }];
+  const tight = recapToken(s, { kind: 'global', year: 2026, look, songs });
+  assert.ok(tight && tight.length <= SHARE_MAX, 'long song links are dropped first');
+  step('a full global recap packs into one message, with its server pictures');
+}
+{
   assert.strictEqual(parseRecapShare('recap:1:not-a-real-token-at-all'), null);
   assert.strictEqual(parseRecapShare('hello'), null);
   const bad = (o) => parseRecapShare('recap:1:' + Buffer.from(JSON.stringify(o)).toString('base64url'));
@@ -129,10 +172,15 @@ const servers = [{ name: 'Chess Club', gained: 1400 }, { name: 'Night Shift', ga
   const ok = { k: 'g', y: 2026, c: ['#112233', '#445566'], a: 90, s: [scene, scene] };
   assert.ok(bad(ok));
   assert.strictEqual(bad({ ...ok, s: [scene] }), null, 'too few scenes');
+  assert.strictEqual(bad({ ...ok, s: Array(17).fill(scene) }), null, 'too many scenes');
   assert.strictEqual(bad({ ...ok, s: [scene, ['x', 'y', '', '', 'zz']] }), null, 'unknown anchor');
-  assert.strictEqual(bad({ ...ok, s: [scene, ['servers', [['A', 1], ['B', 2], ['C', 3], ['D', 4]], '', '', 'c']] }), null, 'more than three servers');
+  assert.strictEqual(bad({ ...ok, s: [scene, ['servers', [['A', 1], ['B', 2], ['C', 3], ['D', 4], ['E', 5], ['F', 6]], '', '', 'c']] }), null, 'more than five servers');
+  assert.ok(bad({ ...ok, s: [scene, ['servers', [['A', 1], ['B', 2], ['C', 3], ['D', 4], ['E', 5]], '', '', 'c']] }), 'five is fine');
   assert.strictEqual(bad({ ...ok, s: [scene, ['servers', [['x'.repeat(41), 1]], '', '', 'c']] }), null, 'a server name that is too long');
   assert.strictEqual(bad({ ...ok, s: [scene, ['servers', [['A', -1]], '', '', 'c']] }), null, 'a negative count');
+  assert.strictEqual(bad({ ...ok, s: [scene, ['servers', [['A', 1, 'javascript:alert(1)']], '', '', 'c']] }), null, 'a picture that is not an image id');
+  assert.strictEqual(bad({ ...ok, s: [scene, ['servers', [['A', 1, icon('a'), 'x']], '', '', 'c']] }), null, 'a row with extra parts');
+  assert.deepStrictEqual(bad({ ...ok, s: [scene, ['servers', [['A', 1, icon('a')]], '', '', 'c']] }).scenes[1].main.list, [{ name: 'A', count: 1, icon: icon('a') }]);
   assert.strictEqual(bad({ ...ok, y: 1 }), null);
   assert.strictEqual(bad({ ...ok, c: ['red', 'javascript:1'] }).look, null, 'bad colours fall back to the default look');
   assert.deepStrictEqual(bad({ ...ok, o: { u: 'http://x.example/a.mp3' } }).songs, [], 'only https song links');

@@ -79,14 +79,14 @@ function pickTopN(counts, n, rng = Math.random) {
 }
 
 // The servers that took in the most people this year. Only people still in the server count (joinedAt is dropped when someone leaves),
-// and only servers that are listed publicly, since their names end up in a video anyone can share. skip is the official server.
-const MAX_SERVERS = 3;
+// and only servers that are listed publicly, since their names and pictures end up in a video anyone can share. skip is the official server.
+const MAX_SERVERS = 5;
 const publicServer = (s) => s.visibility === 'public' && !s.listingHold;
 function topServers(servers, users, year, { skip = null, listed = publicServer } = {}) {
   const gained = (s) => Object.entries(s.joinedAt || {}).filter(([uid, at]) => inYear(at, year) && (s.members || []).includes(uid) && users[uid] && !users[uid].bot && !users[uid].deleted).length;
   return Object.values(servers)
     .filter((s) => s && s.id !== skip && listed(s))
-    .map((s) => ({ name: String(s.name || '').trim().slice(0, 40), gained: gained(s) }))
+    .map((s) => ({ name: String(s.name || '').trim().slice(0, 40), icon: s.iconImage || null, gained: gained(s) }))
     .filter((s) => s.name && s.gained > 0)
     .sort((a, b) => b.gained - a.gained || a.name.localeCompare(b.name))
     .slice(0, MAX_SERVERS);
