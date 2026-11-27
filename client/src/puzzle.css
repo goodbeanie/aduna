@@ -23,16 +23,13 @@
 .pz-sq:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 @media (hover: hover) { .pz-sq:hover { filter: brightness(1.08); } .pz-sq.dot:hover, .pz-sq.cap:hover { box-shadow: inset 0 0 0 100px rgba(150, 200, 60, .35); } }
 
-/* Pieces are SVG (ChessPiece.jsx). The outline colour keeps both sides readable on light and dark squares. */
+/* Pieces are SVG (ChessPiece.jsx) with a black outline. Both sides have the same outline; only the fill differs. */
 .pz-p { position: relative; z-index: 1; width: 90%; height: 90%; display: block; pointer-events: none; overflow: visible; }
-.pz-p .f, .pz-p .s { stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
-.pz-p .s { fill: none; }
-.pz-p.w .f { fill: #fafafa; stroke: #1c1c1c; }
-.pz-p.w .s { stroke: #1c1c1c; }
-.pz-p.w .e { fill: #1c1c1c; }
-.pz-p.b .f { fill: #2d2d2d; stroke: #0b0b0b; }
-.pz-p.b .s { stroke: #e8e8e8; }
-.pz-p.b .e { fill: #e8e8e8; }
+.pz-p .f, .pz-p .l { stroke: #000; stroke-width: 12; stroke-linejoin: round; stroke-linecap: round; }
+.pz-p .l { fill: none; }
+.pz-p .d { fill: #000; }
+.pz-p.w .f { fill: #fff; }
+.pz-p.b .f { fill: #353535; }
 .pz-promo .pz-p { width: 34px; height: 34px; }
 
 .pz-promo { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 0 8px; flex-wrap: wrap; }
