@@ -925,5 +925,13 @@
       { "title": "Aduna Premium", "text": "Premium is $9.99 a month in Canadian dollars ($7.19 in US dollars). It has everything in Plus, with 20 GB of storage instead of 10 GB and 1.75x credits. Its badge shows instead of Plus or Spark if you have more than one." },
       { "title": "Changing plans", "text": "To switch to another plan, cancel the one you have and pick the new one when it ends. Storage and Billing now work for Spark and Premium the same way they do for Plus." }
     ]
+  },
+  {
+    "id": "2026.11.26.8",
+    "date": "2026-11-26",
+    "title": "Aduna recap songs no longer repeat",
+    "items": [
+      { "title": "Songs play once", "text": "In the recap for all of Aduna, each song now plays once. Before, a short song started over in the middle of the cross-over and again at the end. Each song now fades out as it finishes. Your own recap still starts a short song over." }
+    ]
   }
 ]
