@@ -1,5 +1,6 @@
 'use strict';
-// The yearly recap. Counts only: no message text is kept and nobody's name is attached to who they talked to. Emoji are counted while a
+// The yearly recap. Counts only: no message text is kept and nobody's name is attached to who they talked to. The one thing it names is the
+// public servers that grew the most. Emoji are counted while a
 // server message is read and the text is dropped right after (DMs and group chats are encrypted, so they only count as messages).
 // Pure, no Express and no database (recap-test.js). index.js runs it in the first weeks of the year and keeps one small file per person.
 //
@@ -66,6 +67,30 @@ function pickTop(counts, rng = Math.random) {
   }
   return tied.length ? tied[Math.floor(rng() * tied.length)] : null;
 }
+function pickTopN(counts, n, rng = Math.random) {
+  const left = new Map(counts), out = [];
+  while (out.length < n) {
+    const k = pickTop(left, rng);
+    if (k === null) break;
+    out.push(k);
+    left.delete(k);
+  }
+  return out;
+}
+
+// The servers that took in the most people this year. Only people still in the server count (joinedAt is dropped when someone leaves),
+// and only servers that are listed publicly, since their names end up in a video anyone can share. skip is the official server.
+const MAX_SERVERS = 3;
+const publicServer = (s) => s.visibility === 'public' && !s.listingHold;
+function topServers(servers, users, year, { skip = null, listed = publicServer } = {}) {
+  const gained = (s) => Object.entries(s.joinedAt || {}).filter(([uid, at]) => inYear(at, year) && (s.members || []).includes(uid) && users[uid] && !users[uid].bot && !users[uid].deleted).length;
+  return Object.values(servers)
+    .filter((s) => s && s.id !== skip && listed(s))
+    .map((s) => ({ name: String(s.name || '').trim().slice(0, 40), gained: gained(s) }))
+    .filter((s) => s.name && s.gained > 0)
+    .sort((a, b) => b.gained - a.gained || a.name.localeCompare(b.name))
+    .slice(0, MAX_SERVERS);
+}
 
 // top N% = 1 + the people strictly ahead of you, out of everyone who has a number for it
 function percentiler(values) {
@@ -100,7 +125,8 @@ function songOf(u) {
 }
 
 // db: the collections of the main database. Returns { global, users: { [id]: recap } }; people with nothing to show are left out.
-function buildAll(db, year, rng = Math.random) {
+// opts.skipServer is the id of the official server, which is left out of the fastest growing ones; opts.listed says which servers may be named.
+function buildAll(db, year, rng = Math.random, opts = {}) {
   const { users = {}, messages = {}, dms = {}, gmsgs = {}, calllog = {}, friendships = {}, clips = {}, servers = {}, wordle = {}, contexto = {}, puzzle = {} } = db;
   const per = new Map();
   const of = (uid) => { let p = per.get(uid); if (!p) per.set(uid, (p = blank())); return p; };
@@ -165,12 +191,14 @@ function buildAll(db, year, rng = Math.random) {
   }
   const sum = (f) => rows.reduce((s, r) => s + f(r), 0);
   const tracked = (k) => (rows.some((r) => r[k] !== null) ? sum((r) => r[k] || 0) : null);
+  const topSongs = pickTopN(songs, 2, rng).map((k) => sample.get(k)).filter(Boolean);
   const global = {
     year, users: people.length, joinedThisYear: people.filter((u) => inYear(u.createdAt, year)).length,
     messages: sum((r) => r.p.messages), files: sum((r) => r.p.files), clips: sum((r) => r.p.clips),
     vcHours: Math.round(sum((r) => r.vcSeconds) / 3600), credits: tracked('credits'), quests: tracked('quests'),
     busiestDay: pickTop(days, rng), busiestHour: pickTop(hours, rng), topEmoji: pickTop(emoji, rng),
-    topSong: sample.get(pickTop(songs, rng)) || null, topTheme: pickTop(themes, rng),
+    topSong: topSongs[0] || null, topSongs, topTheme: pickTop(themes, rng),
+    topServers: topServers(servers, users, year, { skip: opts.skipServer, listed: opts.listed }),
     friendships: friendshipsMade, serversCreated: Object.values(servers).filter((s) => inYear(s.createdAt, year)).length,
     wordle: sum((r) => gameTotals(wordle[r.u.id], 'won')), contexto: sum((r) => gameTotals(contexto[r.u.id], 'won')), puzzle: sum((r) => gameTotals(puzzle[r.u.id], 'solved')),
     badges: tracked('badges'), longestCallMin: Math.round(rows.reduce((m, r) => Math.max(m, r.longest), 0) / 60),
@@ -213,4 +241,4 @@ function forget(dir, uid) {
   for (const y of years) { try { fs.unlinkSync(path.join(dir, y, 'users', uid + '.json')); } catch { /* not there */ } }
 }
 
-module.exports = { VOICE_TICK_MS, bump, atLeast, counter, createVoiceMeter, pickTop, percentiler, titleFor, buildAll, write, read, latestYear, dueYear, forget };
+module.exports = { VOICE_TICK_MS, bump, atLeast, counter, createVoiceMeter, pickTop, pickTopN, topServers, percentiler, titleFor, buildAll, write, read, latestYear, dueYear, forget };

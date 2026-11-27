@@ -6240,10 +6240,12 @@ const recapData = () => {
   const d = db();
   return { users: d.users, messages: d.messages, dms: d.dms, gmsgs: d.gmsgs, calllog: d.calllog, friendships: d.friendships, servers: d.servers, wordle: d.wordle, contexto: d.contexto, puzzle: d.puzzle };
 };
+// the servers the recap may name are the ones the public explorer shows, and never the official Aduna server
+const recapOptions = () => ({ skipServer: defaultServer()?.id, listed: (s) => s.visibility === 'public' && !s.listingHold && !listing.listingProblem(s, BLOCKED_WORDS) });
 function recapSweep() {
   const year = recap.dueYear(RECAP_DIR, now());
   if (!year) return null;
-  const built = recap.buildAll(recapData(), year);
+  const built = recap.buildAll(recapData(), year, Math.random, recapOptions());
   recap.write(RECAP_DIR, year, built);
   return { year, people: Object.keys(built.users).length };
 }
@@ -6258,7 +6260,7 @@ app.post('/api/admin/recap/test', auth, adminOnly, needCreator, (req, res) => { 
   const asId = req.body?.userId === undefined || req.body.userId === null || req.body.userId === '' ? req.user.id : req.body.userId; // a creator can try it as another person
   const as = typeof asId === 'string' ? db().users[asId] : null;
   if (!as || as.deleted) return res.status(404).json({ error: 'No such account' });
-  const built = recap.buildAll(recapData(), year);
+  const built = recap.buildAll(recapData(), year, Math.random, recapOptions());
   res.json({ year, global: built.global, mine: built.users[as.id] || null, user: as.id === req.user.id ? undefined : publicUser(as) });
 });
 

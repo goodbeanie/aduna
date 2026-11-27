@@ -53,6 +53,11 @@
 .rc-big { font-size: var(--big); line-height: 1; font-weight: 900; letter-spacing: -.04em; text-wrap: balance; overflow-wrap: anywhere; }
 .rc-unit { font-size: var(--unit); line-height: 1.15; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .95; }
 .rc-year { font-size: var(--big); line-height: 1; font-weight: 900; letter-spacing: -.035em; }
+.rc-list { list-style: none; margin: 1.6cqw 0 0; padding: 0; display: grid; gap: 5cqw; width: calc(100cqw - 2 * var(--mx)); }
+.rc-list li { display: grid; grid-template-columns: 8cqw minmax(0, 1fr) auto; align-items: baseline; gap: 2.4cqw; text-align: left; animation: rc-rise .6s cubic-bezier(.2, .8, .2, 1) calc(.5s + var(--i) * .6s) both; }
+.rc-rank { font-size: 7cqw; font-weight: 900; opacity: .5; }
+.rc-name { font-size: 6.6cqw; line-height: 1.1; font-weight: 900; letter-spacing: -.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-gain { font-size: 5cqw; font-weight: 800; font-variant-numeric: tabular-nums; }
 .rc-emoji { width: 1.1em; height: 1.1em; object-fit: contain; vertical-align: -.18em; margin: 0 .04em; user-select: none; }
 .rc-sub .rc-emoji { width: 1.2em; height: 1.2em; vertical-align: -.25em; }
 .rc-logo { display: flex; align-items: center; gap: calc(var(--logo) * .3); height: var(--logo); }

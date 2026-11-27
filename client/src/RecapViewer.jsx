@@ -10,7 +10,7 @@ import './recapshare.css';
 export default function RecapViewer({ share, onClose }) {
   const { lang } = useLang();
   const back = useRef(null);
-  const scenes = useMemo(() => share.scenes.map((s) => (typeof s.main.count === 'number' ? { ...s, main: { ...s.main, lang } } : s)), [share, lang]);
+  const scenes = useMemo(() => share.scenes.map((s) => (typeof s.main.count === 'number' || s.main.list ? { ...s, main: { ...s.main, lang } } : s)), [share, lang]);
 
   useEffect(() => {
     const was = document.activeElement;
@@ -26,7 +26,7 @@ export default function RecapViewer({ share, onClose }) {
     <div className="rs-back" role="dialog" aria-modal="true" aria-label="Year in review" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="rs-panel">
         <button ref={back} type="button" className="btn ghost rs-exit" onClick={onClose}><Icon name="back" size={16} /> Back to chat</button>
-        <Player scenes={scenes} year={share.year} kind={share.kind} look={share.look || DEFAULT_LOOK} song={share.song} received autoPlay />
+        <Player scenes={scenes} year={share.year} kind={share.kind} look={share.look || DEFAULT_LOOK} songs={share.songs} received autoPlay />
       </div>
     </div>,
     document.body,

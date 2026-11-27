@@ -1110,7 +1110,7 @@ function Switches() {
 const GLOBAL_ROWS = [
   ['Messages sent', 'messages'], ['Hours in voice', 'vcHours'], ['People', 'users'], ['Joined this year', 'joinedThisYear'], ['Credits earned', 'credits', 'counted'],
   ['Quests finished', 'quests', 'counted'], ['Busiest day', 'busiestDay'], ['Busiest hour (UTC)', 'busiestHour', 'hour'], ['Most-used emoji', 'topEmoji'],
-  ['Most popular song', 'topSong', 'song'], ['Most-used theme', 'topTheme'], ['Friendships made', 'friendships'], ['Servers created', 'serversCreated'],
+  ['Most popular songs', 'topSongs', 'songs'], ['Fastest growing servers', 'topServers', 'servers'], ['Most-used theme', 'topTheme'], ['Friendships made', 'friendships'], ['Servers created', 'serversCreated'],
   ['Files shared', 'files'], ['Wordle solves', 'wordle'], ['Contexto solves', 'contexto'], ['Puzzle solves', 'puzzle'],
   ['Badges earned', 'badges', 'counted'], ['Longest call (min)', 'longestCallMin'],
 ];
@@ -1126,6 +1126,8 @@ function recapValue(data, key, kind) {
   if (kind === 'hour') return String(v).padStart(2, '0') + ':00';
   if (kind === 'percent') return 'top ' + v + '%';
   if (kind === 'song') return v.title || '—';
+  if (kind === 'songs') return v.length ? v.map((s) => s.title || '—').join(', ') : '—';
+  if (kind === 'servers') return v.length ? v.map((s) => `${s.name} (+${s.gained.toLocaleString()})`).join(', ') : '—';
   return typeof v === 'number' ? v.toLocaleString() : String(v);
 }
 function Recap() {
