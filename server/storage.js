@@ -295,7 +295,7 @@ function register(app, d) {
     const used = await d.store.userFileBytes(u.id);
     const cap = !sub && d.freeBudget ? d.freeBudget.limitBytes() : null; // a free person's own limit (null: none, or the cap is not switched on)
     return {
-      plan: active ? PLANS[active] : PLAN, // the plan they have (Plus when none, which is what the storage card offers)
+      plan: sub ? PLANS[active] : PLAN, // the plan they have with storage (Plus when none or Spark, which is what the storage card offers)
       plans: Object.values(PLANS),
       planId: active,                      // 'spark' | 'plus' | 'premium' | null
       subscriber: sub,
@@ -303,7 +303,7 @@ function register(app, d) {
       status: s ? s.status : 'none',
       currency: (s && s.currency) || 'usd', // what this person pays in (USD until they have bought in CAD)
       paidThrough: s && s.paidThrough ? s.paidThrough : null,
-      renews: sub && !!s && s.status === 'active',
+      renews: !!active && !!s && s.status === 'active',
       used,
       limit: sub ? planBytes(u) : null, // Plus: the plan's 10 GB (Premium 20 GB). free and Spark: see freeLimit
       uploadLimit: sub ? plusLimitOf(u) : null, // Plus: the optional upload limit the person set for themselves (null: none)

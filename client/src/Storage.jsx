@@ -3,7 +3,7 @@ import { api } from './api.js';
 import { Icon, Modal } from './ui.jsx';
 import { askConfirm, toast } from './Dialogs.jsx';
 import { homeCountry } from './region.js';
-import PlusCard, { plusPerks } from './PlusCard.jsx';
+import Plans, { perksFor } from './Plans.jsx';
 import { setStorageFullHandler, setPlusLimitHandler, sizeLabel } from './files.js';
 
 // The storage plan: a usage bar above the profile bar, the plan window, the cleanup window (when a plan's 10 GB is full) and the checkout.
@@ -129,6 +129,7 @@ function LimitForm({ current, onSave, busy, saveLabel = 'Save', max = 10, requir
 
 function PlanModal({ s, onClose, onSubscribe, onManage, onBilling, onCancelPlan, onSaveLimit, busy }) {
   const pct = s.limit ? Math.min(100, Math.round((s.used / s.limit) * 100)) : 0;
+  const own = s.plans ? s.plans.find((p) => p.rank === s.planId) : null; // the plan they have, which may be Spark (no storage, so s.plan is Plus)
   return (
     <Modal title="Storage" onClose={onClose}>
       {s.subscriber ? (
@@ -143,8 +144,8 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onBilling, onCancelPlan,
             <span>{s.uploadLimit > 0 && s.uploadLimit < s.limit ? `Upload limit ${fmt(s.uploadLimit)}` : `${fmt(Math.max(0, s.limit - s.used))} free`}</span>
           </div>
           <p className="st-note">{s.lifetime ? 'Aduna Plus is on for this account for good.' : s.renews ? `Renews around ${day(s.paidThrough)} for $${((s.currency === 'cad' ? s.plan.cadCents : s.plan.cents) / 100).toFixed(2)}${s.currency === 'cad' ? ' CAD' : ''}.` : `Your plan ends on ${day(s.paidThrough)}. Your files are kept for 14 days after that.`} Your files stay yours and never get cleared to make room for anyone else.</p>
-          <p className="st-head">Included with Aduna Plus</p>
-          <ul className="st-perks st-included">{plusPerks(s.plan.bytes).map((p) => <li key={p}>{p}</li>)}</ul>
+          <p className="st-head">Included with {s.plan.name}</p>
+          <ul className="st-perks st-included">{perksFor(s.plan).map((p) => <li key={p}>{p}</li>)}</ul>
           <p className="st-head">Upload limit <span>(optional)</span></p>
           <LimitForm current={s.uploadLimit} max={Math.round(s.limit / GB)} onSave={onSaveLimit} busy={busy} requireChange />
         </>
@@ -163,15 +164,16 @@ function PlanModal({ s, onClose, onSubscribe, onManage, onBilling, onCancelPlan,
               <p className="st-note">Free storage is shared by everyone. When it fills up, the oldest files are removed to make room, and old files expire after a while.</p>
             </>
           )}
-          <PlusCard plan={s.plan} country={s.regions ? homeCountry(s.regions.countries) : 'US'} regions={s.regions} purchases={s.purchases} paused={s.paused} busy={busy} onGet={onSubscribe} />
+          {s.planId === 'spark' && own && <p className="st-note">{s.renews ? `You have Aduna Spark. It renews around ${day(s.paidThrough)} for $${((s.currency === 'cad' ? own.cadCents : own.cents) / 100).toFixed(2)}${s.currency === 'cad' ? ' CAD' : ''}.` : `You have Aduna Spark until ${day(s.paidThrough)}.`}</p>}
+          <Plans storage={s} country={s.regions ? homeCountry(s.regions.countries) : 'US'} busy={busy} onGet={onSubscribe} />
           {s.status === 'ended' && <p className="st-note">Your last plan ended{s.paidThrough ? ' on ' + day(s.paidThrough) : ''}. Files are kept for 14 days after that, then the normal clean-up applies again.</p>}
         </>
       )}
       <div className="st-actions">
         <button className="btn st-left" onClick={onManage}>Manage files</button>
-        {s.subscriber && !s.paused && <a className="btn" href="/payments">Payments</a>}
-        {s.subscriber && !s.lifetime && s.status !== 'none' && <button className="btn" onClick={onBilling} disabled={busy}>Billing</button>}
-        {s.subscriber && s.renews && <button className="btn danger-btn" onClick={onCancelPlan} disabled={busy}>Cancel plan</button>}
+        {s.planId && !s.paused && <a className="btn" href="/payments">Payments</a>}
+        {s.planId && !s.lifetime && s.status !== 'none' && <button className="btn" onClick={onBilling} disabled={busy}>Billing</button>}
+        {s.renews && <button className="btn danger-btn" onClick={onCancelPlan} disabled={busy}>Cancel plan</button>}
         <button className="btn primary" onClick={onClose}>Done</button>
       </div>
     </Modal>
@@ -188,7 +190,11 @@ export function StorageDock({ storage, setStorage }) {
   const askRef = useRef(null); askRef.current = ask;
 
   const reload = useCallback(() => api('/storage').then(setStorage).catch(() => {}), [setStorage]);
-  useEffect(() => { const open = () => setModal('plan'); window.addEventListener('aduna:plus', open); return () => window.removeEventListener('aduna:plus', open); }, []);
+  useEffect(() => {
+    const open = (e) => { const plan = e.detail && e.detail.plan; if (plan) subscribeRef.current(plan); else setModal('plan'); };
+    window.addEventListener('aduna:plus', open);
+    return () => window.removeEventListener('aduna:plus', open);
+  }, []);
   useEffect(() => { reload(); const f = () => reload(); window.addEventListener('focus', f); return () => window.removeEventListener('focus', f); }, [reload]);
 
   // an upload that does not fit asks for the cleanup window and waits for the answer
@@ -236,13 +242,14 @@ export function StorageDock({ storage, setStorage }) {
     ask();
   }, [setStorage]);
 
-  async function subscribe() {
+  async function subscribe(plan = 'plus') {
     setBusy(true);
-    try { const { url } = await api('/storage/subscribe', { method: 'POST', body: { country: storage.regions ? homeCountry(storage.regions.countries) : 'US' } }); window.location.assign(url); }
+    try { const { url } = await api('/storage/subscribe', { method: 'POST', body: { plan, country: storage.regions ? homeCountry(storage.regions.countries) : 'US' } }); window.location.assign(url); }
     catch (e) { toast(e.message, 'error'); setBusy(false); }
   }
+  const subscribeRef = useRef(null); subscribeRef.current = subscribe;
   async function cancelPlan() {
-    if (!(await askConfirm({ title: 'Cancel storage plan', body: 'You keep the plan until the month you paid for ends. After that your files are kept for 14 more days.', confirmLabel: 'Cancel plan' }))) return;
+    if (!(await askConfirm({ title: 'Cancel plan', body: storage.planId === 'spark' ? 'You keep Spark until the month you paid for ends.' : 'You keep the plan until the month you paid for ends. After that your files are kept for 14 more days.', confirmLabel: 'Cancel plan' }))) return;
     setBusy(true);
     try { setStorage(await api('/storage/cancel', { method: 'POST' })); toast('Your plan will not renew.'); }
     catch (e) { toast(e.message, 'error'); }
@@ -272,7 +279,7 @@ export function StorageDock({ storage, setStorage }) {
         {s.subscriber && s.limit && <span className="st-track"><i className={pct >= 95 ? 'full' : pct >= 80 ? 'warn' : ''} style={{ width: fillPct(s.used, s.limit) + '%' }} /></span>}
         {!s.subscriber && s.freeLimit && <span className="st-track"><i className={s.readOnly || freePct >= 95 ? 'full' : freePct >= 80 ? 'warn' : ''} style={{ width: fillPct(s.used, s.freeLimit) + '%' }} /></span>}
       </button>
-      {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={() => { setModal(null); subscribe(); }} onManage={() => setModal('files')} onBilling={billing} onCancelPlan={cancelPlan} onSaveLimit={(gb) => saveLimit(gb)} />}
+      {modal === 'plan' && <PlanModal s={s} busy={busy} onClose={() => setModal(null)} onSubscribe={(plan) => { setModal(null); subscribe(plan); }} onManage={() => setModal('files')} onBilling={billing} onCancelPlan={cancelPlan} onSaveLimit={(gb) => saveLimit(gb)} />}
       {ask && (
         <Modal title="Do you want a storage limit?" onClose={() => { ask.resolve(false); setAsk(null); }}>
           <p className="st-note">With Plus your files are never removed. You can keep uploading with no limit, or set one yourself so uploads stop at a size you choose. You can change this any time in Storage.</p>

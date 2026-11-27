@@ -57,6 +57,31 @@ const started = () => { const u = user(); assert.strictEqual(S.applySession(u, s
     assert.strictEqual(fc.calls[0].params['line_items[0][price_data][unit_amount]'], String(S.PLAN.cadCents), 'Canadians pay the CAD price');
     step('checkout: server price, monthly, metadata names the person, buyer must say where they are');
   }
+  {
+    for (const id of ['spark', 'premium']) {
+      const f = fakeStripe(), plan = S.PLANS[id];
+      await S.createCheckout({ user: user(), buyer: CA, origin: 'x', fetchImpl: f.impl, planId: id });
+      const p = f.calls[0].params;
+      assert.strictEqual(p['line_items[0][price_data][unit_amount]'], String(plan.cadCents), id + ': the plan\'s own price');
+      assert.strictEqual(p['metadata[plan]'], id);
+      const u = user();
+      const paid = session({ currency: 'cad', amount_total: plan.cadCents, metadata: { kind: 'storage', userId: 'u1', country: 'CA', plan: id }, customer_details: { address: { country: 'CA', state: 'BC' } } });
+      assert.strictEqual(S.applySession(u, paid, T0), 'changed');
+      assert.strictEqual(S.activePlan(u, T0 + DAY), id);
+      assert.strictEqual(S.isSubscriber(u, T0 + DAY), id === 'premium', 'only Premium has storage of its own besides Plus');
+      assert.strictEqual(u.storagePayments[0].plan, id);
+      assert.strictEqual(S.planBytes(u), plan.bytes || S.PLAN.bytes, id + ': storage comes from the plan');
+      assert.strictEqual(S.applySession(user(), { ...paid, amount_total: plan.cadCents - 1 }, T0), 'bad', id + ': less than the plan costs');
+    }
+    {
+      // the cheaper plan's price can never start the dearer plan, and the other way round
+      const paid = (plan, cents) => session({ currency: 'cad', amount_total: cents, metadata: { kind: 'storage', userId: 'u1', country: 'CA', plan }, customer_details: { address: { country: 'CA', state: 'BC' } } });
+      assert.strictEqual(S.applySession(user(), paid('premium', S.PLANS.spark.cadCents), T0), 'bad', 'Spark money does not buy Premium');
+      assert.strictEqual(S.applySession(user(), paid('spark', S.PLANS.premium.cadCents), T0), 'bad', 'a Spark session is not a Premium payment');
+    }
+    await assert.rejects(S.createCheckout({ user: user(), buyer: US, origin: 'x', fetchImpl: fakeStripe().impl, planId: 'gold' }), /Pick a plan/);
+    step('Spark and Premium: their own price and plan on the session, only paid sessions of the right amount start them');
+  }
 
   // ---- starting the plan ----
   {

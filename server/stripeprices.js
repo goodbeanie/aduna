@@ -5,10 +5,12 @@
 //
 //   STRIPE_PRODUCTS=auto   Aduna reads your active Stripe prices and picks the right one by product name + currency + amount:
 //                            "500 Credits", "1000 Credits", "2500 Credits", "5000 Credits"  ->  the credit packs
-//                            "Aduna PLUS" (recurring, monthly)                              ->  the storage plan
+//                            "Aduna PLUS" (recurring, monthly)                              ->  the Plus plan
+//                            "Aduna Spark" and "Aduna Premium" (recurring, monthly)         ->  the Spark and Premium plans
 //                          Names are not case sensitive ("500 credits" or "500 Aduna credits" also match).
 //   STRIPE_PRICES='{"p500":{"cad":"price_..."},"storage10":{"cad":"price_...","usd":"price_..."}}'
-//                          Names the Stripe price ids yourself (pack ids are in credits.js PACKS, the plan id is storage10).
+//                          Names the Stripe price ids yourself (pack ids are in credits.js PACKS, the plan ids are storage10 for Plus,
+//                          spark and premium, see PLANS in storage.js).
 //                          These win over STRIPE_PRODUCTS=auto.
 //
 // Safety: the price still comes from Aduna's own table (credits.js PACKS, storage.js PLAN). A Stripe price is only used when its

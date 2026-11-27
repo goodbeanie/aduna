@@ -4,7 +4,7 @@ import { Icon, Modal } from './ui.jsx';
 import { EmptyState, PanelSkeleton } from './ShellBits.jsx';
 import { toast } from './Dialogs.jsx';
 import { AddBadgeModal, BuyConfirm, Celebration, ShopTile, useCountUp } from './Shop.jsx';
-import PlusCard from './PlusCard.jsx';
+import Plans from './Plans.jsx';
 import { homeCountry, rememberCountry, priceFor } from './region.js';
 
 function Quest({ q, locked, busy, onClaim }) {
@@ -423,8 +423,8 @@ export default function Credits({ page = 'shop', storage = null, onBack, rev, ju
             </a>
             {storage && storage.plan && !artistId && (
               <div className="shop-plus">
-                <h4 className="credit-h">Aduna Plus</h4>
-                <PlusCard plan={storage.plan} country={storage.regions ? homeCountry(storage.regions.countries) : 'US'} regions={storage.regions} subscriber={storage.subscriber} purchases={storage.purchases} paused={storage.paused} onGet={() => window.dispatchEvent(new Event('aduna:plus'))} />
+                <h4 className="credit-h">Aduna plans</h4>
+                <Plans storage={storage} country={storage.regions ? homeCountry(storage.regions.countries) : 'US'} onGet={(plan) => window.dispatchEvent(new CustomEvent('aduna:plus', { detail: { plan } }))} onManage={() => window.dispatchEvent(new Event('aduna:plus'))} />
               </div>
             )}
             </>}

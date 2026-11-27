@@ -69,6 +69,10 @@ html[data-grad] .storage-bar { background: color-mix(in srgb, var(--bg3) 70%, tr
 .pc-word b { position: absolute; left: 97.9%; top: -41.7%; width: 12.3%; aspect-ratio: 1; display: block;
   background: linear-gradient(#eaa0f6, #eaa0f6) center / 100% 20% no-repeat, linear-gradient(#eaa0f6, #eaa0f6) center / 20% 100% no-repeat; }
 .pc-card .st-perks { gap: 9px; }
+.pl-list { display: flex; flex-direction: column; }
+.pl-list .pc-card { margin: 10px 0 0; }
+.pc-card.mine { border-color: var(--ink); }
+.pc-title { display: inline-flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; color: var(--head, var(--text)); }
 .shop-plus { margin: 22px 0 8px; }
 .shop-plus .pc-card { margin-top: 10px; }
 @media (max-width: 600px) { .st-type { display: none; } .st-offer { flex-direction: column; align-items: stretch; } }
