@@ -87,7 +87,7 @@ try{
     track.setAttribute('aria-valuemax', String(goal));
     track.setAttribute('aria-valuenow', String(Math.min(count, goal)));
     fill.style.width = (count > 0 ? Math.max(pct, 1.5) : 0) + '%'; // a sliver for the first few, so the bar is never mistaken for empty
-    note.textContent = count >= goal ? 'We made it. Thank you for gathering with us.' : fmt(goal - count) + ' more to reach ' + fmt(goal) + '. Come be one of them.';
+    note.textContent = count >= goal ? 'We made it. Thanks, everyone.' : fmt(goal - count) + ' more and we hit ' + fmt(goal) + '. Want to be one?';
     var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (still || count < 2) { n.textContent = fmt(count); return; }
     var t0 = null;
