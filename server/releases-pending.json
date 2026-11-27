@@ -914,5 +914,16 @@
       { "title": "Our supporters", "text": "The Aduna recap has a new scene near the end that thanks the people who backed Aduna that year with Spark, Plus or Premium. Each one shows as a pill with their picture and username, highest rank first, sliding in as the list scrolls. A long list gets more time. It is only in the Aduna recap, and a shared recap leaves it out." },
       { "title": "New chess pieces", "text": "The chess puzzle has a new set of pieces: outlined in white and filled dark grey for black. The promotion picker uses them too." }
     ]
+  },
+  {
+    "id": "2026.11.26.7",
+    "date": "2026-11-26",
+    "title": "Pick your plan: Spark, Plus or Premium",
+    "items": [
+      { "title": "Plan cards", "text": "The Storage window and the bottom of the Shop now show a card for each plan, with its price, what it includes and a button to get it. The plan you have is marked, with a button to manage it." },
+      { "title": "Aduna Spark", "text": "Spark is $1.99 a month in Canadian dollars ($1.49 in US dollars). It gives you a Spark badge and 1.1x credits. It has no storage of its own and none of the Plus perks." },
+      { "title": "Aduna Premium", "text": "Premium is $9.99 a month in Canadian dollars ($7.19 in US dollars). It has everything in Plus, with 20 GB of storage instead of 10 GB and 1.75x credits. Its badge shows instead of Plus or Spark if you have more than one." },
+      { "title": "Changing plans", "text": "To switch to another plan, cancel the one you have and pick the new one when it ends. Storage and Billing now work for Spark and Premium the same way they do for Plus." }
+    ]
   }
 ]
