@@ -905,5 +905,14 @@
       { "title": "Server pictures", "text": "The fastest growing servers list now shows each server's picture, or its initials if it has none, and lists five servers instead of three." },
       { "title": "Songs", "text": "The two songs now cross over at the 30 second mark. A shared Aduna recap can be too long to carry its songs, in which case it plays without them." }
     ]
+  },
+  {
+    "id": "2026.11.26.6",
+    "date": "2026-11-26",
+    "title": "Supporters in the recap and new chess pieces",
+    "items": [
+      { "title": "Our supporters", "text": "The Aduna recap has a new scene near the end that thanks the people who backed Aduna that year with Spark, Plus or Premium. Each one shows as a pill with their picture and username, highest rank first, sliding in as the list scrolls. A long list gets more time. It is only in the Aduna recap, and a shared recap leaves it out." },
+      { "title": "New chess pieces", "text": "The chess puzzle has a new set of pieces: outlined in white and filled dark grey for black. The promotion picker uses them too." }
+    ]
   }
 ]
