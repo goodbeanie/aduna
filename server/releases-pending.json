@@ -880,5 +880,19 @@
     "items": [
       { "title": "Darker checkmark", "text": "The checkmark on the Affiliate badge is now dark, so it is easy to see against the pastel colors, including at the small size next to a name." }
     ]
+  },
+  {
+    "id": "2026.11.26.4",
+    "date": "2026-11-26",
+    "title": "Recap: more stats, two songs, fastest growing servers",
+    "items": [
+      { "title": "Four stats", "text": "The recap now shows up to four stats instead of three, so credits earned and quests finished show up next to messages and voice time." },
+      { "title": "No more title", "text": "The Night Owl and Chatterbox title scene is gone from the recap." },
+      { "title": "Songs loop", "text": "If your profile song is shorter than the 30 seconds, it starts over instead of going quiet." },
+      { "title": "Two songs for everyone", "text": "The Aduna recap plays the two most popular songs and fades from the first to the second in the middle. A shared recap carries both songs." },
+      { "title": "Fastest growing servers", "text": "The Aduna recap has a new list of the three public servers that gained the most new people this year. Private servers and servers on a listing hold are left out." },
+      { "title": "Scene lengths", "text": "The intro and outro are shorter and the servers list stays on screen longer." },
+      { "title": "Admin Recap tab", "text": "The Recap tab in /admin now lists the top songs and the fastest growing servers." }
+    ]
   }
 ]
