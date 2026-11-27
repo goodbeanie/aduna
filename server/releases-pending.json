@@ -941,5 +941,13 @@
     "items": [
       { "title": "Plan cards in a row", "text": "On a computer, the Spark, Plus and Premium cards at the bottom of the Shop now sit side by side, with the buttons lined up along the bottom. On a narrow window and in the Storage window they stay in one column." }
     ]
+  },
+  {
+    "id": "2026.11.26.10",
+    "date": "2026-11-26",
+    "title": "Plainer wording on the home page",
+    "items": [
+      { "title": "Home page text", "text": "The headline, the feature descriptions and the member goal on the Aduna home page are reworded in plainer language. Nothing about how Aduna works changed." }
+    ]
   }
 ]
