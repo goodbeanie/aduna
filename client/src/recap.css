@@ -60,6 +60,21 @@
 .rc-ico img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .rc-name { font-size: 6.6cqw; line-height: 1.1; font-weight: 900; letter-spacing: -.03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-gain { font-size: 5cqw; font-weight: 800; font-variant-numeric: tabular-nums; }
+/* supporters: the scene fills the frame. The pills come in from the side, and the list scrolls by itself when it is longer than the frame
+   (Crowd in Recap.jsx sets --over, --sfrom, --sdur and each pill's --d). The scroller is as wide as the frame so a pill is not cut off before it has slid in. */
+.rc-scene.crowd .rc-main { inset: var(--my) 0; margin: 0; width: auto; max-width: none; height: auto; align-items: stretch; text-align: center; gap: 4cqw; }
+.rc-scene.crowd .rc-unit { padding: 0 var(--mx); }
+.rc-crowd { flex: 1; min-height: 0; overflow: hidden; padding: 0 var(--mx); -webkit-mask-image: linear-gradient(transparent, #000 3cqw, #000 calc(100% - 3cqw), transparent); mask-image: linear-gradient(transparent, #000 3cqw, #000 calc(100% - 3cqw), transparent); }
+.rc-crowd-body { position: relative; display: grid; gap: 5cqw; padding: 3cqw 0; animation: rc-crowd-scroll var(--sdur, 1s) linear var(--sfrom, 0s) both; }
+.rc-tier { --chip: linear-gradient(90deg, #d98cff, #f6d4ff); display: flex; flex-wrap: wrap; justify-content: center; gap: 3cqw; }
+.rc-tier[data-tier=spark] { --chip: linear-gradient(90deg, #ff8a2b, #ffd2a1); }
+.rc-tier[data-tier=plus] { --chip: linear-gradient(90deg, #d98cff, #f6d4ff); }
+.rc-tier[data-tier=premium] { --chip: linear-gradient(90deg, #4fd8ff, #cba0ff 60%, #f1dcff); }
+.rc-chip { display: flex; align-items: center; gap: 2.2cqw; box-sizing: border-box; width: 41cqw; height: 10.6cqw; padding: 1.2cqw 3.4cqw 1.2cqw 1.2cqw; border-radius: 999px; background: var(--chip); color: #1b1424; text-shadow: none; font-size: 3.9cqw; font-weight: 700; letter-spacing: -.01em; animation: rc-slide-l .7s cubic-bezier(.2, .8, .2, 1) var(--d, 0s) both; }
+.rc-chip.from-r { animation-name: rc-slide-r; }
+.rc-pic { flex: none; width: 8.2cqw; height: 8.2cqw; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: #d6d6d6; color: #1b1424; font-size: 3.6cqw; font-weight: 800; }
+.rc-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.rc-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rc-emoji { width: 1.1em; height: 1.1em; object-fit: contain; vertical-align: -.18em; margin: 0 .04em; user-select: none; }
 .rc-sub .rc-emoji { width: 1.2em; height: 1.2em; vertical-align: -.25em; }
 .rc-logo { display: flex; align-items: center; gap: calc(var(--logo) * .3); height: var(--logo); }
@@ -70,6 +85,9 @@
 @keyframes rc-scene { 0% { opacity: 0; } 7% { opacity: 1; } 93% { opacity: 1; } 100% { opacity: 0; } }
 @keyframes rc-scene-last { 0% { opacity: 0; } 7% { opacity: 1; } 100% { opacity: 1; } }
 @keyframes rc-rise { from { opacity: 0; transform: translateY(4cqh); } to { opacity: 1; transform: none; } }
+@keyframes rc-slide-l { from { opacity: 0; transform: translateX(-110cqw); } to { opacity: 1; transform: none; } }
+@keyframes rc-slide-r { from { opacity: 0; transform: translateX(110cqw); } to { opacity: 1; transform: none; } }
+@keyframes rc-crowd-scroll { from { transform: none; } to { transform: translateY(calc(-1 * var(--over, 0px))); } }
 @keyframes rc-fade { from { opacity: 0; } to { opacity: .88; } }
 
 /* paused or finished: everything stops where it is. Before the first play: a still poster of the intro with a play button. */
@@ -96,4 +114,5 @@
 @media (prefers-reduced-motion: reduce) {
   .rc-scene, .rc-scene * { animation: none !important; }
   .rc-stage { transition: none; }
+  .rc-crowd { overflow-y: auto; } /* nothing scrolls by itself, so a long list is scrolled by hand */
 }

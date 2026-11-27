@@ -174,11 +174,36 @@ const world = () => ({
   assert.deepStrictEqual(R.buildAll({ users: { x: { id: 'x', createdAt: 1 } } }, Y).global.topServers, []);
   step('the five public servers that grew the most, with their pictures and without the official one');
 
+  const backed = world();
+  Object.assign(backed.users.a, { username: 'amy', avatarImage: 'e'.repeat(32), storagePayments: [{ id: 'p0', at: Date.UTC(2025, 5, 1), plan: 'premium' }, { id: 'p1', at: at(3, 1), plan: 'spark' }, { id: 'p2', at: at(4, 1), plan: 'plus' }] });
+  Object.assign(backed.users.b, { username: 'ben', storagePayments: [{ id: 'q1', at: at(5, 1) }] });
+  Object.assign(backed.users.c, { username: 'cy', supporter: { rank: 'spark', until: at(9, 1) } });
+  Object.assign(backed.users.bot, { username: 'robo', storagePayments: [{ id: 'r1', at: at(5, 1), plan: 'premium' }] });
+  Object.assign(backed.users.gone, { username: 'gone', storagePayments: [{ id: 'g1', at: at(5, 1), plan: 'premium' }] });
+  backed.users.d = { id: 'd', username: 'dee', createdAt: 1, storagePayments: [{ id: 'd1', at: Date.UTC(2025, 11, 31), plan: 'premium' }] };
+  assert.deepStrictEqual(R.buildAll(backed, Y, () => 0).global.supporters, [
+    { name: 'amy', tier: 'plus', icon: 'e'.repeat(32) },
+    { name: 'ben', tier: 'plus', icon: null },
+    { name: 'cy', tier: 'spark', icon: null },
+  ], 'a payment in the year counts at its plan (none is Plus), the highest of the year wins, and bots, deleted accounts and other years do not');
+  backed.users.b.storagePayments[0].plan = 'premium';
+  assert.deepStrictEqual(R.buildAll(backed, Y, () => 0).global.supporters.map((x) => x.name + ':' + x.tier), ['ben:premium', 'amy:plus', 'cy:spark'], 'a higher rank comes first');
+  backed.users.c.supporter = { rank: 'premium', until: Date.UTC(2027, 1, 1) };
+  const gift = (now, year = Y) => R.buildAll(backed, year, () => 0, { now }).global.supporters.map((x) => x.name);
+  assert.ok(gift(at(12, 1)).includes('cy'), 'a gift that is still running counts in the current year');
+  assert.ok(!gift(Date.UTC(2027, 0, 20)).includes('cy'), 'but not when the recap is built for the year before');
+  assert.deepStrictEqual(R.buildAll({ users: { x: { id: 'x', createdAt: 1 } } }, Y).global.supporters, []);
+  const crowd = { users: {} };
+  for (let i = 0; i < 305; i++) crowd.users['u' + i] = { id: 'u' + i, username: 'user' + i, createdAt: 1, supporter: { rank: 'spark', until: at(9, 1) } };
+  assert.strictEqual(R.buildAll(crowd, Y, () => 0).global.supporters.length, 300, 'three hundred at most');
+  step('supporters of the year: highest rank first, payments and gifts, no bots, deleted accounts or other years');
+
   const text = JSON.stringify(built);
   for (const leak of ['hi ', 'again', 'yo', 'a:b']) assert.ok(!text.includes(leak), 'no message text in the output: ' + leak);
-  assert.strictEqual(typeof g.users, 'number', 'the global recap counts people and lists none');
+  assert.strictEqual(typeof g.users, 'number', 'the global recap counts people');
   assert.ok(!/"userId"/.test(JSON.stringify(g)), 'and has no ids');
-  step('nothing from message text and no people in the global recap');
+  assert.deepStrictEqual(g.supporters, [], 'nobody is named unless they supported Aduna');
+  step('nothing from message text, and no people but the supporters');
 
   const none = R.buildAll({ users: { x: { id: 'x', createdAt: 1 } } }, Y);
   assert.deepStrictEqual(none.users, {}); assert.strictEqual(none.global.messages, 0); assert.strictEqual(none.global.credits, null); assert.strictEqual(none.global.topEmoji, null);

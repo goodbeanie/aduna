@@ -136,10 +136,24 @@ function serversScene(g) {
 }
 const isIconId = (v) => typeof v === 'string' && /^[0-9a-f]{32}$/.test(v);
 
+// The people who backed Aduna that year, highest rank first (the server sends them that way, but the order is kept here too). Global only, and
+// never part of a shared recap: the list is too long for a chat message. Nothing when there are none.
+export const SUPPORTER_TIERS = ['premium', 'plus', 'spark'];
+export const MAX_SUPPORTERS = 300;
+function supportersScene(g, lang) {
+  const list = (Array.isArray(g.supporters) ? g.supporters : [])
+    .filter((p) => p && typeof p.name === 'string' && p.name && SUPPORTER_TIERS.includes(p.tier))
+    .slice(0, MAX_SUPPORTERS)
+    .map((p) => ({ name: p.name.slice(0, 32), tier: p.tier, ...(isIconId(p.icon) ? { icon: p.icon } : {}) }))
+    .sort((a, b) => SUPPORTER_TIERS.indexOf(a.tier) - SUPPORTER_TIERS.indexOf(b.tier));
+  if (!list.length) return null;
+  return { key: 'supporters', main: { people: list, lang }, unit: 'Our supporters', sub: '' };
+}
+
 // kind is 'mine' or 'global'. Returns null when there is nothing to show.
 // Where each scene sits: the intro in the middle, then the stats (up to four for someone's own recap, up to six for everyone's: messages top left,
 // voice bottom right, credits in the middle, the rest in the spots that are left), the servers list (global only) in the middle,
-// the fun ones top right (the global recap has three: busiest day, hour and emoji), the outro bottom left.
+// the fun ones top right (the global recap has three: busiest day, hour and emoji), the supporters (global only) filling the frame, the outro bottom left.
 // A missing fun stat or a short list of stats just means fewer scenes; the time is shared out by timeline().
 export function buildScenes(data, kind, lang = 'en') {
   if (!data || !data.year) return null;
@@ -152,7 +166,8 @@ export function buildScenes(data, kind, lang = 'en') {
   const servers = mine ? null : serversScene(rec);
   if (servers) servers.main.lang = lang;
   const funs = mine ? [funMine(rec, lang)].filter(Boolean) : funGlobal(rec, lang);
-  if (!stats.length && !funs.length && !servers) return null;
+  const supporters = mine ? null : supportersScene(rec, lang);
+  if (!stats.length && !funs.length && !servers && !supporters) return null;
 
   const intro = {
     key: 'intro',
@@ -170,6 +185,8 @@ export function buildScenes(data, kind, lang = 'en') {
     ...(servers ? [{ ...servers, anchor: lastSpot === 'c' ? 'tl' : 'c' }] : []),
     ...funs.map((f, i) => ({ ...f, anchor: FUN_SPOTS[i] })),
   ];
+  // second to last: the supporters fill the frame, so the anchor only has to differ from the scene before
+  if (supporters) scenes.push({ ...supporters, anchor: scenes[scenes.length - 1].anchor === 'c' ? 'tl' : 'c' });
   const before = scenes[scenes.length - 1].anchor;
   scenes.push({ ...outro, anchor: before === 'bl' ? 'tr' : 'bl' });
   return scenes;
@@ -177,9 +194,11 @@ export function buildScenes(data, kind, lang = 'en') {
 
 // Scenes are not all the same length: the intro and the outro are short, the servers list gets the longest.
 // A scene is looked up by its key, so a recap shared in a chat plays the same way.
+// The supporters list gets longer with every row it has to scroll through, up to a limit.
 const WEIGHT = { intro: 0.8, outro: 0.8, servers: 1.6 };
+const weightOf = (s) => (s.key === 'supporters' && s.main.people ? Math.min(8, 1.8 + Math.ceil(s.main.people.length / 2) * 0.25) : WEIGHT[s.key] || 1);
 export function timeline(scenes, total = TOTAL_MS) {
-  const w = scenes.map((s) => WEIGHT[s.key] || 1), all = w.reduce((a, b) => a + b, 0);
+  const w = scenes.map(weightOf), all = w.reduce((a, b) => a + b, 0);
   let at = 0;
   return w.map((x, i) => {
     const from = at;
@@ -213,7 +232,7 @@ export function shareText(scenes, kind, year) {
     if (s.main.list) return `${s.unit}: ${s.main.list.map((i) => `${i.name} (+${fmtCount(i.count, s.main.lang)})`).join(', ')}`;
     return s.main.count ? `${countText(s.main, 0, true)} ${s.unit}` : `${s.unit}: ${s.main.text}`;
   };
-  const lines = scenes.filter((s) => s.key !== 'intro' && s.key !== 'outro').map(line);
+  const lines = scenes.filter((s) => s.key !== 'intro' && s.key !== 'outro' && s.key !== 'supporters').map(line);
   const head = kind === 'mine' ? `My ${year} on Aduna` : `Aduna in ${year}`;
   return [head, ...lines.map((l) => '• ' + l)].join('\n');
 }
@@ -246,7 +265,8 @@ const fromB64 = (t) => new TextDecoder().decode(Uint8Array.from(atob(t.replace(/
 
 const packMain = (m, withIcons = true) => (m.logo ? 1 : m.list ? m.list.map((i) => (withIcons && i.icon ? [i.name, i.count, i.icon] : [i.name, i.count])) : typeof m.count === 'number' ? [m.count, m.prefix || '', m.suffix || ''] : String(m.text ?? ''));
 
-export function recapToken(scenes, { kind, year, look, songs }) {
+export function recapToken(all, { kind, year, look, songs }) {
+  const scenes = all.filter((s) => s.key !== 'supporters');
   const l = look || DEFAULT_LOOK;
   const so = (songs || []).filter((s) => s && (s.id || s.url)).slice(0, 2)
     .map((s) => ({ ...(s.id ? { i: String(s.id) } : {}), ...(s.url && String(s.url).length <= 300 ? { u: String(s.url) } : {}), t: String(s.title || '').slice(0, 60) }));

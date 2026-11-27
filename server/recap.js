@@ -1,6 +1,6 @@
 'use strict';
-// The yearly recap. Counts only: no message text is kept and nobody's name is attached to who they talked to. The one thing it names is the
-// public servers that grew the most. Emoji are counted while a
+// The yearly recap. Counts only: no message text is kept and nobody's name is attached to who they talked to. The only things it names are the
+// public servers that grew the most and the people who supported Aduna that year. Emoji are counted while a
 // server message is read and the text is dropped right after (DMs and group chats are encrypted, so they only count as messages).
 // Pure, no Express and no database (recap-test.js). index.js runs it in the first weeks of the year and keeps one small file per person.
 //
@@ -12,6 +12,7 @@
 const fs = require('fs');
 const path = require('path');
 const music = require('./music');
+const supporterLib = require('./supporter');
 
 const EMOJI = /\p{Extended_Pictographic}(?:\uFE0F|\u200D\p{Extended_Pictographic})*/gu;
 const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
@@ -90,6 +91,28 @@ function topServers(servers, users, year, { skip = null, listed = publicServer }
     .filter((s) => s.name && s.gained > 0)
     .sort((a, b) => b.gained - a.gained || a.name.localeCompare(b.name))
     .slice(0, MAX_SERVERS);
+}
+
+// Who backed Aduna during the year, highest rank first. Their username, rank and picture are already public (the badge sits next to the name).
+// A subscription payment in the year counts, with the plan it was for. A gift from a creator account only keeps its end date, so it counts when
+// it ran out during the year, or when it is still running and the year is the current one. Creator accounts' own free Plus is not a payment.
+const MAX_SUPPORTERS = 300;
+function topSupporters(users, year, now = Date.now()) {
+  const rank = (id) => supporterLib.RANKS.findIndex((r) => r.id === id);
+  const found = [];
+  for (const u of Object.values(users)) {
+    if (!u || u.bot || u.deleted || !u.username) continue;
+    let best = -1;
+    for (const p of Array.isArray(u.storagePayments) ? u.storagePayments : []) if (p && inYear(p.at, year)) best = Math.max(best, rank(p.plan || 'plus'));
+    const gift = u.supporter && typeof u.supporter === 'object' ? u.supporter : null;
+    const until = gift ? Number(gift.until) : 0;
+    if (gift && (inYear(until, year) || (yearOf(now) === year && until > now))) best = Math.max(best, rank(gift.rank));
+    if (best >= 0) found.push({ name: String(u.username), tier: supporterLib.RANKS[best].id, icon: u.avatarImage || null, best });
+  }
+  return found
+    .sort((a, b) => b.best - a.best || a.name.localeCompare(b.name))
+    .slice(0, MAX_SUPPORTERS)
+    .map(({ name, tier, icon }) => ({ name, tier, icon }));
 }
 
 // top N% = 1 + the people strictly ahead of you, out of everyone who has a number for it
@@ -199,6 +222,7 @@ function buildAll(db, year, rng = Math.random, opts = {}) {
     busiestDay: pickTop(days, rng), busiestHour: pickTop(hours, rng), topEmoji: pickTop(emoji, rng),
     topSong: topSongs[0] || null, topSongs, topTheme: pickTop(themes, rng),
     topServers: topServers(servers, users, year, { skip: opts.skipServer, listed: opts.listed }),
+    supporters: topSupporters(users, year, opts.now),
     friendships: friendshipsMade, serversCreated: Object.values(servers).filter((s) => inYear(s.createdAt, year)).length,
     wordle: sum((r) => gameTotals(wordle[r.u.id], 'won')), contexto: sum((r) => gameTotals(contexto[r.u.id], 'won')), puzzle: sum((r) => gameTotals(puzzle[r.u.id], 'solved')),
     badges: tracked('badges'), longestCallMin: Math.round(rows.reduce((m, r) => Math.max(m, r.longest), 0) / 60),
@@ -241,4 +265,4 @@ function forget(dir, uid) {
   for (const y of years) { try { fs.unlinkSync(path.join(dir, y, 'users', uid + '.json')); } catch { /* not there */ } }
 }
 
-module.exports = { VOICE_TICK_MS, bump, atLeast, counter, createVoiceMeter, pickTop, pickTopN, topServers, percentiler, titleFor, buildAll, write, read, latestYear, dueYear, forget };
+module.exports = { VOICE_TICK_MS, bump, atLeast, counter, createVoiceMeter, pickTop, pickTopN, topServers, topSupporters, percentiler, titleFor, buildAll, write, read, latestYear, dueYear, forget };

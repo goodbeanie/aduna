@@ -6,7 +6,7 @@ import { useProfileThemes, userTheme, findProfileTheme, lightness } from './prof
 import { songUrl } from './ProfileSong.jsx';
 import ShareSheet from './ShareSheet.jsx';
 import { tossfaceUrl } from './tossface.js';
-import { DEFAULT_LOOK, buildScenes, countText, fmtCount, inThird, recapToken, sceneAt, shareText, songGain, songWindows, timeline, totalMs } from './recap.js';
+import { DEFAULT_LOOK, SUPPORTER_TIERS, buildScenes, countText, fmtCount, inThird, recapToken, sceneAt, shareText, songGain, songWindows, timeline, totalMs } from './recap.js';
 import { imageUrl } from './image.js';
 import { serverInitials } from './ui.jsx';
 
@@ -94,13 +94,82 @@ function ListIcon({ item }) {
   );
 }
 
+// A supporter's picture in their pill. No picture, or one that does not load, shows the first letter on grey.
+function PersonPic({ person }) {
+  const [bad, setBad] = useState(false);
+  const src = imageUrl(person.icon);
+  return (
+    <span className="rc-pic" aria-hidden="true">
+      {src && !bad ? <img src={src} alt="" draggable={false} onError={() => setBad(true)} /> : Array.from(person.name)[0].toUpperCase()}
+    </span>
+  );
+}
+
+const CHIP_FIRST_MS = 650;   // the first pills slide in a moment after the heading
+const CHIP_STEP_MS = 110;    // and one after the other
+const SCROLL_FROM_MS = 2600; // the list starts to move once the first screen has settled
+const SCROLL_REST_MS = 1500; // and stops this long before the scene ends
+
+// The pills, highest rank on top, each rank in its own block. When they do not all fit the frame the list scrolls by itself over the length of
+// the scene, and each pill slides in from the side at the moment it comes into view. Sizes are measured, so it follows the frame.
+function Crowd({ people, ms }) {
+  const box = useRef(null), body = useRef(null);
+  useLayoutEffect(() => {
+    const el = box.current, list = body.current;
+    if (!el || !list) return undefined;
+    const lay = () => {
+      const view = el.clientHeight, over = Math.max(0, list.offsetHeight - view);
+      const span = Math.max(1000, ms - SCROLL_FROM_MS - SCROLL_REST_MS);
+      list.style.setProperty('--over', over + 'px');
+      list.style.setProperty('--sfrom', SCROLL_FROM_MS + 'ms');
+      list.style.setProperty('--sdur', span + 'ms');
+      list.querySelectorAll('.rc-chip').forEach((c, i) => {
+        const need = c.offsetTop + c.offsetHeight - view; // how far the list has to move before this pill is fully in the frame
+        const at = need <= 0 ? CHIP_FIRST_MS + Math.min(i, 14) * CHIP_STEP_MS : Math.max(CHIP_FIRST_MS, SCROLL_FROM_MS + (need / over) * span - 300);
+        c.style.setProperty('--d', Math.round(at) + 'ms');
+      });
+    };
+    lay();
+    if (typeof ResizeObserver !== 'function') return undefined;
+    const ro = new ResizeObserver(lay);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [people, ms]);
+
+  let n = 0;
+  return (
+    <div className="rc-crowd" ref={box}>
+      <div className="rc-crowd-body" ref={body}>
+        {SUPPORTER_TIERS.map((tier) => {
+          const group = people.filter((p) => p.tier === tier);
+          return group.length ? (
+            <div className="rc-tier" data-tier={tier} key={tier}>
+              {group.map((p) => (
+                <span key={p.name} className={'rc-chip ' + (n++ % 2 ? 'from-r' : 'from-l')}>
+                  <PersonPic person={p} />
+                  <span className="rc-chip-name">@{p.name}</span>
+                </span>
+              ))}
+            </div>
+          ) : null;
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Scene({ s, ms, last, numRef, year }) {
   const m = s.main;
   const unit = s.unit && <span className="rc-unit">{s.unit}</span>;
   return (
-    <div className={'rc-scene' + (last ? ' last' : '')} data-anchor={s.anchor} style={{ '--sm': ms + 'ms' }}>
+    <div className={'rc-scene' + (last ? ' last' : '') + (m.people ? ' crowd' : '')} data-anchor={s.anchor} style={{ '--sm': ms + 'ms' }}>
       <div className="rc-main">
-        {m.list ? (
+        {m.people ? (
+          <>
+            {unit}
+            <Crowd people={m.people} ms={ms} />
+          </>
+        ) : m.list ? (
           <>
             {unit}
             <ol className="rc-list">
@@ -359,11 +428,11 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
           onClose={() => setSharing(false)} onShared={() => {}} />
       )}
       <p className="hint">
-        {received ? 'Numbers only, shared in chat.' : kind === 'mine' ? 'Only you can see this. Nothing is shared unless you press Share.' : 'The same for everyone. It only counts things: no messages or people, and only public servers are named.'}
+        {received ? 'Numbers only, shared in chat.' : kind === 'mine' ? 'Only you can see this. Nothing is shared unless you press Share.' : 'The same for everyone. It mostly counts things: no messages, and only public servers and people who supported Aduna are named.'}
         {hasSong && !audioBad && <> {status === 'idle' ? 'Sound stays off until you press play.' : ''}<span className="rc-song"> <Icon name="music" size={13} className="inline-icon" /> {tracks.map((x) => String(x.song.title || 'Song').slice(0, 60)).join(' · ')}</span></>}
         {audioBad && ' The song could not be played.'}
       </p>
-      <p className="rc-sr">{scenes.map((s) => [s.main.text || (s.main.list ? s.main.list.map((i) => `${i.name} +${i.count}`).join(', ') : s.main.count ? countText(s.main, 0, true) : String(year)), s.unit, s.sub].filter(Boolean).join(' ')).join('. ')}</p>
+      <p className="rc-sr">{scenes.map((s) => [s.main.text || (s.main.people ? s.main.people.map((p) => '@' + p.name).join(', ') : s.main.list ? s.main.list.map((i) => `${i.name} +${i.count}`).join(', ') : s.main.count ? countText(s.main, 0, true) : String(year)), s.unit, s.sub].filter(Boolean).join(' ')).join('. ')}</p>
       {tracks.map((x, i) => <audio key={i} ref={(el) => { audios.current[i] = el; }} src={x.src} loop preload="auto" onError={fail} />)}
     </div>
   );

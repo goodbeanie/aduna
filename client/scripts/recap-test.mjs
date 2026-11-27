@@ -189,4 +189,25 @@ const icon = (c) => c.repeat(32);
   step('a made-up token is refused or cleaned');
 }
 
+{
+  const backers = [{ name: 'spark1', tier: 'spark', icon: icon('a') }, { name: 'plus1', tier: 'plus' }, { name: 'prem1', tier: 'premium' }, { name: 'plus2', tier: 'plus' }, { name: 'odd', tier: 'gold' }, { name: '', tier: 'plus' }, null];
+  const s = buildScenes(data(null, { credits: 500, topServers: servers, supporters: backers }), 'global');
+  assert.deepStrictEqual(keys(s).split(',').slice(-2), ['supporters', 'outro'], 'second to last');
+  const crowd = s.find((x) => x.key === 'supporters');
+  assert.deepStrictEqual(crowd.main.people.map((p) => p.name + ':' + p.tier), ['prem1:premium', 'plus1:plus', 'plus2:plus', 'spark1:spark'], 'highest rank first, unknown ranks and nameless rows dropped');
+  assert.strictEqual(crowd.main.people[3].icon, icon('a'));
+  assert.ok(s.every((x, i) => i === 0 || x.anchor !== s[i - 1].anchor), 'not in the same place as the scene before it');
+  assert.ok(!buildScenes(data(mine(), { supporters: backers }), 'mine').some((x) => x.key === 'supporters'), 'own recap has no supporters scene');
+  assert.ok(!buildScenes(data(null, { supporters: [] }), 'global').some((x) => x.key === 'supporters'), 'nobody to thank, no scene');
+  const lens = (list) => { const sc = buildScenes(data(null, { supporters: list }), 'global'), tl = timeline(sc, totalMs('global')), i = sc.findIndex((x) => x.key === 'supporters'); return tl[i].to - tl[i].from; };
+  const many = Array.from({ length: 40 }, (_, i) => ({ name: 'p' + i, tier: 'spark' }));
+  assert.ok(lens(many) > lens(backers.slice(0, 4)), 'a longer list gets more time');
+  assert.strictEqual(timeline(buildScenes(data(null, { supporters: many }), 'global'), GLOBAL_TOTAL_MS).at(-1).to, GLOBAL_TOTAL_MS, 'still 60 seconds');
+  assert.ok(!shareText(s, 'global', 2026).includes('supporters'), 'the share text leaves them out');
+  const got = parseRecapShare(recapToken(s, { kind: 'global', year: 2026, look: { colors: ['#112233', '#445566'], angle: 90 }, songs: [] }));
+  assert.strictEqual(got.scenes.length, s.length - 1, 'and so does a recap shared in a chat');
+  assert.ok(!got.scenes.some((x) => x.key === 'supporters'));
+  step('supporters: second to last, highest rank first, global only, more time for a longer list, not shared');
+}
+
 console.log('recap scenes: all good');
