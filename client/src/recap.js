@@ -211,7 +211,7 @@ export function sceneAt(tl, t) {
   return i < 0 ? tl.length - 1 : i;
 }
 
-// When each song is heard. One song runs the whole video (and loops if it is shorter). Two share it and cross over in the middle.
+// When each song is heard. One song runs the whole video (a person's own recap loops it if it is shorter, the global one plays it once). Two share it and cross over in the middle.
 export const XFADE_MS = 3000;
 export function songWindows(count, total = TOTAL_MS) {
   if (count < 2) return [{ from: 0, to: total }];

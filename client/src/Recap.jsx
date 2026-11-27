@@ -6,7 +6,7 @@ import { useProfileThemes, userTheme, findProfileTheme, lightness } from './prof
 import { songUrl } from './ProfileSong.jsx';
 import ShareSheet from './ShareSheet.jsx';
 import { tossfaceUrl } from './tossface.js';
-import { DEFAULT_LOOK, SUPPORTER_TIERS, buildScenes, countText, fmtCount, inThird, recapToken, sceneAt, shareText, songGain, songWindows, timeline, totalMs } from './recap.js';
+import { DEFAULT_LOOK, SUPPORTER_TIERS, XFADE_MS, buildScenes, countText, fmtCount, inThird, recapToken, sceneAt, shareText, songGain, songWindows, timeline, totalMs } from './recap.js';
 import { imageUrl } from './image.js';
 import { serverInitials } from './ui.jsx';
 
@@ -18,8 +18,8 @@ const BG_POS = ['0% 0%', '100% 0%', '100% 100%', '0% 100%', '50% 50%', '0% 50%']
 const FADE_IN_MS = 1500, FADE_OUT_MS = 2500;
 const gainAt = (t, total) => Math.max(0, Math.min(1, t / FADE_IN_MS, (total - t) / FADE_OUT_MS));
 
-// Where a song is at video time ms. A song shorter than its stretch of the video starts over, so it never runs out.
-const spot = (a, ms) => (Number.isFinite(a.duration) && a.duration > 0 ? (ms / 1000) % a.duration : ms / 1000);
+// Where a song is at video time ms. In a person's own recap a song shorter than its stretch of the video starts over. In the global one it plays once.
+const spot = (a, ms, repeat) => (repeat && Number.isFinite(a.duration) && a.duration > 0 ? (ms / 1000) % a.duration : ms / 1000);
 function setVolume(g, a, v) {
   if (g && g.gain) g.gain.gain.value = v; else if (a) a.volume = v;
 }
@@ -206,7 +206,7 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
   const total = totalMs(kind);
   const tl = useMemo(() => timeline(scenes, total), [scenes, total]);
   // Each song plays from its start: a search pick is Apple's 30 second preview (the part chosen for the profile card is ignored here),
-  // and a song that is shorter than its stretch of the video starts over.
+  // and in a person's own recap a song that is shorter than its stretch of the video starts over. The global recap plays each song once.
   const tracks = useMemo(() => (songs || []).map((song) => ({ song, src: songUrl(song) })).filter((x) => x.src).slice(0, 2), [songs]);
   const wins = useMemo(() => songWindows(tracks.length, total), [tracks.length, total]);
   const hasSong = tracks.length > 0;
@@ -229,7 +229,8 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
   const audios = useRef([]), graphs = useRef([]); // one audio element and one Web Audio gain per song
   const rgbs = useMemo(() => look.colors.map(toRgb), [look]);
   const live = useRef({});
-  live.current = { scenes, tl, wins, rgbs, reduce, total };
+  const repeat = kind === 'mine';
+  live.current = { scenes, tl, wins, rgbs, reduce, total, repeat };
 
   const fail = useCallback(() => { badRef.current = true; setAudioBad(true); }, []);
 
@@ -237,14 +238,20 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
   // seek is true when the clock jumped (play, resume, replay) and every song that should be sounding has to be moved to its place.
   const drive = useCallback((t, seek) => {
     if (badRef.current) return;
-    live.current.wins.forEach((w, i) => {
+    const { wins: windows, total: len, repeat: again } = live.current;
+    windows.forEach((w, i) => {
       const a = audios.current[i];
       if (!a) return;
-      setVolume(graphs.current[i], a, gainAt(t, live.current.total) * songGain(w, t, live.current.total));
+      // a song that plays once fades out over its own last seconds instead of stopping mid-sound
+      const left = !again && Number.isFinite(a.duration) ? (a.duration - a.currentTime) * 1000 : Infinity;
+      setVolume(graphs.current[i], a, gainAt(t, len) * songGain(w, t, len) * Math.max(0, Math.min(1, left / XFADE_MS)));
       if (!(t >= w.from && t < w.to)) { if (!a.paused) a.pause(); return; }
       if (!a.paused && !seek) return;
+      if (!again && a.ended && !seek) return;
+      const pos = spot(a, t - w.from, again);
+      if (!again && Number.isFinite(a.duration) && pos >= a.duration) { if (!a.paused) a.pause(); return; }
       a.muted = mutedRef.current;
-      try { a.currentTime = spot(a, t - w.from); } catch { /* not loaded yet, so it starts from the beginning */ }
+      try { a.currentTime = pos; } catch { /* not loaded yet, so it starts from the beginning */ }
       a.play().catch(fail);
     });
   }, [fail]);
@@ -433,7 +440,7 @@ export function Player({ scenes, year, kind, look, songs, name, received = false
         {audioBad && ' The song could not be played.'}
       </p>
       <p className="rc-sr">{scenes.map((s) => [s.main.text || (s.main.people ? s.main.people.map((p) => '@' + p.name).join(', ') : s.main.list ? s.main.list.map((i) => `${i.name} +${i.count}`).join(', ') : s.main.count ? countText(s.main, 0, true) : String(year)), s.unit, s.sub].filter(Boolean).join(' ')).join('. ')}</p>
-      {tracks.map((x, i) => <audio key={i} ref={(el) => { audios.current[i] = el; }} src={x.src} loop preload="auto" onError={fail} />)}
+      {tracks.map((x, i) => <audio key={i} ref={(el) => { audios.current[i] = el; }} src={x.src} loop={repeat} preload="auto" onError={fail} />)}
     </div>
   );
 }
